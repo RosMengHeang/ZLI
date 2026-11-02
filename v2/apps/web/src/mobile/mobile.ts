@@ -34,6 +34,30 @@ export function stateLabel(state: MobileDeviceState): string {
   }
 }
 
+/** A phone adb can drive is ready rather than running, since ZLI never started it. */
+export function deviceStateLabel(device: Pick<MobileDevice, "state"> & Partial<Pick<MobileDevice, "kind">>): string {
+  return device.kind === "physical" && device.state === "online" ? "Ready" : stateLabel(device.state);
+}
+
+/** What the person can do about a phone adb lists but cannot use yet, or undefined when it is ready. */
+export function phoneStateHint(device: Pick<MobileDevice, "kind" | "state" | "connection">): string | undefined {
+  if (device.kind !== "physical" || device.state === "online") return undefined;
+  if (device.state === "unauthorized")
+    return device.connection === "wifi"
+      ? "Pair it again with a code from Wireless debugging on the phone."
+      : "Allow USB debugging on the phone, then check the prompt on its screen.";
+  if (device.state !== "offline") return undefined;
+  return device.connection === "wifi"
+    ? "Check that Wireless debugging is still on and the phone is on the same Wi-Fi network, then connect again."
+    : "Unplug the cable and plug it back in, then unlock the phone.";
+}
+
+/** How a phone is connected, for the line under its name. */
+export function connectionLabel(device: Pick<MobileDevice, "connection">): string | undefined {
+  if (device.connection === "wifi") return "Wi-Fi";
+  return device.connection === "usb" ? "USB" : undefined;
+}
+
 export function stateTone(device: Pick<MobileDevice, "state">): BadgeTone {
   switch (device.state) {
     case "online":
@@ -77,11 +101,13 @@ export function devicesInGroups(devices: readonly MobileDevice[]): MobileDevice[
 
 /** The platform, version, and state under a device's name in the picker, for example "Android 15, running". */
 export function deviceSummary(
-  device: Pick<MobileDevice, "platform" | "osVersion" | "state"> & Partial<Pick<MobileDevice, "host">>,
+  device: Pick<MobileDevice, "platform" | "osVersion" | "state"> &
+    Partial<Pick<MobileDevice, "kind" | "connection" | "host">>,
 ): string {
   const platform = device.platform === "ios" ? "iOS" : "Android";
-  const where = device.host ? ` on ${macName(device.host)}` : "";
-  return `${platform}${device.osVersion ? ` ${device.osVersion}` : ""}${where}, ${stateLabel(device.state).toLowerCase()}`;
+  const via = connectionLabel(device);
+  const where = device.host ? ` on ${macName(device.host)}` : via ? ` over ${via}` : "";
+  return `${platform}${device.osVersion ? ` ${device.osVersion}` : ""}${where}, ${deviceStateLabel(device).toLowerCase()}`;
 }
 /** Under this much time left, the agent banner counts down instead of naming the time. */
 const LEASE_COUNTDOWN_MS = 2 * 60_000;

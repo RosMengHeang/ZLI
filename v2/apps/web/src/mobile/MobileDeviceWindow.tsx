@@ -12,6 +12,7 @@ import { MobileControls } from "./MobileControls.js";
 import { deviceKindLabel, errorText, leaseNotice } from "./mobile.js";
 import { copyScreenshot, saveScreenshot } from "./screenshots.js";
 import { useClock } from "./useClock.js";
+import { useCompactWindow } from "./useCompactWindow.js";
 import { useDeviceFrame } from "./useDeviceFrame.js";
 import { type Zoom, useDeviceZoom } from "./useDeviceZoom.js";
 import { useNotice } from "./useNotice.js";
@@ -25,8 +26,9 @@ const SHAPE_LIMIT = 4_000;
 type Busy = "lease" | "screenshot" | "pin";
 
 /**
- * The pop-out window for one device: a slim title bar with the device's name and Keep on top, the device in its
- * frame, the lease banner, and the bottom controls. Closing the window gives the device back to the panel.
+ * The pop-out window for one device: a slim title bar with the device's name, Compact window, and Keep on top,
+ * the device in its frame, the lease banner, and the bottom controls, which compact mode hides. Closing the
+ * window gives the device back to the panel.
  */
 export function MobileDeviceWindow({ mobile, deviceId }: { mobile: MobileBridge | undefined; deviceId: string }) {
   if (!mobile)
@@ -89,6 +91,7 @@ function MobileDeviceWindowBody({ mobile, deviceId }: { mobile: MobileBridge; de
   const agentHolds = lease?.kind === "agent";
   const [zoom, setZoom] = useDeviceZoom(device?.deviceId);
   const [showFrame, setShowFrame] = useDeviceFrame();
+  const [compact, setCompact] = useCompactWindow(deviceId);
   const online = device?.state === "online";
 
   const run = async (kind: Busy, operation: () => Promise<unknown>, fallback: string) => {
@@ -111,7 +114,7 @@ function MobileDeviceWindowBody({ mobile, deviceId }: { mobile: MobileBridge; de
 
   const bannerKey = `${lease?.kind ?? ""}|${actionError ? 1 : 0}`;
   // The window's bars and banners take room around the device, measured from the box the device fits in.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: banners change the room around the device.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: banners and compact mode change the room around the device.
   useEffect(() => {
     if (!aspect || zoom !== "fit" || !mobile.setPopOutAspect) return;
     const box = rootRef.current?.querySelector(".mobile-zoom")?.getBoundingClientRect();
@@ -125,7 +128,7 @@ function MobileDeviceWindowBody({ mobile, deviceId }: { mobile: MobileBridge; de
         extraHeight: extra(window.innerHeight, box.height),
       })
       .catch(() => undefined);
-  }, [mobile, deviceId, aspect, zoom, bannerKey]);
+  }, [mobile, deviceId, aspect, zoom, bannerKey, compact]);
 
   const togglePin = () =>
     void run(
@@ -194,6 +197,17 @@ function MobileDeviceWindowBody({ mobile, deviceId }: { mobile: MobileBridge; de
             onChange={setZoom}
           />
         ) : null}
+        {online ? (
+          <IconButton
+            icon="panelBottom"
+            size="sm"
+            iconSize={14}
+            label="Compact window"
+            tooltip={compact ? "Show the bottom bar" : "Hide the bottom bar so the window takes less room"}
+            pressed={compact}
+            onClick={() => setCompact(!compact)}
+          />
+        ) : null}
         {mobile.pinPopOut ? (
           <IconButton
             icon="pin"
@@ -231,7 +245,7 @@ function MobileDeviceWindowBody({ mobile, deviceId }: { mobile: MobileBridge; de
         ) : null}
       </div>
       <div className="mobile-body">{body}</div>
-      {device && online ? (
+      {device && online && !compact ? (
         <MobileControls
           key={device.deviceId}
           mobile={mobile}

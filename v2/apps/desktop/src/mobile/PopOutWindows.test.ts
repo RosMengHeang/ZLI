@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { MobilePopOut } from "@zli-v2/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PopOutWindows, type PopOutWindowLike, type WindowBounds } from "./PopOutWindows.js";
+import { type PopOutWindowLike, PopOutWindows, restoredBounds, type WindowBounds } from "./PopOutWindows.js";
 
 type Listener = (...args: unknown[]) => void;
 
@@ -20,6 +20,7 @@ class FakeWindow {
   focused = 0;
   loaded: string | undefined;
   alwaysOnTop: boolean;
+  readonly onTopCalls: [boolean, string | undefined][] = [];
   aspect: { ratio: number; extra?: { width: number; height: number } } | undefined;
   bounds: WindowBounds;
   readonly webContents = {
@@ -85,8 +86,9 @@ class FakeWindow {
   setContentSize(width: number, height: number) {
     this.bounds = { ...this.bounds, width, height };
   }
-  setAlwaysOnTop(flag: boolean) {
+  setAlwaysOnTop(flag: boolean, level?: string) {
     this.alwaysOnTop = flag;
+    this.onTopCalls.push([flag, level]);
   }
   setAspectRatio(ratio: number, extra?: { width: number; height: number }) {
     this.aspect = { ratio, ...(extra ? { extra } : {}) };
@@ -103,7 +105,7 @@ afterEach(async () => {
   await rm(folder, { recursive: true, force: true });
 });
 
-function popOuts(options: { onScreen?: (bounds: WindowBounds) => boolean } = {}) {
+function popOuts(options: { workAreas?: WindowBounds[]; platform?: NodeJS.Platform } = {}) {
   const windows: FakeWindow[] = [];
   const changes: MobilePopOut[][] = [];
   const stopViewer = vi.fn(async (_deviceId: string, _viewer: string) => undefined);
@@ -117,13 +119,13 @@ function popOuts(options: { onScreen?: (bounds: WindowBounds) => boolean } = {})
     preloadPath: "/zli/preload.js",
     appOrigin: "zli-v2://app",
     rendererUrl: "zli-v2://app/index.html",
-    platform: "linux",
+    platform: options.platform ?? "linux",
     storePath,
     deviceName: (deviceId) => (deviceId === "android-avd:Pixel_8" ? "Pixel_8" : undefined),
     viewerFor: (id) => `window-${id}`,
     stopViewer,
     onChange: (list) => changes.push(list),
-    ...(options.onScreen ? { onScreen: options.onScreen } : {}),
+    ...(options.workAreas ? { workAreas: () => options.workAreas ?? [] } : {}),
   });
   return { manager, windows, changes, stopViewer, storePath };
 }
@@ -185,7 +187,7 @@ describe("pop-out windows", () => {
     const first = popOuts();
     await first.manager.open(pixel);
     expect(await first.manager.pin(pixel, true)).toEqual([{ deviceId: pixel, pinned: true }]);
-    expect(first.windows[0]?.alwaysOnTop).toBe(true);
+    expect(first.windows[0]?.onTopCalls).toEqual([[true, undefined]]);
     only(first.windows).bounds = { x: 40, y: 50, width: 360, height: 700 };
     await first.manager.closeAll();
     expect(first.windows[0]?.destroyed).toBe(true);
@@ -198,10 +200,49 @@ describe("pop-out windows", () => {
     await second.manager.open(pixel);
     expect(second.windows[0]?.options).toMatchObject({ x: 40, y: 50, width: 360, height: 700, alwaysOnTop: true });
     expect(second.manager.list()).toEqual([{ deviceId: pixel, pinned: true }]);
+    expect(second.windows[0]?.onTopCalls).toEqual([[true, undefined]]);
+    await second.manager.pin(pixel, false);
+    expect(second.windows[0]?.onTopCalls.at(-1)).toEqual([false, undefined]);
+  });
+
+  it("keeps the window above other apps at the floating level on macOS", async () => {
+    const { manager, windows } = popOuts({ platform: "darwin" });
+    await manager.open(pixel);
+    await manager.pin(pixel, true);
+    await manager.pin(pixel, false);
+    expect(only(windows).onTopCalls).toEqual([
+      [true, "floating"],
+      [false, "floating"],
+    ]);
+  });
+
+  it("saves the bounds once the window stops moving, so they survive a crash", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { manager, windows, storePath } = popOuts();
+      await manager.open(pixel);
+      const window = only(windows);
+      window.bounds = { x: 10, y: 20, width: 300, height: 600 };
+      window.emit("moved");
+      window.bounds = { x: 30, y: 40, width: 320, height: 640 };
+      window.emit("resized");
+      vi.advanceTimersByTime(499);
+      await expect(readFile(storePath, "utf8")).rejects.toThrow();
+      vi.advanceTimersByTime(1);
+      vi.useRealTimers();
+      await vi.waitFor(async () =>
+        expect(JSON.parse(await readFile(storePath, "utf8"))).toEqual({
+          version: 1,
+          devices: { [pixel]: { pinned: false, bounds: { x: 30, y: 40, width: 320, height: 640 } } },
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("ignores saved bounds that no longer land on a display, and a broken settings file", async () => {
-    const offScreen = popOuts({ onScreen: () => false });
+    const offScreen = popOuts({ workAreas: [{ x: 0, y: 0, width: 1920, height: 1040 }] });
     await writeFile(
       offScreen.storePath,
       JSON.stringify({
@@ -210,7 +251,7 @@ describe("pop-out windows", () => {
       }),
     );
     await offScreen.manager.open(pixel);
-    expect(offScreen.windows[0]?.options).toMatchObject({ width: 400, height: 820, alwaysOnTop: true });
+    expect(offScreen.windows[0]?.options).toMatchObject({ width: 400, height: 800, alwaysOnTop: true });
     expect(offScreen.windows[0]?.options).not.toHaveProperty("x");
 
     const broken = popOuts();
@@ -246,5 +287,69 @@ describe("pop-out windows", () => {
     expect(width - 24).toBe(700);
     expect(height - 120).toBe(Math.round(700 * 0.47));
     manager.setAspect({ deviceId: "ios:none", aspect: 1, extraWidth: 0, extraHeight: 0 });
+  });
+  it("grows or shrinks the window by the room around the device, so the device keeps its size", async () => {
+    const { manager, windows } = popOuts();
+    await manager.open(pixel);
+    const window = only(windows);
+    manager.setAspect({ deviceId: pixel, aspect: 0.53, extraWidth: 24, extraHeight: 120 });
+    expect(window.getContentSize()).toEqual([400, 820]);
+    // The bottom bar is hidden: 44 fewer pixels around the device.
+    manager.setAspect({ deviceId: pixel, aspect: 0.53, extraWidth: 24, extraHeight: 76 });
+    expect(window.getContentSize()).toEqual([400, 776]);
+    expect(window.aspect).toEqual({ ratio: 0.53, extra: { width: 24, height: 76 } });
+    manager.setAspect({ deviceId: pixel, aspect: 0.53, extraWidth: 24, extraHeight: 120 });
+    expect(window.getContentSize()).toEqual([400, 820]);
+  });
+
+  it("saves the size a maximized window returns to, not the maximized one", async () => {
+    const { manager, windows, storePath } = popOuts();
+    await manager.open(pixel);
+    const window = only(windows) as FakeWindow & { getNormalBounds?: () => WindowBounds };
+    window.bounds = { x: 0, y: 0, width: 1920, height: 1040 };
+    window.getNormalBounds = () => ({ x: 40, y: 50, width: 360, height: 700 });
+    await manager.closeAll();
+    expect(JSON.parse(await readFile(storePath, "utf8")).devices[pixel].bounds).toEqual({
+      x: 40,
+      y: 50,
+      width: 360,
+      height: 700,
+    });
+  });
+});
+
+describe("restored bounds", () => {
+  const laptop = { x: 0, y: 0, width: 1440, height: 860 };
+  const monitor = { x: 1440, y: -200, width: 2560, height: 1400 };
+
+  it("opens at the default size the first time", () => {
+    expect(restoredBounds(undefined, [laptop])).toEqual({ width: 400, height: 820 });
+  });
+
+  it("restores the saved place on any display, even partly off its edge", () => {
+    expect(restoredBounds({ x: 2000, y: 100, width: 400, height: 800 }, [laptop, monitor])).toEqual({
+      x: 2000,
+      y: 100,
+      width: 400,
+      height: 800,
+    });
+    expect(restoredBounds({ x: 1200, y: 400, width: 400, height: 800 }, [laptop])).toEqual({
+      x: 1200,
+      y: 400,
+      width: 400,
+      height: 800,
+    });
+  });
+
+  it("drops the place when the title bar is off every display, as after unplugging a monitor", () => {
+    expect(restoredBounds({ x: 2000, y: 100, width: 400, height: 800 }, [laptop])).toEqual({ width: 400, height: 800 });
+    // Only a sliver of the title bar shows, too little to drag.
+    expect(restoredBounds({ x: 1400, y: 100, width: 400, height: 800 }, [laptop])).toEqual({ width: 400, height: 800 });
+    // The title bar is above the top of the screen.
+    expect(restoredBounds({ x: 100, y: -30, width: 400, height: 800 }, [laptop])).toEqual({ width: 400, height: 800 });
+  });
+
+  it("fits a window saved on a bigger display to the largest one left", () => {
+    expect(restoredBounds({ x: 3000, y: 0, width: 900, height: 1300 }, [laptop])).toEqual({ width: 900, height: 860 });
   });
 });

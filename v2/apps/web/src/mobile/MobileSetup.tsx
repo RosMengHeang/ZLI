@@ -27,6 +27,7 @@ export function MobileSetup({
   status,
   noDevices = false,
   virtualDevices,
+  phones,
   onRecheck,
 }: {
   mobile: MobileBridge;
@@ -35,6 +36,8 @@ export function MobileSetup({
   noDevices?: boolean;
   /** The virtual device manager, shown under the Android section. */
   virtualDevices?: ReactNode;
+  /** USB and Wi-Fi phones, shown after the virtual devices. */
+  phones?: ReactNode;
   /** Reads the status again. recheckAcceleration also reruns the emulator's acceleration check. */
   onRecheck(options?: { recheckAcceleration?: boolean }): Promise<void>;
 }) {
@@ -93,6 +96,7 @@ export function MobileSetup({
         )}
       </section>
       {virtualDevices}
+      {phones}
       {status.host.os === "macos" || status.ios.host ? (
         <IosSection status={status} rechecking={rechecking} onRecheck={() => void recheck()} />
       ) : (

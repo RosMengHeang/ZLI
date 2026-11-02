@@ -19,8 +19,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { MobileBridge, ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
-import type { DevServerHint } from "./mobile.js";
 import { MobilePane, type MobileReveal } from "./MobilePane.js";
+import type { DevServerHint } from "./mobile.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -1390,6 +1390,53 @@ describe("MobilePane", () => {
     await click(button(container, "Setup"));
     expect(container.textContent).toContain("Virtual devices");
     expect(document.activeElement).not.toBe(nameField(container));
+  });
+
+  it("connects a phone over Wi-Fi from the device picker, shows it, and disconnects it from the toolbar", async () => {
+    const phone: MobileDevice = {
+      deviceId: "android:192.168.1.20:39457",
+      platform: "android",
+      kind: "physical",
+      name: "Pixel 8 Pro",
+      state: "online",
+      osVersion: "15",
+      serial: "192.168.1.20:39457",
+      connection: "wifi",
+      lease: null,
+    };
+    const fake = createMobile({ devices: [emulator] });
+    const mobile = {
+      ...fake.mobile,
+      connectWifi: vi.fn(async () => {
+        fake.publishDevices([emulator, phone]);
+        return { connected: true, deviceId: phone.deviceId, message: "Connected to Pixel 8 Pro." };
+      }),
+      pairWifi: vi.fn(async () => ({ connected: false, message: "" })),
+      disconnectWifi: vi.fn(async () => {
+        fake.publishDevices([emulator]);
+      }),
+    };
+    const container = await render(bridgeWith(mobile));
+    await click(button(container, "Device: Pixel 8"));
+    await click(pickerOption("Connect a phone"));
+    expect(button(container, "Setup").getAttribute("aria-pressed")).toBe("true");
+    expect(container.textContent).toContain("Connect over Wi-Fi");
+
+    await click(button(container, "Connect to an address"));
+    const address = [...container.querySelectorAll<HTMLInputElement>(".mobile-avd-form input")].find(
+      (input) => input.placeholder === "192.168.1.20:39457",
+    );
+    if (!address) throw new Error("No address field");
+    await act(async () => typeInto(address, "192.168.1.20:39457"));
+    await click(button(container, "Connect"));
+    expect(mobile.connectWifi).toHaveBeenCalledWith({ host: "192.168.1.20", port: 39_457 });
+    expect(container.querySelector(".mobile-toolbar")).not.toBeNull();
+    expect(button(container, "Device: Pixel 8 Pro")).toBeTruthy();
+    expect(container.textContent).toContain("Connected to Pixel 8 Pro.");
+    expect(container.textContent).not.toContain("Shut down Pixel 8 Pro");
+
+    await click(button(container, "Disconnect"));
+    expect(mobile.disconnectWifi).toHaveBeenCalledWith(phone.deviceId);
   });
 
   it("lists virtual devices with Boot and Delete, and deletes one only after a confirm step", async () => {

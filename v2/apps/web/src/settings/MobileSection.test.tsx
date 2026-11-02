@@ -162,6 +162,27 @@ describe("Settings > Mobile", () => {
     expect(fake.mobile.shutdown).toHaveBeenCalledWith("android-avd:Pixel_8");
   });
 
+  it("shows how each phone is connected, what to do when it is not ready, and disconnects a Wi-Fi phone", async () => {
+    const wifi: MobileDevice = {
+      ...phone,
+      deviceId: "android:192.168.1.20:39457",
+      name: "Pixel 8 Pro",
+      serial: "192.168.1.20:39457",
+      connection: "wifi",
+    };
+    const waiting: MobileDevice = { ...phone, state: "unauthorized", connection: "usb", osVersion: undefined };
+    const fake = createMobile([wifi, waiting]);
+    const disconnectWifi = vi.fn(async (_deviceId: string) => undefined);
+    const container = await render(bridgeWith({ ...fake.mobile, disconnectWifi }));
+    const rows = [...container.querySelectorAll<HTMLElement>(".mobile-device-row")];
+    expect(rows[0]?.textContent).toContain("Android phone, Android 14, Wi-Fi");
+    expect(rows[0]?.textContent).toContain("Ready");
+    expect(rows[1]?.textContent).toContain("Allow USB debugging on the phone, then check the prompt on its screen.");
+    expect(rows[1]?.querySelector("button")).toBeNull();
+    await act(async () => button(container, "Disconnect Pixel 8 Pro").click());
+    expect(disconnectWifi).toHaveBeenCalledWith("android:192.168.1.20:39457");
+  });
+
   it("shows where the SDK is, which tools are missing, and rechecks acceleration on request", async () => {
     const fake = createMobile([]);
     const container = await render(bridgeWith(fake.mobile));

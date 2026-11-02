@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AndroidDriver } from "./AndroidDriver.js";
+import { DeviceManager } from "./DeviceManager.js";
 import { createMobileDev } from "./dev/index.js";
 import { createTestDevHost } from "./dev/testHost.js";
-import { DeviceManager } from "./DeviceManager.js";
 import { FakeDriver } from "./FakeDriver.js";
 import type { MobileService } from "./MobileService.js";
 import { mobileIpcHandlers, streamViewer } from "./mobileIpc.js";
@@ -98,6 +98,38 @@ describe("mobile IPC handlers", () => {
       "Take over",
     );
     expect(android.actions).toEqual([]);
+  });
+
+  it("checks Wi-Fi pairing input in main before adb sees it", async () => {
+    const wireless = {
+      pair: vi.fn(async () => ({ connected: true, message: "Paired and connected to Pixel 8." })),
+      connect: vi.fn(async () => ({ connected: true, message: "Connected to Pixel 8." })),
+      disconnect: vi.fn(async () => undefined),
+    };
+    const service = {
+      manager: {},
+      setup: {},
+      avds: {},
+      status: async () => ({}),
+      wireless,
+    } as unknown as MobileService;
+    const handle = mobileIpcHandlers({ service: () => service, settings: () => undefined });
+    await handle["zli:mobile:wifi-pair"]?.({ host: " 192.168.1.20 ", pairPort: 37_123, code: "123456" });
+    expect(wireless.pair).toHaveBeenCalledWith({ host: "192.168.1.20", pairPort: 37_123, code: "123456" });
+    await handle["zli:mobile:wifi-connect"]?.({ host: "192.168.1.20", port: 39_457 });
+    expect(await handle["zli:mobile:wifi-disconnect"]?.({ deviceId: "android:192.168.1.20:39457" })).toEqual({
+      accepted: true,
+    });
+    expect(wireless.disconnect).toHaveBeenCalledWith("android:192.168.1.20:39457");
+    for (const bad of [
+      { host: "192.168.1.20", pairPort: 37_123, code: "1234567" },
+      { host: "192.168.1.20 && reboot", pairPort: 37_123, code: "123456" },
+      { host: "--help", pairPort: 37_123, code: "123456" },
+      { host: "192.168.1.20", pairPort: 0, code: "123456" },
+    ])
+      expect(() => handle["zli:mobile:wifi-pair"]?.(bad)).toThrow();
+    expect(() => handle["zli:mobile:wifi-connect"]?.({ host: "192.168.1.20", port: "5555" })).toThrow();
+    expect(wireless.pair).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the existing channels, and says when the mobile service is not running", async () => {
