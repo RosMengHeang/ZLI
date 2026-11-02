@@ -138,7 +138,8 @@ export function AgentScreen({ threadId }: { threadId: string }) {
               label="Stop"
               accessibilityLabel={`Stop ${name}`}
               accessibilityHint="Ends the agent's process on the desktop"
-              variant="quiet"
+              variant="danger"
+              icon="square"
               busy={busy === "stop"}
               disabled={!online}
               onPress={stop}

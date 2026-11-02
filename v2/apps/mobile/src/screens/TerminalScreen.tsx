@@ -103,7 +103,8 @@ export function TerminalScreen({ terminalId }: { terminalId: string }) {
               label="Stop"
               accessibilityLabel={`Stop ${terminal.title || "this shell"}`}
               accessibilityHint="Ends the shell on the desktop"
-              variant="quiet"
+              variant="danger"
+              icon="square"
               disabled={!online}
               onPress={() => stopShell(terminal)}
             />
