@@ -481,6 +481,48 @@ describe("preload mobile API", () => {
     expect(calls).toHaveLength(3);
   });
 
+  it("validates simulator requests before invoking main and parses the catalog", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const catalog = {
+      simctl: true,
+      deviceTypes: [{ id: "com.apple.CoreSimulator.SimDeviceType.iPhone-16", name: "iPhone 16", family: "iPhone" }],
+      runtimes: [
+        {
+          id: "com.apple.CoreSimulator.SimRuntime.iOS-18-2",
+          name: "iOS 18.2",
+          version: "18.2",
+          deviceTypeIds: ["com.apple.CoreSimulator.SimDeviceType.iPhone-16"],
+        },
+      ],
+    };
+    const udid = "5A3F2C1D-1111-4222-8333-944455556666";
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:mobile:sim-create") return { deviceId: `ios:${udid}`, name: "iPhone 16" };
+        return channel === "zli:mobile:sim-list" ? catalog : { accepted: true };
+      },
+      on: () => () => undefined,
+    });
+    const input = {
+      name: "iPhone 16",
+      deviceTypeId: "com.apple.CoreSimulator.SimDeviceType.iPhone-16",
+      runtimeId: "com.apple.CoreSimulator.SimRuntime.iOS-18-2",
+    };
+    expect(await api.mobile.listSimulators()).toEqual(catalog);
+    expect(await api.mobile.createSimulator(input)).toEqual({ deviceId: `ios:${udid}`, name: "iPhone 16" });
+    await api.mobile.deleteSimulator(udid);
+    expect(calls).toEqual([
+      { channel: "zli:mobile:sim-list", payload: undefined },
+      { channel: "zli:mobile:sim-create", payload: input },
+      { channel: "zli:mobile:sim-delete", payload: { udid } },
+    ]);
+    await expect(api.mobile.createSimulator({ ...input, name: "iPhone 16 " })).rejects.toThrow();
+    await expect(api.mobile.createSimulator({ ...input, deviceTypeId: "iPhone-16" })).rejects.toThrow();
+    await expect(api.mobile.deleteSimulator("../all")).rejects.toThrow();
+    expect(calls).toHaveLength(3);
+  });
+
   it("validates pop-out window requests and drops malformed pop-out events", async () => {
     const calls: Array<{ channel: string; payload: unknown }> = [];
     const listeners = new Map<string, (event: unknown, value: unknown) => void>();

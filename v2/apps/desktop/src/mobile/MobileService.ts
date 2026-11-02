@@ -27,6 +27,7 @@ import { IosSimulatorDriver, type IosTools } from "./IosSimulatorDriver.js";
 import { iosVideoEnabled } from "./IosVideoSource.js";
 import { createNodeProcessRunner, type ProcessRunner, withDefaultEnv } from "./ProcessRunner.js";
 import { detectRemoteIosTools, testRemoteMac } from "./RemoteMac.js";
+import { SimulatorManager } from "./SimulatorManager.js";
 import { SCRCPY_SERVER_SHA256, SCRCPY_SERVER_URL, SCRCPY_VERSION } from "./scrcpy/protocol.js";
 
 export type MobileServiceOptions = {
@@ -108,6 +109,7 @@ export type MobileService = {
   readonly setup: AndroidSetup;
   readonly environment: AndroidEnvironment;
   readonly avds: AvdManager;
+  readonly simulators: SimulatorManager;
   /** Pairs, connects, and disconnects Android phones over Wi-Fi. */
   readonly wireless: AndroidWireless;
   status(options?: { recheckAcceleration?: boolean }): Promise<MobileSetupStatus>;
@@ -225,6 +227,15 @@ export function createMobileService(options: MobileServiceOptions): MobileServic
     setupRunning: () => setup.running,
   });
 
+  const simulators = new SimulatorManager({
+    runner,
+    env: options.env,
+    tools: async () => (await resolveIos()).tools,
+    devices: () => manager.list(),
+    onChange: async () => {
+      await manager.list();
+    },
+  });
   const wireless = new AndroidWireless({ runner, tools: resolveAndroidTools, manager });
 
   return {
@@ -232,6 +243,7 @@ export function createMobileService(options: MobileServiceOptions): MobileServic
     setup,
     environment,
     avds,
+    simulators,
     wireless,
     status: async (statusOptions = {}) => {
       const [android, ios] = await Promise.all([environment.inspect(statusOptions), resolveIos()]);

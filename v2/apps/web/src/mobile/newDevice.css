@@ -1,0 +1,5 @@
+/* The form spans the dialog body and footer, so the body keeps scrolling inside the dialog. */
+.new-device-form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
+.dialog-body.new-device-platform { flex: 0 0 auto; padding-bottom: 0; overflow: visible; }
+.new-device-text { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); }
+.new-device-form .empty-state.is-loading { padding: var(--zli-space-4) 0; }

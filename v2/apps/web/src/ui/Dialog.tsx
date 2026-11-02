@@ -1,4 +1,5 @@
 import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 import { IconButton } from "./Button.js";
 
@@ -7,7 +8,8 @@ const FOCUSABLE =
 
 /**
  * A modal dialog. Escape is handled by the shell, which closes every overlay at once; the dialog
- * keeps Tab inside itself and gives focus back to where it was when it closes.
+ * keeps Tab inside itself and gives focus back to where it was when it closes. A stacked dialog opens
+ * from inside another dialog or a panel the shell does not track, so it closes itself on Escape.
  */
 export function Dialog({
   label,
@@ -18,6 +20,7 @@ export function Dialog({
   scrimLabel,
   showClose = true,
   initialFocusRef,
+  stacked = false,
   onClose,
   children,
 }: {
@@ -30,6 +33,11 @@ export function Dialog({
   scrimLabel?: string;
   showClose?: boolean;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  /**
+   * Renders over everything, closes on Escape without closing what it opened from, and keeps Tab from
+   * reaching the dialog under it.
+   */
+  stacked?: boolean;
   onClose(): void;
   children: ReactNode;
 }) {
@@ -44,8 +52,15 @@ export function Dialog({
     };
   }, [initialFocusRef]);
 
-  const trapTab = (event: KeyboardEvent<HTMLElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (stacked && event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
     if (event.key !== "Tab" || !ref.current) return;
+    if (stacked) event.stopPropagation();
     const focusable = [...ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
       (element) => element.offsetParent !== null || element === document.activeElement,
     );
@@ -61,7 +76,7 @@ export function Dialog({
     }
   };
 
-  return (
+  const dialog = (
     <div className="dialog-backdrop">
       <button
         className="dialog-scrim"
@@ -76,7 +91,7 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-label={label}
-        onKeyDown={trapTab}
+        onKeyDown={onKeyDown}
         onMouseDown={(event) => event.stopPropagation()}
       >
         {title ? (
@@ -92,4 +107,5 @@ export function Dialog({
       </section>
     </div>
   );
+  return stacked ? createPortal(dialog, document.body) : dialog;
 }

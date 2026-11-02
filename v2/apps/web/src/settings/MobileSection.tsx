@@ -1,5 +1,5 @@
 import type { MobileDevice, MobileSetupStatus, MobileToolProbe } from "@zli-v2/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MobileDevSettingGroups } from "../mobile/dev/MobileDevSettingGroups.js";
 import {
   accelerationProblem,
@@ -13,6 +13,7 @@ import {
   stateTone,
   systemImageLabel,
 } from "../mobile/mobile.js";
+import { NewDeviceDialog, type NewDevicePlatform } from "../mobile/NewDeviceDialog.js";
 import { useDeviceFrame } from "../mobile/useDeviceFrame.js";
 import { useMobileSettings } from "../mobile/useMobileSettings.js";
 import type { MobileBridge } from "../runtime/bridge.js";
@@ -26,6 +27,8 @@ import { Switch } from "../ui/Switch.js";
 import { useAppSettings } from "./appSettings.js";
 import { RemoteMacRows } from "./RemoteMacRows.js";
 import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
+
+const AVD_PREFIX = "android-avd:";
 
 /** Phone simulation: the devices on this computer, how their screens show, and what the emulator needs. */
 export function MobileSection() {
@@ -58,6 +61,8 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [actionError, setActionError] = useState<string>();
+  const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState<string>();
   const [showFrame, setShowFrame] = useDeviceFrame();
   const { settings: agentSettings, error: agentError, setAgentTools, setIosRemoteHost } = useMobileSettings(mobile);
 
@@ -98,10 +103,13 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
   const act = async (device: MobileDevice, work: () => Promise<unknown>, fallback: string) => {
     setBusy((current) => new Set(current).add(device.deviceId));
     setActionError(undefined);
+    setNotice(undefined);
     try {
       await work();
+      return true;
     } catch (cause) {
       setActionError(errorText(cause, fallback));
+      return false;
     } finally {
       setBusy((current) => {
         const next = new Set(current);
@@ -111,19 +119,45 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
     }
   };
 
+  const platforms: NewDevicePlatform[] = [];
+  if (status?.android.avdmanager.found) platforms.push("android");
+  if (status?.ios.simctl.found && mobile.createSimulator) platforms.push("ios");
+
+  /** How a virtual device is deleted, or undefined when this one cannot be. */
+  const deleter = (device: MobileDevice): (() => Promise<unknown>) | undefined => {
+    if (device.kind === "emulator" && status?.android.avdmanager.found && device.deviceId.startsWith(AVD_PREFIX))
+      return () => mobile.deleteAvd(device.deviceId.slice(AVD_PREFIX.length));
+    const deleteSimulator = mobile.deleteSimulator;
+    if (
+      device.kind === "simulator" &&
+      status?.ios.simctl.found &&
+      deleteSimulator &&
+      device.deviceId.startsWith("ios:")
+    )
+      return () => deleteSimulator(device.deviceId.slice("ios:".length));
+    return undefined;
+  };
+
   return (
     <>
       <SettingGroup
         title="Devices"
         className="mobile-devices-group"
         actions={
-          <IconButton
-            label="Refresh devices"
-            icon="reload"
-            size="xs"
-            iconSize={12}
-            onClick={() => void refreshDevices()}
-          />
+          <>
+            {platforms.length > 0 ? (
+              <Button size="xs" variant="ghost" icon="plus" onClick={() => setCreating(true)}>
+                New device…
+              </Button>
+            ) : null}
+            <IconButton
+              label="Refresh devices"
+              icon="reload"
+              size="xs"
+              iconSize={12}
+              onClick={() => void refreshDevices()}
+            />
+          </>
         }
       >
         {devices === undefined && !devicesError ? <p className="setting-placeholder">Looking for devices</p> : null}
@@ -140,33 +174,64 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
         ) : null}
         {devices && devices.length > 0 ? (
           <ul className="mobile-device-rows" aria-label="Devices">
-            {devicesInGroups(devices).map((device) => (
-              <DeviceRow
-                key={device.deviceId}
-                device={device}
-                busy={busy.has(device.deviceId)}
-                onBoot={() => void act(device, () => mobile.boot(device.deviceId), `${device.name} did not boot.`)}
-                onShutdown={() =>
-                  void act(device, () => mobile.shutdown(device.deviceId), `${device.name} did not shut down.`)
-                }
-                {...(mobile.disconnectWifi
-                  ? {
-                      onDisconnect: () =>
-                        void act(
-                          device,
-                          async () => mobile.disconnectWifi?.(device.deviceId),
-                          `${device.name} could not be disconnected.`,
-                        ),
-                    }
-                  : {})}
-              />
-            ))}
+            {devicesInGroups(devices).map((device) => {
+              const remove = deleter(device);
+              return (
+                <DeviceRow
+                  key={device.deviceId}
+                  device={device}
+                  busy={busy.has(device.deviceId)}
+                  {...(remove
+                    ? {
+                        onDelete: async () => {
+                          const ok = await act(device, remove, `${device.name} could not be deleted.`);
+                          if (ok) {
+                            setNotice(`Deleted ${device.name}.`);
+                            void refreshDevices();
+                          }
+                          return ok;
+                        },
+                      }
+                    : {})}
+                  onBoot={() => void act(device, () => mobile.boot(device.deviceId), `${device.name} did not boot.`)}
+                  onShutdown={() =>
+                    void act(device, () => mobile.shutdown(device.deviceId), `${device.name} did not shut down.`)
+                  }
+                  {...(mobile.disconnectWifi
+                    ? {
+                        onDisconnect: () =>
+                          void act(
+                            device,
+                            async () => mobile.disconnectWifi?.(device.deviceId),
+                            `${device.name} could not be disconnected.`,
+                          ),
+                      }
+                    : {})}
+                />
+              );
+            })}{" "}
           </ul>
         ) : null}
         {actionError ? (
           <p className="setting-placeholder is-problem" role="alert">
             {actionError}
           </p>
+        ) : null}
+        <div role="status">{notice ? <p className="setting-placeholder">{notice}</p> : null}</div>
+        {creating ? (
+          <NewDeviceDialog
+            mobile={mobile}
+            platforms={platforms}
+            devices={devices ?? []}
+            onCreated={(created) => {
+              setCreating(false);
+              setActionError(undefined);
+              setNotice(`Created ${created.name}.`);
+              void refreshDevices();
+              void check();
+            }}
+            onClose={() => setCreating(false)}
+          />
         ) : null}
       </SettingGroup>
 
@@ -266,12 +331,15 @@ function DeviceRow({
   busy,
   onBoot,
   onShutdown,
+  onDelete,
   onDisconnect,
 }: {
   device: MobileDevice;
   busy: boolean;
   onBoot(): void;
   onShutdown(): void;
+  /** Present for a virtual device ZLI can delete. Resolves true once it is gone. */
+  onDelete?(): Promise<boolean>;
   /** Present when the bridge can disconnect a phone on Wi-Fi. */
   onDisconnect?: () => void;
 }) {
@@ -279,6 +347,10 @@ function DeviceRow({
   const platform = device.platform === "ios" ? "iOS" : "Android";
   const via = connectionLabel(device);
   const hint = phoneStateHint(device);
+  const [confirming, setConfirming] = useState(false);
+  const deleteRef = useRef<HTMLButtonElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const off = device.state === "shutdown";
   return (
     <li className="mobile-device-row">
       <span className="mobile-device-tile" aria-hidden="true">
@@ -296,36 +368,77 @@ function DeviceRow({
       <Badge tone={stateTone(device)} dot={device.state !== "booting"} spinner={device.state === "booting"}>
         {deviceStateLabel(device)}
       </Badge>
-      <span className="mobile-device-action">
-        {virtual && device.state === "shutdown" ? (
-          <Button size="xs" icon="play" loading={busy} aria-label={`Boot ${device.name}`} onClick={onBoot}>
-            Boot
-          </Button>
-        ) : null}
-        {virtual && device.state === "online" ? (
+      {confirming && onDelete ? (
+        <fieldset className="mobile-device-action mobile-device-confirm" aria-label={`Delete ${device.name}?`}>
+          <span className="mobile-device-confirm-text">Delete it and its data?</span>
           <Button
             size="xs"
-            variant="ghost"
-            icon="power"
+            variant="danger"
             loading={busy}
-            aria-label={`Shut down ${device.name}`}
-            onClick={onShutdown}
+            aria-label={`Delete ${device.name} for good`}
+            onClick={() => void onDelete().then((ok) => ok || setConfirming(false))}
           >
-            Shut down
+            Delete
           </Button>
-        ) : null}
-        {device.connection === "wifi" && onDisconnect ? (
           <Button
+            ref={keepRef}
             size="xs"
             variant="ghost"
-            loading={busy}
-            aria-label={`Disconnect ${device.name}`}
-            onClick={onDisconnect}
+            disabled={busy}
+            onClick={() => {
+              setConfirming(false);
+              requestAnimationFrame(() => deleteRef.current?.focus());
+            }}
           >
-            Disconnect
+            Keep it
           </Button>
-        ) : null}
-      </span>
+        </fieldset>
+      ) : (
+        <span className="mobile-device-action">
+          {onDelete && off ? (
+            <IconButton
+              ref={deleteRef}
+              label={`Delete ${device.name}`}
+              icon="trash"
+              size="xs"
+              iconSize={12}
+              disabled={busy}
+              onClick={() => {
+                setConfirming(true);
+                requestAnimationFrame(() => keepRef.current?.focus());
+              }}
+            />
+          ) : null}
+          {virtual && device.state === "shutdown" ? (
+            <Button size="xs" icon="play" loading={busy} aria-label={`Boot ${device.name}`} onClick={onBoot}>
+              Boot
+            </Button>
+          ) : null}
+          {virtual && device.state === "online" ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              icon="power"
+              loading={busy}
+              aria-label={`Shut down ${device.name}`}
+              onClick={onShutdown}
+            >
+              Shut down
+            </Button>
+          ) : null}
+          {device.connection === "wifi" && onDisconnect ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              loading={busy}
+              aria-label={`Disconnect ${device.name}`}
+              onClick={onDisconnect}
+            >
+              Disconnect
+            </Button>
+          ) : null}
+        </span>
+      )}
     </li>
   );
 }
