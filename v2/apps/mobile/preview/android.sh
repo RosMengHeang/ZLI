@@ -43,6 +43,23 @@ shot() {
   adb exec-out screencap -p > "$OUT/$1.png"
 }
 
+# sys.boot_completed can be set while SurfaceFlinger and the system server are still restarting.
+settle() {
+  local _ last="" now steady=0
+  for _ in $(seq 60); do
+    now="$(adb shell pidof surfaceflinger 2> /dev/null | tr -d '\r')"
+    if [ -n "$now" ] && [ "$now" = "$last" ] && adb shell pm path android > /dev/null 2>&1; then
+      steady=$((steady + 1))
+      if [ "$steady" -ge 5 ]; then return 0; fi
+    else
+      steady=0
+    fi
+    last="$now"
+    sleep 3
+  done
+  echo "The emulator kept restarting its system services" >&2
+}
+
 unlock() {
   adb shell input keyevent KEYCODE_WAKEUP
   adb shell wm dismiss-keyguard
@@ -101,6 +118,7 @@ live_status() {
 capture() {
   local failed=0
   adb wait-for-device
+  settle
   log "Installing $APK"
   # The package service can still drop installs for a while after the emulator reports it has booted.
   local attempt
