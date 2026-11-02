@@ -145,8 +145,6 @@
 .mobile-avd-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); }
 fieldset.mobile-avd-actions { min-width: 0; margin: 0; padding: 0; border: 0; }
 .mobile-avd-confirm { color: var(--zli-muted); font-size: var(--zli-text-xs); }
-.mobile-avd-form { display: flex; flex-direction: column; gap: var(--zli-space-3); padding: var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); }
-.mobile-avd-form-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
 .mobile-license { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
 .mobile-license summary { color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-sm); }
 .mobile-license summary:hover { color: var(--zli-text); }

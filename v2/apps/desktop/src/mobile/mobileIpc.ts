@@ -10,6 +10,8 @@ import {
   MobilePopOutPinInput,
   MobileSettings,
   MobileSetupRunInput,
+  MobileSimulatorCreateInput,
+  MobileSimulatorDeleteInput,
 } from "@zli-v2/contracts";
 
 import type { MobileDev } from "./dev/index.js";
@@ -32,7 +34,7 @@ export function streamViewer(webContentsId: number): string {
  * renderer is not trusted to have run the preload's own checks.
  */
 export function mobileIpcHandlers(deps: {
-  service(): Pick<MobileService, "manager" | "setup" | "status" | "avds"> | undefined;
+  service(): Pick<MobileService, "manager" | "setup" | "status" | "avds" | "simulators"> | undefined;
   settings(): Pick<MobileSettingsStore, "get" | "set"> | undefined;
   popOuts?(): Pick<PopOutWindows, "open" | "close" | "pin" | "setAspect" | "list"> | undefined;
   /** The mobile dev features' channels, named zli:mobile:<feature>:<verb>. Read once, when the handlers are made. */
@@ -74,6 +76,9 @@ export function mobileIpcHandlers(deps: {
     "zli:mobile:avd-list": () => service().avds.list(),
     "zli:mobile:avd-create": (input) => service().avds.create(MobileAvdCreateInput.parse(input)),
     "zli:mobile:avd-delete": (input) => service().avds.delete(MobileAvdDeleteInput.parse(input)),
+    "zli:mobile:sim-list": () => service().simulators.list(),
+    "zli:mobile:sim-create": (input) => service().simulators.create(MobileSimulatorCreateInput.parse(input)),
+    "zli:mobile:sim-delete": (input) => service().simulators.delete(MobileSimulatorDeleteInput.parse(input)),
     "zli:mobile:devices": () => manager().list(),
     "zli:mobile:boot": (input) => manager().boot(deviceId(input)),
     "zli:mobile:shutdown": async (input) => {

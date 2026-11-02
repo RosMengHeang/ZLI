@@ -333,6 +333,7 @@ function MobilePaneBody({
           mobile={mobile}
           status={status}
           noDevices={devices?.length === 0}
+          devices={devices ?? []}
           virtualDevices={
             // Until the first device exists, the setup card above creates it along with anything it needs.
             !needsAndroid ? (

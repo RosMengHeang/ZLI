@@ -35,7 +35,12 @@ function handlers() {
     create: vi.fn(async (_input: unknown) => ({ avds: [] })),
     delete: vi.fn(async (_input: unknown) => ({ avds: [] })),
   };
-  const service = { manager, setup: {}, avds, status: async () => ({}) } as unknown as MobileService;
+  const simulators = {
+    list: vi.fn(async () => ({ simctl: true, deviceTypes: [], runtimes: [] })),
+    create: vi.fn(async (_input: unknown) => ({ deviceId: "ios:1", name: "iPhone" })),
+    delete: vi.fn(async (_input: unknown) => ({ accepted: true })),
+  };
+  const service = { manager, setup: {}, avds, simulators, status: async () => ({}) } as unknown as MobileService;
   const settings = {
     get: vi.fn(async () => ({ agentTools: true, crashWatch: true })),
     set: vi.fn(async () => ({ agentTools: false, crashWatch: true })),
@@ -43,6 +48,7 @@ function handlers() {
   return {
     android,
     avds,
+    simulators,
     logs,
     manager,
     settings,
@@ -147,6 +153,27 @@ describe("mobile IPC handlers", () => {
     expect(() => mobileIpcHandlers({ service: () => undefined, settings: () => undefined, dev: () => dev })).toThrow(
       /zli:mobile:<feature>:<verb>/u,
     );
+  });
+
+  it("parses simulator requests before they reach simctl", async () => {
+    const { simulators, handle } = handlers();
+    const input = {
+      name: "Checkout iPhone",
+      deviceTypeId: "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro",
+      runtimeId: "com.apple.CoreSimulator.SimRuntime.iOS-18-2",
+    };
+    const udid = "5A3F2C1D-1111-4222-8333-944455556666";
+    await handle["zli:mobile:sim-list"]?.(undefined);
+    await handle["zli:mobile:sim-create"]?.(input);
+    await handle["zli:mobile:sim-delete"]?.({ udid });
+    expect(simulators.list).toHaveBeenCalledTimes(1);
+    expect(simulators.create).toHaveBeenCalledWith(input);
+    expect(simulators.delete).toHaveBeenCalledWith({ udid });
+    expect(() => handle["zli:mobile:sim-create"]?.({ ...input, name: "-help" })).toThrow();
+    expect(() => handle["zli:mobile:sim-create"]?.({ ...input, runtimeId: "iOS-18-2" })).toThrow();
+    expect(() => handle["zli:mobile:sim-delete"]?.({ udid: "--all" })).toThrow();
+    expect(simulators.create).toHaveBeenCalledTimes(1);
+    expect(simulators.delete).toHaveBeenCalledTimes(1);
   });
 
   it("parses virtual device requests before they reach avdmanager", async () => {

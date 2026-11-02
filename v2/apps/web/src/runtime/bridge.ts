@@ -16,6 +16,9 @@ import type {
   MobileSetupPlan,
   MobileSetupProgress,
   MobileSetupStatus,
+  MobileSimulatorCatalog,
+  MobileSimulatorCreated,
+  MobileSimulatorCreateInput,
   MobileStreamEvent,
   MobileStreamInfo,
   OpenInApp,
@@ -150,6 +153,11 @@ export type MobileBridge = {
   createAvd(input: MobileAvdCreateInput): Promise<MobileAvdList>;
   /** Refused while the device is booting or running. */
   deleteAvd(name: string): Promise<MobileAvdList>;
+  /** iPhone and iPad models and the iOS versions installed for them. Absent where the bridge predates them. */
+  listSimulators?(): Promise<MobileSimulatorCatalog>;
+  createSimulator?(input: MobileSimulatorCreateInput): Promise<MobileSimulatorCreated>;
+  /** Refused while the simulator is booting or running. */
+  deleteSimulator?(udid: string): Promise<void>;
   devices(): Promise<MobileDevice[]>;
   onDevices(listener: (devices: MobileDevice[]) => void): () => void;
   boot(deviceId: string): Promise<MobileDevice>;

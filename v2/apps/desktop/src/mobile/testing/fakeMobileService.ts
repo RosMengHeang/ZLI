@@ -19,6 +19,7 @@ import { FakeDriver } from "../FakeDriver.js";
 import { FakeProcessRunner } from "../FakeProcessRunner.js";
 import type { HostArch, HostOs } from "../host.js";
 import type { MobileService } from "../MobileService.js";
+import type { SimulatorManager } from "../SimulatorManager.js";
 
 export const FAKE_AVD = "Pixel_Test";
 export const FAKE_SERIAL = "emulator-5554";
@@ -133,6 +134,15 @@ export function createFakeMobileService(options: {
     setup: setup as unknown as AndroidSetup,
     environment: {} as AndroidEnvironment,
     avds: avds as unknown as AvdManager,
+    simulators: {
+      list: async () => ({ simctl: false, deviceTypes: [], runtimes: [] }),
+      create: async () => {
+        throw new Error("The fake mobile service has no iOS.");
+      },
+      delete: async () => {
+        throw new Error("The fake mobile service has no iOS.");
+      },
+    } as unknown as SimulatorManager,
     status: async () => ({
       host: { os: options.os, arch: options.arch },
       android: androidStatus,

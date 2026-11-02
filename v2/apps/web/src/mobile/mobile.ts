@@ -327,6 +327,21 @@ export function systemImageLabel(image: string): string {
     .join(", ");
 }
 
+/** A free simulator name from the model, such as iPhone 16 Pro, numbered as iPhone 16 Pro (2) when taken. */
+export function suggestSimulatorName(modelName: string, taken: readonly string[]): string {
+  const base =
+    modelName
+      .replace(/[^A-Za-z0-9 _.,()'-]+/gu, " ")
+      .replace(/\s+/gu, " ")
+      .trim()
+      .replace(/^[^A-Za-z0-9]+/u, "")
+      .slice(0, 50)
+      .trim() || "iPhone";
+  const used = new Set(taken.map((name) => name.toLowerCase()));
+  if (!used.has(base.toLowerCase())) return base;
+  for (let index = 2; ; index += 1) if (!used.has(`${base} (${index})`.toLowerCase())) return `${base} (${index})`;
+}
+
 /** A free name such as Pixel_7_API_35 for a new virtual device, numbered when the name is taken. */
 export function suggestAvdName(profileName: string, image: string | undefined, taken: readonly string[]): string {
   const level = image ? /;android-([A-Za-z0-9]+);/u.exec(image)?.[1] : undefined;

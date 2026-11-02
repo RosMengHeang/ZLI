@@ -180,6 +180,79 @@ export const MobileAvdDeleteInput = z.object({ name: MobileAvdName });
 export type MobileAvdDeleteInput = z.infer<typeof MobileAvdDeleteInput>;
 
 /**
+ * A name for simctl create. It reaches simctl as one argument and never passes through a shell, so spaces are
+ * fine; the charset keeps it readable in window titles, where the Simulator app shows it.
+ */
+export const MobileSimulatorName = z
+  .string()
+  .min(1, "Give the simulator a name.")
+  .max(60, "Use at most 60 characters.")
+  .regex(
+    /^[A-Za-z0-9](?:[A-Za-z0-9 _.,()'-]*[A-Za-z0-9_.,()'-])?$/u,
+    "Use letters, digits, spaces, and _ . , ( ) ' - only. Start with a letter or digit, and do not end with a space.",
+  );
+export type MobileSimulatorName = z.infer<typeof MobileSimulatorName>;
+
+/** A device type identifier from simctl, such as com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro. */
+export const MobileSimDeviceTypeId = z
+  .string()
+  .max(200)
+  .regex(/^com\.apple\.CoreSimulator\.SimDeviceType\.[A-Za-z0-9._-]+$/u, "That is not a simulator device type.");
+
+/** A runtime identifier from simctl, such as com.apple.CoreSimulator.SimRuntime.iOS-18-2. */
+export const MobileSimRuntimeId = z
+  .string()
+  .max(200)
+  .regex(/^com\.apple\.CoreSimulator\.SimRuntime\.[A-Za-z0-9._-]+$/u, "That is not a simulator runtime.");
+
+export const MobileSimUdid = z
+  .string()
+  .regex(
+    /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/u,
+    "That is not a simulator id.",
+  );
+
+export const MobileSimDeviceType = z.object({
+  id: MobileSimDeviceTypeId,
+  name: z.string().min(1).max(200),
+  family: z.enum(["iPhone", "iPad"]),
+});
+export type MobileSimDeviceType = z.infer<typeof MobileSimDeviceType>;
+
+export const MobileSimRuntime = z.object({
+  id: MobileSimRuntimeId,
+  /** Such as iOS 18.2. */
+  name: z.string().min(1).max(200),
+  version: z.string().max(50),
+  /** The device types this runtime can run, in the order of deviceTypes. */
+  deviceTypeIds: z.array(MobileSimDeviceTypeId).max(500),
+});
+export type MobileSimRuntime = z.infer<typeof MobileSimRuntime>;
+
+/** What a new iPhone or iPad simulator can be made of: the models, and the iOS runtimes installed and usable. */
+export const MobileSimulatorCatalog = z.object({
+  /** Without simctl nothing can be listed or created. */
+  simctl: z.boolean(),
+  deviceTypes: z.array(MobileSimDeviceType).max(500),
+  /** Oldest first. */
+  runtimes: z.array(MobileSimRuntime).max(100),
+});
+export type MobileSimulatorCatalog = z.infer<typeof MobileSimulatorCatalog>;
+
+export const MobileSimulatorCreateInput = z.object({
+  name: MobileSimulatorName,
+  deviceTypeId: MobileSimDeviceTypeId,
+  runtimeId: MobileSimRuntimeId,
+});
+export type MobileSimulatorCreateInput = z.infer<typeof MobileSimulatorCreateInput>;
+
+export const MobileSimulatorCreated = z.object({ deviceId: z.string().min(1).max(300), name: z.string().max(200) });
+export type MobileSimulatorCreated = z.infer<typeof MobileSimulatorCreated>;
+
+export const MobileSimulatorDeleteInput = z.object({ udid: MobileSimUdid });
+export type MobileSimulatorDeleteInput = z.infer<typeof MobileSimulatorDeleteInput>;
+
+/**
  * Settings the person controls. agentTools off hides the zli-mobile tools from agents and refuses their calls.
  * crashWatch reads the log of a running device for crashes.
  */

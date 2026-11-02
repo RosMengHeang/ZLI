@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import type { MobileDevice, MobileSettings, MobileSetupStatus } from "@zli-v2/contracts";
+import type { MobileDevice, MobileSettings, MobileSetupStatus, MobileSimulatorCreateInput } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -194,4 +194,136 @@ describe("Settings > Mobile", () => {
     await act(async () => agents.click());
     expect(fake.mobile.setSettings).toHaveBeenCalledWith({ agentTools: false });
   });
+
+  it("creates a simulator from New device and shows it in the list", async () => {
+    const simulator: MobileDevice = {
+      deviceId: "ios:5A3F2C1D-1111-4222-8333-944455556666",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPhone 16",
+      state: "shutdown",
+      osVersion: "18.2",
+      lease: null,
+    };
+    const devices: MobileDevice[] = [pixel];
+    const fake = createMobile(devices);
+    const mobile = withCreate(fake.mobile, devices);
+    const container = await render(bridgeWith(mobile));
+    await act(async () => button(container, "New device…").click());
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="New device"]');
+    expect(dialog?.querySelector('[role="radiogroup"]')?.textContent).toBe("Android emulatoriPhone simulator");
+    const radios = [...document.querySelectorAll<HTMLInputElement>('[role="radiogroup"] input')];
+    await act(async () => radios[1]?.click());
+    const name = document.querySelector<HTMLInputElement>(".new-device-form .field input");
+    expect(name?.value).toBe("iPhone 16");
+
+    mobile.createSimulator.mockImplementationOnce(async (input) => {
+      devices.push({ ...simulator, name: input.name });
+      return { deviceId: simulator.deviceId, name: input.name };
+    });
+    await act(async () => button(document.body, "Create").click());
+    expect(mobile.createSimulator).toHaveBeenCalledWith({
+      name: "iPhone 16",
+      deviceTypeId: "com.apple.CoreSimulator.SimDeviceType.iPhone-16",
+      runtimeId: "com.apple.CoreSimulator.SimRuntime.iOS-18-2",
+    });
+    expect(document.querySelector('[role="dialog"][aria-label="New device"]')).toBeNull();
+    expect([...container.querySelectorAll(".mobile-device-name")].map((node) => node.textContent)).toEqual([
+      "Pixel_8",
+      "iPhone 16",
+    ]);
+    expect(container.textContent).toContain("Created iPhone 16.");
+  });
+
+  it("deletes a shut down simulator or emulator only after asking in its row", async () => {
+    const simulator: MobileDevice = {
+      deviceId: "ios:5A3F2C1D-1111-4222-8333-944455556666",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPhone 16",
+      state: "shutdown",
+      lease: null,
+    };
+    const running: MobileDevice = {
+      ...simulator,
+      deviceId: "ios:6B4E3D2C-1111-4222-8333-944455556666",
+      name: "Busy",
+      state: "online",
+    };
+    const devices: MobileDevice[] = [pixel, phone, simulator, running];
+    const fake = createMobile(devices);
+    const mobile = withCreate(fake.mobile, devices);
+    const container = await render(bridgeWith(mobile));
+    expect(() => button(container, "Delete Busy")).toThrow();
+    expect(() => button(container, "Delete Galaxy S24")).toThrow();
+
+    await act(async () => button(container, "Delete iPhone 16").click());
+    expect(mobile.deleteSimulator).not.toHaveBeenCalled();
+    expect(container.querySelector('fieldset[aria-label="Delete iPhone 16?"]')?.textContent).toContain(
+      "Delete it and its data?",
+    );
+    await act(async () => button(container, "Keep it").click());
+    expect(container.querySelector('fieldset[aria-label="Delete iPhone 16?"]')).toBeNull();
+
+    await act(async () => button(container, "Delete iPhone 16").click());
+    await act(async () => button(container, "Delete iPhone 16 for good").click());
+    expect(mobile.deleteSimulator).toHaveBeenCalledWith("5A3F2C1D-1111-4222-8333-944455556666");
+    expect(container.textContent).toContain("Deleted iPhone 16.");
+
+    await act(async () => button(container, "Delete Pixel_8").click());
+    mobile.deleteAvd.mockRejectedValueOnce(new Error("Shut down Pixel 8 before deleting it."));
+    await act(async () => button(container, "Delete Pixel_8 for good").click());
+    expect(mobile.deleteAvd).toHaveBeenCalledWith("Pixel_8");
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Shut down Pixel 8 before deleting it.");
+    expect(container.querySelector('fieldset[aria-label="Delete Pixel_8?"]')).toBeNull();
+  });
 });
+
+/** A Mac with avdmanager and Xcode, so New device offers both platforms and Delete shows for virtual devices. */
+function withCreate(mobile: ReturnType<typeof createMobile>["mobile"], devices: MobileDevice[]) {
+  const ready = status();
+  ready.host = { os: "macos", arch: "arm64" };
+  ready.android.avdmanager = found;
+  ready.ios = { supported: true, simctl: found, idb: found, missing: [] };
+  const avds = {
+    avdmanager: true,
+    avds: [{ name: "Pixel_8", displayName: "Pixel 8" }],
+    systemImages: ["system-images;android-35;google_apis;arm64-v8a"],
+    deviceProfiles: [{ id: "pixel_7", name: "Pixel 7" }],
+    defaultDeviceProfile: "pixel_7",
+  };
+  return {
+    ...mobile,
+    status: vi.fn(async () => ready),
+    listAvds: vi.fn(async () => avds),
+    createAvd: vi.fn(async () => avds),
+    deleteAvd: vi.fn(async (name: string) => {
+      devices.splice(
+        devices.findIndex((device) => device.deviceId === `android-avd:${name}`),
+        1,
+      );
+      return avds;
+    }),
+    listSimulators: vi.fn(async () => ({
+      simctl: true,
+      deviceTypes: [
+        { id: "com.apple.CoreSimulator.SimDeviceType.iPhone-16", name: "iPhone 16", family: "iPhone" as const },
+      ],
+      runtimes: [
+        {
+          id: "com.apple.CoreSimulator.SimRuntime.iOS-18-2",
+          name: "iOS 18.2",
+          version: "18.2",
+          deviceTypeIds: ["com.apple.CoreSimulator.SimDeviceType.iPhone-16"],
+        },
+      ],
+    })),
+    createSimulator: vi.fn(async (input: MobileSimulatorCreateInput) => ({ deviceId: "ios:NEW", name: input.name })),
+    deleteSimulator: vi.fn(async (udid: string) => {
+      devices.splice(
+        devices.findIndex((device) => device.deviceId === `ios:${udid}`),
+        1,
+      );
+    }),
+  };
+}

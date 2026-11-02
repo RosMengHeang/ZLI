@@ -40,6 +40,10 @@ import {
   MobileSetupProgress,
   MobileSetupRunInput,
   MobileSetupStatus,
+  MobileSimulatorCatalog,
+  MobileSimulatorCreated,
+  MobileSimulatorCreateInput,
+  MobileSimulatorDeleteInput,
   MobileStreamEvent,
   MobileStreamInfo,
   OpenInApp,
@@ -85,6 +89,13 @@ function createMobileApi(ipc: PreloadIpc) {
     /** Refused while the device is booting or running. */
     deleteAvd: async (name: string) =>
       MobileAvdList.parse(await ipc.invoke("zli:mobile:avd-delete", MobileAvdDeleteInput.parse({ name }))),
+    listSimulators: async () => MobileSimulatorCatalog.parse(await ipc.invoke("zli:mobile:sim-list")),
+    createSimulator: async (input: MobileSimulatorCreateInput) =>
+      MobileSimulatorCreated.parse(await ipc.invoke("zli:mobile:sim-create", MobileSimulatorCreateInput.parse(input))),
+    /** Refused while the simulator is booting or running. */
+    deleteSimulator: async (udid: string) => {
+      await ipc.invoke("zli:mobile:sim-delete", MobileSimulatorDeleteInput.parse({ udid }));
+    },
     devices: async () => MobileDevice.array().parse(await ipc.invoke("zli:mobile:devices")),
     onDevices: listenParsed(ipc, "zli:mobile:devices", MobileDevice.array()),
     boot: async (deviceId: string) => MobileDevice.parse(await ipc.invoke("zli:mobile:boot", device(deviceId))),
