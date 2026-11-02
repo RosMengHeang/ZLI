@@ -2,11 +2,19 @@ import type { ChildProcess } from "node:child_process";
 
 export async function closeChildProcess(
   closeGracefully: () => Promise<unknown>,
-  child: Pick<ChildProcess, "once">,
+  child: Pick<ChildProcess, "once"> & { exitCode?: number | null; signalCode?: NodeJS.Signals | null },
   terminate: () => Promise<void>,
   timeoutMs = 2_000,
 ): Promise<void> {
-  const childClosed = new Promise<void>((resolveClose) => child.once("close", () => resolveClose()));
+  const childClosed = new Promise<void>((resolveClose) => {
+    // "close" has already fired when a launch exits before we start cleaning it up.
+    // Waiting for it again sits out the timeout, then taskkill runs against a process that is gone.
+    if (child.exitCode != null || child.signalCode != null) {
+      resolveClose();
+      return;
+    }
+    child.once("close", () => resolveClose());
+  });
   const closeAttempt = Promise.resolve()
     .then(closeGracefully)
     .then(
