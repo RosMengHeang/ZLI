@@ -1,0 +1,6 @@
+platform :ios, '16.0'
+
+target 'Drift' do
+  use_frameworks!
+  pod 'Alamofire', '~> 5.10'
+end

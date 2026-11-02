@@ -9,6 +9,7 @@ import {
   CommandId,
   type EnvironmentDescriptor,
   EnvironmentId,
+  metroPortFor,
   ProjectId,
   TerminalId,
   WorktreeId,
@@ -226,6 +227,47 @@ describe("TerminalReactor", () => {
     expect((await engine.projection()).terminals).toMatchObject([
       { terminalId: id, status: "running", kind: "agent", agent: { provider: "claude-code" } },
     ]);
+  });
+
+  it("gives every terminal in a worktree its Metro port, and none in the project's checkout", async () => {
+    const spawned: PtySpawnInput[] = [];
+    const { engine, reactor, worktreeId } = await setup({
+      spawn: async (input) => {
+        spawned.push(input);
+        return new FakePty();
+      },
+    });
+    const projectId = (await engine.projection()).projects[0]?.projectId;
+    const checkoutId = WorktreeId.parse("00000000-0000-4000-8000-000000000399");
+    await engine.dispatchPromise(
+      command("worktree.import", {
+        worktreeId: checkoutId,
+        projectId,
+        path: "C:/workspace/project",
+        branch: "main",
+        kind: "checkout",
+      }),
+    );
+    const create = (n: number, target: string) =>
+      engine.dispatchPromise(
+        command("terminal.create", {
+          terminalId: TerminalId.parse(`00000000-0000-4000-8000-00000000039${n}`),
+          worktreeId: target,
+          cwd: target === checkoutId ? "C:/workspace/project" : "C:/workspace/project-tree",
+          shell: "powershell.exe",
+          title: "Terminal",
+          cols: 120,
+          rows: 32,
+        }),
+      );
+    await create(1, worktreeId);
+    await create(2, checkoutId);
+    await reactor.waitForIdle();
+
+    const port = String(metroPortFor(worktreeId, (await engine.projection()).worktrees));
+    expect(Number(port)).toBeGreaterThanOrEqual(8100);
+    expect(spawned[0]?.envOverrides).toEqual({ ZLI_METRO_PORT: port, RCT_METRO_PORT: port });
+    expect(spawned[1]?.envOverrides).toBeUndefined();
   });
 
   it("fails an agent terminal with a clear message when its CLI is missing", async () => {

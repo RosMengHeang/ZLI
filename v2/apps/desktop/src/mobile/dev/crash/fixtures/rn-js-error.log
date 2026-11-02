@@ -1,0 +1,101 @@
+11-01 10:28:00.121   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:28:00.168  4321  4352 D EGL_emulation: app_time_stats: avg=20.09ms min=5.04ms max=63.50ms count=62
+11-01 10:28:00.184  4321  4352 D EGL_emulation: app_time_stats: avg=22.93ms min=4.47ms max=114.29ms count=44
+11-01 10:28:00.211  4321  4352 D OpenGLRenderer: Davey! duration=919ms; Flags=0, FrameTimelineVsyncId=762393, IntendedVsync=433000591505, Vsync=531902466008
+11-01 10:28:00.296   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:28:00.382  1180  1214 I ActivityTaskManager: Displayed com.example.app/.MainActivity for user 0: +1s512ms
+11-01 10:28:00.429  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:28:00.493  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:28:00.571  4321  4352 I OpenGLRenderer: Davey! duration=789ms;
+11-01 10:28:00.606  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:28:00.675  1180  1201 I ActivityManager: Changes in 10190 2 to 2, 0 to 0
+11-01 10:28:00.702  4321  4333 I com.example.app: Background concurrent mark compact GC freed 8719KB AllocSpace bytes, 37(576KB) LOS objects, 47% free, 7MB/18MB, paused 157us,424us total 27.146ms
+11-01 10:28:00.773  4321  4321 D SoLoader: init exiting
+11-01 10:28:00.846  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 338 [NetworkRequest [ REQUEST id=321, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:28:00.944  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=1 (225ms)
+11-01 10:28:00.982  1180  1214 I ActivityTaskManager: Displayed com.example.app/.MainActivity for user 0: +1s561ms
+11-01 10:28:01.054  4321  4321 D SoLoader: Loading library: hermes
+11-01 10:28:01.084  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 237 [NetworkRequest [ REQUEST id=323, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:28:01.112  1180  1214 I ActivityTaskManager: Displayed com.example.app/.MainActivity for user 0: +2s412ms
+11-01 10:28:01.152  1180  1402 W ActivityManager: Slow operation: 164ms so far, now at startProcess: done updating pids map
+11-01 10:28:01.233   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#846
+11-01 10:28:01.256  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP
+11-01 10:28:01.316  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:28:01.329  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=1 (123ms)
+11-01 10:28:01.381  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=1
+11-01 10:28:01.469   523   602 D gralloc4: gralloc4: allocate buffer 1080x2400 format 0x1 usage 0xb00
+11-01 10:28:01.522  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=4
+11-01 10:28:01.615  4321  4321 D InsetsController: show(ime(), fromIme=false)
+11-01 10:28:01.663  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:28:01.724  4321  4352 I OpenGLRenderer: Davey! duration=848ms;
+11-01 10:28:01.754   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:28:01.785  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=2
+11-01 10:28:01.819  1180  1214 I ActivityTaskManager: Displayed com.example.app/.MainActivity for user 0: +2s981ms
+11-01 10:28:01.917  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 294 [NetworkRequest [ REQUEST id=313, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:28:01.994  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=3 (140ms)
+11-01 10:28:02.027  4321  4352 I OpenGLRenderer: Davey! duration=849ms;
+11-01 10:28:02.061  4321  4352 I OpenGLRenderer: Davey! duration=857ms;
+11-01 10:28:02.106  4321  4321 I chatty  : uid=10190(com.example.app) RenderThread identical 7 lines
+11-01 10:28:02.172  1180  1402 W ActivityManager: Slow operation: 109ms so far, now at startProcess: done updating pids map
+11-01 10:28:02.242  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:28:02.322  4321  4380 E ReactNativeJS: TypeError: Cannot read property 'name' of undefined
+11-01 10:28:02.322  4321  4380 E ReactNativeJS: 
+11-01 10:28:02.322  4321  4380 E ReactNativeJS: This error is located at:
+11-01 10:28:02.323  4321  4380 E ReactNativeJS:     in ProfileHeader (at ProfileScreen.tsx:42)
+11-01 10:28:02.323  4321  4380 E ReactNativeJS:     in ProfileScreen (at SceneView.tsx:132)
+11-01 10:28:02.323  4321  4380 E ReactNativeJS:     in SceneView (at useDescriptors.tsx:104)
+11-01 10:28:02.323  4321  4380 E ReactNativeJS:     in NavigationContent (at useComponent.tsx:29)
+11-01 10:28:02.323  4321  4380 E ReactNativeJS:     in RootStack (at App.tsx:21)
+11-01 10:28:02.375  4321  4377 E AndroidRuntime: FATAL EXCEPTION: mqt_native_modules
+11-01 10:28:02.375  4321  4377 E AndroidRuntime: Process: com.example.app, PID: 4321
+11-01 10:28:02.375  4321  4377 E AndroidRuntime: com.facebook.react.common.JavascriptException: TypeError: Cannot read property 'name' of undefined, js engine: hermes, stack:
+11-01 10:28:02.375  4321  4377 E AndroidRuntime: ProfileHeader@1:482113
+11-01 10:28:02.376  4321  4377 E AndroidRuntime: renderWithHooks@1:301772
+11-01 10:28:02.376  4321  4377 E AndroidRuntime: beginWork$1@1:338120
+11-01 10:28:02.376  4321  4377 E AndroidRuntime: performUnitOfWork@1:325410
+11-01 10:28:02.376  4321  4377 E AndroidRuntime: workLoopSync@1:324981
+11-01 10:28:02.376  4321  4377 E AndroidRuntime: renderRootSync@1:324602
+11-01 10:28:02.376  4321  4377 E AndroidRuntime: 	at com.facebook.react.modules.core.ExceptionsManagerModule.reportException(ExceptionsManagerModule.java:65)
+11-01 10:28:02.377  4321  4377 E AndroidRuntime: 	at java.lang.reflect.Method.invoke(Native Method)
+11-01 10:28:02.377  4321  4377 E AndroidRuntime: 	at com.facebook.react.bridge.JavaMethodWrapper.invoke(JavaMethodWrapper.java:372)
+11-01 10:28:02.377  4321  4377 E AndroidRuntime: 	at com.facebook.react.bridge.JavaModuleWrapper.invoke(JavaModuleWrapper.java:146)
+11-01 10:28:02.377  4321  4377 E AndroidRuntime: 	at com.facebook.jni.NativeRunnable.run(Native Method)
+11-01 10:28:02.377  4321  4377 E AndroidRuntime: 	at android.os.Handler.handleCallback(Handler.java:959)
+11-01 10:28:02.377  4321  4377 E AndroidRuntime: 	at com.facebook.react.bridge.queue.MessageQueueThreadHandler.dispatchMessage(MessageQueueThreadHandler.java:27)
+11-01 10:28:02.832  1180  1402 I ActivityManager: Process com.example.app (pid 4321) has died: fg  TOP 
+11-01 10:28:02.873  4321  4352 D EGL_emulation: app_time_stats: avg=25.46ms min=5.47ms max=91.81ms count=40
+11-01 10:28:02.907  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=4 (369ms)
+11-01 10:28:02.979  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:28:03.054  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:28:03.139  4321  4380 I ReactNativeJS: 'Fetching feed', { page: 2 }
+11-01 10:28:03.153  4321  4333 I com.example.app: Background concurrent mark compact GC freed 5747KB AllocSpace bytes, 10(507KB) LOS objects, 44% free, 5MB/22MB, paused 874us,253us total 43.304ms
+11-01 10:28:03.201  4321  4380 I ReactNativeJS: 'Fetching feed', { page: 2 }
+11-01 10:28:03.299   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#874
+11-01 10:28:03.342  4321  4321 D InsetsController: hide(ime(), fromIme=false)
+11-01 10:28:03.386  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:28:03.413  4321  4321 D SoLoader: init start
+11-01 10:28:03.513  1180  1402 W ActivityManager: Slow operation: 104ms so far, now at startProcess: done updating pids map
+11-01 10:28:03.529  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:28:03.578  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:28:03.627   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:28:03.674  4321  4321 D SoLoader: init exiting
+11-01 10:28:03.704  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=5 (208ms)
+11-01 10:28:03.738  4321  4352 D OpenGLRenderer: Davey! duration=1259ms; Flags=0, FrameTimelineVsyncId=589617, IntendedVsync=882870171990, Vsync=984067986243
+11-01 10:28:03.796   523   602 D gralloc4: gralloc4: allocate buffer 1080x2400 format 0x1 usage 0xb00
+11-01 10:28:03.842  4321  4321 D SoLoader: init exiting
+11-01 10:28:03.894  1180  1201 I ActivityManager: Changes in 10190 4 to 1, 0 to 0
+11-01 10:28:03.971   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#896
+11-01 10:28:04.030  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:28:04.050  4321  4352 I OpenGLRenderer: Davey! duration=821ms;
+11-01 10:28:04.079  4321  4321 I Choreographer: Skipped 33 frames!  The application may be doing too much work on its main thread.
+11-01 10:28:04.138  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=5
+11-01 10:28:04.237  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=5
+11-01 10:28:04.334  1180  1201 I ActivityManager: Changes in 10190 4 to 3, 0 to 0
+11-01 10:28:04.379  4321  4321 I Choreographer: Skipped 61 frames!  The application may be doing too much work on its main thread.
+11-01 10:28:04.418  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP
+11-01 10:28:04.464  4321  4321 I Choreographer: Skipped 31 frames!  The application may be doing too much work on its main thread.
+11-01 10:28:04.481   523   602 D gralloc4: gralloc4: allocate buffer 1080x2400 format 0x1 usage 0xb00
+11-01 10:28:04.511   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#834
+11-01 10:28:04.566  1180  1402 W ActivityManager: Slow operation: 109ms so far, now at startProcess: done updating pids map
+11-01 10:28:04.625  4321  4333 I com.example.app: Background concurrent mark compact GC freed 2177KB AllocSpace bytes, 26(395KB) LOS objects, 52% free, 8MB/16MB, paused 265us,281us total 93.468ms
+11-01 10:28:04.686  4321  4321 D SoLoader: Loading library: hermes

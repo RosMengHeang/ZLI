@@ -1,5 +1,5 @@
-import { type MobileDevice, MobilePanelLaunchInput } from "@zli-v2/contracts";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { crashLineMarks, type MobileDevice, MobilePanelLaunchInput } from "@zli-v2/contracts";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
 import { IconButton } from "../ui/Button.js";
@@ -42,6 +42,7 @@ export function MobileLogsDrawer({
   /** Whether the list was scrolled to its end, so new lines keep it there. */
   const followRef = useRef(true);
   const panelId = useId();
+  const crashMarks = useMemo(() => (lines ? crashLineMarks(lines) : []), [lines]);
 
   const setOpen = (next: boolean) => {
     setOpenState(next);
@@ -192,7 +193,12 @@ export function MobileLogsDrawer({
           ) : (
             // biome-ignore lint/a11y/noNoninteractiveTabindex: the list scrolls, and keyboard users need to reach it.
             <pre ref={listRef} className="mobile-logs-list" tabIndex={0} title={`${device.name} log lines`}>
-              {lines.join("\n")}
+              {lines.map((line, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: log lines repeat, and a read replaces the whole list.
+                <span key={index} className={crashMarks[index] ? "is-crash" : undefined}>
+                  {index < lines.length - 1 ? `${line}\n` : line}
+                </span>
+              ))}
             </pre>
           )}
         </div>

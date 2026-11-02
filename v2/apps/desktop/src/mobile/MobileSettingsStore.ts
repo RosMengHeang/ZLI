@@ -15,7 +15,11 @@ export class MobileSettingsStore {
   async get(): Promise<MobileSettings> {
     if (this.#cache) return this.#cache;
     try {
-      const parsed = MobileSettings.safeParse(JSON.parse(await readFile(this.#path, "utf8")));
+      const stored: unknown = JSON.parse(await readFile(this.#path, "utf8"));
+      // A file from an older version lacks newer settings, which take their defaults instead of resetting the rest.
+      const parsed = MobileSettings.safeParse(
+        stored && typeof stored === "object" ? { ...DEFAULT_MOBILE_SETTINGS, ...stored } : stored,
+      );
       this.#cache = parsed.success ? parsed.data : { ...DEFAULT_MOBILE_SETTINGS };
     } catch {
       this.#cache = { ...DEFAULT_MOBILE_SETTINGS };

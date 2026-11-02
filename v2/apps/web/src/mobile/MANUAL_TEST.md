@@ -183,6 +183,46 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Uninstall or rename idb, then click Refresh.
   Expected: Setup lists idb as missing with the install command. Screenshots still show; taps report that they need idb.
 
+## Per-worktree Metro port
+
+Use a project with at least one worktree besides the checkout, and an Android emulator or a Mac with Xcode.
+
+- [ ] Open the project view for a worktree, then for the checkout.
+  Expected: the worktree's "Metro port" row shows a port from 8100 to 8199, and the checkout shows 8081. Settings > Mobile > Worktrees lists the same ports.
+- [ ] In a ZLI terminal of the worktree, run `echo $RCT_METRO_PORT $ZLI_METRO_PORT`, then start `npx expo start` with no `--port`.
+  Expected: both print the worktree's port, and Expo starts on that port without asking about 8081.
+- [ ] With Metro running from the worktree, look at the "Metro port" row. Then start Metro on the same port from a second worktree's folder in a plain terminal, and look at the first worktree again.
+  Expected: "Running here" while it runs from this worktree. With the other worktree's Metro, "Used by <branch>", the amber banner names that branch, and the Expo banner's Open is disabled with the tooltip "Port <port> belongs to <branch>".
+- [ ] On macOS, repeat the owner check. On Linux, repeat it with `lsof` removed from `PATH`.
+  Expected: the same owner on macOS. On Linux the `ss` fallback finds the same owner.
+- [ ] Ask an agent in the worktree to boot an emulator with `zli-mobile boot`.
+  Expected: the emulator's serial matches the worktree's "Emulator port" row (for example emulator-5560). If that port is taken, it boots on any free port.
+- [ ] With a development build made for 8081 on the emulator, open the worktree's URL from the Expo banner, or have the agent call `mobile_workspace` and open its URL. Then run `adb -s <serial> reverse --list`.
+  Expected: the app loads the worktree's bundle, the notice says "The device's localhost:8081 now reaches port <port> too.", and the list shows `tcp:8081 tcp:<port>`.
+- [ ] Repeat the open on a USB phone.
+  Expected: no 8081 mapping is added for the phone.
+- [ ] In a project with `expo-dev-client` and a `scheme` in `app.json`, look at "Open on a device", then open it on a device.
+  Expected: "Development build" and `<scheme>://expo-development-client/?url=http%3A%2F%2Flocalhost%3A<port>`. It opens in the development build, not Expo Go. Without `expo-dev-client`, it reads "Expo Go" and `exp://localhost:<port>`. With `expo-dev-client` but no scheme, the URL starts with `exp+<slug>://`.
+- [ ] Create a second worktree, note both ports, then remove or cancel the first worktree and reopen the second's project view and a new terminal there.
+  Expected: the second worktree keeps its port, in the view and in `$RCT_METRO_PORT`.
+- [ ] Open a worktree's URL on the emulator so the 8081 mapping is set, then hand the device to another worktree's agent or let the holder's lease lapse.
+  Expected: `adb -s <serial> reverse --list` no longer lists `tcp:8081`. Opening again from the new holder re-adds it with its own port.
+
+## Project check: Toolchain and Packages
+
+- [ ] On a Mac with Xcode and CocoaPods, open an Expo or React Native worktree and click Project check.
+  Expected: the Toolchain group lists Xcode and CocoaPods versions, and Signing says how many iPhone signing identities this Mac has. No certificate names or team ids appear.
+- [ ] On Linux or Windows, open the same worktree.
+  Expected: Xcode and CocoaPods say "Not checked on this computer", Signing says "iPhone: not checked on this computer.", and nothing is shown as an error because of it.
+- [ ] In a real Expo project with `node_modules` installed, click Run Expo checks.
+  Expected: the three exact command lines appear with Run and Cancel, and nothing runs until Run. After Run, each check shows Passed, Failed, or Timed out within about a minute, and mismatched packages from `expo install --check` are listed.
+- [ ] Remove `node_modules` and click Run Expo checks, then Run.
+  Expected: each check says "Not installed in this project".
+- [ ] Online, type `react-native-reanimated react-native-fs` under Packages and click Check.
+  Expected: answers from React Native Directory within a few seconds, and the install line uses `npx expo install` in Expo apps or the lockfile's package manager otherwise.
+- [ ] Turn off the network and check a package.
+  Expected: Not checked with "React Native Directory could not be reached", and Propose install is still offered.
+
 ## Agent and person handoff
 
 - [ ] In an agent terminal, run `zli-mobile devices`, `zli-mobile tap e3`, and `zli-mobile screenshot`.
@@ -210,3 +250,30 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
   Expected: the screen falls back to screenshots, the chip reads "Screenshots", and its tooltip gives the reason.
 - [ ] WebCodecs unavailable (run with `--disable-features=WebCodecs`, or force a decode error).
   Expected: the panel polls screenshots itself, the note under the screen says the video could not be decoded, and input keeps working.
+
+## Crash watch and build brief
+
+Crash watch reads a device's log only while an agent holds the device or a window shows it. It is on by default, under Settings > Mobile > Crash watch.
+
+- [ ] Android: install an app that throws from a button (for example `throw IllegalStateException("test")` in a click handler), open it in the panel, and tap the button.
+  Expected: within about two seconds a red banner reads "<package> crashed: IllegalStateException: test". Show details lists the frames and the log lines before the crash.
+- [ ] Crash it again the same way.
+  Expected: the same banner gains "×2". No second banner appears.
+- [ ] Let an agent drive the device, crash the app, then have the agent run any other zli-mobile tool.
+  Expected: that result ends with "The app crashed … ago: … Call mobile_crashes for the stack." The result after it has no notice. mobile_crashes returns the title, the frames, and "Last N log lines:".
+- [ ] Native crash: crash a native library, for example with a null dereference in a JNI call.
+  Expected: one banner with "Fatal signal 11 (SIGSEGV)". Once the tombstone is written, Show details lists `#00 pc …` frames.
+- [ ] ANR: block the main thread for more than 5 seconds and tap the screen.
+  Expected: a banner "<package> crashed: ANR in <package>: Input dispatching timed out…".
+- [ ] iOS simulator (macOS): raise an uncaught `NSException` in the app.
+  Expected: a banner with the exception name and reason.
+- [ ] Turn off Watch for crashes, then crash the app.
+  Expected: no banner, and ZLI's `adb logcat -v threadtime -T 1` process for the device is gone.
+- [ ] Close the Mobile panel and wait two minutes with no agent on the device.
+  Expected: ZLI's `logcat` process for that device stops.
+- [ ] Rename adb while a device runs, then reopen the panel.
+  Expected: the desktop log says once that ZLI could not read the device's log. Nothing else changes.
+- [ ] Project check > Build failure: paste the end of a real failed `./gradlew assembleDebug` or `xcodebuild` log and click Explain.
+  Expected: the class badge, the first real error line rather than the final `FAILURE:` line, Show context with 20 lines on each side, and Send to agent, which sends the brief to the worktree's chat agent.
+- [ ] From an agent, call mobile_build_brief with `logPath` set to a log in the temp folder, then to a file outside the worktree such as `~/.ssh/config`.
+  Expected: the first returns the brief. The second is refused with "ZLI reads build logs only from this worktree or the temp folder."

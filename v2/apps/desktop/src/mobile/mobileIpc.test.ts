@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AndroidDriver } from "./AndroidDriver.js";
+import { createMobileDev } from "./dev/index.js";
+import { createTestDevHost } from "./dev/testHost.js";
 import { DeviceManager } from "./DeviceManager.js";
 import { FakeDriver } from "./FakeDriver.js";
 import type { MobileService } from "./MobileService.js";
@@ -34,7 +36,10 @@ function handlers() {
     delete: vi.fn(async (_input: unknown) => ({ avds: [] })),
   };
   const service = { manager, setup: {}, avds, status: async () => ({}) } as unknown as MobileService;
-  const settings = { get: vi.fn(async () => ({ agentTools: true })), set: vi.fn(async () => ({ agentTools: false })) };
+  const settings = {
+    get: vi.fn(async () => ({ agentTools: true, crashWatch: true })),
+    set: vi.fn(async () => ({ agentTools: false, crashWatch: true })),
+  };
   return {
     android,
     avds,
@@ -113,6 +118,37 @@ describe("mobile IPC handlers", () => {
     expect(() => stopped["zli:mobile:devices"]?.(undefined)).toThrow("ZLI's mobile service is not running.");
     expect(() => stopped["zli:mobile:settings-get"]?.(undefined)).toThrow("ZLI's mobile service is not running.");
   });
+  it("serves the proposal channels, which take only an id and parse every payload", async () => {
+    const host = createTestDevHost();
+    const dev = createMobileDev(host);
+    const handle = mobileIpcHandlers({ service: () => undefined, settings: () => undefined, dev: () => dev });
+    const proposal = host.proposals.create({
+      worktreeId: "wt-1",
+      source: "agent",
+      sourceLabel: "Proposed by the agent in app",
+      title: "Install packages",
+      reason: "",
+      action: { kind: "command", program: "npm", args: ["install"] },
+    });
+    expect(handle["zli:mobile:proposals:list"]?.({ worktreeId: "wt-1" })).toEqual([proposal]);
+    expect(handle["zli:mobile:proposals:list"]?.(undefined)).toEqual([proposal]);
+    expect(handle["zli:mobile:proposals:list"]?.({ worktreeId: "wt-2" })).toEqual([]);
+    expect(() => handle["zli:mobile:proposals:accept"]?.({ proposalId: "not-an-id" })).toThrow();
+    expect(() =>
+      handle["zli:mobile:proposals:accept"]?.({ proposalId: proposal.proposalId, args: ["rm"] }),
+    ).not.toThrow();
+    await Promise.resolve();
+    expect(host.commands.map((entry) => entry.command.args)).toEqual([["-lc", "'npm' 'install'"]]);
+    expect(() => handle["zli:mobile:proposals:dismiss"]?.({})).toThrow();
+  });
+
+  it("refuses a dev channel that could replace a core one", () => {
+    const dev = { ipc: { "zli:mobile:status": () => "replaced" } };
+    expect(() => mobileIpcHandlers({ service: () => undefined, settings: () => undefined, dev: () => dev })).toThrow(
+      /zli:mobile:<feature>:<verb>/u,
+    );
+  });
+
   it("parses virtual device requests before they reach avdmanager", async () => {
     const { avds, handle } = handlers();
     const image = "system-images;android-35;google_apis;x86_64";

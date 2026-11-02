@@ -1,6 +1,8 @@
 import {
   EnvironmentId,
   EventId,
+  METRO_BAND,
+  metroPortFor,
   ProjectId,
   type RuntimeCommand,
   type RuntimeEvent,
@@ -728,6 +730,84 @@ describe("projects without Git", () => {
   it("refuses a new worktree for a folder that is not a Git repository", () => {
     expect(() => decide(plain(false), create)).toThrow(/not a Git repository/u);
     expect(decide(plain(undefined), create)[0]?.type).toBe("worktree.create.requested");
+  });
+});
+
+describe("worktree Metro port", () => {
+  const projectId = ProjectId.parse("00000000-0000-4000-8000-000000000406");
+  const firstId = WorktreeId.parse("00000000-0000-4000-8000-000000000407");
+  const secondId = WorktreeId.parse("00000000-0000-4000-8000-000000000408");
+  let sequence = 0;
+  const state = (): RuntimeProjection => ({
+    ...projection("/work/app"),
+    worktrees: [],
+    projects: [{ projectId, path: "/work/app", name: "app" }],
+  });
+  const create = (id: WorktreeId, branch: string): RuntimeCommand => ({
+    type: "worktree.create",
+    worktreeId: id,
+    projectId,
+    path: `/work/app-worktrees/${branch}`,
+    workspaceRoot: "/work/app-worktrees",
+    branch,
+  });
+  const fold = (current: RuntimeProjection, events: RuntimeEvent[]): RuntimeProjection =>
+    events.reduce(
+      (folded, event) =>
+        projectEvent(folded, {
+          protocolVersion: 1,
+          sequence: folded.lastSequence + 1,
+          eventId: EventId.parse(`00000000-0000-4000-8000-${String(900 + ++sequence).padStart(12, "0")}`),
+          occurredAt: "2026-10-28T10:00:00.000Z",
+          event,
+        }),
+      current,
+    );
+
+  it("pins each worktree's port at creation, and removal of an older one never moves it", () => {
+    let current = state();
+    const first = decide(current, create(firstId, "one"))[0];
+    if (first?.type !== "worktree.create.requested") throw new Error("expected worktree.create.requested");
+    const firstPort = first.worktree.metroPort as number;
+    expect(firstPort).toBeGreaterThanOrEqual(METRO_BAND.first);
+    expect(firstPort).toBeLessThan(METRO_BAND.first + METRO_BAND.size);
+    current = fold(current, [first]);
+
+    const second = decide(current, create(secondId, "two"))[0];
+    if (second?.type !== "worktree.create.requested") throw new Error("expected worktree.create.requested");
+    const secondPort = second.worktree.metroPort as number;
+    expect(secondPort).not.toBe(firstPort);
+    current = fold(current, [second]);
+    expect(metroPortFor(secondId, current.worktrees)).toBe(secondPort);
+
+    current = fold(current, decide(current, { type: "worktree.removed", worktreeId: firstId }));
+    expect(current.worktrees.map((worktree) => worktree.worktreeId)).toEqual([secondId]);
+    expect(metroPortFor(secondId, current.worktrees)).toBe(secondPort);
+  });
+
+  it("pins a port for an imported worktree but not for the checkout", () => {
+    const current = state();
+    const imported = decide(current, {
+      type: "worktree.import",
+      worktreeId: firstId,
+      projectId,
+      path: "/work/app-worktrees/one",
+      branch: "one",
+    })[0];
+    if (imported?.type !== "worktree.imported") throw new Error("expected worktree.imported");
+    expect(imported.worktree.metroPort).toBeGreaterThanOrEqual(METRO_BAND.first);
+
+    const checkout = decide(current, {
+      type: "worktree.import",
+      worktreeId: secondId,
+      projectId,
+      path: "/work/app",
+      branch: "main",
+      kind: "checkout",
+    })[0];
+    if (checkout?.type !== "worktree.imported") throw new Error("expected worktree.imported");
+    expect(checkout.worktree.metroPort).toBeUndefined();
+    expect(metroPortFor(secondId, [checkout.worktree])).toBe(8081);
   });
 });
 

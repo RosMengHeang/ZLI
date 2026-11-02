@@ -1,0 +1,10 @@
+packages:
+  collection:
+    dependency: transitive
+    description:
+      name: collection
+    source: hosted
+    version: "1.19.0"
+sdks:
+  dart: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"

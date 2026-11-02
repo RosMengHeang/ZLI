@@ -17,10 +17,12 @@ import {
   BrowserSetViewportInput,
   BrowserTabIdInput,
   BrowserWaitForNetworkIdleInput,
+  MobileTestInput,
   type OpenInApp,
   OpenInRequest,
   RpcRequest,
   TerminalId,
+  withoutPrivateEnv,
 } from "@zli-v2/contracts";
 import {
   app,
@@ -61,12 +63,18 @@ import {
 import { createProjectCheckout } from "./browser/projectCheckout.js";
 import { type CaptureDependencies, captureSource, listCaptureSources, parseSourceId } from "./capture/WindowCapture.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
-import { hostArch, hostOs } from "./mobile/host.js";
+import type { MobileDevHost, MobileDevTestOp } from "./mobile/dev/host.js";
+import { createMobileDev, type MobileDev } from "./mobile/dev/index.js";
+import { ProposalStore } from "./mobile/dev/ProposalStore.js";
+import type { FetchLike } from "./mobile/download.js";
+import { hostArch, hostOs, nodeMobileFileSystem } from "./mobile/host.js";
 import { createMobileControlActions, isMobileControlAction } from "./mobile/MobileControlActions.js";
-import { createMobileService, type MobileService } from "./mobile/MobileService.js";
+import { createMobileService, type MobileService, type MobileServiceOptions } from "./mobile/MobileService.js";
 import { MobileSettingsStore } from "./mobile/MobileSettingsStore.js";
 import { mobileIpcHandlers, streamViewer } from "./mobile/mobileIpc.js";
 import { PopOutWindows, type PopOutWindowLike, type WindowBounds } from "./mobile/PopOutWindows.js";
+import { createNodeProcessRunner, withDefaultEnv } from "./mobile/ProcessRunner.js";
+import { createFakeMobileService } from "./mobile/testing/fakeMobileService.js";
 import type { AgentNotifier } from "./notifications/AgentNotifier.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
 import { registerMobileAccess } from "./remote/electronMobileAccess.js";
@@ -122,6 +130,9 @@ let browserManager: BrowserManager | undefined;
 let browserControl: BrowserControlServer | undefined;
 let mobile: MobileService | undefined;
 let mobileSettings: MobileSettingsStore | undefined;
+let mobileDev: MobileDev | undefined;
+/** What zli:test:mobile can call. Empty unless a mock test launch asked for the fake mobile service. */
+let mobileTestOps: Record<string, MobileDevTestOp> = {};
 let popOuts: PopOutWindows | undefined;
 let mainWindow: BrowserWindow | undefined;
 let notifier: AgentNotifier | undefined;
@@ -376,27 +387,60 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
   mobileSettings = new MobileSettingsStore(
     testLaunch ? `${databasePath}.mobile-settings.json` : join(userData, "mobile-settings.json"),
   );
-  mobile = createMobileService({
-    os: hostOs(),
-    arch: hostArch(),
-    env: process.env,
-    home: app.getPath("home"),
-    // The Android SDK and Java ZLI installs are large, so test launches share the real folder instead of
-    // downloading their own; only settings stay beside the throwaway database.
-    mobileDir: join(defaultUserData, "mobile"),
-    events: {
-      devices: (devices) => sendToMobileWindows("zli:mobile:devices", devices),
-      stream: (message) => sendToMobileWindows("zli:mobile:stream", message),
-      setup: (progress) => sendToMobileWindows("zli:mobile:setup", progress),
-    },
-  });
+  const mobileEnv = withoutPrivateEnv(process.env);
+  const mobileEvents: NonNullable<MobileServiceOptions["events"]> = {
+    devices: (devices) => sendToMobileWindows("zli:mobile:devices", devices),
+    stream: (message) => sendToMobileWindows("zli:mobile:stream", message),
+    setup: (progress) => sendToMobileWindows("zli:mobile:setup", progress),
+  };
+  // End-to-end tests drive a fake emulator, so they need no Android SDK, adb, or network.
+  const fakeMobile =
+    process.env.ZLI_TEST_PROVIDER === "mock" && process.env.ZLI_TEST_MOBILE === "fake"
+      ? createFakeMobileService({ os: hostOs(), arch: hostArch(), events: mobileEvents })
+      : undefined;
+  mobile =
+    fakeMobile?.service ??
+    createMobileService({
+      os: hostOs(),
+      arch: hostArch(),
+      env: mobileEnv,
+      home: app.getPath("home"),
+      // The Android SDK and Java ZLI installs are large, so test launches share the real folder instead of
+      // downloading their own; only settings stay beside the throwaway database.
+      mobileDir: join(defaultUserData, "mobile"),
+      events: mobileEvents,
+    });
   const settingsStore = mobileSettings;
+  const liveWorktrees = () => (runtime?.projection()?.worktrees ?? []).filter((entry) => entry.status !== "cancelled");
+  const devHost: MobileDevHost = {
+    runner: fakeMobile?.runner ?? withDefaultEnv(createNodeProcessRunner(), mobileEnv),
+    fs: nodeMobileFileSystem,
+    fetch: fakeMobile?.fetch ?? (globalThis.fetch as unknown as FetchLike),
+    os: hostOs(),
+    env: mobileEnv,
+    home: app.getPath("home"),
+    worktrees: liveWorktrees,
+    worktreePath: (worktreeId) => liveWorktrees().find((entry) => entry.worktreeId === worktreeId)?.path,
+    manager: () => mobile?.manager,
+    settings: () => settingsStore.get(),
+    proposals: new ProposalStore({
+      worktrees: liveWorktrees,
+      command: runtimeCommand,
+      onChange: (list) => sendToMobileWindows("zli:mobile:proposals", list),
+    }),
+    send: sendToMobileWindows,
+    now: () => new Date(),
+  };
+  const dev = createMobileDev(devHost);
+  mobileDev = dev;
+  mobileTestOps = fakeMobile ? { ...fakeMobile.testOps, ...dev.testOps } : {};
   const mobileActions = createMobileControlActions({
     manager: () => mobile?.manager,
     worktrees: () => runtime?.projection()?.worktrees ?? [],
     settings: () => settingsStore.get(),
     status: () => (mobile ? mobile.status() : Promise.reject(new Error("ZLI's mobile service is not running."))),
     reveal: (event) => sendToWindow("zli:mobile:reveal", event),
+    dev,
   });
   const reach = new ReachRequests({
     show: (request) => sendToWindow("zli:agents:reach-request", request ?? null),
@@ -708,6 +752,15 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     lastOpenIn = undefined;
     return opened;
   });
+  ipcMain.handle("zli:test:mobile", (_event, input: unknown) => {
+    if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
+    if (process.env.ZLI_TEST_MOBILE !== "fake")
+      throw new Error("Launch with ZLI_TEST_MOBILE=fake to use mobile test controls.");
+    const request = MobileTestInput.parse(input);
+    const operation = mobileTestOps[request.op];
+    if (!operation) throw new Error(`There is no mobile test operation named ${request.op}.`);
+    return operation(request.input);
+  });
   ipcMain.handle("zli:test:take-external-url", () => {
     if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
     const url = lastExternalUrl ?? null;
@@ -721,6 +774,7 @@ function registerMobileIpc(): void {
     service: () => mobile,
     settings: () => mobileSettings,
     popOuts: () => popOuts,
+    dev: () => mobileDev,
   });
   for (const [channel, handle] of Object.entries(handlers))
     ipcMain.handle(channel, (event, input: unknown) => handle(input, { viewer: streamViewer(event.sender.id) }));
@@ -863,6 +917,10 @@ async function shutdownRuntime(): Promise<void> {
   await mobileAccess?.stop().catch(() => undefined);
   // Before the mobile service, so each window's bounds are saved and its stream share is let go first.
   await popOuts?.closeAll().catch((error: unknown) => console.error("Pop-out windows did not close cleanly", error));
+  await mobileDev
+    ?.dispose()
+    .catch((error: unknown) => console.error("Mobile dev features did not stop cleanly", error));
+  mobileDev = undefined;
   // Emulators ZLI started would otherwise keep running, and scrcpy servers keep the device awake.
   await mobile?.dispose().catch((error: unknown) => console.error("Mobile devices did not stop cleanly", error));
   mobile = undefined;

@@ -28,6 +28,8 @@ import type {
   WhatsNew,
 } from "@zli-v2/contracts";
 
+import type { MobileDevBridge } from "../mobile/dev/bridge.js";
+
 export type ZliBridge = {
   runtime: {
     dispatch(request: unknown): Promise<RpcResponse>;
@@ -106,6 +108,8 @@ export type ZliBridge = {
     crashMain(): Promise<unknown>;
     takeExternalUrl?(): Promise<unknown>;
     takeOpenIn?(): Promise<unknown>;
+    /** Only with ZLI_TEST_MOBILE=fake: drives the fake mobile service, such as op "propose". */
+    mobile?(op: string, input?: unknown): Promise<unknown>;
   };
   notifications?: {
     getSettings(): Promise<NotificationSettings>;
@@ -183,6 +187,8 @@ export type MobileBridge = {
   pinPopOut?(deviceId: string, pinned: boolean): Promise<MobilePopOut[]>;
   /** Tells the window the device's shape, so resizing keeps it. */
   setPopOutAspect?(input: MobilePopOutAspectInput): Promise<void>;
+  /** Proposals and the mobile dev features. Absent in builds and test bridges without them. */
+  dev?: MobileDevBridge;
 };
 
 export type NotificationSettings = { enabled: boolean; sound: boolean };

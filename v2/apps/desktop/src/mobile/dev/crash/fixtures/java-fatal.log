@@ -1,0 +1,132 @@
+11-01 10:15:00.151  4321  4352 D EGL_emulation: app_time_stats: avg=29.18ms min=1.30ms max=43.47ms count=44
+11-01 10:15:00.229  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 164 [NetworkRequest [ REQUEST id=172, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:15:00.351  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:15:00.484  4321  4352 I OpenGLRenderer: Davey! duration=734ms;
+11-01 10:15:00.492   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#803
+11-01 10:15:00.625  4321  4321 D InsetsController: show(ime(), fromIme=false)
+11-01 10:15:00.759  4321  4321 I Choreographer: Skipped 33 frames!  The application may be doing too much work on its main thread.
+11-01 10:15:00.794   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:15:00.886  1180  1214 I ActivityTaskManager: Displayed com.example.app/.MainActivity for user 0: +1s414ms
+11-01 10:15:00.977  4321  4321 I Choreographer: Skipped 33 frames!  The application may be doing too much work on its main thread.
+11-01 10:15:01.046  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP
+11-01 10:15:01.141  1180  1214 I ActivityTaskManager: Displayed com.example.app/.MainActivity for user 0: +2s985ms
+11-01 10:15:01.253  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:15:01.273  1180  1402 W ActivityManager: Slow operation: 65ms so far, now at startProcess: done updating pids map
+11-01 10:15:01.395  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=2
+11-01 10:15:01.488   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:15:01.620  4321  4380 I ReactNativeJS: Analytics: screen_view Home
+11-01 10:15:01.745  4321  4352 D EGL_emulation: app_time_stats: avg=16.28ms min=1.71ms max=84.24ms count=61
+11-01 10:15:01.785  1180  1214 I ActivityManager: Start proc 4321:com.example.app/u0a190 for pre-top-activity {com.example.app/com.example.app.MainActivity}
+11-01 10:15:01.857  4321  4321 D SoLoader: Loading library: hermes
+11-01 10:15:01.867  4321  4352 D EGL_emulation: app_time_stats: avg=23.10ms min=5.11ms max=82.93ms count=60
+11-01 10:15:01.903  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=4 (171ms)
+11-01 10:15:01.940  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:15:01.954  4321  4380 I ReactNativeJS: 'Image cache warm', { entries: 48 }
+11-01 10:15:02.000  4321  4321 D InsetsController: hide(ime(), fromIme=false)
+11-01 10:15:02.053  4321  4352 D OpenGLRenderer: Davey! duration=825ms; Flags=0, FrameTimelineVsyncId=291816, IntendedVsync=431796626363, Vsync=872621636449
+11-01 10:15:02.104  4321  4321 I Choreographer: Skipped 61 frames!  The application may be doing too much work on its main thread.
+11-01 10:15:02.152   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#900
+11-01 10:15:02.206  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=4 (166ms)
+11-01 10:15:02.220  4321  4321 D InsetsController: hide(ime(), fromIme=false)
+11-01 10:15:02.255  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:15:02.334  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_DOWN
+11-01 10:15:02.400   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:15:02.424  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:15:02.500  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:15:02.576  4321  4352 D OpenGLRenderer: Davey! duration=860ms; Flags=0, FrameTimelineVsyncId=648069, IntendedVsync=188793393494, Vsync=794198515650
+11-01 10:15:02.647  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:15:02.678   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:15:02.696  1180  1402 W ActivityManager: Slow operation: 124ms so far, now at startProcess: done updating pids map
+11-01 10:15:02.740  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 162 [NetworkRequest [ REQUEST id=341, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:15:02.822  4321  4380 I ReactNativeJS: 'Navigation state changed', { route: 'Profile' }
+11-01 10:15:02.855  1180  1402 W ActivityManager: Slow operation: 50ms so far, now at startProcess: done updating pids map
+11-01 10:15:02.916  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 184 [NetworkRequest [ REQUEST id=123, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:15:03.000  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:15:03.081  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=5
+11-01 10:15:03.141  4321  4321 D AndroidRuntime: Shutting down VM
+11-01 10:15:03.142  4321  4321 E AndroidRuntime: FATAL EXCEPTION: main
+11-01 10:15:03.142  4321  4321 E AndroidRuntime: Process: com.example.app, PID: 4321
+11-01 10:15:03.142  4321  4321 E AndroidRuntime: java.lang.IllegalStateException: Fragment ProfileFragment{5f2a1b} not attached to a context.
+11-01 10:15:03.142  4321  4321 E AndroidRuntime: 	at androidx.fragment.app.Fragment.requireContext(Fragment.java:972)
+11-01 10:15:03.142  4321  4321 E AndroidRuntime: 	at androidx.fragment.app.Fragment.getResources(Fragment.java:1036)
+11-01 10:15:03.143  4321  4321 E AndroidRuntime: 	at com.example.app.profile.ProfileFragment.onAvatarLoaded(ProfileFragment.kt:88)
+11-01 10:15:03.143  4321  4321 E AndroidRuntime: 	at com.example.app.profile.ProfileFragment.access$onAvatarLoaded(ProfileFragment.kt:31)
+11-01 10:15:03.143  4321  4321 E AndroidRuntime: 	at kotlinx.coroutines.flow.FlowKt__CollectKt$collect$3.emit(Collect.kt:30)
+11-01 10:15:03.143  4321  4321 E AndroidRuntime: 	at com.example.app.profile.ProfileFragment$loadAvatar$1.invokeSuspend(ProfileFragment.kt:74)
+11-01 10:15:03.143  4321  4321 E AndroidRuntime: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+11-01 10:15:03.144  4321  4321 E AndroidRuntime: 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+11-01 10:15:03.144  4321  4321 E AndroidRuntime: 	at android.os.Handler.handleCallback(Handler.java:959)
+11-01 10:15:03.144  4321  4321 E AndroidRuntime: 	at android.os.Handler.dispatchMessage(Handler.java:100)
+11-01 10:15:03.144  4321  4321 E AndroidRuntime: 	at android.os.Looper.loop(Looper.java:317)
+11-01 10:15:03.144  4321  4321 E AndroidRuntime: 	at android.app.ActivityThread.main(ActivityThread.java:8705)
+11-01 10:15:03.146  4321  4321 I Process : Sending signal. PID: 4321 SIG: 9
+11-01 10:15:03.576  1180  1402 I ActivityManager: Process com.example.app (pid 4321) has died: fg  TOP 
+11-01 10:15:03.627  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:15:03.674  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=4
+11-01 10:15:03.725  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:15:03.754  4321  4321 I chatty  : uid=10190(com.example.app) RenderThread identical 3 lines
+11-01 10:15:03.776  4321  4321 I Choreographer: Skipped 58 frames!  The application may be doing too much work on its main thread.
+11-01 10:15:03.808  4321  4352 D OpenGLRenderer: Davey! duration=1101ms; Flags=0, FrameTimelineVsyncId=133811, IntendedVsync=675547632687, Vsync=983429850184
+11-01 10:15:03.928  1180  1214 I ActivityManager: Start proc 4555:com.example.app/u0a190 for pre-top-activity {com.example.app/com.example.app.MainActivity}
+11-01 10:15:03.995  4555  4599 D OkHttp  : --> GET https://api.example.com/v1/feed?page=1
+11-01 10:15:04.024   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:15:04.074  4555  4555 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:15:04.116   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:15:04.177  4555  4555 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:15:04.238  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:15:04.265  4555  4555 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:15:04.292  4555  4555 D InsetsController: show(ime(), fromIme=false)
+11-01 10:15:04.316  1180  1214 I ActivityTaskManager: Displayed com.example.app/.MainActivity for user 0: +2s939ms
+11-01 10:15:04.374  4555  4599 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=1 (172ms)
+11-01 10:15:05.146  4555  4555 D AndroidRuntime: Shutting down VM
+11-01 10:15:05.147  4555  4555 E AndroidRuntime: FATAL EXCEPTION: main
+11-01 10:15:05.147  4555  4555 E AndroidRuntime: Process: com.example.app, PID: 4555
+11-01 10:15:05.147  4555  4555 E AndroidRuntime: java.lang.IllegalStateException: Fragment ProfileFragment{5f2a1b} not attached to a context.
+11-01 10:15:05.147  4555  4555 E AndroidRuntime: 	at androidx.fragment.app.Fragment.requireContext(Fragment.java:972)
+11-01 10:15:05.147  4555  4555 E AndroidRuntime: 	at androidx.fragment.app.Fragment.getResources(Fragment.java:1036)
+11-01 10:15:05.148  4555  4555 E AndroidRuntime: 	at com.example.app.profile.ProfileFragment.onAvatarLoaded(ProfileFragment.kt:88)
+11-01 10:15:05.148  4555  4555 E AndroidRuntime: 	at com.example.app.profile.ProfileFragment.access$onAvatarLoaded(ProfileFragment.kt:31)
+11-01 10:15:05.148  4555  4555 E AndroidRuntime: 	at kotlinx.coroutines.flow.FlowKt__CollectKt$collect$3.emit(Collect.kt:30)
+11-01 10:15:05.148  4555  4555 E AndroidRuntime: 	at com.example.app.profile.ProfileFragment$loadAvatar$1.invokeSuspend(ProfileFragment.kt:74)
+11-01 10:15:05.148  4555  4555 E AndroidRuntime: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+11-01 10:15:05.149  4555  4555 E AndroidRuntime: 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+11-01 10:15:05.149  4555  4555 E AndroidRuntime: 	at android.os.Handler.handleCallback(Handler.java:959)
+11-01 10:15:05.149  4555  4555 E AndroidRuntime: 	at android.os.Handler.dispatchMessage(Handler.java:100)
+11-01 10:15:05.149  4555  4555 E AndroidRuntime: 	at android.os.Looper.loop(Looper.java:317)
+11-01 10:15:05.149  4555  4555 E AndroidRuntime: 	at android.app.ActivityThread.main(ActivityThread.java:8705)
+11-01 10:15:05.151  4555  4555 I Process : Sending signal. PID: 4555 SIG: 9
+11-01 10:15:05.601  1180  1402 I ActivityManager: Process com.example.app (pid 4555) has died: fg  TOP 
+11-01 10:15:05.663  4321  4352 D OpenGLRenderer: Davey! duration=850ms; Flags=0, FrameTimelineVsyncId=876687, IntendedVsync=632799282860, Vsync=496795714298
+11-01 10:15:05.715  4321  4352 D OpenGLRenderer: Davey! duration=1184ms; Flags=0, FrameTimelineVsyncId=393517, IntendedVsync=964978375138, Vsync=123229949444
+11-01 10:15:05.794  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:15:05.810  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:15:05.899  1180  1201 I ActivityManager: Changes in 10190 4 to 3, 0 to 0
+11-01 10:15:05.916  4321  4380 I ReactNativeJS: 'Fetching feed', { page: 2 }
+11-01 10:15:06.017  4321  4321 D SoLoader: Loading library: hermes
+11-01 10:15:06.049  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=4
+11-01 10:15:06.063  1180  1402 W ActivityManager: Slow operation: 64ms so far, now at startProcess: done updating pids map
+11-01 10:15:06.111  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:15:06.135   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:15:06.216  4321  4321 I chatty  : uid=10190(com.example.app) RenderThread identical 9 lines
+11-01 10:15:06.342   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:15:06.462  4321  4321 D InsetsController: hide(ime(), fromIme=false)
+11-01 10:15:06.539  1180  1402 W ActivityManager: Slow operation: 156ms so far, now at startProcess: done updating pids map
+11-01 10:15:06.645  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=4
+11-01 10:15:06.781  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_DOWN
+11-01 10:15:06.793  4321  4333 I com.example.app: Background concurrent mark compact GC freed 8660KB AllocSpace bytes, 22(420KB) LOS objects, 55% free, 10MB/17MB, paused 420us,165us total 39.854ms
+11-01 10:15:06.809   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:15:06.857  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 185 [NetworkRequest [ REQUEST id=128, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:15:06.965  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 390 [NetworkRequest [ REQUEST id=276, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:15:07.056  1180  1201 I ActivityManager: Changes in 10190 2 to 3, 0 to 0
+11-01 10:15:07.151  4321  4352 D OpenGLRenderer: Davey! duration=952ms; Flags=0, FrameTimelineVsyncId=923817, IntendedVsync=962336235922, Vsync=839377080313
+11-01 10:15:07.234  4321  4333 I com.example.app: Background concurrent mark compact GC freed 7370KB AllocSpace bytes, 3(630KB) LOS objects, 60% free, 9MB/14MB, paused 833us,436us total 68.050ms
+11-01 10:15:07.352  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_DOWN
+11-01 10:15:07.455  4321  4321 D InsetsController: show(ime(), fromIme=false)
+11-01 10:15:07.495  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=2
+11-01 10:15:07.580   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#858
+11-01 10:15:07.641  4321  4321 D SoLoader: init exiting
+11-01 10:15:07.687  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:15:07.704  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP
+11-01 10:15:07.800  4321  4380 I ReactNativeJS: 'Image cache warm', { entries: 48 }
+11-01 10:15:07.820  1180  1214 I ActivityTaskManager: Displayed com.example.app/.MainActivity for user 0: +1s230ms
+11-01 10:15:07.915  4321  4321 D ProfileInstaller: Installing profile for com.example.app

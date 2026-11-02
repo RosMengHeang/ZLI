@@ -1,11 +1,12 @@
-import type {
-  MobileAndroidStatus,
-  MobileButton,
-  MobileDevice,
-  MobileDeviceState,
-  MobilePanelInput,
-  MobileSetupPlan,
-  MobileSetupProgress,
+import {
+  METRO_BAND,
+  type MobileAndroidStatus,
+  type MobileButton,
+  type MobileDevice,
+  type MobileDeviceState,
+  type MobilePanelInput,
+  type MobileSetupPlan,
+  type MobileSetupProgress,
 } from "@zli-v2/contracts";
 
 import type { MobileBridge } from "../runtime/bridge.js";
@@ -268,10 +269,17 @@ export function urlToOpen(typed: string): string | undefined {
   return /^[a-z][a-z\d+.-]*:\/\//iu.test(url) || OPAQUE_SCHEMES.test(url) ? url : `http://${url}`;
 }
 
-export function openedNotice(url: string, result: { reversedPort?: number | undefined }): string {
-  return result.reversedPort === undefined
-    ? `Opened ${url}.`
-    : `Opened ${url}. Forwarded localhost:${result.reversedPort} to the device.`;
+export function openedNotice(
+  url: string,
+  result: { reversedPort?: number | undefined; mapped8081To?: number | undefined },
+): string {
+  const opened =
+    result.reversedPort === undefined
+      ? `Opened ${url}.`
+      : `Opened ${url}. Forwarded localhost:${result.reversedPort} to the device.`;
+  return result.mapped8081To === undefined
+    ? opened
+    : `${opened} The device's localhost:8081 now reaches port ${result.mapped8081To} too.`;
 }
 
 /** A dev server the panel can offer to open on a device: its port, address, and the terminal it runs in. */
@@ -281,13 +289,19 @@ export type DevServerHint = { port: number; url: string; name?: string | undefin
 const EXPO_PORTS = [8081, 19000, 19006] as const;
 
 /**
- * The Expo or Metro server among a worktree's dev servers, newest first, or undefined. A server counts when
- * it is on an Expo port or its terminal's name says expo or metro. The web-only port 19006 is a last resort.
+ * The Expo or Metro server among a worktree's dev servers, newest first, or undefined. The worktree's own Metro
+ * port wins. Otherwise a server counts when it is on an Expo port or a worktree Metro port, or its terminal's name
+ * says expo or metro. The web-only port 19006 is a last resort.
  */
-export function expoServer(servers: readonly DevServerHint[]): DevServerHint | undefined {
+export function expoServer(servers: readonly DevServerHint[], metroPort?: number): DevServerHint | undefined {
   const named = (server: DevServerHint) => /expo|metro/iu.test(server.name ?? "");
+  const metroBand = (port: number) => port >= METRO_BAND.first && port < METRO_BAND.first + METRO_BAND.size;
   return (
-    servers.find((server) => named(server) || server.port === EXPO_PORTS[0] || server.port === EXPO_PORTS[1]) ??
+    (metroPort === undefined ? undefined : servers.find((server) => server.port === metroPort)) ??
+    servers.find(
+      (server) =>
+        named(server) || server.port === EXPO_PORTS[0] || server.port === EXPO_PORTS[1] || metroBand(server.port),
+    ) ??
     servers.find((server) => server.port === EXPO_PORTS[2])
   );
 }

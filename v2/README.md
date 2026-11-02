@@ -51,6 +51,8 @@ Compare shows the runs side by side: agent and model, status, files changed with
 
 The Mobile panel (Mod+Shift+M) shows Android emulators, Android phones over USB, and, on a Mac with Xcode, iOS simulators. You can boot them, watch the screen, and tap, swipe, scroll, and type. Agents drive the same devices through the zli-mobile tool, and the panel shows who holds each device. On Windows and Linux, Android is the only platform; the panel can download and set up the Android emulator for you.
 
+The toolbar's **Project check** reads the current agent's worktree and reports its dev server, toolchain, packages, and what a failed build log means. When an agent wants to run a command there or change AGENTS.md or CLAUDE.md, a card appears above the device, and nothing runs until you click **Run in terminal** or **Write**.
+
 Unit tests use fake drivers. The checks that need real hardware are in [apps/web/src/mobile/MANUAL_TEST.md](apps/web/src/mobile/MANUAL_TEST.md).
 ## Verify locally
 

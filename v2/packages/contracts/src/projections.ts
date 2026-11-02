@@ -55,6 +55,8 @@ export const WorktreeProjection = z.object({
   errorMessage: z.string().min(1).optional(),
   /** "checkout" is the project's own working copy. Removing it only forgets it; files stay on disk. */
   kind: z.enum(["worktree", "checkout"]).optional(),
+  /** The worktree's Metro port, pinned at creation so it never moves while the worktree exists. */
+  metroPort: z.number().int().optional(),
 });
 export type WorktreeProjection = z.infer<typeof WorktreeProjection>;
 

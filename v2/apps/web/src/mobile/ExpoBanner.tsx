@@ -1,17 +1,23 @@
-import type { MobileDevice } from "@zli-v2/contracts";
+import { METRO_BAND, type MobileDevice } from "@zli-v2/contracts";
 import { useState } from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { useWorkspace } from "./dev/workspace/useWorkspace.js";
 import { type DevServerHint, errorText, expoUrl, openedNotice } from "./mobile.js";
 
 /** Ports whose Expo banner was dismissed. Kept for the session only, so a new session offers it again. */
 const DISMISSED_KEY = "zli.mobile.expo.v1";
 
-/** Offers to open the worktree's Expo server on the shown device. It never opens anything without a click. */
+/**
+ * Offers to open the worktree's Expo server on the shown device. It never opens anything without a click. When the
+ * server is on the worktree's own Metro port, Open uses the worktree's URL, and it is off while another worktree
+ * serves that port.
+ */
 export function ExpoBanner({
   mobile,
+  worktreeId,
   device,
   server,
   inputBlocked,
@@ -19,7 +25,8 @@ export function ExpoBanner({
   onError,
   onNotice,
 }: {
-  mobile: Pick<MobileBridge, "openUrl">;
+  mobile: Pick<MobileBridge, "openUrl" | "dev">;
+  worktreeId?: string | undefined;
   device: MobileDevice;
   server: DevServerHint;
   inputBlocked: boolean;
@@ -29,16 +36,40 @@ export function ExpoBanner({
 }) {
   const [dismissed, setDismissed] = useState<readonly number[]>(readDismissed);
   const [opening, setOpening] = useState(false);
+  const api = mobile.dev?.workspace;
+  const { workspace, error: workspaceError } = useWorkspace(api, worktreeId);
   if (dismissed.includes(server.port)) return null;
+  const own = workspace && api && worktreeId && workspace.metroPort === server.port ? workspace : undefined;
+  const servedBy =
+    own?.metro.state === "other-worktree"
+      ? own.metro.branch
+      : own?.metro.state === "other-process"
+        ? "another program"
+        : undefined;
+  // A port in the worktree band could be this worktree's, so Open waits until the owner check answers.
+  const bandPort = server.port >= METRO_BAND.first && server.port < METRO_BAND.first + METRO_BAND.size;
+  const unchecked = !own && !workspaceError && bandPort && api !== undefined && worktreeId !== undefined;
+  const blocked = servedBy !== undefined || unchecked || (!own && workspaceError !== undefined && bandPort);
+  const tooltip =
+    servedBy !== undefined
+      ? `Port ${server.port} belongs to ${servedBy}`
+      : unchecked
+        ? `Checking who serves port ${server.port}`
+        : blocked
+          ? workspaceError
+          : undefined;
 
   const open = async () => {
-    if (opening) return;
+    if (opening || blocked) return;
     if (inputBlocked) return onBlockedInput();
-    const url = expoUrl(server);
+    const url = own ? own.openUrl : expoUrl(server);
     setOpening(true);
     onError(undefined);
     try {
-      onNotice(openedNotice(url, await mobile.openUrl(device.deviceId, url)));
+      if (own && api && worktreeId) {
+        const result = await api.open(worktreeId, device.deviceId);
+        onNotice(openedNotice(result.opened, result));
+      } else onNotice(openedNotice(url, await mobile.openUrl(device.deviceId, url)));
     } catch (cause) {
       onError(errorText(cause, `${device.name} could not open ${url}.`));
     } finally {
@@ -58,9 +89,22 @@ export function ExpoBanner({
   return (
     <div className="banner banner-info" role="status">
       <Icon name="play" size={14} />
-      <span className="banner-message">Expo is running on localhost:{server.port}.</span>
+      <span className="banner-message">
+        {own && servedBy === undefined
+          ? `Metro for this worktree is on localhost:${server.port}.`
+          : servedBy !== undefined
+            ? `This worktree's Metro port ${server.port} is served from ${servedBy}.`
+            : `Expo is running on localhost:${server.port}.`}
+      </span>
       <div className="banner-actions">
-        <Button size="xs" variant="primary" loading={opening} onClick={() => void open()}>
+        <Button
+          size="xs"
+          variant="primary"
+          loading={opening}
+          disabled={blocked}
+          tooltip={tooltip}
+          onClick={() => void open()}
+        >
           Open on {device.name}
         </Button>
         <IconButton

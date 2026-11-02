@@ -52,6 +52,17 @@ export class ProcessError extends Error {
   }
 }
 
+/**
+ * A runner whose commands get env unless the caller passes its own. Without it a command inherits the app's whole
+ * environment.
+ */
+export function withDefaultEnv(runner: ProcessRunner, env: NodeJS.ProcessEnv): ProcessRunner {
+  return {
+    run: (command, args, options) => runner.run(command, args, { ...options, env: options?.env ?? env }),
+    spawn: (command, args, options) => runner.spawn(command, args, { ...options, env: options?.env ?? env }),
+  };
+}
+
 /** Runs a command and throws with its stderr when it fails or times out. */
 export async function runChecked(
   runner: ProcessRunner,

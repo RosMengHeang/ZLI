@@ -1,3 +1,4 @@
+import { withoutPrivateEnv } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
 import { FakeProcessRunner } from "./FakeProcessRunner.js";
@@ -9,6 +10,13 @@ import {
   simulatorRotateError,
 } from "./IosSimulatorDriver.js";
 import type { ProcessRunner, RunOptions } from "./ProcessRunner.js";
+
+/** The environment main.ts gives the mobile service: the app's own, with ZLI's runtime secrets removed. */
+const TEST_ENV = withoutPrivateEnv({
+  PATH: "/usr/bin",
+  ZLI_RUNTIME_TOKEN: "runtime-secret",
+  ZLI_DAEMON_TOKEN: "daemon-secret",
+});
 
 const SIMCTL = JSON.stringify({
   devices: {
@@ -86,9 +94,31 @@ describe("iOS simulator driver", () => {
       return undefined;
     });
 
+  it("runs every simctl command, the crash log stream too, without ZLI's runtime token", async () => {
+    const fake = runner();
+    const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
+      runner: fake,
+      tools: async () => ({ xcrun: "/usr/bin/xcrun" }),
+    });
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    await ios.streamLogs(iphone);
+    expect(fake.spawned.map((process) => process.args.slice(0, 3))).toEqual([["simctl", "spawn", "AAAA-1111"]]);
+    expect(fake.calls).toHaveLength(2);
+    for (const call of fake.calls) {
+      expect(call.options?.env).toEqual({ PATH: "/usr/bin" });
+      expect(call.options?.env).not.toHaveProperty("ZLI_RUNTIME_TOKEN");
+    }
+  });
+
   it("lists simulators and boots one that is already booted without failing", async () => {
     const fake = runner();
-    const ios = new IosSimulatorDriver({ runner: fake, tools: async () => ({ xcrun: "/usr/bin/xcrun" }) });
+    const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
+      runner: fake,
+      tools: async () => ({ xcrun: "/usr/bin/xcrun" }),
+    });
     const devices = await ios.list();
     expect(devices[0]).toEqual({
       deviceId: "ios:AAAA-1111",
@@ -123,7 +153,7 @@ describe("iOS simulator driver", () => {
         throw new Error("not used");
       },
     };
-    const ios = new IosSimulatorDriver({ runner, tools: async () => ({ xcrun: "/usr/bin/xcrun" }) });
+    const ios = new IosSimulatorDriver({ env: TEST_ENV, runner, tools: async () => ({ xcrun: "/usr/bin/xcrun" }) });
     const ipad = {
       deviceId: "ios:BBBB-2222",
       platform: "ios",
@@ -143,8 +173,12 @@ describe("iOS simulator driver", () => {
   });
 
   it("returns nothing on hosts without Xcode, and explains what needs idb", async () => {
-    const ios = new IosSimulatorDriver({ runner: runner(), tools: async () => ({ xcrun: "/usr/bin/xcrun" }) });
-    const none = new IosSimulatorDriver({ runner: runner(), tools: async () => ({}) });
+    const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
+      runner: runner(),
+      tools: async () => ({ xcrun: "/usr/bin/xcrun" }),
+    });
+    const none = new IosSimulatorDriver({ env: TEST_ENV, runner: runner(), tools: async () => ({}) });
     expect(await none.list()).toEqual([]);
     const [iphone] = await ios.list();
     if (!iphone) throw new Error("missing iPhone");
@@ -156,6 +190,7 @@ describe("iOS simulator driver", () => {
   it("taps through idb with the simulator's udid", async () => {
     const fake = runner();
     const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
       runner: fake,
       tools: async () => ({ xcrun: "/usr/bin/xcrun", idb: "/opt/homebrew/bin/idb" }),
     });
@@ -172,6 +207,7 @@ describe("iOS simulator driver", () => {
   it("presses arrows and Tab as idb key events, and refuses buttons iOS does not have", async () => {
     const fake = runner();
     const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
       runner: fake,
       tools: async () => ({ xcrun: "/usr/bin/xcrun", idb: "/opt/homebrew/bin/idb" }),
     });
@@ -185,6 +221,7 @@ describe("iOS simulator driver", () => {
   it("rotates through the Simulator app's shortcut with osascript, finding the window by device name", async () => {
     const fake = runner();
     const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
       runner: fake,
       tools: async () => ({ xcrun: "/usr/bin/xcrun", osascript: "/usr/bin/osascript" }),
     });
@@ -209,6 +246,7 @@ describe("iOS simulator driver", () => {
   it("turns the other way for a single step back, and starts from portrait again after a boot", async () => {
     const fake = runner();
     const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
       runner: fake,
       tools: async () => ({ xcrun: "/usr/bin/xcrun", osascript: "/usr/bin/osascript" }),
     });
@@ -234,6 +272,7 @@ describe("iOS simulator driver", () => {
       return undefined;
     });
     const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
       runner: refusing,
       tools: async () => ({ xcrun: "/usr/bin/xcrun", osascript: "/usr/bin/osascript" }),
     });
@@ -265,6 +304,7 @@ describe("iOS simulator driver", () => {
   it("starts idb's H.264 stream for the simulator, and needs idb for it", async () => {
     const fake = runner();
     const withIdb = new IosSimulatorDriver({
+      env: TEST_ENV,
       runner: fake,
       tools: async () => ({ xcrun: "/usr/bin/xcrun", idb: "/opt/homebrew/bin/idb" }),
     });
@@ -273,7 +313,11 @@ describe("iOS simulator driver", () => {
     const session = await withIdb.startVideo(iphone, { onVideo: () => undefined, onClose: () => undefined });
     expect(fake.spawned[0]?.args).toEqual(["video-stream", "--udid", "AAAA-1111", "--format", "h264", "--fps", "30"]);
     await session.close();
-    const without = new IosSimulatorDriver({ runner: runner(), tools: async () => ({ xcrun: "/usr/bin/xcrun" }) });
+    const without = new IosSimulatorDriver({
+      env: TEST_ENV,
+      runner: runner(),
+      tools: async () => ({ xcrun: "/usr/bin/xcrun" }),
+    });
     await expect(without.startVideo(iphone, { onVideo: () => undefined, onClose: () => undefined })).rejects.toThrow(
       /needs idb/u,
     );

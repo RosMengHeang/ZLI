@@ -380,6 +380,72 @@ describe("device manager", () => {
     expect(android.actions.at(-1)).toBe(`open ${pixel.deviceId} https://example.com`);
   });
 
+  it("maps an emulator's localhost:8081 to the worktree's Metro port, and leaves physical phones alone", async () => {
+    const { devices, android } = manager();
+    const phone = { ...pixel, deviceId: "android:R58M", kind: "physical", name: "Galaxy", serial: "R58M" } as const;
+    android.devices = [pixel, phone];
+    const reversed: string[] = [];
+    let fail = false;
+    Object.assign(android, {
+      reverse: async (device: { deviceId: string }, from: number, to: number) => {
+        if (fail) throw new Error("adb: device offline");
+        reversed.push(`${device.deviceId} ${from}->${to}`);
+      },
+    });
+    const url = "exp://localhost:8142";
+    expect(await devices.openUrl(pixel.deviceId, url, { metroPort: 8142 })).toEqual({ mapped8081To: 8142 });
+    expect(await devices.openUrl(phone.deviceId, url, { metroPort: 8142 })).toEqual({});
+    expect(await devices.openUrl(pixel.deviceId, "exp://localhost:8081", { metroPort: 8081 })).toEqual({});
+    expect(await devices.openUrl(pixel.deviceId, "exp://localhost:9000", { metroPort: 8142 })).toEqual({});
+    expect(await devices.openUrl(pixel.deviceId, url)).toEqual({});
+    expect(reversed).toEqual([`${pixel.deviceId} 8081->8142`]);
+
+    // The worktree's own URL still opens when the extra mapping fails.
+    fail = true;
+    expect(await devices.openUrl(pixel.deviceId, url, { metroPort: 8142 })).toEqual({});
+    expect(android.actions.at(-1)).toBe(`open ${pixel.deviceId} ${url}`);
+  });
+
+  it("undoes the 8081 mapping when the device changes hands, and keeps it for the same holder", async () => {
+    const { devices, android } = manager();
+    const calls: string[] = [];
+    Object.assign(android, {
+      reverse: async (device: { deviceId: string }, from: number, to: number) => {
+        calls.push(`reverse ${device.deviceId} ${from}->${to}`);
+      },
+      removeReverse: async (device: { deviceId: string }, port: number) => {
+        calls.push(`remove ${device.deviceId} ${port}`);
+      },
+    });
+    const url = "exp://localhost:8142";
+    const emulator = await devices.find(pixel.deviceId);
+
+    // The person's mapping survives taking over and releasing; an agent taking the device undoes it.
+    await devices.mapMetro(emulator, url, 8142);
+    devices.takeOver(pixel.deviceId);
+    devices.release(pixel.deviceId);
+    expect(calls).toEqual([`reverse ${pixel.deviceId} 8081->8142`]);
+    devices.acquireForAgent(pixel.deviceId, agent);
+    expect(calls.at(-1)).toBe(`remove ${pixel.deviceId} 8081`);
+
+    // The agent's mapping survives renewing its own lease, and is undone when the lease goes.
+    await devices.mapMetro(emulator, url, 8142);
+    devices.acquireForAgent(pixel.deviceId, agent);
+    expect(calls).toEqual([
+      `reverse ${pixel.deviceId} 8081->8142`,
+      `remove ${pixel.deviceId} 8081`,
+      `reverse ${pixel.deviceId} 8081->8142`,
+    ]);
+    devices.release(pixel.deviceId);
+    expect(calls.at(-1)).toBe(`remove ${pixel.deviceId} 8081`);
+
+    // A mapping dies with the device, so shutdown drops it without another adb call.
+    devices.acquireForAgent(pixel.deviceId, agent);
+    await devices.mapMetro(emulator, url, 8142);
+    await devices.shutdown(pixel.deviceId);
+    expect(calls.filter((call) => call.startsWith("remove"))).toHaveLength(2);
+  });
+
   it("refuses panel Open URL and Logs on a device that is not running", async () => {
     const { devices, android } = manager();
     android.devices = [{ ...pixel, state: "shutdown" }];

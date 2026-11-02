@@ -1,0 +1,96 @@
+Filtering the log data using "process IN {\"ExampleApp\", \"SpringBoard\", \"backboardd\", \"runningboardd\"}"
+Timestamp               Ty Process[PID:TID]
+2026-11-01 10:30:01.261 Df ExampleApp[5123:a1b2c] [com.apple.CFNetwork:Summary] Task <8F2A1C3D-1B2E-4F5A-9C8D-7E6F5A4B3C2D>.<4> summary for task success
+2026-11-01 10:30:01.287 Df backboardd[61:7f3e] [com.apple.backboard:hid] Display brightness update ignored for simulator
+2026-11-01 10:30:01.338 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:01.463 Df ExampleApp[5123:a1b2c] [com.apple.CFNetwork:Summary] Task <8F2A1C3D-1B2E-4F5A-9C8D-7E6F5A4B3C2D>.<4> summary for task success
+2026-11-01 10:30:01.504 I  ExampleApp[5123:a1b2c] [com.example.app:Network] GET https://api.example.com/v1/profile 200 (142 ms)
+2026-11-01 10:30:01.626 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:01.682 Df ExampleApp[5123:a1b2d] [com.apple.UIKit:EventDispatch] Sending UIEvent type: 0; subtype: 0; to windows: 2
+2026-11-01 10:30:01.801 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:01.905 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:02.021 Df backboardd[61:7f3e] [com.apple.backboard:hid] Display brightness update ignored for simulator
+2026-11-01 10:30:02.069 Df ExampleApp[5123:a1b2d] [com.apple.UIKit:EventDispatch] Sending UIEvent type: 0; subtype: 0; to windows: 1
+2026-11-01 10:30:02.151 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:02.214 I  ExampleApp[5123:a1b2c] [com.facebook.react.log:javascript] Running "main" with {"rootTag":1,"initialProps":{}}
+2026-11-01 10:30:02.257 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:02.353 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:SceneManager] Scene lifecycle state change for sceneID:com.example.app-default: foreground (frame 801)
+2026-11-01 10:30:02.449 Df backboardd[61:7f3e] [com.apple.backboard:touch] Touch event dispatched to contextId 0x25cee4e7
+2026-11-01 10:30:02.480 I  runningboardd[44:1c2d] [com.apple.runningboard:assertion] [app<application.com.example.app.7818>:5123] Acquiring assertion targeting [app<application.com.example.app>:5123] from originator [osservice<com.apple.SpringBoard>:58]
+2026-11-01 10:30:02.587 Df ExampleApp[5123:a1b2c] [com.apple.CFNetwork:Summary] Task <8F2A1C3D-1B2E-4F5A-9C8D-7E6F5A4B3C2D>.<4> summary for task success
+2026-11-01 10:30:02.665 Df ExampleApp[5123:a1b2d] [com.apple.UIKit:EventDispatch] Sending UIEvent type: 0; subtype: 0; to windows: 1
+2026-11-01 10:30:02.748 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] Set jetsam priority to 100 [0] flag[1]
+2026-11-01 10:30:02.888 Df ExampleApp[5123:a1b2c] [com.apple.CFNetwork:Summary] Task <8F2A1C3D-1B2E-4F5A-9C8D-7E6F5A4B3C2D>.<4> summary for task success
+2026-11-01 10:30:03.011 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:SceneManager] Scene lifecycle state change for sceneID:com.example.app-default: foreground (frame 886)
+2026-11-01 10:30:03.039 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:SceneManager] Scene lifecycle state change for sceneID:com.example.app-default: foreground (frame 568)
+2026-11-01 10:30:03.093 I  runningboardd[44:1c2d] [com.apple.runningboard:assertion] [app<application.com.example.app.6255>:5123] Acquiring assertion targeting [app<application.com.example.app>:5123] from originator [osservice<com.apple.SpringBoard>:58]
+2026-11-01 10:30:03.108 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] Set jetsam priority to 100 [0] flag[1]
+2026-11-01 10:30:03.147 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:SceneManager] Scene lifecycle state change for sceneID:com.example.app-default: foreground (frame 366)
+2026-11-01 10:30:03.176 I  ExampleApp[5123:a1b2c] [com.example.app:General] Loaded profile view model
+2026-11-01 10:30:03.190 Df ExampleApp[5123:a1b2d] [com.apple.UIKit:EventDispatch] Sending UIEvent type: 0; subtype: 0; to windows: 2
+2026-11-01 10:30:03.261 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:03.271 Df backboardd[61:7f3e] [com.apple.backboard:touch] Touch event dispatched to contextId 0x3e0b8b06
+2026-11-01 10:30:03.333 Df ExampleApp[5123:a1b2c] [com.apple.CFNetwork:Summary] Task <8F2A1C3D-1B2E-4F5A-9C8D-7E6F5A4B3C2D>.<4> summary for task success
+2026-11-01 10:30:03.377 Df ExampleApp[5123:a1b2c] [com.apple.CFNetwork:Summary] Task <8F2A1C3D-1B2E-4F5A-9C8D-7E6F5A4B3C2D>.<4> summary for task success
+2026-11-01 10:30:03.461 Df ExampleApp[5123:a1b2d] [com.apple.UIKit:EventDispatch] Sending UIEvent type: 0; subtype: 0; to windows: 1
+2026-11-01 10:30:03.601 Df backboardd[61:7f3e] [com.apple.backboard:hid] Display brightness update ignored for simulator
+2026-11-01 10:30:03.727 Df ExampleApp[5123:a1b2c] [com.apple.CFNetwork:Summary] Task <8F2A1C3D-1B2E-4F5A-9C8D-7E6F5A4B3C2D>.<4> summary for task success
+2026-11-01 10:30:03.738 I  runningboardd[44:1c2d] [com.apple.runningboard:assertion] [app<application.com.example.app.8808>:5123] Acquiring assertion targeting [app<application.com.example.app>:5123] from originator [osservice<com.apple.SpringBoard>:58]
+2026-11-01 10:30:03.770 Df ExampleApp[5123:a1b2c] [com.apple.CFNetwork:Summary] Task <8F2A1C3D-1B2E-4F5A-9C8D-7E6F5A4B3C2D>.<4> summary for task success
+2026-11-01 10:30:03.810 Df backboardd[61:7f3e] [com.apple.backboard:hid] Display brightness update ignored for simulator
+2026-11-01 10:30:03.941 Df ExampleApp[5123:a1b2c] [com.apple.CFNetwork:Summary] Task <8F2A1C3D-1B2E-4F5A-9C8D-7E6F5A4B3C2D>.<4> summary for task success
+2026-11-01 10:30:04.027 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] Set jetsam priority to 100 [0] flag[1]
+2026-11-01 10:30:04.114 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:04.252 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:SceneManager] Scene lifecycle state change for sceneID:com.example.app-default: foreground (frame 256)
+2026-11-01 10:30:09.004 E  ExampleApp[5123:a1b2c] [com.apple.UIKit:Application] *** Terminating app due to uncaught exception 'NSInvalidArgumentException', reason: '-[__NSCFNumber length]: unrecognized selector sent to instance 0x8000000000000000'
+2026-11-01 10:30:09.005 E  ExampleApp[5123:a1b2c] [com.apple.UIKit:Application] *** First throw call stack:
+(
+	0   CoreFoundation                      0x00000001804c90f0 __exceptionPreprocess + 160
+	1   libobjc.A.dylib                     0x000000018008a8c8 objc_exception_throw + 72
+	2   CoreFoundation                      0x00000001804de288 -[NSObject(NSObject) doesNotRecognizeSelector:] + 140
+	3   ExampleApp                          0x0000000102a3c5d8 -[ProfileViewController updateName:] + 92
+	4   ExampleApp                          0x0000000102a3c1f4 -[ProfileViewController viewDidLoad] + 312
+	5   UIKitCore                           0x0000000185a2d3c0 -[UIViewController _sendViewDidLoadWithAppearanceProxyObjectTaggingEnabled] + 80
+	6   UIKitCore                           0x0000000185a31e9c -[UIViewController loadViewIfRequired] + 924
+	7   UIKitCore                           0x0000000185a32654 -[UIViewController view] + 20
+	8   UIKitCore                           0x0000000185b7c1a8 -[UINavigationController _startCustomTransition:] + 1100
+	9   UIKitCore                           0x0000000185b6e9f0 -[UINavigationController _startDeferredTransitionIfNeeded:] + 496
+	10  CoreFoundation                      0x000000018042c1e4 __CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__ + 36
+	11  GraphicsServices                    0x0000000190f8a998 GSEventRunModal + 160
+)
+2026-11-01 10:30:09.010 E  ExampleApp[5123:a1b2c] libc++abi: terminating due to uncaught exception of type NSException
+2026-11-01 10:30:09.450 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] termination reported by launchd (2, 6, 6)
+2026-11-01 10:30:09.628 Df backboardd[61:7f3e] [com.apple.backboard:touch] Touch event dispatched to contextId 0x82a5e100
+2026-11-01 10:30:09.741 Df backboardd[61:7f3e] [com.apple.backboard:touch] Touch event dispatched to contextId 0x25b251cc
+2026-11-01 10:30:09.792 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:09.851 I  runningboardd[44:1c2d] [com.apple.runningboard:assertion] [app<application.com.example.app.9504>:5123] Acquiring assertion targeting [app<application.com.example.app>:5123] from originator [osservice<com.apple.SpringBoard>:58]
+2026-11-01 10:30:10.025 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:10.099 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] Set jetsam priority to 100 [0] flag[1]
+2026-11-01 10:30:10.175 Df backboardd[61:7f3e] [com.apple.backboard:touch] Touch event dispatched to contextId 0x626f5e02
+2026-11-01 10:30:10.229 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] Set jetsam priority to 100 [0] flag[1]
+2026-11-01 10:30:10.369 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:SceneManager] Scene lifecycle state change for sceneID:com.example.app-default: foreground (frame 977)
+2026-11-01 10:30:10.390 Df backboardd[61:7f3e] [com.apple.backboard:touch] Touch event dispatched to contextId 0x1fa251e3
+2026-11-01 10:30:10.457 Df backboardd[61:7f3e] [com.apple.backboard:touch] Touch event dispatched to contextId 0x6b396dbb
+2026-11-01 10:30:10.565 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:10.602 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:10.766 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:10.861 I  runningboardd[44:1c2d] [com.apple.runningboard:assertion] [app<application.com.example.app.4115>:5123] Acquiring assertion targeting [app<application.com.example.app>:5123] from originator [osservice<com.apple.SpringBoard>:58]
+2026-11-01 10:30:11.023 Df backboardd[61:7f3e] [com.apple.backboard:touch] Touch event dispatched to contextId 0x1008d4ac
+2026-11-01 10:30:11.187 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] Set jetsam priority to 100 [0] flag[1]
+2026-11-01 10:30:11.237 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:11.397 Df backboardd[61:7f3e] [com.apple.backboard:hid] Display brightness update ignored for simulator
+2026-11-01 10:30:11.480 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] Set jetsam priority to 100 [0] flag[1]
+2026-11-01 10:30:11.571 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:SceneManager] Scene lifecycle state change for sceneID:com.example.app-default: foreground (frame 211)
+2026-11-01 10:30:11.609 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:SceneManager] Scene lifecycle state change for sceneID:com.example.app-default: foreground (frame 773)
+2026-11-01 10:30:11.752 Df backboardd[61:7f3e] [com.apple.backboard:hid] Display brightness update ignored for simulator
+2026-11-01 10:30:11.833 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] Set jetsam priority to 100 [0] flag[1]
+2026-11-01 10:30:12.001 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] Set jetsam priority to 100 [0] flag[1]
+2026-11-01 10:30:12.110 Df backboardd[61:7f3e] [com.apple.backboard:touch] Touch event dispatched to contextId 0x26d36205
+2026-11-01 10:30:12.233 Df runningboardd[44:1c2d] [com.apple.runningboard:process] [app<application.com.example.app>:5123] Set jetsam priority to 100 [0] flag[1]
+2026-11-01 10:30:12.320 I  runningboardd[44:1c2d] [com.apple.runningboard:assertion] [app<application.com.example.app.3596>:5123] Acquiring assertion targeting [app<application.com.example.app>:5123] from originator [osservice<com.apple.SpringBoard>:58]
+2026-11-01 10:30:12.389 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:SceneManager] Scene lifecycle state change for sceneID:com.example.app-default: foreground (frame 783)
+2026-11-01 10:30:12.417 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:SceneManager] Scene lifecycle state change for sceneID:com.example.app-default: foreground (frame 618)
+2026-11-01 10:30:12.498 Df SpringBoard[58:2e4f] [com.apple.SpringBoard:Common] Application process state changed for com.example.app: <SBApplicationProcessState: 0x600000e1c2a0; pid: 5123; taskState: Running; visibility: Foreground>
+2026-11-01 10:30:12.576 Df backboardd[61:7f3e] [com.apple.backboard:hid] Display brightness update ignored for simulator
+2026-11-01 10:30:12.646 I  runningboardd[44:1c2d] [com.apple.runningboard:assertion] [app<application.com.example.app.4814>:5123] Acquiring assertion targeting [app<application.com.example.app>:5123] from originator [osservice<com.apple.SpringBoard>:58]
+2026-11-01 10:30:12.779 I  runningboardd[44:1c2d] [com.apple.runningboard:assertion] [app<application.com.example.app.8440>:5123] Acquiring assertion targeting [app<application.com.example.app>:5123] from originator [osservice<com.apple.SpringBoard>:58]

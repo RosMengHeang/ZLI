@@ -1,0 +1,17 @@
+// !$*UTF8*$!
+{
+	objects = {
+		A1 /* Debug */ = {
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.drift;
+			};
+		};
+		A2 /* DriftTests */ = {
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.driftTests;
+			};
+		};
+	};
+}

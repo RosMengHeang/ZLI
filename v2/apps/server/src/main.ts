@@ -39,6 +39,7 @@ import { planLimitReader } from "./limits/readers.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
 import { GITHUB_OAUTH_CLIENT_ID } from "./mcp/signIn/github.js";
 import { McpSignIns } from "./mcp/signIn/McpSignIns.js";
+import { projectionMetroEnv } from "./mobile/metroEnv.js";
 import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
 import { PluginStore } from "./plugins/PluginStore.js";
@@ -242,6 +243,7 @@ export async function startRuntime(options: {
       ...(browserTool ? { browserTool } : {}),
       ...mcpOptions,
       writeWorktreeFile,
+      metroEnv: (worktreeId) => projectionMetroEnv(engine, worktreeId),
     }),
   );
   // Started now so it overlaps server start and terminal restore; the first projection shares this run.

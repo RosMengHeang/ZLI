@@ -1,0 +1,10 @@
+{
+  "expo": {
+    "name": "Devclient",
+    "slug": "devclient",
+    "scheme": "devclient",
+    "ios": { "bundleIdentifier": "com.example.devclient" },
+    "android": { "package": "com.example.devclient" },
+    "plugins": ["expo-router"]
+  }
+}

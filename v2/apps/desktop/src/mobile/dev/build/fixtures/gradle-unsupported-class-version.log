@@ -1,0 +1,211 @@
+$ npx expo run:android
+env: load .env
+env: export EXPO_PUBLIC_API_URL
+› Using Android SDK at /home/person/Android/Sdk
+› Detected device Pixel_8_API_35 (emulator-5554)
+› Checking that ADB is running
+› Device is online
+› Autolinking 14 Expo modules and 4 React Native libraries
+› Writing android/app/build/generated/autolinking/autolinking.json
+› Build variant: debug
+› Architectures: x86_64, arm64-v8a
+› Building app...
+Configuration on demand is an incubating feature.
+› Running ./gradlew app:assembleDebug -x lint -x test --configure-on-demand --build-cache -PreactNativeDevServerPort=8081 -PreactNativeArchitectures=x86_64,arm64-v8a
+Downloading https://services.gradle.org/distributions/gradle-8.3-all.zip
+...........10%............20%............30%............40%............50%............60%............70%............80%............90%............100%
+
+Unzipping /home/person/.gradle/wrapper/dists/gradle-8.3-all/6en3ugtfdg5xrpfh4iq3hu8n/gradle-8.3-all.zip to /home/person/.gradle/wrapper/dists/gradle-8.3-all/6en3ugtfdg5xrpfh4iq3hu8n
+Set executable permissions for: /home/person/.gradle/wrapper/dists/gradle-8.3-all/6en3ugtfdg5xrpfh4iq3hu8n/gradle-8.3/bin/gradle
+
+Welcome to Gradle 8.3!
+
+Here are the highlights of this release:
+ - Faster Java compilation
+ - Reduced memory usage
+ - Support for running on Java 20
+
+For more details see https://docs.gradle.org/8.3/release-notes.html
+
+Starting a Gradle Daemon (subsequent builds will be faster)
+
+FAILURE: Build failed with an exception.
+
+* Where:
+Settings file '/home/person/app/android/settings.gradle' line: 3
+
+* What went wrong:
+Could not compile settings file '/home/person/app/android/settings.gradle'.
+> startup failed:
+  General error during conversion: Unsupported class file major version 65
+
+  java.lang.IllegalArgumentException: Unsupported class file major version 65
+  	at groovyjarjarasm.asm.ClassReader.<init>(ClassReader.java:199)
+  	at groovyjarjarasm.asm.ClassReader.<init>(ClassReader.java:180)
+  	at groovyjarjarasm.asm.ClassReader.<init>(ClassReader.java:166)
+  	at groovyjarjarasm.asm.ClassReader.<init>(ClassReader.java:287)
+  	at org.codehaus.groovy.ast.decompiled.AsmDecompiler.parseClass(AsmDecompiler.java:81)
+  	at org.codehaus.groovy.control.ClassNodeResolver.findDecompiled(ClassNodeResolver.java:251)
+  	at org.codehaus.groovy.control.ClassNodeResolver.tryAsLoaderClassOrScript(ClassNodeResolver.java:189)
+  	at org.codehaus.groovy.control.ClassNodeResolver.findClassNode(ClassNodeResolver.java:169)
+  	at org.codehaus.groovy.control.ClassNodeResolver.resolveName(ClassNodeResolver.java:125)
+  	at org.codehaus.groovy.ast.decompiled.AsmReferenceResolver.resolveClassNullable(AsmReferenceResolver.java:57)
+  	at org.codehaus.groovy.ast.decompiled.AsmReferenceResolver.resolveClass(AsmReferenceResolver.java:44)
+  	at org.codehaus.groovy.ast.decompiled.ClassSignatureParser.configureClass(ClassSignatureParser.java:39)
+  	at org.codehaus.groovy.ast.decompiled.DecompiledClassNode.lazyInitSupers(DecompiledClassNode.java:174)
+  	at org.codehaus.groovy.ast.decompiled.DecompiledClassNode.getUnresolvedSuperClass(DecompiledClassNode.java:139)
+  	at org.codehaus.groovy.ast.ClassNode.getUnresolvedSuperClass(ClassNode.java:1014)
+  	at org.codehaus.groovy.ast.ClassNode.getSuperClass(ClassNode.java:1006)
+  	at org.codehaus.groovy.ast.ClassNode.isDerivedFrom(ClassNode.java:950)
+  	at org.codehaus.groovy.control.ResolveVisitor.resolveToOuter(ResolveVisitor.java:846)
+  	at org.codehaus.groovy.control.ResolveVisitor.resolve(ResolveVisitor.java:432)
+  	at org.codehaus.groovy.control.ResolveVisitor.visitClass(ResolveVisitor.java:1371)
+  	at org.codehaus.groovy.control.ResolveVisitor.startResolving(ResolveVisitor.java:263)
+  	at org.codehaus.groovy.control.CompilationUnit$ISourceUnitOperation.doPhaseOperation(CompilationUnit.java:1052)
+  	at org.codehaus.groovy.control.CompilationUnit.processPhaseOperations(CompilationUnit.java:672)
+  	at org.codehaus.groovy.control.CompilationUnit.compile(CompilationUnit.java:636)
+  	at org.codehaus.groovy.ast.decompiled.AsmDecompiler.parseClass(AsmDecompiler.java:81)
+  	at org.codehaus.groovy.control.ClassNodeResolver.findDecompiled(ClassNodeResolver.java:251)
+  	at org.codehaus.groovy.control.ClassNodeResolver.tryAsLoaderClassOrScript(ClassNodeResolver.java:189)
+  	at org.codehaus.groovy.control.ClassNodeResolver.findClassNode(ClassNodeResolver.java:169)
+  	at org.codehaus.groovy.control.ClassNodeResolver.resolveName(ClassNodeResolver.java:125)
+  	at org.codehaus.groovy.ast.decompiled.AsmReferenceResolver.resolveClassNullable(AsmReferenceResolver.java:57)
+  	at org.codehaus.groovy.ast.decompiled.AsmReferenceResolver.resolveClass(AsmReferenceResolver.java:44)
+  	at org.codehaus.groovy.ast.decompiled.ClassSignatureParser.configureClass(ClassSignatureParser.java:39)
+  	at org.codehaus.groovy.ast.decompiled.DecompiledClassNode.lazyInitSupers(DecompiledClassNode.java:174)
+  	at org.codehaus.groovy.ast.decompiled.DecompiledClassNode.getUnresolvedSuperClass(DecompiledClassNode.java:139)
+  	at org.codehaus.groovy.ast.ClassNode.getUnresolvedSuperClass(ClassNode.java:1014)
+  	at org.codehaus.groovy.ast.ClassNode.getSuperClass(ClassNode.java:1006)
+  	at org.codehaus.groovy.ast.ClassNode.isDerivedFrom(ClassNode.java:950)
+  	at org.codehaus.groovy.control.ResolveVisitor.resolveToOuter(ResolveVisitor.java:846)
+  	at org.codehaus.groovy.control.ResolveVisitor.resolve(ResolveVisitor.java:432)
+  	at org.codehaus.groovy.control.ResolveVisitor.visitClass(ResolveVisitor.java:1371)
+  	at org.codehaus.groovy.control.ResolveVisitor.startResolving(ResolveVisitor.java:263)
+  	at org.codehaus.groovy.control.CompilationUnit$ISourceUnitOperation.doPhaseOperation(CompilationUnit.java:1052)
+  	at org.codehaus.groovy.control.CompilationUnit.processPhaseOperations(CompilationUnit.java:672)
+  	at org.codehaus.groovy.control.CompilationUnit.compile(CompilationUnit.java:636)
+  	at org.codehaus.groovy.ast.decompiled.AsmDecompiler.parseClass(AsmDecompiler.java:81)
+  	at org.codehaus.groovy.control.ClassNodeResolver.findDecompiled(ClassNodeResolver.java:251)
+  	at org.codehaus.groovy.control.ClassNodeResolver.tryAsLoaderClassOrScript(ClassNodeResolver.java:189)
+  	at org.codehaus.groovy.control.ClassNodeResolver.findClassNode(ClassNodeResolver.java:169)
+  	at org.codehaus.groovy.control.ClassNodeResolver.resolveName(ClassNodeResolver.java:125)
+  	at org.codehaus.groovy.ast.decompiled.AsmReferenceResolver.resolveClassNullable(AsmReferenceResolver.java:57)
+  	at org.codehaus.groovy.ast.decompiled.AsmReferenceResolver.resolveClass(AsmReferenceResolver.java:44)
+  	at org.codehaus.groovy.ast.decompiled.ClassSignatureParser.configureClass(ClassSignatureParser.java:39)
+  	at org.codehaus.groovy.ast.decompiled.DecompiledClassNode.lazyInitSupers(DecompiledClassNode.java:174)
+  	at org.codehaus.groovy.ast.decompiled.DecompiledClassNode.getUnresolvedSuperClass(DecompiledClassNode.java:139)
+  	at org.codehaus.groovy.ast.ClassNode.getUnresolvedSuperClass(ClassNode.java:1014)
+  	at org.codehaus.groovy.ast.ClassNode.getSuperClass(ClassNode.java:1006)
+  	at org.codehaus.groovy.ast.ClassNode.isDerivedFrom(ClassNode.java:950)
+  	at org.codehaus.groovy.control.ResolveVisitor.resolveToOuter(ResolveVisitor.java:846)
+  	at org.codehaus.groovy.control.ResolveVisitor.resolve(ResolveVisitor.java:432)
+  	at org.codehaus.groovy.control.ResolveVisitor.visitClass(ResolveVisitor.java:1371)
+  	at org.codehaus.groovy.control.ResolveVisitor.startResolving(ResolveVisitor.java:263)
+  	at org.codehaus.groovy.control.CompilationUnit$ISourceUnitOperation.doPhaseOperation(CompilationUnit.java:1052)
+  	at org.codehaus.groovy.control.CompilationUnit.processPhaseOperations(CompilationUnit.java:672)
+  	at org.codehaus.groovy.control.CompilationUnit.compile(CompilationUnit.java:636)
+  	at org.codehaus.groovy.ast.decompiled.AsmDecompiler.parseClass(AsmDecompiler.java:81)
+  	at org.codehaus.groovy.control.ClassNodeResolver.findDecompiled(ClassNodeResolver.java:251)
+  	at org.codehaus.groovy.control.ClassNodeResolver.tryAsLoaderClassOrScript(ClassNodeResolver.java:189)
+  	at org.codehaus.groovy.control.ClassNodeResolver.findClassNode(ClassNodeResolver.java:169)
+  	at org.codehaus.groovy.control.ClassNodeResolver.resolveName(ClassNodeResolver.java:125)
+  	at org.codehaus.groovy.ast.decompiled.AsmReferenceResolver.resolveClassNullable(AsmReferenceResolver.java:57)
+  	at org.codehaus.groovy.ast.decompiled.AsmReferenceResolver.resolveClass(AsmReferenceResolver.java:44)
+  	at org.codehaus.groovy.ast.decompiled.ClassSignatureParser.configureClass(ClassSignatureParser.java:39)
+  	at org.codehaus.groovy.ast.decompiled.DecompiledClassNode.lazyInitSupers(DecompiledClassNode.java:174)
+  	at org.codehaus.groovy.ast.decompiled.DecompiledClassNode.getUnresolvedSuperClass(DecompiledClassNode.java:139)
+  	at org.codehaus.groovy.ast.ClassNode.getUnresolvedSuperClass(ClassNode.java:1014)
+  	at org.codehaus.groovy.ast.ClassNode.getSuperClass(ClassNode.java:1006)
+  	at org.codehaus.groovy.ast.ClassNode.isDerivedFrom(ClassNode.java:950)
+  	at org.codehaus.groovy.control.ResolveVisitor.resolveToOuter(ResolveVisitor.java:846)
+  	at org.codehaus.groovy.control.ResolveVisitor.resolve(ResolveVisitor.java:432)
+  	at org.codehaus.groovy.control.ResolveVisitor.visitClass(ResolveVisitor.java:1371)
+  	at org.codehaus.groovy.control.ResolveVisitor.startResolving(ResolveVisitor.java:263)
+  	at org.codehaus.groovy.control.CompilationUnit$ISourceUnitOperation.doPhaseOperation(CompilationUnit.java:1052)
+  	at org.codehaus.groovy.control.CompilationUnit.processPhaseOperations(CompilationUnit.java:672)
+  	at org.codehaus.groovy.control.CompilationUnit.compile(CompilationUnit.java:636)
+  	at groovy.lang.GroovyClassLoader.doParseClass(GroovyClassLoader.java:389)
+  	at org.gradle.groovy.scripts.internal.DefaultScriptCompilationHandler.compileScript(DefaultScriptCompilationHandler.java:139)
+  	at org.gradle.groovy.scripts.internal.DefaultScriptCompilationHandler.compileToDir(DefaultScriptCompilationHandler.java:95)
+  	at org.gradle.groovy.scripts.internal.BuildOperationBackedScriptCompilationHandler$2.run(BuildOperationBackedScriptCompilationHandler.java:54)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:29)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:26)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+  	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunner.java:47)
+  	at org.gradle.internal.operations.DefaultBuildOperationExecutor.run(DefaultBuildOperationExecutor.java:68)
+  	at org.gradle.groovy.scripts.internal.FileCacheBackedScriptClassCompiler$CompileToCrossBuildCacheAction.execute(FileCacheBackedScriptClassCompiler.java:190)
+  	at org.gradle.cache.internal.DefaultPersistentDirectoryCache$Initializer.initialize(DefaultPersistentDirectoryCache.java:100)
+  	at org.gradle.cache.internal.FixedSharedModeCrossProcessCacheAccess$1.run(FixedSharedModeCrossProcessCacheAccess.java:86)
+  	at org.gradle.cache.internal.DefaultFileLockManager$DefaultFileLock.doWriteAction(DefaultFileLockManager.java:216)
+  	at org.gradle.configuration.DefaultScriptPluginFactory$ScriptPluginImpl.apply(DefaultScriptPluginFactory.java:136)
+  	at org.gradle.configuration.BuildOperationScriptPlugin$1.run(BuildOperationScriptPlugin.java:65)
+  	at org.gradle.initialization.ScriptEvaluatingSettingsProcessor.applySettingsScript(ScriptEvaluatingSettingsProcessor.java:75)
+  	at org.gradle.initialization.ScriptEvaluatingSettingsProcessor.process(ScriptEvaluatingSettingsProcessor.java:68)
+  	at org.gradle.initialization.SettingsEvaluatedCallbackFiringSettingsProcessor.process(SettingsEvaluatedCallbackFiringSettingsProcessor.java:34)
+  	at org.gradle.initialization.RootBuildCacheControllerSettingsProcessor.process(RootBuildCacheControllerSettingsProcessor.java:47)
+  	at org.gradle.initialization.BuildOperationSettingsProcessor$2.call(BuildOperationSettingsProcessor.java:50)
+  	at org.gradle.initialization.DefaultSettingsLoader.findSettingsAndLoadIfAppropriate(DefaultSettingsLoader.java:138)
+  	at org.gradle.initialization.DefaultSettingsLoader.findAndLoadSettings(DefaultSettingsLoader.java:62)
+  	at org.gradle.initialization.SettingsAttachingSettingsLoader.findAndLoadSettings(SettingsAttachingSettingsLoader.java:33)
+  	at org.gradle.internal.composite.CommandLineIncludedBuildSettingsLoader.findAndLoadSettings(CommandLineIncludedBuildSettingsLoader.java:35)
+  	at org.gradle.internal.composite.ChildBuildRegisteringSettingsLoader.findAndLoadSettings(ChildBuildRegisteringSettingsLoader.java:44)
+  	at org.gradle.internal.composite.CompositeBuildSettingsLoader.findAndLoadSettings(CompositeBuildSettingsLoader.java:35)
+  	at org.gradle.initialization.InitScriptHandlingSettingsLoader.findAndLoadSettings(InitScriptHandlingSettingsLoader.java:33)
+  	at org.gradle.api.internal.initialization.CacheConfigurationsHandlingSettingsLoader.findAndLoadSettings(CacheConfigurationsHandlingSettingsLoader.java:36)
+  	at org.gradle.initialization.GradlePropertiesHandlingSettingsLoader.findAndLoadSettings(GradlePropertiesHandlingSettingsLoader.java:38)
+  	at org.gradle.initialization.DefaultSettingsPreparer.prepareSettings(DefaultSettingsPreparer.java:31)
+  	at org.gradle.initialization.BuildOperationFiringSettingsPreparer$LoadBuild.doLoadBuild(BuildOperationFiringSettingsPreparer.java:71)
+  	at org.gradle.initialization.BuildOperationFiringSettingsPreparer$LoadBuild.run(BuildOperationFiringSettingsPreparer.java:66)
+  	at org.gradle.initialization.VintageBuildModelController.lambda$prepareSettings$1(VintageBuildModelController.java:80)
+  	at org.gradle.internal.model.StateTransitionController.lambda$doTransition$14(StateTransitionController.java:255)
+  	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:266)
+  	at org.gradle.internal.model.StateTransitionController.transitionIfNotPreviously(StateTransitionController.java:213)
+  	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$withModelOrSchedule$4(DefaultBuildLifecycleController.java:155)
+  	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:262)
+  	at org.gradle.tooling.internal.provider.ExecuteBuildActionRunner.run(ExecuteBuildActionRunner.java:31)
+  	at org.gradle.launcher.exec.ChainingBuildActionRunner.run(ChainingBuildActionRunner.java:35)
+  	at org.gradle.internal.buildtree.ProblemReportingBuildActionRunner.run(ProblemReportingBuildActionRunner.java:49)
+  	at org.gradle.launcher.exec.BuildOutcomeReportingBuildActionRunner.run(BuildOutcomeReportingBuildActionRunner.java:65)
+  	at org.gradle.tooling.internal.provider.FileSystemWatchingBuildActionRunner.run(FileSystemWatchingBuildActionRunner.java:140)
+  	at org.gradle.launcher.exec.BuildCompletionNotifyingBuildActionRunner.run(BuildCompletionNotifyingBuildActionRunner.java:41)
+  	at org.gradle.launcher.exec.RootBuildLifecycleBuildActionExecutor.lambda$execute$0(RootBuildLifecycleBuildActionExecutor.java:40)
+  	at org.gradle.composite.internal.DefaultRootBuildState.run(DefaultRootBuildState.java:123)
+  	at org.gradle.launcher.exec.RunAsBuildOperationBuildActionExecutor$3.call(RunAsBuildOperationBuildActionExecutor.java:61)
+  	at org.gradle.launcher.exec.RunAsWorkerThreadBuildActionExecutor.lambda$execute$0(RunAsWorkerThreadBuildActionExecutor.java:36)
+  	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:249)
+  	at org.gradle.tooling.internal.provider.continuous.ContinuousBuildActionExecutor.execute(ContinuousBuildActionExecutor.java:110)
+  	at org.gradle.tooling.internal.provider.SubscribableBuildActionExecutor.execute(SubscribableBuildActionExecutor.java:64)
+  	at org.gradle.internal.session.DefaultBuildSessionContext.execute(DefaultBuildSessionContext.java:46)
+  	at org.gradle.tooling.internal.provider.BuildSessionLifecycleBuildActionExecuter$ActionImpl.apply(BuildSessionLifecycleBuildActionExecuter.java:100)
+  	at org.gradle.internal.session.BuildSessionState.run(BuildSessionState.java:69)
+  	at org.gradle.tooling.internal.provider.StartParamsValidatingActionExecuter.execute(StartParamsValidatingActionExecuter.java:57)
+  	at org.gradle.tooling.internal.provider.SessionFailureReportingActionExecuter.execute(SessionFailureReportingActionExecuter.java:41)
+  	at org.gradle.tooling.internal.provider.SetupLoggingActionExecuter.execute(SetupLoggingActionExecuter.java:47)
+  	at org.gradle.launcher.daemon.server.exec.ExecuteBuild.doBuild(ExecuteBuild.java:65)
+  	at org.gradle.launcher.daemon.server.exec.BuildCommandOnly.execute(BuildCommandOnly.java:37)
+  	at org.gradle.launcher.daemon.server.api.DaemonCommandExecution.proceed(DaemonCommandExecution.java:104)
+  	at org.gradle.launcher.daemon.server.exec.WatchForDisconnection.execute(WatchForDisconnection.java:39)
+  	at org.gradle.launcher.daemon.server.exec.ResetDeprecationLogger.execute(ResetDeprecationLogger.java:29)
+  	at org.gradle.launcher.daemon.server.exec.RequestStopIfSingleUsedDaemon.execute(RequestStopIfSingleUsedDaemon.java:35)
+  	at org.gradle.launcher.daemon.server.exec.ForwardClientInput$2.create(ForwardClientInput.java:78)
+  	at org.gradle.util.internal.Swapper.swap(Swapper.java:38)
+  	at org.gradle.launcher.daemon.server.exec.ForwardClientInput.execute(ForwardClientInput.java:75)
+  	at org.gradle.launcher.daemon.server.exec.LogAndCheckHealth.execute(LogAndCheckHealth.java:64)
+  	at org.gradle.launcher.daemon.server.exec.LogToClient.doBuild(LogToClient.java:63)
+  	at org.gradle.launcher.daemon.server.exec.BuildCommandOnly.execute(BuildCommandOnly.java:37)
+  	at org.gradle.launcher.daemon.server.exec.EstablishBuildEnvironment.doBuild(EstablishBuildEnvironment.java:84)
+  	at org.gradle.launcher.daemon.server.exec.StartBuildOrRespondWithBusy$1.run(StartBuildOrRespondWithBusy.java:52)
+  	at org.gradle.launcher.daemon.server.DaemonStateCoordinator$1.run(DaemonStateCoordinator.java:297)
+  	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+  	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+
+1 error
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 4s
