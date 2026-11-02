@@ -75,16 +75,9 @@ appId: dev.zli.remote
 - waitForAnimationToEnd
 - takeScreenshot: settings-${THEME}
 
-# Forgetting the demo desktop only lasts until the next launch. The phone first tries to reach the
-# made-up desktop address, and offers to forget it anyway once that times out.
+# Forgetting the demo desktop only lasts until the next launch.
 - tapOn: "Forget Studio"
 - tapOn: "Forget"
-- extendedWaitUntil:
-    visible: "Forget anyway|Scan pairing code"
-    timeout: 60000
-- tapOn:
-    text: "Forget anyway"
-    optional: true
 - extendedWaitUntil:
     visible: "Scan pairing code"
     timeout: 15000

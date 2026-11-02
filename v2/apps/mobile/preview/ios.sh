@@ -58,6 +58,8 @@ flow() {
 
 capture() {
   local app udid failed=0
+  # The first start of Maestro's XCTest driver on a fresh simulator can take minutes on CI.
+  export MAESTRO_DRIVER_STARTUP_TIMEOUT="${MAESTRO_DRIVER_STARTUP_TIMEOUT:-300000}"
   app="$(cat "$OUT/app-path.txt")"
   udid="$(xcrun simctl list devices available -j | DEVICE="$DEVICE" node -e '
     const { devices } = JSON.parse(require("fs").readFileSync(0, "utf8"));

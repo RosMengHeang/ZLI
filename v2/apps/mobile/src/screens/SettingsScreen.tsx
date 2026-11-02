@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { demoMode } from "../demo.js";
 import { useConnectionLabel, useLink, useLinkSnapshot } from "../LinkContext.js";
 import { unpairFromDesktop } from "../lib/pairing.js";
 import { useNavigation } from "../navigation.js";
@@ -27,7 +28,12 @@ export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) 
   const forget = async () => {
     setForgetting(true);
     link.pause();
-    const reached = await unpairFromDesktop(pairing, { random, createSocket });
+    // The demo desktop has no address to reach, so it forgets the phone at once.
+    const reached = await unpairFromDesktop(pairing, {
+      random,
+      createSocket,
+      ...(demoMode ? { unpair: async () => {} } : {}),
+    });
     if (reached) {
       await onForget();
       return;

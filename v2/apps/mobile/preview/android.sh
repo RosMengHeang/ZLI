@@ -5,7 +5,7 @@
 #   android.sh capture <out>   installs it on the running emulator and saves <out>/<screen>-<light|dark>.png
 #
 # Needs JDK 17, the Android SDK, Maestro, and `pnpm install` run in v2/. Capture expects one emulator
-# on adb, Android 16 (API 36) to show the status bar chip.
+# on adb, Android 16 QPR2 (API 36.1) to show the status bar chip.
 set -euo pipefail
 
 STEP="${1:?usage: android.sh build|capture <out>}"
