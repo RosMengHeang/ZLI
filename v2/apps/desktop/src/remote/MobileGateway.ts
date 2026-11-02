@@ -32,7 +32,8 @@ export interface MobileGatewayOptions {
   random: RandomBytes;
   /** Where the loopback runtime listens now, with its token. The runtime can restart on a new port. */
   upstream: () => Promise<UpstreamTarget>;
-  projection: () => Pick<RuntimeProjection, "projects" | "worktrees"> | undefined;
+  /** The phone policy checks commands against these: projects, worktrees, and the files each review lists. */
+  projection: () => Pick<RuntimeProjection, "projects" | "worktrees" | "reviews"> | undefined;
   desktopName: () => string;
   hosts: () => string[];
   /** Paired phones, live connections, or the open pairing code changed. */

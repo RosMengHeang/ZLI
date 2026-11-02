@@ -31,6 +31,29 @@ const paths = {
       <Path d="M18 9a9 9 0 0 1-9 9" />
     </>
   ),
+  diff: (
+    <>
+      <Circle cx="5" cy="6" r="3" />
+      <Path d="M12 6h5a2 2 0 0 1 2 2v7" />
+      <Path d="m15 9-3-3 3-3" />
+      <Circle cx="19" cy="18" r="3" />
+      <Path d="M12 18H7a2 2 0 0 1-2-2V9" />
+      <Path d="m9 15 3 3-3 3" />
+    </>
+  ),
+  commit: (
+    <>
+      <Circle cx="12" cy="12" r="3" />
+      <Path d="M3 12h6M15 12h6" />
+    </>
+  ),
+  upload: <Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />,
+  file: (
+    <>
+      <Path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <Path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    </>
+  ),
   square: <Rect x="6" y="6" width="12" height="12" rx="2" />,
   check: <Path d="M20 6 9 17l-5-5" />,
   chevronRight: <Path d="m9 18 6-6-6-6" />,

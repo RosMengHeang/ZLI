@@ -44,6 +44,28 @@ appId: dev.zli.remote
 - extendedWaitUntil:
     visible: "Needs you"
     timeout: 30000
+- tapOn: "Fix the login form.*"
+- extendedWaitUntil:
+    visible: "Changes.*"
+    timeout: 15000
+- tapOn: "Changes.*"
+- extendedWaitUntil:
+    visible: "Uncommitted changes"
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: changes-${THEME}
+
+- tapOn: "LoginForm.tsx.*"
+- extendedWaitUntil:
+    visible: ".*handleKeyDown.*"
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: diff-${THEME}
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Needs you"
+    timeout: 30000
 - tapOn: "New agent"
 - extendedWaitUntil:
     visible: "Where it works"

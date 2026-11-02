@@ -18,6 +18,7 @@ import { mono, radius, space, type, usePalette } from "../theme.js";
 import { Button, EmptyState, Header, Notice, ShimmerText, StatusText } from "../ui/components.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+import { ChangesEntry } from "./ChangesScreen.js";
 import { Composer } from "./Composer.js";
 import { ConnectionBanner } from "./ConnectionBanner.js";
 import { RequestCard } from "./RequestCard.js";
@@ -56,6 +57,9 @@ export function AgentScreen({ threadId }: { threadId: string }) {
 
   const name = agentTitle(thread, projection.providers);
   const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread.worktreeId);
+  const hasGit = projection.projects.some(
+    (project) => project.projectId === worktree?.projectId && project.git !== false,
+  );
   const status = threadStatus(thread, requests.length);
   const activity = currentActivity(projection, thread);
   const queued = queuedMessages(projection, threadId);
@@ -148,6 +152,7 @@ export function AgentScreen({ threadId }: { threadId: string }) {
         }
       />
       <ConnectionBanner />
+      {worktree?.status === "ready" && hasGit ? <ChangesEntry worktreeId={worktree.worktreeId} /> : null}
       {messages.length === 0 ? (
         <ScrollView contentContainerStyle={local.transcript} keyboardShouldPersistTaps="handled">
           <EmptyState
