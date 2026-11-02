@@ -2,8 +2,10 @@ import { Button, HStack, Image, Spacer, Text, VStack } from "@expo/ui/swift-ui";
 import {
   buttonStyle,
   controlSize,
+  fixedSize,
   font,
   foregroundStyle,
+  frame,
   lineLimit,
   padding,
   tint,
@@ -18,7 +20,7 @@ const NAME = "ZliAgents";
 const STALE_AFTER_MS = 30_000;
 
 type ActivityProps = {
-  title: string;
+  agent: string;
   detail: string;
   badge: string;
   others: string;
@@ -40,7 +42,10 @@ const AgentsActivity = (props: ActivityProps, environment: LiveActivityEnvironme
 
   const details = (color: string, stop: string) => {
     const lines = [
-      <Text key="detail" modifiers={[font({ size: 14 }), lineLimit(2)]}>
+      <Text
+        key="detail"
+        modifiers={[font({ size: 14 }), lineLimit(2), fixedSize({ horizontal: false, vertical: true })]}
+      >
         {detail}
       </Text>,
     ];
@@ -80,9 +85,9 @@ const AgentsActivity = (props: ActivityProps, environment: LiveActivityEnvironme
       <VStack alignment="leading" spacing={6} modifiers={[padding({ all: 14 }), widgetURL(props.url)]}>
         <HStack spacing={8}>
           <Image systemName={symbol} color={accent} />
-          <Text modifiers={[font({ size: 15, weight: "semibold" }), lineLimit(1)]}>{props.title}</Text>
+          <Text modifiers={[font({ size: 15, weight: "semibold" }), lineLimit(1)]}>{props.agent}</Text>
           <Spacer />
-          <Text modifiers={[font({ size: 13, weight: "medium" }), foregroundStyle(accent), lineLimit(1)]}>
+          <Text modifiers={[font({ size: 13, weight: "medium" }), foregroundStyle(accent), lineLimit(1), fixedSize()]}>
             {props.badge}
           </Text>
         </HStack>
@@ -96,15 +101,35 @@ const AgentsActivity = (props: ActivityProps, environment: LiveActivityEnvironme
       </Text>
     ),
     minimal: <Image systemName={symbol} color={islandAccent} />,
-    expandedLeading: <Image systemName={symbol} color={islandAccent} size={22} />,
-    expandedCenter: <Text modifiers={[font({ size: 15, weight: "semibold" }), lineLimit(1)]}>{props.title}</Text>,
+    // Leading and trailing share a row with the center region, so a center title squeezes the badge
+    // and the icon into the island's corners. The text goes in the full-width bottom region instead.
+    expandedLeading: (
+      <Image systemName={symbol} color={islandAccent} size={20} modifiers={[padding({ leading: 6, top: 6 })]} />
+    ),
     expandedTrailing: (
-      <Text modifiers={[font({ size: 13, weight: "medium" }), foregroundStyle(islandAccent), lineLimit(1)]}>
+      <Text
+        modifiers={[
+          font({ size: 13, weight: "medium" }),
+          foregroundStyle(islandAccent),
+          lineLimit(1),
+          fixedSize(),
+          padding({ trailing: 6, top: 6 }),
+        ]}
+      >
         {props.badge}
       </Text>
     ),
     expandedBottom: (
-      <VStack alignment="leading" spacing={6} modifiers={[widgetURL(props.url)]}>
+      <VStack
+        alignment="leading"
+        spacing={6}
+        modifiers={[
+          frame({ maxWidth: Infinity, alignment: "leading" }),
+          padding({ horizontal: 6, bottom: 4 }),
+          widgetURL(props.url),
+        ]}
+      >
+        <Text modifiers={[font({ size: 15, weight: "semibold" }), lineLimit(1)]}>{props.agent}</Text>
         {details(islandAccent, "#ef7b7b")}
       </VStack>
     ),
@@ -120,7 +145,7 @@ let dismissed = false;
 export async function showActivity(status: LiveStatus, options: { background: boolean }): Promise<void> {
   if (dismissed) return;
   const props: ActivityProps = {
-    title: status.title,
+    agent: status.agent,
     detail: status.detail,
     badge: status.badge,
     others: status.others ?? "",
