@@ -24,6 +24,34 @@ check that Metro resolves the workspace packages.
 Expo Go runs everything except the live status, which needs native code: use a development build to
 try it.
 
+Set `EXPO_PUBLIC_ZLI_DEMO=1` to run the app against a demo desktop inside it
+(`src/lib/demoDesktop.ts`) instead of a paired one. It shows the sample agents and accepts every
+command. The flag is read at build time, so never set it for a build people install.
+
+## Phone preview on pull requests
+
+The Mobile preview workflow (`.github/workflows/mobile-preview.yml`) runs on pull requests that
+touch this app or the packages it uses, and can be started by hand with a pull request number. It
+builds the app in demo mode for an iPhone 17 simulator and an Android 16 emulator, takes a
+screenshot of every screen in light and dark, captures the live status (Dynamic Island, lock screen,
+Android notification and status bar chip), and keeps one comment on the pull request up to date.
+When the base branch has this preview too, the comment shows before and after.
+
+The screenshots are pushed to the `pr-media` branch so the comment can show them; each pull request
+keeps only its newest run there. Pull requests from forks get the screenshots as workflow artifacts
+but no comment. A run takes about an hour, most of it the two native builds.
+
+To run it on a Mac, from `v2/` after `pnpm install`, with Maestro installed and an iPhone 17
+simulator available:
+
+```sh
+bash apps/mobile/preview/ios.sh build /tmp/preview
+bash apps/mobile/preview/ios.sh capture /tmp/preview
+```
+
+`android.sh` takes the same steps and needs a running emulator for `capture`. The flows are in
+`preview/flows/`; they find their way by the text on screen, so update them when that text changes.
+
 ## Pair a phone
 
 1. On the desktop, open Settings, then Phone access, and turn on Allow phones on this network.
@@ -68,6 +96,7 @@ phone's own X25519 key, and the device credential the desktop issued.
 - `src/lib/` holds the logic with no React Native imports, tested with Vitest from `v2/`:
   pairing, the reconnecting link, launch steps, terminal output, and what screens show.
 - `src/screens/` and `src/ui/` are the React Native screens and primitives.
+- `preview/` builds and screenshots the app in CI; see Phone preview on pull requests.
 - `metro.config.js` lets Metro resolve the `./file.js` imports the TypeScript workspace packages use.
 
 ## Limits

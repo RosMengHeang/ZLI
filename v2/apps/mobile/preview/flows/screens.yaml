@@ -1,0 +1,82 @@
+# Walks every screen of the demo build (EXPO_PUBLIC_ZLI_DEMO=1) on iOS and Android and saves
+# ${SHOTS}/<screen>-${THEME}.png. Each screen starts from a fresh launch, so one bad step does not
+# leave the next screen somewhere unexpected.
+appId: dev.zli.remote
+---
+- launchApp:
+    stopApp: true
+    permissions:
+      notifications: allow
+# iOS asks for notifications on the first launch after pairing.
+- tapOn:
+    text: "Allow"
+    optional: true
+- extendedWaitUntil:
+    visible: "Needs you"
+    timeout: 60000
+- waitForAnimationToEnd
+- takeScreenshot: ${SHOTS}/home-${THEME}
+
+- tapOn: "Clean the build output asks to continue.*"
+- extendedWaitUntil:
+    visible: "Approve"
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: ${SHOTS}/approval-${THEME}
+
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Needs you"
+    timeout: 30000
+- tapOn: "Fix the login form.*"
+- extendedWaitUntil:
+    visible: ".*Running the tests now.*"
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: ${SHOTS}/agent-${THEME}
+
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Needs you"
+    timeout: 30000
+- tapOn: "New agent"
+- extendedWaitUntil:
+    visible: "Where it works"
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: ${SHOTS}/start-${THEME}
+
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Needs you"
+    timeout: 30000
+- tapOn: "Shell, shell.*"
+- extendedWaitUntil:
+    visible: ".*19 passed.*"
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: ${SHOTS}/terminal-${THEME}
+
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Needs you"
+    timeout: 30000
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Paired desktop"
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: ${SHOTS}/settings-${THEME}
+
+# Forgetting the demo desktop only lasts until the next launch.
+- tapOn: "Forget Studio"
+- tapOn: "Forget"
+- extendedWaitUntil:
+    visible: "Scan pairing code"
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: ${SHOTS}/pair-${THEME}

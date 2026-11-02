@@ -1,0 +1,35 @@
+# The Live Activity outside the app on iOS: the compact and expanded Dynamic Island, then the lock
+# screen look in Notification Center. Saves ${SHOTS}/<name>-${THEME}.png.
+appId: dev.zli.remote
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Needs you"
+    timeout: 30000
+# ActivityKit only starts an activity while the app is on screen.
+- waitForAnimationToEnd:
+    timeout: 3000
+- pressKey: Home
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: ${SHOTS}/island-${THEME}
+
+- longPressOn:
+    point: "50%, 3%"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: ${SHOTS}/island-expanded-${THEME}
+- pressKey: Home
+
+- swipe:
+    start: "25%, 1%"
+    end: "25%, 75%"
+    duration: 500
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: ${SHOTS}/lock-${THEME}
+- swipe:
+    start: "50%, 98%"
+    end: "50%, 20%"
+    duration: 400

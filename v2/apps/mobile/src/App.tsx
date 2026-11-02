@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { demoMode } from "./demo.js";
 import { LinkProvider } from "./LinkContext.js";
+import { demoPairing } from "./lib/demoDesktop.js";
 import { PairError } from "./lib/pairing.js";
 import type { StoredPairing } from "./lib/pairingRecord.js";
 import { Navigator } from "./Navigator.js";
@@ -37,7 +39,7 @@ function Root() {
 
   const load = useCallback(() => {
     setBoot({ kind: "loading" });
-    loadPairing().then(
+    (demoMode ? Promise.resolve(demoPairing) : loadPairing()).then(
       (pairing) => setBoot(pairing ? { kind: "paired", pairing } : { kind: "unpaired" }),
       () => setBoot({ kind: "failed" }),
     );

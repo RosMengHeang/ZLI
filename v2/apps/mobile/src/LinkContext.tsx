@@ -1,10 +1,12 @@
 import { createContext, type ReactNode, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { AppState } from "react-native";
 
+import { demoMode } from "./demo.js";
+import { openDemoSession } from "./lib/demoDesktop.js";
 import { type LinkSnapshot, RemoteLink } from "./lib/link.js";
 import { liveStatus } from "./lib/liveStatus.js";
-import { liveDisplay } from "./liveDisplay.js";
 import type { StoredPairing } from "./lib/pairingRecord.js";
+import { liveDisplay } from "./liveDisplay.js";
 import { createSocket, newId, random, savePairing } from "./platform.js";
 
 const LinkContext = createContext<RemoteLink | undefined>(undefined);
@@ -18,8 +20,12 @@ export function LinkProvider({ pairing, children }: { pairing: StoredPairing; ch
         random,
         createSocket,
         newId,
-        // A failed write only means the next launch tries the older addresses first.
-        onPairingChange: (next) => void savePairing(next).catch(() => {}),
+        ...(demoMode
+          ? { openSession: openDemoSession }
+          : {
+              // A failed write only means the next launch tries the older addresses first.
+              onPairingChange: (next: StoredPairing) => void savePairing(next).catch(() => {}),
+            }),
       }),
   );
 
