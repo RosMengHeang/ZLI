@@ -5,6 +5,8 @@ import { useLinkSnapshot } from "./LinkContext.js";
 import { type Navigation, NavigationContext, type Route } from "./navigation.js";
 import { askForNotificationsOnce, useAgentAlerts, useNotificationTaps } from "./notifications.js";
 import { AgentScreen } from "./screens/AgentScreen.js";
+import { ChangesScreen } from "./screens/ChangesScreen.js";
+import { DiffScreen } from "./screens/DiffScreen.js";
 import { HomeScreen } from "./screens/HomeScreen.js";
 import { SettingsScreen } from "./screens/SettingsScreen.js";
 import { StartAgentScreen } from "./screens/StartAgentScreen.js";
@@ -13,7 +15,7 @@ import { usePalette } from "./theme.js";
 import { EmptyState, Header } from "./ui/components.js";
 import { useLiveStatus } from "./useLiveStatus.js";
 
-/** A screen stack. The app has five screens, which does not justify a navigation library. */
+/** A screen stack. The app has seven screens, which does not justify a navigation library. */
 export function Navigator({ onForget }: { onForget: (notice?: string) => Promise<void> }) {
   const [stack, setStack] = useState<Route[]>([{ name: "home" }]);
   const snapshot = useLinkSnapshot();
@@ -88,6 +90,10 @@ function Screen({ route, onForget }: { route: Route; onForget: () => Promise<voi
       return <StartAgentScreen {...(route.projectId ? { projectId: route.projectId } : {})} />;
     case "terminal":
       return <TerminalScreen key={route.terminalId} terminalId={route.terminalId} />;
+    case "changes":
+      return <ChangesScreen key={route.worktreeId} worktreeId={route.worktreeId} />;
+    case "diff":
+      return <DiffScreen key={`${route.worktreeId}:${route.path}`} worktreeId={route.worktreeId} path={route.path} />;
     case "settings":
       return <SettingsScreen onForget={onForget} />;
   }

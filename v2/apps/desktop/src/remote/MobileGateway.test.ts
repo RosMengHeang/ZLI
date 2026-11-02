@@ -122,6 +122,17 @@ describe("MobileGateway", () => {
             status: "ready",
           },
         ],
+        reviews: [
+          {
+            worktreeId: worktreeId as never,
+            baseRef: "HEAD",
+            branch: "fix",
+            state: "changes",
+            files: [{ path: "src/app.ts", kind: "modified", staged: false, additions: 2, deletions: 1, binary: false }],
+            conflictFiles: [],
+            updatedAt: "2026-10-28T09:40:00.000Z",
+          },
+        ],
       }),
       desktopName: () => "Test desk",
       hosts: () => ["127.0.0.1"],
@@ -212,6 +223,37 @@ describe("MobileGateway", () => {
       response: { commandId, accepted: false, error: { code: "unauthorized" } },
     });
     expect(runtime.received.some((message) => (message as { type: string }).type === "command")).toBe(false);
+    session.transport.close();
+  });
+
+  it("forwards the diff of a changed file and answers a request for any other file itself", async () => {
+    const { session } = await pairPhone();
+    const diffId = "10000000-0000-4000-8000-000000000002";
+    const forwarded = nextMessage(session, (message) => message.type === "response");
+    session.transport.send({
+      type: "command",
+      request: {
+        protocolVersion: 1,
+        commandId: diffId,
+        command: { type: "files.diff", worktreeId, path: "src/app.ts" },
+      },
+    });
+    expect(await forwarded).toMatchObject({ response: { commandId: diffId, accepted: true } });
+
+    const refused = nextMessage(session, (message) => message.type === "response");
+    session.transport.send({
+      type: "command",
+      request: { protocolVersion: 1, commandId, command: { type: "files.diff", worktreeId, path: ".env" } },
+    });
+    expect(await refused).toMatchObject({
+      response: {
+        commandId,
+        accepted: false,
+        error: { code: "unauthorized", message: "Phones read diffs of changed files only." },
+      },
+    });
+    const sent = runtime.received.filter((message) => (message as { type: string }).type === "command");
+    expect(sent.map((message) => (message as { request: { commandId: string } }).request.commandId)).toEqual([diffId]);
     session.transport.close();
   });
 

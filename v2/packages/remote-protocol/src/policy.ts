@@ -26,6 +26,11 @@ export const PHONE_COMMANDS = [
   "terminal.read",
   "terminal.attach",
   "terminal.stop",
+  "review.refresh",
+  "review.commit",
+  "review.git.branches",
+  "review.pr.push",
+  "files.diff",
 ] as const satisfies readonly RuntimeCommand["type"][];
 
 export type PhoneCommandType = (typeof PHONE_COMMANDS)[number];
@@ -41,7 +46,10 @@ export type PhoneMessageDecision =
   | { kind: "reject"; commandId: string; reason: string }
   | { kind: "invalid"; reason: string };
 
-type PolicyProjection = Pick<RuntimeProjection, "projects" | "worktrees"> | undefined;
+/** What the policy reads to check where a command points. */
+export type PhonePolicyProjection = Pick<RuntimeProjection, "projects" | "worktrees" | "reviews">;
+
+type PolicyProjection = PhonePolicyProjection | undefined;
 
 /**
  * Decides what the gateway does with one decrypted message from a phone. `forward` passes it to the
@@ -109,9 +117,37 @@ function commandRejection(request: RpcRequest, projection: PolicyProjection): st
       if (!isDirectChild(root, command.path)) return "New worktrees go in the project's worktrees folder.";
       return undefined;
     }
+    case "review.refresh": {
+      if (!hasWorktree(projection, command.worktreeId)) return "That worktree does not exist.";
+      // Another base would change what the desktop's Changes panel compares against.
+      const review = reviewOf(projection, command.worktreeId);
+      if (command.baseRef !== "HEAD" && command.baseRef !== review?.baseRef) {
+        return "Phones read changes against the last commit or the base the desktop already compares against.";
+      }
+      return undefined;
+    }
+    case "review.commit":
+    case "review.git.branches":
+    case "review.pr.push":
+      return hasWorktree(projection, command.worktreeId) ? undefined : "That worktree does not exist.";
+    case "files.diff": {
+      if (!hasWorktree(projection, command.worktreeId)) return "That worktree does not exist.";
+      // In a folder without Git history the diff of any file is its whole contents, so phones only
+      // read files the review already lists as changed.
+      const listed = reviewOf(projection, command.worktreeId)?.files.some((file) => file.path === command.path);
+      return listed ? undefined : "Phones read diffs of changed files only.";
+    }
     default:
       return undefined;
   }
+}
+
+function hasWorktree(projection: PolicyProjection, worktreeId: string): boolean {
+  return projection?.worktrees.some((candidate) => candidate.worktreeId === worktreeId) ?? false;
+}
+
+function reviewOf(projection: PolicyProjection, worktreeId: string) {
+  return projection?.reviews?.find((candidate) => candidate.worktreeId === worktreeId);
 }
 
 function trimSeparators(path: string): string {
