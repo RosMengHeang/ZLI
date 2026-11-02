@@ -27,7 +27,8 @@ describe("agentAlerts", () => {
         key: "request:r1",
         kind: "approval",
         threadId: ids.waiting,
-        title: "Claude Code asks to continue",
+        title: "Claude Code",
+        state: "Asks to continue",
         body: "Run a command: rm -rf build",
       },
     ]);
@@ -57,7 +58,8 @@ describe("agentAlerts", () => {
         key: "request:q1",
         kind: "question",
         threadId: ids.working,
-        title: "Codex has a question",
+        title: "Codex",
+        state: "Has a question",
         body: "Which database should the tests use? (2 questions)",
       },
     ]);
@@ -75,7 +77,8 @@ describe("agentAlerts", () => {
         key: `thread:${ids.working}`,
         kind: "finished",
         threadId: ids.working,
-        title: "Login fix finished",
+        title: "Login fix",
+        state: "Finished",
         body: "Looking at it. Running tests now",
       },
     ]);
@@ -91,7 +94,7 @@ describe("agentAlerts", () => {
     const before = sampleProjection();
     const after = withThread(before, ids.working, { status: "failed", errorMessage: "codex exited with code 1" });
     expect(agentAlerts(before, after)).toMatchObject([
-      { kind: "failed", title: "Codex failed", body: "codex exited with code 1" },
+      { kind: "failed", title: "Codex", state: "Failed", body: "codex exited with code 1" },
     ]);
   });
 
@@ -99,7 +102,7 @@ describe("agentAlerts", () => {
     const before = sampleProjection();
     const stopped = withThread(before, ids.working, { status: "stopped" });
     expect(agentAlerts(before, stopped)).toMatchObject([
-      { kind: "stopped", title: "Codex stopped", body: "On feature/login" },
+      { kind: "stopped", title: "Codex", state: "Stopped", body: "On feature/login" },
     ]);
     const failed = withThread(before, ids.working, { status: "failed" });
     expect(agentAlerts(failed, withThread(failed, ids.working, { status: "stopped" }))).toEqual([]);
@@ -115,7 +118,7 @@ describe("answeredAlertKeys", () => {
 });
 
 describe("shouldShowAlert", () => {
-  const alert = { key: "k", kind: "finished", threadId: ids.working, title: "t", body: "b" } as const;
+  const alert = { key: "k", kind: "finished", threadId: ids.working, title: "t", state: "s", body: "b" } as const;
 
   it("shows everything while the app is in the background", () => {
     expect(shouldShowAlert({ ...alert, kind: "stopped" }, { active: false, openThreadId: ids.working })).toBe(true);

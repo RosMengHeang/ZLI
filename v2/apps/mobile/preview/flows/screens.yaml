@@ -20,7 +20,7 @@ appId: dev.zli.remote
 - waitForAnimationToEnd
 - takeScreenshot: home-${THEME}
 
-- tapOn: "Clean the build output asks to continue.*"
+- tapOn: "Clean the build output.*rm -rf build.*"
 - extendedWaitUntil:
     visible: "Approve"
     timeout: 15000

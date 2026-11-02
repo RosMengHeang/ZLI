@@ -63,7 +63,13 @@ async function show(alert: AgentAlert): Promise<void> {
   const urgent = alert.kind === "approval" || alert.kind === "question" || alert.kind === "failed";
   await Notifications.scheduleNotificationAsync({
     identifier: alert.key,
-    content: { title: alert.title, body: alert.body, data: { threadId: alert.threadId }, sound: urgent },
+    content: {
+      title: alert.title,
+      subtitle: alert.state,
+      body: alert.body,
+      data: { threadId: alert.threadId },
+      sound: urgent,
+    },
     trigger: Platform.OS === "android" ? { channelId: CHANNEL_ID } : null,
   });
 }

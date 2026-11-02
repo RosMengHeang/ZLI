@@ -10,7 +10,10 @@ export type AgentAlert = {
   key: string;
   kind: AgentAlertKind;
   threadId: string;
+  /** The agent's name. */
   title: string;
+  /** What happened, in a few words, shown beside the name. */
+  state: string;
   body: string;
 };
 
@@ -48,18 +51,17 @@ export function lastReply(projection: RuntimeProjection, thread: ThreadProjectio
   return reply ? oneLine(reply.text) : undefined;
 }
 
-/** What an agent asks for, in one title and one line, for notifications and the live status. */
+/** What an agent asks for, as a short state and one line, for notifications, the live status, and Home. */
 export function describeRequest(
-  name: string,
   thread: Pick<ThreadProjection, "provider">,
   request: ThreadRequestProjection,
-): { kind: "approval" | "question"; title: string; body: string } {
+): { kind: "approval" | "question"; state: string; body: string } {
   if (request.kind === "approval") {
     const view = describeApproval(thread.provider, request.payload);
     const field = view.fields[0];
     return {
       kind: "approval",
-      title: `${name} asks to continue`,
+      state: "Asks to continue",
       body: oneLine(field ? `${view.title}: ${field.value}` : view.title),
     };
   }
@@ -67,7 +69,7 @@ export function describeRequest(
   const first = questions[0]?.question ?? "The agent needs an answer";
   return {
     kind: "question",
-    title: `${name} has a question`,
+    state: "Has a question",
     body: oneLine(questions.length > 1 ? `${first} (${questions.length} questions)` : first),
   };
 }
@@ -77,8 +79,12 @@ function requestAlert(
   thread: ThreadProjection,
   request: ThreadRequestProjection,
 ): AgentAlert {
-  const described = describeRequest(agentTitle(thread, projection.providers), thread, request);
-  return { key: requestAlertKey(request.requestId), threadId: thread.threadId, ...described };
+  return {
+    key: requestAlertKey(request.requestId),
+    threadId: thread.threadId,
+    title: agentTitle(thread, projection.providers),
+    ...describeRequest(thread, request),
+  };
 }
 
 function statusAlert(
@@ -87,25 +93,28 @@ function statusAlert(
   thread: ThreadProjection,
 ): AgentAlert | undefined {
   if (before.status === thread.status) return undefined;
-  const name = agentTitle(thread, projection.providers);
-  const base = { key: threadAlertKey(thread.threadId), threadId: thread.threadId };
+  const base = {
+    key: threadAlertKey(thread.threadId),
+    threadId: thread.threadId,
+    title: agentTitle(thread, projection.providers),
+  };
   if (thread.status === "failed") {
     return {
       ...base,
       kind: "failed",
-      title: `${name} failed`,
+      state: "Failed",
       body: thread.errorMessage ? oneLine(thread.errorMessage) : branchLine(projection, thread),
     };
   }
   if (thread.status === "stopped" && before.status !== "failed") {
-    return { ...base, kind: "stopped", title: `${name} stopped`, body: branchLine(projection, thread) };
+    return { ...base, kind: "stopped", state: "Stopped", body: branchLine(projection, thread) };
   }
   const asking = (projection.requests ?? []).some((request) => request.threadId === thread.threadId);
   if (before.status === "working" && thread.status === "idle" && !asking) {
     return {
       ...base,
       kind: "finished",
-      title: `${name} finished`,
+      state: "Finished",
       body: lastReply(projection, thread) ?? branchLine(projection, thread),
     };
   }

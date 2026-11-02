@@ -37,7 +37,7 @@ describe("demo desktop", () => {
     expect(names).toEqual(["Fix the login form", "Clean the build output", "Update the README"]);
     expect(liveStatus(link.getSnapshot().projection)).toMatchObject({
       agent: "Clean the build output",
-      title: "Clean the build output asks to continue",
+      state: "Asks to continue",
     });
     link.pause();
     await link.settled();
@@ -49,7 +49,7 @@ describe("demo desktop", () => {
     await until(() => link.getSnapshot().state.kind === "online");
     await link.command({ type: "thread.respond", threadId: ids.waiting, requestId: "r1", decision: {} });
     await until(() => (link.getSnapshot().projection?.requests ?? []).length === 0);
-    expect(liveStatus(link.getSnapshot().projection)?.title).toBe("Fix the login form is working");
+    expect(liveStatus(link.getSnapshot().projection)).toMatchObject({ agent: "Fix the login form", state: "Working" });
 
     await link.command({ type: "thread.stop", threadId: ids.working });
     await until(() => liveStatus(link.getSnapshot().projection) === undefined);

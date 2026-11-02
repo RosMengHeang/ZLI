@@ -37,7 +37,8 @@ internal object LiveStatusNotification {
 
     builder
       .setSmallIcon(smallIcon(context))
-      .setContentTitle(content.title)
+      .setContentTitle(content.agent)
+      .setSubText(content.state)
       .setContentText(content.detail)
       .setStyle(Notification.BigTextStyle().bigText(expanded))
       .setOngoing(true)

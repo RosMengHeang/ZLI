@@ -3,7 +3,8 @@ import { NativeModule, requireOptionalNativeModule } from "expo";
 import { agentLink, type LiveAction, type LiveDisplay } from "./lib/liveStatus.js";
 
 type NativeStatus = {
-  title: string;
+  agent: string;
+  state: string;
   detail: string;
   badge: string;
   others?: string;
@@ -28,7 +29,8 @@ export const liveDisplay: LiveDisplay = {
   keepsAppRunning: native !== null,
   show: async (status) => {
     await native?.show({
-      title: status.title,
+      agent: status.agent,
+      state: status.state,
       detail: status.detail,
       badge: status.badge,
       ...(status.others ? { others: status.others } : {}),
