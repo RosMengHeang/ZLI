@@ -49,7 +49,7 @@ export async function registerMobileAccess(options: {
   window: BrowserWindow;
   settingsPath: string;
   upstream: () => Promise<UpstreamTarget>;
-  projection: () => Pick<RuntimeProjection, "projects" | "worktrees"> | undefined;
+  projection: () => Pick<RuntimeProjection, "projects" | "worktrees" | "reviews"> | undefined;
   log?: (level: "info" | "warn" | "error", message: string, detail?: Record<string, unknown>) => void;
 }): Promise<{ stop(): Promise<void> }> {
   const { window } = options;

@@ -5,6 +5,8 @@ export type Route =
   | { name: "agent"; threadId: string }
   | { name: "start"; projectId?: string }
   | { name: "terminal"; terminalId: string }
+  | { name: "changes"; worktreeId: string }
+  | { name: "diff"; worktreeId: string; path: string }
   | { name: "settings" };
 
 export type Navigation = {
