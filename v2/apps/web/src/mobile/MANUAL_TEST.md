@@ -99,6 +99,12 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
   Expected: the window reshapes to landscape and keeps its long side, and the frame turns with the screen. Rotating back returns it to portrait.
 - [ ] Move and resize the window, pin it, then quit and restart ZLI and pop the device out again.
   Expected: the window opens where you left it, at the same size, still pinned. If that spot is no longer on any screen (for example a display was unplugged), it opens centered on the main display instead.
+- [ ] Click Compact window (the bottom panel icon) in the window's title bar.
+  Expected: the bottom bar goes away and the window gets shorter by its height, so the device stays the same size. The button shows as pressed. Clicking it again brings the bar back and the window grows back.
+- [ ] Turn on Compact window and the pin, put the window over a chat in the main window, then close and pop the device out again.
+  Expected: it opens compact and pinned, where you left it. Another device's window still opens with its bottom bar.
+- [ ] Move the window so only a sliver of its title bar is on screen, close it, and pop the device out again.
+  Expected: it opens centered at the same size instead of at the edge where it could not be grabbed.
 - [ ] Click "Bring it back" in the panel, then pop out again and close the window with its close button.
   Expected: both ways close the window and the panel shows the live screen again. "Show the window" brings the window to the front without closing it.
 - [ ] While an agent holds the device, look at the pop-out window.

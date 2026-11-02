@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { MobilePopOut, MobilePopOutAspectInput } from "@zli-v2/contracts";
+import { type MobilePopOut, type MobilePopOutAspectInput, MobilePopOutSaved } from "@zli-v2/contracts";
 import { themeColors } from "@zli-v2/ui/colors";
 
 import { writeJsonFile } from "../storage/writeJsonFile.js";
@@ -17,16 +17,18 @@ export type WindowBounds = { x: number; y: number; width: number; height: number
 export type PopOutWindowLike = BrowserWindowLike & {
   readonly webContents: BrowserWindowLike["webContents"] & { readonly id: number };
   loadURL(url: string): Promise<void>;
-  on(event: "close" | "closed", listener: () => void): void;
+  on(event: "close" | "closed" | "moved" | "resized", listener: () => void): void;
   focus(): void;
   close(): void;
   isDestroyed(): boolean;
   isMinimized(): boolean;
   restore(): void;
   getBounds(): WindowBounds;
+  /** The bounds the window returns to when it is no longer maximized. */
+  getNormalBounds?(): WindowBounds;
   getContentSize(): number[];
   setContentSize(width: number, height: number): void;
-  setAlwaysOnTop(flag: boolean): void;
+  setAlwaysOnTop(flag: boolean, level?: "floating"): void;
   setAspectRatio(aspectRatio: number, extraSize?: { width: number; height: number }): void;
 };
 
@@ -46,8 +48,8 @@ export type PopOutWindowsOptions = {
   readonly viewerFor: (webContentsId: number) => string;
   readonly stopViewer: (deviceId: string, viewer: string) => Promise<void>;
   readonly onChange: (popOuts: MobilePopOut[]) => void;
-  /** Whether saved bounds still land on a connected display. */
-  readonly onScreen?: (bounds: WindowBounds) => boolean;
+  /** The work area of every connected display, so saved bounds that no longer land on one are not restored. */
+  readonly workAreas?: () => WindowBounds[];
   readonly icon?: string | undefined;
   readonly log?: (message: string, error: unknown) => void;
 };
@@ -58,9 +60,20 @@ const DEFAULT_SIZE = { width: 400, height: 820 };
 const MIN_SIZE = { width: 260, height: 360 };
 /** How far the window's shape may drift from the device's before ZLI reshapes it, as a ratio. */
 const SHAPE_SLACK = 1.08;
+/** How much of the title bar must be on a display for the person to grab it and drag the window back. */
+const GRAB_WIDTH = 100;
+/** Moving fires many events on macOS, so the bounds are saved once the window has been still this long. */
+const BOUNDS_SAVE_DELAY_MS = 500;
 
-type Saved = { pinned: boolean; bounds?: WindowBounds };
-type Open = { window: PopOutWindowLike; viewer: string; pinned: boolean };
+type Saved = MobilePopOutSaved;
+type Size = { width: number; height: number };
+type Open = {
+  window: PopOutWindowLike;
+  viewer: string;
+  pinned: boolean;
+  extra?: Size;
+  saveTimer?: ReturnType<typeof setTimeout>;
+};
 
 /**
  * Desktop windows that each show one device outside the Mobile panel. One window per device: opening a device
@@ -93,12 +106,11 @@ export class PopOutWindows {
     const saved = (await this.#load())[deviceId];
     // Another open of the same device may have finished while the file was read.
     if (this.#focus(deviceId)) return this.list();
-    const bounds = saved?.bounds && (this.#options.onScreen?.(saved.bounds) ?? true) ? saved.bounds : undefined;
     const pinned = saved?.pinned ?? false;
     const window = this.#options.create({
       title: this.#options.deviceName(deviceId) ?? "Device",
       ...(this.#options.icon ? { icon: this.#options.icon } : {}),
-      ...(bounds ?? DEFAULT_SIZE),
+      ...restoredBounds(saved?.bounds, this.#options.workAreas?.() ?? []),
       minWidth: MIN_SIZE.width,
       minHeight: MIN_SIZE.height,
       show: false,
@@ -108,13 +120,24 @@ export class PopOutWindows {
       webPreferences: secureWebPreferences(this.#options.preloadPath),
     });
     applyNavigationPolicy(window, this.#options.appOrigin);
+    if (pinned) this.#keepOnTop(window, true);
     // Read now: webContents can no longer be asked for its id once the window is gone.
     const entry: Open = { window, viewer: this.#options.viewerFor(window.webContents.id), pinned };
     this.#open.set(deviceId, entry);
+    const saveSoon = () => {
+      clearTimeout(entry.saveTimer);
+      entry.saveTimer = setTimeout(() => {
+        if (!window.isDestroyed()) void this.#remember(deviceId, { pinned: entry.pinned, bounds: boundsOf(window) });
+      }, BOUNDS_SAVE_DELAY_MS);
+    };
+    window.on("moved", saveSoon);
+    window.on("resized", saveSoon);
     window.on("close", () => {
-      if (!window.isDestroyed()) void this.#remember(deviceId, { pinned: entry.pinned, bounds: window.getBounds() });
+      clearTimeout(entry.saveTimer);
+      if (!window.isDestroyed()) void this.#remember(deviceId, { pinned: entry.pinned, bounds: boundsOf(window) });
     });
     window.on("closed", () => {
+      clearTimeout(entry.saveTimer);
       if (this.#open.get(deviceId) === entry) this.#open.delete(deviceId);
       this.#options
         .stopViewer(deviceId, entry.viewer)
@@ -146,16 +169,18 @@ export class PopOutWindows {
   async pin(deviceId: string, pinned: boolean): Promise<MobilePopOut[]> {
     const entry = this.#open.get(deviceId);
     if (!entry || entry.window.isDestroyed()) return this.list();
-    entry.window.setAlwaysOnTop(pinned);
+    this.#keepOnTop(entry.window, pinned);
     entry.pinned = pinned;
     this.#changed();
-    await this.#remember(deviceId, { pinned, bounds: entry.window.getBounds() });
+    await this.#remember(deviceId, { pinned, bounds: boundsOf(entry.window) });
     return this.list();
   }
 
   /**
    * Keeps the window in the device's shape while it is resized, and reshapes it when the shape is clearly off,
-   * as after a rotation. The longer side stays as it was, so a rotated window does not grow.
+   * as after a rotation. The longer side stays as it was, so a rotated window does not grow. When the room
+   * around the device changes, as when the bottom bar is hidden, the window grows or shrinks by that much so
+   * the device keeps its size.
    */
   setAspect(input: MobilePopOutAspectInput): void {
     const entry = this.#open.get(input.deviceId);
@@ -163,16 +188,28 @@ export class PopOutWindows {
     // The renderer measures in CSS pixels; the window is sized in screen points, which differ when zoomed.
     const factor = entry.window.webContents.getZoomFactor?.() ?? 1;
     const extra = { width: input.extraWidth * factor, height: input.extraHeight * factor };
+    const previous = entry.extra;
+    entry.extra = extra;
     entry.window.setAspectRatio(input.aspect, extra);
     const [width = 0, height = 0] = entry.window.getContentSize();
-    const device = { width: width - extra.width, height: height - extra.height };
+    const roomChanged = previous !== undefined && (previous.width !== extra.width || previous.height !== extra.height);
+    const content = roomChanged
+      ? {
+          width: Math.max(MIN_SIZE.width, width + extra.width - previous.width),
+          height: Math.max(MIN_SIZE.height, height + extra.height - previous.height),
+        }
+      : { width, height };
+    const device = { width: content.width - extra.width, height: content.height - extra.height };
     if (device.width <= 0 || device.height <= 0) return;
     const drift = Math.abs(Math.log(device.width / device.height / input.aspect));
-    if (drift <= Math.log(SHAPE_SLACK)) return;
-    const long = Math.max(device.width, device.height);
-    const next =
-      input.aspect >= 1 ? { width: long, height: long / input.aspect } : { width: long * input.aspect, height: long };
-    entry.window.setContentSize(Math.round(next.width + extra.width), Math.round(next.height + extra.height));
+    let next = content;
+    if (drift > Math.log(SHAPE_SLACK)) {
+      const long = Math.max(device.width, device.height);
+      const shaped =
+        input.aspect >= 1 ? { width: long, height: long / input.aspect } : { width: long * input.aspect, height: long };
+      next = { width: shaped.width + extra.width, height: shaped.height + extra.height };
+    } else if (!roomChanged) return;
+    entry.window.setContentSize(Math.round(next.width), Math.round(next.height));
   }
 
   /** Closes every window and waits until their bounds are saved. */
@@ -180,9 +217,16 @@ export class PopOutWindows {
     // Saved before closing, because Electron may emit close after this returns.
     for (const [deviceId, entry] of this.#open)
       if (!entry.window.isDestroyed())
-        void this.#remember(deviceId, { pinned: entry.pinned, bounds: entry.window.getBounds() });
+        void this.#remember(deviceId, { pinned: entry.pinned, bounds: boundsOf(entry.window) });
     for (const deviceId of [...this.#open.keys()]) this.close(deviceId);
     while (this.#pending.size > 0) await Promise.all([...this.#pending]);
+  }
+
+  #keepOnTop(window: PopOutWindowLike, pinned: boolean): void {
+    // On macOS the floating level keeps the window above other apps' normal windows. Windows has one topmost
+    // band, which the plain call uses.
+    if (this.#options.platform === "darwin") window.setAlwaysOnTop(pinned, "floating");
+    else window.setAlwaysOnTop(pinned);
   }
 
   #focus(deviceId: string): boolean {
@@ -220,6 +264,35 @@ export class PopOutWindows {
   }
 }
 
+function boundsOf(window: PopOutWindowLike): WindowBounds {
+  return window.getNormalBounds?.() ?? window.getBounds();
+}
+
+/**
+ * Where a device's window opens: its saved place when enough of its title bar lands on a display to drag it,
+ * otherwise its saved size, fitted to the largest display, wherever the system puts a new window.
+ */
+export function restoredBounds(saved: WindowBounds | undefined, areas: readonly WindowBounds[]): WindowBounds | Size {
+  if (!saved) return DEFAULT_SIZE;
+  const size = {
+    width: Math.max(MIN_SIZE.width, saved.width),
+    height: Math.max(MIN_SIZE.height, saved.height),
+  };
+  if (areas.length === 0) return { x: saved.x, y: saved.y, ...size };
+  const largest = areas.reduce((best, area) => (area.width * area.height > best.width * best.height ? area : best));
+  const fitted = {
+    width: Math.max(MIN_SIZE.width, Math.min(size.width, largest.width)),
+    height: Math.max(MIN_SIZE.height, Math.min(size.height, largest.height)),
+  };
+  const titleBar = { x: saved.x, y: saved.y, width: fitted.width, height: POP_OUT_TITLE_BAR_HEIGHT };
+  const grabbable = areas.some((area) => {
+    const width = Math.min(titleBar.x + titleBar.width, area.x + area.width) - Math.max(titleBar.x, area.x);
+    const height = Math.min(titleBar.y + titleBar.height, area.y + area.height) - Math.max(titleBar.y, area.y);
+    return width >= Math.min(GRAB_WIDTH, titleBar.width) && height >= POP_OUT_TITLE_BAR_HEIGHT / 2;
+  });
+  return grabbable ? { x: saved.x, y: saved.y, ...fitted } : fitted;
+}
+
 function parseSaved(text: string): Record<string, Saved> {
   let value: unknown;
   try {
@@ -230,20 +303,10 @@ function parseSaved(text: string): Record<string, Saved> {
   const devices = (value as { devices?: unknown } | null)?.devices;
   if (!devices || typeof devices !== "object") return {};
   const result: Record<string, Saved> = {};
+  // Each device is read on its own, so one broken entry does not forget the others.
   for (const [deviceId, entry] of Object.entries(devices as Record<string, unknown>)) {
-    if (!entry || typeof entry !== "object") continue;
-    const { pinned, bounds } = entry as { pinned?: unknown; bounds?: unknown };
-    result[deviceId] = { pinned: pinned === true, ...(isBounds(bounds) ? { bounds } : {}) };
+    const parsed = MobilePopOutSaved.safeParse(entry);
+    if (parsed.success) result[deviceId] = parsed.data;
   }
   return result;
-}
-
-function isBounds(value: unknown): value is WindowBounds {
-  if (!value || typeof value !== "object") return false;
-  const { x, y, width, height } = value as Record<string, unknown>;
-  return (
-    [x, y, width, height].every((part) => typeof part === "number" && Number.isFinite(part)) &&
-    (width as number) >= MIN_SIZE.width &&
-    (height as number) >= MIN_SIZE.height
-  );
 }

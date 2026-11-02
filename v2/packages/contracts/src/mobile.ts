@@ -282,6 +282,22 @@ export const MobilePopOutList = z.array(MobilePopOut).max(64);
 export const MobilePopOutPinInput = MobileDeviceIdInput.extend({ pinned: z.boolean() });
 export type MobilePopOutPinInput = z.infer<typeof MobilePopOutPinInput>;
 
+/** A pop-out window's position and size on the desktop, in screen points. */
+export const MobilePopOutBounds = z.object({
+  x: z.number().min(-100_000).max(100_000),
+  y: z.number().min(-100_000).max(100_000),
+  width: z.number().min(1).max(100_000),
+  height: z.number().min(1).max(100_000),
+});
+export type MobilePopOutBounds = z.infer<typeof MobilePopOutBounds>;
+
+/** What ZLI remembers about one device's window between runs. Broken bounds are dropped, the pin is kept. */
+export const MobilePopOutSaved = z.object({
+  pinned: z.boolean().catch(false),
+  bounds: MobilePopOutBounds.optional().catch(undefined),
+});
+export type MobilePopOutSaved = z.infer<typeof MobilePopOutSaved>;
+
 /**
  * The device body's width over its height, and the room the window's bars and padding take around it, so the
  * window keeps the device's shape while it is resized.
