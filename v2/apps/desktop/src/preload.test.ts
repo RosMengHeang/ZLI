@@ -311,7 +311,9 @@ describe("preload API", () => {
       state: "listening",
       hosts: ["192.168.1.20"],
       port: 47321,
-      devices: [{ deviceId: "d1", name: "Pixel 9", pairedAt: "2026-01-02T03:04:05.000Z", connected: true, push: false }],
+      devices: [
+        { deviceId: "d1", name: "Pixel 9", pairedAt: "2026-01-02T03:04:05.000Z", connected: true, push: false },
+      ],
     };
     const api = createPreloadApi({
       invoke: async (channel, payload) => {
