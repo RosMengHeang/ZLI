@@ -408,6 +408,52 @@ describe("iOS simulators on a Mac over SSH", () => {
     expect(lines().at(-1)).toBe("/usr/bin/xcrun simctl io AAAA-1111 screenshot '--type=png' -");
   });
 
+  it("changes device settings through ssh, with the push payload on ssh's stdin", async () => {
+    const { fake, ios, lines } = remote();
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    await ios.setAppearance(iphone, "dark");
+    await ios.setTextSize(iphone, "largest");
+    await ios.setLocation(iphone, { latitude: 37.33182, longitude: -122.03118 });
+    await ios.clearLocation(iphone);
+    await ios.setPermission(iphone, "com.example.app", "photos", true);
+    await ios.sendNotification(iphone, "com.example.app", { title: "It's here", body: "$(reboot)" });
+    expect(lines().slice(1)).toEqual([
+      "/usr/bin/xcrun simctl ui AAAA-1111 appearance dark",
+      "/usr/bin/xcrun simctl ui AAAA-1111 content_size extra-extra-extra-large",
+      "/usr/bin/xcrun simctl location AAAA-1111 set '37.33182,-122.03118'",
+      "/usr/bin/xcrun simctl location AAAA-1111 clear",
+      "/usr/bin/xcrun simctl privacy AAAA-1111 grant photos com.example.app",
+      "/usr/bin/xcrun simctl push AAAA-1111 com.example.app -",
+    ]);
+    const push = fake.calls.at(-1);
+    expect(push?.command).toBe("C:\\Windows\\System32\\OpenSSH\\ssh.exe");
+    const input = push?.options && "input" in push.options ? push.options.input : undefined;
+    expect(JSON.parse(String(input))).toEqual({
+      aps: { alert: { title: "It's here", body: "$(reboot)" }, sound: "default" },
+    });
+  });
+
+  it("reads the appearance and text size back from the Mac", async () => {
+    const fake = new FakeProcessRunner((_command, args) => {
+      const line = args.at(-1) ?? "";
+      if (line.endsWith("simctl list devices --json")) return { stdout: SIMCTL };
+      if (line.endsWith("ui AAAA-1111 appearance")) return { stdout: "dark\n" };
+      if (line.endsWith("ui AAAA-1111 content_size")) return { stdout: "large\n" };
+      return undefined;
+    });
+    const host = sshCommandHost({ runner: fake, ssh: "ssh", host: "dev@studio" });
+    const ios = new IosSimulatorDriver({
+      env: TEST_ENV,
+      runner: new FakeProcessRunner(),
+      tools: async () => ({ xcrun: "/usr/bin/xcrun", host }),
+    });
+    const [iphone] = await ios.list();
+    if (!iphone) throw new Error("missing iPhone");
+    expect(await ios.readConditions(iphone)).toEqual({ appearance: "dark", textSize: "default" });
+    expect(fake.calls.every((call) => call.command === "ssh")).toBe(true);
+  });
+
   it("refuses what cannot work from another computer yet, and says why", async () => {
     const { ios } = remote();
     const [iphone] = await ios.list();

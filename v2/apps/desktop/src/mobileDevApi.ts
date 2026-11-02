@@ -1,4 +1,5 @@
 import { createBuildApi } from "./mobile/dev/build/preload.js";
+import { createConditionsApi } from "./mobile/dev/conditions/preload.js";
 import { createCrashApi } from "./mobile/dev/crash/preload.js";
 import { createDoctorApi } from "./mobile/dev/doctor/preload.js";
 import { createPackagesApi } from "./mobile/dev/packages/preload.js";
@@ -15,5 +16,6 @@ export function createMobileDevApi(ipc: PreloadIpc) {
     ...createPackagesApi(ipc),
     ...createCrashApi(ipc),
     ...createBuildApi(ipc),
+    ...createConditionsApi(ipc),
   };
 }

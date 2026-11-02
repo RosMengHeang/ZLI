@@ -2,10 +2,29 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { MobileButton, MobileDeviceState, MobileUiNode } from "@zli-v2/contracts";
+import {
+  type DeviceAppearance,
+  type DeviceConditions,
+  type DeviceLocation,
+  type DeviceNotification,
+  type DevicePermission,
+  type DeviceTextSize,
+  deviceConditionSupport,
+  type MobileButton,
+  type MobileDeviceState,
+  type MobileUiNode,
+} from "@zli-v2/contracts";
 
 import { filterLogLines, pngSize } from "./adb.js";
 import { type CommandHost, sshHostName } from "./CommandHost.js";
+import {
+  coordinate,
+  IOS_CONTENT_SIZES,
+  IOS_PRIVACY_SERVICES,
+  parseIosAppearance,
+  parseIosContentSize,
+  pushPayload,
+} from "./deviceConditions.js";
 import { type IdbVideoSession, startIdbVideo } from "./IosVideoSource.js";
 import {
   type BootOptions,
@@ -480,6 +499,60 @@ export class IosSimulatorDriver implements MobileDriver {
     }
     const shot = await this.screenshot(device);
     return { width: shot.width, height: shot.height };
+  }
+
+  async readConditions(device: DriverDevice): Promise<DeviceConditions> {
+    const udid = udidOf(this.#online(device));
+    const { xcrun, runner } = await this.#xcrun();
+    const read = async (setting: string) => {
+      const result = await runner
+        .run(xcrun, ["simctl", "ui", udid, setting], { timeoutMs: 30_000 })
+        .catch(() => undefined);
+      return result?.code === 0 ? result.stdout.toString("utf8") : "";
+    };
+    const [appearanceText, sizeText] = await Promise.all([read("appearance"), read("content_size")]);
+    const appearance = parseIosAppearance(appearanceText);
+    const textSize = parseIosContentSize(sizeText);
+    return { ...(appearance ? { appearance } : {}), ...(textSize ? { textSize } : {}) };
+  }
+
+  async setAppearance(device: DriverDevice, appearance: DeviceAppearance): Promise<void> {
+    await this.#simctl(device, ["ui", udidOf(this.#online(device)), "appearance", appearance], 30_000);
+  }
+
+  async setTextSize(device: DriverDevice, size: DeviceTextSize): Promise<void> {
+    await this.#simctl(device, ["ui", udidOf(this.#online(device)), "content_size", IOS_CONTENT_SIZES[size]], 30_000);
+  }
+
+  async setLocation(device: DriverDevice, location: DeviceLocation): Promise<void> {
+    const point = `${coordinate(location.latitude)},${coordinate(location.longitude)}`;
+    await this.#simctl(device, ["location", udidOf(this.#online(device)), "set", point], 30_000);
+  }
+
+  async clearLocation(device: DriverDevice): Promise<void> {
+    await this.#simctl(device, ["location", udidOf(this.#online(device)), "clear"], 30_000);
+  }
+
+  async setPermission(device: DriverDevice, appId: string, permission: DevicePermission, grant: boolean) {
+    const service = IOS_PRIVACY_SERVICES[permission];
+    const support = deviceConditionSupport(device).permissions[permission];
+    if (!service || !support.ok)
+      throw new MobileDriverError(support.ok ? `simctl cannot set ${permission}.` : support.reason, 409);
+    await this.#simctl(
+      device,
+      ["privacy", udidOf(this.#online(device)), grant ? "grant" : "revoke", service, appId],
+      30_000,
+    );
+  }
+
+  /** simctl push reads the payload from stdin when the file argument is "-". Over SSH, ssh forwards stdin to it. */
+  async sendNotification(device: DriverDevice, appId: string, notification: DeviceNotification): Promise<void> {
+    const udid = udidOf(this.#online(device));
+    const { xcrun, runner } = await this.#xcrun();
+    await runChecked(runner, xcrun, ["simctl", "push", udid, appId, "-"], {
+      input: pushPayload(notification),
+      timeoutMs: 30_000,
+    });
   }
 
   async dispose(): Promise<void> {

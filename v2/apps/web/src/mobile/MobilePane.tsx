@@ -8,6 +8,7 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { Switch } from "../ui/Switch.js";
 import { DeviceScreen } from "./DeviceScreen.js";
+import { DeviceSettingsDrawer } from "./dev/conditions/DeviceSettingsDrawer.js";
 import type { MobileDevContext } from "./dev/context.js";
 import { MobileDevBanners } from "./dev/MobileDevBanners.js";
 import { MobileProjectView } from "./dev/MobileProjectView.js";
@@ -47,6 +48,7 @@ import "./mobile.css";
 export type MobileReveal = { deviceId: string; key: number };
 
 const SELECTED_KEY = "zli.mobile.device.v1";
+const DEVICE_SETTINGS_KEY = "zli.mobile.device-settings.v1";
 /** How often the agent lease banner rechecks its countdown. */
 const LEASE_TICK_MS = 15_000;
 
@@ -222,6 +224,15 @@ function MobilePaneBody({
 
   const [zoom, setZoom] = useDeviceZoom(device?.deviceId);
   const [showFrame, setShowFrame] = useDeviceFrame();
+  const [deviceSettingsOpen, setDeviceSettingsOpenState] = useState(readDeviceSettingsOpen);
+  const setDeviceSettingsOpen = (open: boolean) => {
+    setDeviceSettingsOpenState(open);
+    try {
+      window.sessionStorage.setItem(DEVICE_SETTINGS_KEY, open ? "open" : "closed");
+    } catch {
+      // Without storage the drawer starts closed next time.
+    }
+  };
   /** Devices shown in their own desktop window, which this pane then does not stream. */
   const [popOuts, setPopOuts] = useState<readonly MobilePopOut[]>([]);
   useEffect(() => {
@@ -702,6 +713,21 @@ function MobilePaneBody({
           canRotate={android || status?.host.os === "macos"}
           showFrame={showFrame}
           onShowFrame={setShowFrame}
+          {...(mobile.dev?.conditions
+            ? { deviceSettingsOpen, onDeviceSettings: () => setDeviceSettingsOpen(!deviceSettingsOpen) }
+            : {})}
+        />
+      ) : null}
+      {device && online && !showSetup && !poppedOut && deviceSettingsOpen && mobile.dev?.conditions ? (
+        <DeviceSettingsDrawer
+          key={`settings-${device.deviceId}`}
+          conditions={mobile.dev.conditions}
+          doctor={mobile.dev.doctor}
+          worktreeId={worktreeId}
+          device={device}
+          inputBlocked={agentHolds}
+          onBlockedInput={nudgeTakeOver}
+          onClose={() => setDeviceSettingsOpen(false)}
         />
       ) : null}
       {device && online && !showSetup ? (
@@ -729,6 +755,14 @@ function MobilePaneBody({
 
 function isAndroidVirtual(device: MobileDevice): boolean {
   return device.platform === "android" && device.kind === "emulator";
+}
+
+function readDeviceSettingsOpen(): boolean {
+  try {
+    return window.sessionStorage.getItem(DEVICE_SETTINGS_KEY) === "open";
+  } catch {
+    return false;
+  }
 }
 
 function readSelected(): string | undefined {
