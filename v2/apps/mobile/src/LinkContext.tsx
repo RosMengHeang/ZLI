@@ -8,6 +8,7 @@ import { liveStatus } from "./lib/liveStatus.js";
 import type { StoredPairing } from "./lib/pairingRecord.js";
 import { liveDisplay } from "./liveDisplay.js";
 import { createSocket, newId, random, savePairing } from "./platform.js";
+import { pushRegistration } from "./push.js";
 
 const LinkContext = createContext<RemoteLink | undefined>(undefined);
 
@@ -25,18 +26,26 @@ export function LinkProvider({ pairing, children }: { pairing: StoredPairing; ch
           : {
               // A failed write only means the next launch tries the older addresses first.
               onPairingChange: (next: StoredPairing) => void savePairing(next).catch(() => {}),
+              pushRegistration,
             }),
       }),
   );
 
   useEffect(() => {
+    if (AppState.currentState === "background" && !liveDisplay.keepsAppRunning) link.setAway(true);
     link.start();
     // Phones suspend background sockets anyway; closing first avoids a long wait on a dead one. The
     // exception is Android with an agent busy: the live status runs a foreground service, which keeps
     // the app and the socket alive.
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") link.start();
-      else if (state === "background") {
+      if (state === "active") {
+        link.setAway(false);
+        link.start();
+        link.refreshPush();
+      } else if (state === "background") {
+        // Where the system suspends the app, the desktop pushes alerts from now on instead of waiting
+        // for its heartbeat to notice the connection went quiet.
+        if (!liveDisplay.keepsAppRunning) link.setAway(true);
         const live = liveDisplay.keepsAppRunning && liveStatus(link.getSnapshot().projection) !== undefined;
         if (!live) link.pause();
       }

@@ -84,6 +84,11 @@ function nextMessage(session: RemoteSession, predicate: (message: { type?: strin
   });
 }
 
+async function until(check: () => boolean): Promise<void> {
+  for (let index = 0; index < 400 && !check(); index += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(check()).toBe(true);
+}
+
 function closed(session: RemoteSession) {
   return new Promise<number>((resolve) => session.transport.onClose(({ code }) => resolve(code)));
 }
@@ -303,6 +308,44 @@ describe("MobileGateway", () => {
     session.transport.send({ type: "gateway.unpair" });
     expect(await code).toBe(4003);
     expect(store.devices()).toHaveLength(0);
+  });
+
+  it("keeps the push token a phone sends, and forgets it when the phone turns notifications off", async () => {
+    const { session } = await pairPhone();
+    expect(session.ready.push).toBe(true);
+    const deviceId = session.paired?.deviceId ?? "";
+    const token = "ExponentPushToken[abc123]";
+    session.transport.send({ type: "gateway.push", token, platform: "android" });
+    await until(() => store.device(deviceId)?.push !== undefined);
+    expect(store.device(deviceId)?.push).toEqual({ token, platform: "android" });
+
+    session.transport.send({ type: "gateway.push", token: null, platform: "android" });
+    await until(() => store.device(deviceId)?.push === undefined);
+    session.transport.close();
+  });
+
+  it("closes the connection on a push token that is not an Expo one", async () => {
+    const { session } = await pairPhone();
+    const code = closed(session);
+    session.transport.send({ type: "gateway.push", token: "https://example.com/hook", platform: "ios" });
+    expect(await code).toBe(4000);
+    expect(store.devices()[0]?.push).toBeUndefined();
+  });
+
+  it("counts a phone whose app left the screen as connected but not watching", async () => {
+    const { session } = await pairPhone();
+    const deviceId = session.paired?.deviceId ?? "";
+    expect(gateway.attentiveDeviceIds().has(deviceId)).toBe(true);
+    session.transport.send({ type: "gateway.away", away: true });
+    await until(() => !gateway.attentiveDeviceIds().has(deviceId));
+    expect(gateway.connectedDeviceIds().has(deviceId)).toBe(true);
+    session.transport.send({ type: "gateway.away", away: false });
+    await until(() => gateway.attentiveDeviceIds().has(deviceId));
+    const code = closed(session);
+    session.transport.close();
+    await code;
+    await until(() => !gateway.connectedDeviceIds().has(deviceId));
+    expect(gateway.attentiveDeviceIds().size).toBe(0);
   });
 
   it("tells the phone to try again when the runtime connection drops", async () => {

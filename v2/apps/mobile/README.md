@@ -71,6 +71,25 @@ asks for approval, asks a question, finishes a turn, fails, or stops. Nothing is
 conversation already on screen, and an answered request removes its notification. Tapping one opens
 that agent.
 
+### Push notifications
+
+While the app is not connected, or on iPhone once it leaves the screen, the desktop sends the same
+alerts through Expo's push service instead, with the same title, state, and text. The phone gives
+the desktop its Expo push token after each connection, or tells it to forget the token when
+notifications are off. The desktop needs internet access to reach Expo.
+
+Push stays off until the app has an EAS project, and it never works in a simulator or emulator.
+To turn it on:
+
+1. Run `eas init` in this folder. It adds `extra.eas.projectId` to `app.json`.
+2. Set `enableRemoteNotifications` to `true` in the `expo-notifications` plugin in `app.json`.
+3. For Android, create a Firebase project for `dev.zli.remote`, download `google-services.json` into
+   this folder, and point `android.googleServicesFile` at it.
+4. Upload the push keys with `eas credentials`: the FCM V1 service account key for Android, and an
+   APNs key for iPhone. APNs needs a paid Apple Developer account.
+5. Build the app again. Settings > Phone access on the desktop then says "Gets alerts while ZLI
+   Remote is closed" under the phone.
+
 ## Live status
 
 While an agent is working or waiting on you, the app shows one status outside itself: the agent that
@@ -102,8 +121,8 @@ phone's own X25519 key, and the device credential the desktop issued.
 ## Limits
 
 - Local network only. There is no relay, so the phone cannot reach the desktop from elsewhere.
-- No push service. The phone posts its own notifications and live status, so they only change while
-  it is connected.
+- Without push set up (see Push notifications), the phone posts its own notifications and live
+  status, so they only change while it is connected. Push carries the alerts, not the live status.
 - On Android the foreground service keeps the connection open in the background while an agent is
   busy, and the app disconnects once none is. iOS suspends the app soon after it leaves the screen:
   the Live Activity then says to open the app, and a button press reconnects for a few seconds to
