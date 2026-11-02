@@ -86,6 +86,14 @@ capture() {
     flow live-ios "$theme" || failed=1
   done
   xcrun simctl terminate "$udid" "$BUNDLE_ID" 2>/dev/null || true
+  # A crash at launch only shows up as a missing screen, so the reports and their reason go along too.
+  local report
+  for report in "$HOME"/Library/Logs/DiagnosticReports/ZLIRemote*.ips; do
+    [ -e "$report" ] || continue
+    cp "$report" "$OUT/maestro/"
+    echo "Crash report $(basename "$report"):"
+    grep -oE '"(indicator|details)" *: *(\[[^]]*\]|"[^"]*")' "$report" | head -n 4 || true
+  done
   ls -1 "$OUT"/*.png 2>/dev/null || true
   return "$failed"
 }

@@ -75,7 +75,9 @@ export function useLiveStatus(onOpen: (threadId: string) => void): void {
       const key = JSON.stringify([status, background]);
       if (key === shown) return;
       shown = key;
-      void liveDisplay.show(status, { background }).catch(() => {});
+      void liveDisplay.show(status, { background }).catch((error: unknown) => {
+        console.warn("The live status did not update", error);
+      });
     };
     render();
     const stopLink = link.subscribe(render);

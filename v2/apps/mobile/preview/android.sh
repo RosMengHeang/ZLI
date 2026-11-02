@@ -76,6 +76,11 @@ live_status() {
   adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 > /dev/null
   local status=0
   live_notification || status=1
+  {
+    adb shell dumpsys activity services "$PACKAGE"
+    adb shell dumpsys package "$PACKAGE" | grep -i "notification"
+    adb shell dumpsys notification --noredact | grep -A 30 "pkg=$PACKAGE"
+  } > "$OUT/maestro/live-$theme.txt" 2>&1 || true
   adb shell input keyevent KEYCODE_HOME
   sleep 3
   shot "chip-$theme"

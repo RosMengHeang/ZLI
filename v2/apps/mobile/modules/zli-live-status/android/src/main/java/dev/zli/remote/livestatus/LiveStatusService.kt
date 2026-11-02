@@ -8,6 +8,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
+
+private const val TAG = "ZliLiveStatus"
 
 /**
  * Holds the live status notification as a foreground service. Android then keeps the app process,
@@ -37,6 +40,7 @@ class LiveStatusService : Service() {
       }
     } catch (error: RuntimeException) {
       // Without the service the status still shows; only the background connection is lost.
+      Log.w(TAG, "Could not start the foreground service", error)
       notify(this, notification)
       stopSelf()
     }
@@ -66,6 +70,7 @@ class LiveStatusService : Service() {
         else context.startService(intent)
       } catch (error: RuntimeException) {
         // Android refuses to start a foreground service from the background.
+        Log.w(TAG, "Could not start the foreground service", error)
         notify(context, notification)
       }
     }
