@@ -73,6 +73,30 @@ describe("NodePtyFactory", () => {
     expect(spawned[0]?.env.ZLI_DAEMON_TOKEN).toBeUndefined();
   });
 
+  it("keeps ZLI's private variables out of a terminal that gets the worktree's Metro port", async () => {
+    const spawned: Array<{ shell: string; args: string[] | string; env: NodeJS.ProcessEnv }> = [];
+    const factory = new NodePtyFactory({ platform: "linux", load: async () => recordingModule(spawned) });
+
+    await factory.spawn({
+      cwd: "/workspace/tree",
+      shell: "/bin/bash",
+      envOverrides: { ZLI_METRO_PORT: "8142", RCT_METRO_PORT: "8142" },
+      env: {
+        PATH: "/usr/bin",
+        ZLI_RUNTIME_TOKEN: "secret",
+        ZLI_DAEMON_TOKEN: "secret",
+        ZLI_DAEMON_ENDPOINT_PATH: "/tmp/daemon.json",
+      },
+      cols: 80,
+      rows: 24,
+    });
+
+    expect(spawned[0]?.env).toMatchObject({ ZLI_METRO_PORT: "8142", RCT_METRO_PORT: "8142" });
+    expect(spawned[0]?.env.ZLI_RUNTIME_TOKEN).toBeUndefined();
+    expect(spawned[0]?.env.ZLI_DAEMON_TOKEN).toBeUndefined();
+    expect(spawned[0]?.env.ZLI_DAEMON_ENDPOINT_PATH).toBeUndefined();
+  });
+
   it("puts the browser shim first on PATH under the key Windows already uses", async () => {
     const spawned: Array<{ shell: string; args: string[] | string; env: NodeJS.ProcessEnv }> = [];
     const factory = new NodePtyFactory({ platform: "win32", load: async () => recordingModule(spawned) });

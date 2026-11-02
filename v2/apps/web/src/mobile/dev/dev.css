@@ -1,0 +1,16 @@
+/* Proposal cards and the project check layout. */
+.mobile-proposals { display: flex; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-2) var(--zli-space-3); }
+.mobile-proposal { display: flex; flex-direction: column; gap: var(--zli-space-1-5); padding: var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-raised); }
+.mobile-proposal-source { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.mobile-proposal-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; overflow-wrap: anywhere; }
+.mobile-proposal-reason,
+.mobile-proposal-note,
+.mobile-proposal-state { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.mobile-proposal-well { margin: 0; padding: var(--zli-space-2) var(--zli-space-2-5); border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); white-space: pre-wrap; overflow-wrap: anywhere; }
+.mobile-proposal-well-clamped { max-height: 7.5em; overflow: hidden; }
+.mobile-proposal > .btn-ghost { align-self: flex-start; }
+.mobile-proposal-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); margin-top: var(--zli-space-0-5); }
+.mobile-proposal .inline-error { margin: 0; }
+.mobile-project { max-width: none; }
+.mobile-project-context { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.mobile-project-context code, .mobile-proposal-note code { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }

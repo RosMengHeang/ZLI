@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
 
+import { withoutPrivateEnv, ZLI_AGENT_CONTROL_ENV } from "@zli-v2/contracts";
 import { planSpawn } from "@zli-v2/shared";
 
 import { prependPath } from "../browser-tool/browserTool.js";
@@ -77,10 +78,7 @@ function childPtyEnv(
 ): NodeJS.ProcessEnv {
   const inherited = { ...(source ?? process.env), ...overrides };
   const env = pathPrepend ? prependPath(inherited, pathPrepend, platform) : inherited;
-  delete env.ZLI_DAEMON_TOKEN;
-  delete env.ZLI_DAEMON_ENDPOINT_PATH;
-  delete env.ZLI_RUNTIME_TOKEN;
-  return env;
+  return withoutPrivateEnv(env, { keep: [ZLI_AGENT_CONTROL_ENV] });
 }
 
 export class NodePtyFactory implements PtyFactory {

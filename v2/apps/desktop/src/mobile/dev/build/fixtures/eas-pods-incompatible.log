@@ -1,0 +1,356 @@
+$ eas build --platform ios --profile development
+
+[SPIN_UP_BUILD_ENVIRONMENT] Preparing worker
+Build ID: 6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7
+Worker image: macos-sonoma-14.6-xcode-16.1
+Worker region: us-central1
+Starting build
+Downloading project archive
+Project archive downloaded (12.4 MB)
+Extracting project archive
+Environment:
+  Node.js 20.18.0
+  Yarn 1.22.22
+  pnpm 9.12.3
+  Bun 1.1.33
+  npm 10.8.2
+  Xcode 16.1
+  CocoaPods 1.16.2
+  fastlane 2.225.0
+  Ruby 3.2.6
+Environment variables loaded from the build profile "env" configuration:
+  EXPO_PUBLIC_API_URL=https://api.example.com
+  EXPO_PUBLIC_APP_ENV=development
+  EXPO_PUBLIC_SENTRY_ENABLED=false
+  NODE_ENV=production
+  EAS_BUILD_PROFILE=development
+  EAS_BUILD_PLATFORM=ios
+Build profile resolved
+
+[READ_PACKAGE_JSON] Using package.json:
+{
+  "name": "example-app",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "lint": "eslint .",
+    "test": "jest"
+  },
+  "dependencies": {
+    "expo": "~52.0.11",
+    "expo-constants": "~17.0.3",
+    "expo-dev-client": "~5.0.4",
+    "expo-font": "~13.0.1",
+    "expo-image": "~2.0.3",
+    "expo-linking": "~7.0.3",
+    "expo-splash-screen": "~0.29.13",
+    "expo-status-bar": "~2.0.0",
+    "expo-system-ui": "~4.0.4",
+    "react": "18.3.1",
+    "react-native": "0.76.3",
+    "react-native-gesture-handler": "~2.20.2",
+    "react-native-safe-area-context": "4.12.0",
+    "react-native-screens": "~4.1.0",
+    "@react-navigation/native": "^7.0.0",
+    "@react-navigation/native-stack": "^7.0.0",
+    "expo-av": "~15.0.1",
+    "expo-blur": "~14.0.1",
+    "expo-camera": "~16.0.7",
+    "expo-clipboard": "~7.0.0",
+    "expo-device": "~7.0.1",
+    "expo-file-system": "~18.0.4",
+    "expo-haptics": "~14.0.0",
+    "expo-image-picker": "~16.0.3",
+    "expo-localization": "~16.0.0",
+    "expo-location": "~18.0.2",
+    "expo-notifications": "~0.29.9",
+    "expo-router": "~4.0.9",
+    "expo-sharing": "~13.0.0",
+    "expo-sqlite": "~15.0.3",
+    "expo-updates": "~0.26.9",
+    "expo-web-browser": "~14.0.1",
+    "@tanstack/react-query": "^5.59.20",
+    "zustand": "^5.0.1",
+    "date-fns": "^4.1.0",
+    "i18next": "^23.16.5",
+    "react-i18next": "^15.1.1",
+    "react-hook-form": "^7.53.2",
+    "zod": "^3.23.8",
+    "react-native-svg": "15.8.0",
+    "react-native-mmkv": "^3.1.0",
+    "react-native-webview": "13.12.2",
+    "@shopify/flash-list": "1.7.1",
+    "lottie-react-native": "7.1.0",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "@react-native-community/netinfo": "11.4.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~18.3.12",
+    "typescript": "~5.3.3",
+    "jest": "^29.7.0",
+    "jest-expo": "~52.0.2",
+    "eslint": "^8.57.0"
+  },
+  "private": true
+}
+
+[INSTALL_DEPENDENCIES] Running "npm ci --include=dev" in /Users/expo/workingdir/build directory
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it.
+npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+npm warn deprecated @babel/plugin-proposal-class-properties@7.18.6: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-class-properties instead.
+npm warn deprecated @babel/plugin-proposal-nullish-coalescing-operator@7.18.6: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-nullish-coalescing-operator instead.
+npm warn deprecated @babel/plugin-proposal-optional-chaining@7.21.0: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-optional-chaining instead.
+npm warn deprecated @xmldom/xmldom@0.7.13: this version is no longer supported, please update to at least 0.8.*
+npm warn deprecated sudo-prompt@9.2.1: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+npm warn deprecated abab@2.0.6: Use your platform's native atob() and btoa() methods instead
+npm warn deprecated domexception@4.0.0: Use your platform's native DOMException instead
+npm warn deprecated osenv@0.1.5: This package is no longer supported.
+npm warn deprecated har-validator@5.1.5: This package is no longer supported.
+npm warn deprecated request@2.88.2: This package is no longer supported.
+npm warn deprecated uuid@3.4.0: This package is no longer supported.
+npm warn deprecated querystring@0.2.0: This package is no longer supported.
+npm warn deprecated stable@0.1.8: This package is no longer supported.
+npm warn deprecated w3c-hr-time@1.0.2: This package is no longer supported.
+npm warn deprecated source-map-resolve@0.5.3: This package is no longer supported.
+npm warn deprecated resolve-url@0.2.1: This package is no longer supported.
+npm warn deprecated urix@0.1.0: This package is no longer supported.
+npm warn deprecated source-map-url@0.4.1: This package is no longer supported.
+npm warn deprecated chokidar@2.1.8: This package is no longer supported.
+npm warn deprecated fsevents@1.2.13: This package is no longer supported.
+npm warn deprecated mkdirp@0.5.1: This package is no longer supported.
+npm warn deprecated debug@4.1.0: This package is no longer supported.
+npm warn deprecated left-pad@1.3.0: This package is no longer supported.
+npm warn deprecated node-domexception@1.0.0: This package is no longer supported.
+npm warn deprecated lodash.isequal@4.5.0: This package is no longer supported.
+npm warn deprecated lodash.get@4.4.2: This package is no longer supported.
+npm warn deprecated npmlog@6.0.2: This package is no longer supported.
+npm warn deprecated are-we-there-yet@3.0.1: This package is no longer supported.
+
+> node-gyp-build@3.10.4 postinstall
+> node scripts/postinstall.js
+
+> protobufjs@5.4.0 postinstall
+> node scripts/postinstall.js
+
+> core-js@3.8.7 postinstall
+> node scripts/postinstall.js
+
+> esbuild@8.14.6 postinstall
+> node scripts/postinstall.js
+
+> sharp@7.10.2 postinstall
+> node scripts/postinstall.js
+
+> @swc/core@5.11.9 postinstall
+> node scripts/postinstall.js
+
+> unrs-resolver@4.10.7 postinstall
+> node scripts/postinstall.js
+
+> msw@7.17.4 postinstall
+> node scripts/postinstall.js
+
+> bufferutil@1.5.9 postinstall
+> node scripts/postinstall.js
+
+> utf-8-validate@4.5.8 postinstall
+> node scripts/postinstall.js
+
+> lefthook@7.12.5 postinstall
+> node scripts/postinstall.js
+
+> example-app@1.0.0 postinstall
+> patch-package && node scripts/setup-env.js
+
+patch-package 8.0.0
+Applying patches...
+react-native-screens@4.1.0 ✔
+react-native-gesture-handler@2.20.2 ✔
+expo-modules-core@2.1.0 ✔
+expo-image@2.0.3 ✔
+react-native-safe-area-context@4.12.0 ✔
+@react-navigation/native@7.0.0 ✔
+@react-navigation/native-stack@7.0.0 ✔
+expo-font@13.0.1 ✔
+expo-linking@7.0.3 ✔
+expo-constants@17.0.3 ✔
+expo-splash-screen@0.29.13 ✔
+expo-system-ui@4.0.4 ✔
+Generated .env.local from .env.example (14 keys)
+
+added 1156 packages, and audited 1409 packages in 56s
+
+126 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+
+[READ_APP_CONFIG] Using app configuration:
+{
+  "name": "Example App",
+  "slug": "example-app",
+  "version": "1.0.0",
+  "orientation": "portrait",
+  "icon": "./assets/icon.png",
+  "scheme": "exampleapp",
+  "userInterfaceStyle": "automatic",
+  "newArchEnabled": true,
+  "ios": {
+    "supportsTablet": true,
+    "bundleIdentifier": "com.example.app"
+  },
+  "android": {
+    "adaptiveIcon": {
+      "foregroundImage": "./assets/adaptive-icon.png",
+      "backgroundColor": "#ffffff"
+    },
+    "package": "com.example.app"
+  },
+  "plugins": [
+    "expo-router",
+    [
+      "expo-splash-screen",
+      {
+        "image": "./assets/splash-icon.png",
+        "imageWidth": 200,
+        "resizeMode": "contain",
+        "backgroundColor": "#ffffff"
+      }
+    ]
+  ],
+  "experiments": {
+    "typedRoutes": true
+  },
+  "extra": {
+    "router": {
+      "origin": false
+    },
+    "eas": {
+      "projectId": "00000000-0000-4000-8000-000000000000"
+    }
+  },
+  "sdkVersion": "52.0.0",
+  "platforms": [
+    "ios",
+    "android"
+  ],
+  "androidStatusBar": {
+    "backgroundColor": "#ffffff"
+  }
+}
+
+[PREBUILD] Running "expo prebuild --no-install --platform ios"
+- Creating native directory (./ios)
+✔ Created native directory
+- Updating package.json
+✔ Updated package.json | no changes
+- Running prebuild
+✔ Finished prebuild
+
+[INSTALL_PODS] Running "pod install" in /Users/expo/workingdir/build/ios directory
+Using Expo modules
+Auto-linking React Native modules for target `App`: RNGestureHandler, RNScreens, and react-native-safe-area-context
+Framework build type is static library
+Configuring the target with the New Architecture
+Analyzing dependencies
+Fetching podspec for `DoubleConversion` from `../node_modules/react-native/third-party-podspecs/DoubleConversion.podspec`
+Fetching podspec for `RCT-Folly` from `../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec`
+Fetching podspec for `boost` from `../node_modules/react-native/third-party-podspecs/boost.podspec`
+Fetching podspec for `fmt` from `../node_modules/react-native/third-party-podspecs/fmt.podspec`
+Fetching podspec for `glog` from `../node_modules/react-native/third-party-podspecs/glog.podspec`
+Fetching podspec for `hermes-engine` from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`
+Using boost (1.84.0)
+Using DoubleConversion (1.1.6)
+Using EXConstants (17.0.3)
+Using EXImageLoader (5.0.0)
+Using EXJSONUtils (0.14.0)
+Using EXManifests (0.15.4)
+Using Expo (52.0.11)
+Using expo-dev-client (5.0.4)
+Using expo-dev-launcher (5.0.17)
+Using expo-dev-menu (6.0.12)
+Using expo-dev-menu-interface (1.9.2)
+Using ExpoAsset (11.0.1)
+Using ExpoFileSystem (18.0.4)
+Using ExpoFont (13.0.1)
+Using ExpoImage (2.0.3)
+Using ExpoKeepAwake (14.0.1)
+Using ExpoLinking (7.0.3)
+Using ExpoModulesCore (2.1.0)
+Using ExpoSplashScreen (0.29.13)
+Using ExpoSystemUI (4.0.4)
+Using EXUpdatesInterface (1.0.0)
+Using fast_float (6.1.4)
+Using FBLazyVector (0.76.3)
+Using fmt (11.0.2)
+Using glog (0.3.5)
+Using hermes-engine (0.76.3)
+Using RCT-Folly (2024.01.01.00)
+Using RCTDeprecation (0.76.3)
+Using RCTRequired (0.76.3)
+Using RCTTypeSafety (0.76.3)
+Using React (0.76.3)
+Using React-callinvoker (0.76.3)
+Using React-Core (0.76.3)
+Using React-CoreModules (0.76.3)
+Using React-cxxreact (0.76.3)
+Using React-debug (0.76.3)
+Using React-defaultsnativemodule (0.76.3)
+Using React-domnativemodule (0.76.3)
+Using React-featureflags (0.76.3)
+Using React-featureflagsnativemodule (0.76.3)
+Using React-graphics (0.76.3)
+Using React-hermes (0.76.3)
+Using React-idlecallbacksnativemodule (0.76.3)
+Using React-ImageManager (0.76.3)
+Using React-jsi (0.76.3)
+Using React-jsiexecutor (0.76.3)
+Using React-jsinspector (0.76.3)
+Using React-jsitracing (0.76.3)
+Using React-logger (0.76.3)
+Using React-Mapbuffer (0.76.3)
+Using React-microtasksnativemodule (0.76.3)
+Using React-NativeModulesApple (0.76.3)
+Using React-perflogger (0.76.3)
+Using React-performancetimeline (0.76.3)
+Using React-RCTActionSheet (0.76.3)
+Using React-RCTAnimation (0.76.3)
+Using React-RCTAppDelegate (0.76.3)
+Using React-RCTBlob (0.76.3)
+Using React-RCTImage (0.76.3)
+Using React-RCTLinking (0.76.3)
+Using React-RCTNetwork (0.76.3)
+Using React-RCTSettings (0.76.3)
+Using React-RCTText (0.76.3)
+Using React-RCTVibration (0.76.3)
+Using React-rendererconsistency (0.76.3)
+Using React-rendererdebug (0.76.3)
+Using React-rncore (0.76.3)
+Using React-RuntimeApple (0.76.3)
+Using React-RuntimeCore (0.76.3)
+Using React-runtimeexecutor (0.76.3)
+Using React-RuntimeHermes (0.76.3)
+Using React-runtimescheduler (0.76.3)
+Using React-timing (0.76.3)
+Using React-utils (0.76.3)
+Using ReactCodegen (0.76.3)
+Using ReactCommon (0.76.3)
+Using RNGestureHandler (2.20.2)
+Using RNScreens (4.1.0)
+Using react-native-safe-area-context (4.12.0)
+Using SocketRocket (0.7.1)
+Using Yoga (0.0.0)
+[!] CocoaPods could not find compatible versions for pod "ExpoModulesCore":
+  In snapshot (Podfile.lock):
+    ExpoModulesCore (from `../node_modules/expo-modules-core`)
+  In Podfile:
+    ExpoModulesCore (from `../node_modules/expo-modules-core`)
+
+Specs satisfying the `ExpoModulesCore (from `../node_modules/expo-modules-core`)` dependency were found, but they required a higher minimum deployment target.
+Error: Compatible versions of some pods could not be resolved.
+pod install exited with non-zero code: 1

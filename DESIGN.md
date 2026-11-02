@@ -277,6 +277,14 @@ not cover, add it to the primitives instead of styling it locally.
   like a phone's navigation bar, and Rotate, Save a screenshot, and the
   More menu on the right. Shut down is an icon button in the toolbar, and
   the reason for screenshots mode is a caption under the device.
+- Agents ask before they act on a mobile project. Their commands and
+  AGENTS.md or CLAUDE.md changes appear as cards above the device, and
+  nothing runs until the person clicks Run in terminal or Write. Those
+  buttons arm only once a card has been still for a moment, and a long
+  command sits collapsed behind Show all, button off, until the person
+  has read it in full. The toolbar's Project check opens one view per
+  worktree, named for its branch: its dev server, toolchain, packages,
+  and what a failed build log means.
 - Integrations Browse shows connectors and plugins as cards one step above
   the island: logo, name, publisher, a two-line description, then a footer
   with the action. Card buttons stay neutral; the accent is kept for the

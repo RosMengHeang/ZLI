@@ -179,10 +179,13 @@ export type MobileAvdCreateInput = z.infer<typeof MobileAvdCreateInput>;
 export const MobileAvdDeleteInput = z.object({ name: MobileAvdName });
 export type MobileAvdDeleteInput = z.infer<typeof MobileAvdDeleteInput>;
 
-/** Settings the person controls. agentTools off hides the zli-mobile tools from agents and refuses their calls. */
-export const MobileSettings = z.object({ agentTools: z.boolean() });
+/**
+ * Settings the person controls. agentTools off hides the zli-mobile tools from agents and refuses their calls.
+ * crashWatch reads the log of a running device for crashes.
+ */
+export const MobileSettings = z.object({ agentTools: z.boolean(), crashWatch: z.boolean() });
 export type MobileSettings = z.infer<typeof MobileSettings>;
-export const DEFAULT_MOBILE_SETTINGS: MobileSettings = { agentTools: true };
+export const DEFAULT_MOBILE_SETTINGS: MobileSettings = { agentTools: true, crashWatch: true };
 
 export const MobileDeviceIdInput = z.object({ deviceId: z.string().min(1).max(300) });
 export type MobileDeviceIdInput = z.infer<typeof MobileDeviceIdInput>;
@@ -308,6 +311,12 @@ export const MOBILE_CONTROL_ACTIONS = [
   "mobilescreenshot",
   "mobilelogs",
   "mobilerelease",
+  "mobilepropose",
+  "mobileworkspace",
+  "mobiledoctor",
+  "mobilecheckpackage",
+  "mobilecrashes",
+  "mobilebuildbrief",
 ] as const;
 export const MobileControlAction = z.enum(MOBILE_CONTROL_ACTIONS);
 export type MobileControlAction = z.infer<typeof MobileControlAction>;

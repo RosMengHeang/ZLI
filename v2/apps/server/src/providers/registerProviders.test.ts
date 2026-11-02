@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ThreadId } from "@zli-v2/contracts";
+import { AcpClient } from "@zli-v2/provider-acp";
 import { CursorAgentClient } from "@zli-v2/provider-cursor-agent";
 import { DroidClient } from "@zli-v2/provider-droid";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -97,10 +98,10 @@ describe("Cursor and Droid chats", () => {
   };
 
   /** Stand-in CLIs on PATH, so discovery finds them; the clients themselves are replaced. */
-  async function fakeClis(): Promise<string> {
+  async function fakeClis(names = ["cursor-agent", "droid"]): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "zli-fake-cli-"));
     temps.push(dir);
-    for (const name of ["cursor-agent", "droid"]) {
+    for (const name of names) {
       await writeFile(join(dir, name), "#!/bin/sh\nexit 0\n");
       await chmod(join(dir, name), 0o755);
     }
@@ -143,6 +144,39 @@ describe("Cursor and Droid chats", () => {
       expect(cursorStart.mock.lastCall?.[0]).not.toHaveProperty("approveMcps");
     },
   );
+
+  it.skipIf(process.platform === "win32")("start each chat agent with its worktree's Metro port", async () => {
+    const worktree = await fakeClis(["cursor-agent", "droid", "opencode"]);
+    const asked: Array<string | undefined> = [];
+    const registry = createProviderRegistry(
+      {},
+      {
+        metroEnv: async (worktreeId) => {
+          asked.push(worktreeId);
+          return worktreeId === "wt-1" ? { ZLI_METRO_PORT: "8123", RCT_METRO_PORT: "8123" } : {};
+        },
+      },
+    );
+    const cursorStart = vi.spyOn(CursorAgentClient, "start").mockResolvedValue(client as never);
+    const droidStart = vi.spyOn(DroidClient, "start").mockResolvedValue(client as never);
+    const acpStart = vi
+      .spyOn(AcpClient, "start")
+      .mockResolvedValue({ ...client, respondToPermission: vi.fn() } as never);
+    const threadId = ThreadId.parse("44444444-4444-4444-8444-444444444444");
+    const metro = { ZLI_METRO_PORT: "8123", RCT_METRO_PORT: "8123" };
+
+    await registry.get("cursor-agent")?.startSession({ threadId, cwd: worktree, worktreeId: "wt-1" });
+    await registry.get("droid")?.startSession({ threadId, cwd: worktree, worktreeId: "wt-1" });
+    await registry.get("opencode")?.startSession({ threadId, cwd: worktree, worktreeId: "wt-1" });
+    expect(cursorStart).toHaveBeenLastCalledWith(expect.objectContaining({ env: expect.objectContaining(metro) }));
+    expect(droidStart).toHaveBeenLastCalledWith(expect.objectContaining({ env: expect.objectContaining(metro) }));
+    expect(acpStart).toHaveBeenLastCalledWith(expect.objectContaining({ env: expect.objectContaining(metro) }));
+
+    // The project's own checkout keeps Metro's default port, so nothing is added.
+    await registry.get("droid")?.startSession({ threadId, cwd: worktree, worktreeId: "checkout" });
+    expect(droidStart.mock.lastCall?.[0]).not.toHaveProperty("env");
+    expect(asked).toEqual(["wt-1", "wt-1", "wt-1", "checkout"]);
+  });
 });
 
 describe("resolveClaudeCommand", () => {

@@ -56,7 +56,7 @@ function status(): MobileSetupStatus {
 }
 
 function createMobile(devices: MobileDevice[]) {
-  let settings: MobileSettings = { agentTools: true };
+  let settings: MobileSettings = { agentTools: true, crashWatch: true };
   const listeners = new Set<(next: MobileDevice[]) => void>();
   const mobile = {
     status: vi.fn(async (_options?: { recheckAcceleration?: boolean }) => status()),

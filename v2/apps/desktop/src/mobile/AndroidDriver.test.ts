@@ -93,6 +93,29 @@ describe("Android driver", () => {
     expect(polls).toBe(3);
   });
 
+  it("boots on the worktree's preferred console port, and falls back to a free one when it is taken", async () => {
+    const answer = (running: string) => (_command: string, args: readonly string[]) => {
+      if (args[0] === "devices") return { stdout: `List of devices attached\n${running}` };
+      if (args.at(-1)?.endsWith("sys.boot_completed")) return { stdout: "1\n" };
+      if (args.join(" ").endsWith("emu avd name")) return { stdout: "Pixel_7\r\nOK\r\n" };
+      return undefined;
+    };
+    const tablet: DriverDevice = {
+      deviceId: "android-avd:Tablet",
+      platform: "android",
+      kind: "emulator",
+      name: "Tablet",
+      state: "shutdown",
+    };
+    const free = driver(answer("emulator-5554 device\n"));
+    expect(await free.android.boot(tablet, { preferredPort: 5560 })).toMatchObject({ serial: "emulator-5560" });
+    expect(free.runner.spawned[0]?.args.slice(0, 4)).toEqual(["-avd", "Tablet", "-port", "5560"]);
+
+    const taken = driver(answer("emulator-5554 device\nemulator-5560 device\n"));
+    expect(await taken.android.boot(tablet, { preferredPort: 5560 })).toMatchObject({ serial: "emulator-5556" });
+    expect(taken.runner.spawned[0]?.args.slice(0, 4)).toEqual(["-avd", "Tablet", "-port", "5556"]);
+  });
+
   it("reports why an emulator stopped while booting", async () => {
     const runner = new FakeProcessRunner(
       (_command, args) => (args[0] === "devices" ? { stdout: "List of devices attached\n" } : { code: 1 }),
@@ -197,6 +220,16 @@ describe("Android driver", () => {
         "shell",
         "am start -W -a android.intent.action.VIEW -d 'http://localhost:8081/?platform=android'",
       ],
+    ]);
+  });
+
+  it("maps one device port to another host port, and removes the mapping", async () => {
+    const { android, runner } = driver(() => undefined);
+    await android.reverse(online, 8081, 8142);
+    await android.removeReverse(online, 8081);
+    expect(runner.argsOf("adb")).toEqual([
+      ["-s", "emulator-5554", "reverse", "tcp:8081", "tcp:8142"],
+      ["-s", "emulator-5554", "reverse", "--remove", "tcp:8081"],
     ]);
   });
 

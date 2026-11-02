@@ -1,0 +1,93 @@
+11-01 10:19:58.368  1180  1402 W ActivityManager: Slow operation: 142ms so far, now at startProcess: done updating pids map
+11-01 10:19:58.385  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:19:58.440  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP
+11-01 10:19:58.465  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 381 [NetworkRequest [ REQUEST id=162, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:19:58.535  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:19:58.565  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:19:58.603  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:19:58.621   523   602 D gralloc4: gralloc4: allocate buffer 1080x2400 format 0x1 usage 0xb00
+11-01 10:19:58.675  1180  1402 W ActivityManager: Slow operation: 146ms so far, now at startProcess: done updating pids map
+11-01 10:19:58.688  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=3 (109ms)
+11-01 10:19:58.712  1180  1201 I ActivityManager: Changes in 10190 4 to 3, 0 to 0
+11-01 10:19:58.728   523   602 D gralloc4: gralloc4: allocate buffer 1080x2400 format 0x1 usage 0xb00
+11-01 10:19:58.790  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:19:58.857  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:19:58.898  4321  4380 I ReactNativeJS: Running "main" with {"rootTag":11,"initialProps":{"concurrentRoot":true}}
+11-01 10:19:58.953  4321  4321 I Choreographer: Skipped 42 frames!  The application may be doing too much work on its main thread.
+11-01 10:19:59.019  4321  4352 I OpenGLRenderer: Davey! duration=780ms;
+11-01 10:19:59.066  4321  4380 I ReactNativeJS: 'Image cache warm', { entries: 48 }
+11-01 10:19:59.103  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:19:59.170  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=3 (324ms)
+11-01 10:19:59.228  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP
+11-01 10:19:59.269  4321  4321 D InsetsController: show(ime(), fromIme=false)
+11-01 10:19:59.280  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 332 [NetworkRequest [ REQUEST id=338, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:19:59.301  4321  4321 I chatty  : uid=10190(com.example.app) RenderThread identical 8 lines
+11-01 10:19:59.356  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=2
+11-01 10:19:59.378   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#832
+11-01 10:19:59.398  4321  4365 D OkHttp  : <-- 200 https://api.example.com/v1/feed?page=4 (200ms)
+11-01 10:19:59.433  4321  4321 D InsetsController: hide(ime(), fromIme=false)
+11-01 10:19:59.475  1180  1402 W ActivityManager: Slow operation: 162ms so far, now at startProcess: done updating pids map
+11-01 10:19:59.501  1180  1402 W ActivityManager: Slow operation: 110ms so far, now at startProcess: done updating pids map
+11-01 10:19:59.550  4321  4321 I chatty  : uid=10190(com.example.app) RenderThread identical 13 lines
+11-01 10:19:59.602  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 178 [NetworkRequest [ REQUEST id=152, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC
+11-01 10:19:59.662  4321  4352 I OpenGLRenderer: Davey! duration=806ms;
+11-01 10:19:59.708  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:19:59.730  4321  4321 D SoLoader: init start
+11-01 10:19:59.789  1180  1201 I ActivityManager: Changes in 10190 2 to 2, 0 to 0
+11-01 10:19:59.831  4321  4352 D OpenGLRenderer: Davey! duration=1297ms; Flags=0, FrameTimelineVsyncId=587987, IntendedVsync=602980951312, Vsync=168934085763
+11-01 10:19:59.850  4321  4352 I OpenGLRenderer: Davey! duration=841ms;
+11-01 10:20:08.421  1180  1215 E ActivityManager: ANR in com.example.app (com.example.app/.MainActivity)
+11-01 10:20:08.421  1180  1215 E ActivityManager: PID: 4321
+11-01 10:20:08.421  1180  1215 E ActivityManager: Reason: Input dispatching timed out (2f6a1c9 com.example.app/com.example.app.MainActivity (server) is not responding. Waited 5001ms for MotionEvent)
+11-01 10:20:08.422  1180  1215 E ActivityManager: Parent: com.example.app/.MainActivity
+11-01 10:20:08.422  1180  1215 E ActivityManager: ErrorId: 0e4f9b6c-1111-4c2e-9a5b-6d0f6c7e8a90
+11-01 10:20:08.422  1180  1215 E ActivityManager: Frozen: false
+11-01 10:20:08.422  1180  1215 E ActivityManager: Load: 3.2 / 2.1 / 1.4
+11-01 10:20:08.422  1180  1215 E ActivityManager: ----- Output from /proc/pressure/memory -----
+11-01 10:20:08.423  1180  1215 E ActivityManager: some avg10=0.00 avg60=0.00 avg300=0.00 total=148210
+11-01 10:20:08.423  1180  1215 E ActivityManager: full avg10=0.00 avg60=0.00 avg300=0.00 total=60123
+11-01 10:20:08.423  1180  1215 E ActivityManager: ----- End output from /proc/pressure/memory -----
+11-01 10:20:08.423  1180  1215 E ActivityManager: 
+11-01 10:20:08.423  1180  1215 E ActivityManager: CPU usage from 0ms to 7213ms later (2026-11-01 10:20:01.100 to 2026-11-01 10:20:08.313):
+11-01 10:20:08.424  1180  1215 E ActivityManager:   98% 4321/com.example.app: 91% user + 6.4% kernel / faults: 2104 minor
+11-01 10:20:08.424  1180  1215 E ActivityManager:   14% 1180/system_server: 8.2% user + 5.9% kernel / faults: 1630 minor
+11-01 10:20:08.424  1180  1215 E ActivityManager:   3.1% 412/surfaceflinger: 1.8% user + 1.2% kernel / faults: 12 minor
+11-01 10:20:08.424  1180  1215 E ActivityManager:   1.2% 523/android.hardware.graphics.composer@2.3-service: 0.6% user + 0.5% kernel
+11-01 10:20:08.424  1180  1215 E ActivityManager:   0.4% 877/wpa_supplicant: 0.2% user + 0.2% kernel
+11-01 10:20:08.424  1180  1215 E ActivityManager: 26% TOTAL: 21% user + 4.8% kernel + 0.1% iowait + 0.2% irq + 0.1% softirq
+11-01 10:20:08.963  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:20:09.040  4321  4380 I ReactNativeJS: 'Image cache warm', { entries: 48 }
+11-01 10:20:09.101  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:20:09.133   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:20:09.191  4321  4352 D EGL_emulation: app_time_stats: avg=23.37ms min=3.28ms max=56.94ms count=41
+11-01 10:20:09.255  4321  4321 I Choreographer: Skipped 31 frames!  The application may be doing too much work on its main thread.
+11-01 10:20:09.337  4321  4352 D OpenGLRenderer: Davey! duration=1157ms; Flags=0, FrameTimelineVsyncId=786253, IntendedVsync=770461772732, Vsync=982890585415
+11-01 10:20:09.372  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:20:09.384  4321  4321 D InsetsController: hide(ime(), fromIme=false)
+11-01 10:20:09.403  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=1
+11-01 10:20:09.440  4321  4380 I ReactNativeJS: Running "main" with {"rootTag":11,"initialProps":{"concurrentRoot":true}}
+11-01 10:20:09.501  4321  4321 D InsetsController: hide(ime(), fromIme=false)
+11-01 10:20:09.591  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:20:09.653  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP
+11-01 10:20:09.704  4321  4321 D ProfileInstaller: Installing profile for com.example.app
+11-01 10:20:09.783  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=3
+11-01 10:20:09.867  1180  1201 I ActivityManager: Changes in 10190 2 to 2, 0 to 0
+11-01 10:20:09.891   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#845
+11-01 10:20:09.952  4321  4321 I ViewRootImpl: ViewRoot's Touch Event : ACTION_UP
+11-01 10:20:09.993   412   480 I SurfaceFlinger: Bound buffer for layer com.example.app/com.example.app.MainActivity#820
+11-01 10:20:10.054   877   877 I wpa_supplicant: wlan0: CTRL-EVENT-SIGNAL-CHANGE above=1 signal=-50 noise=9999 txrate=58500
+11-01 10:20:10.096  4321  4352 D EGL_emulation: app_time_stats: avg=19.48ms min=4.47ms max=78.34ms count=58
+11-01 10:20:10.147   523   602 D gralloc4: gralloc4: allocate buffer 1080x2400 format 0x1 usage 0xb00
+11-01 10:20:10.175  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:20:10.201  4321  4321 D InsetsController: show(ime(), fromIme=false)
+11-01 10:20:10.245  4321  4321 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+11-01 10:20:10.306   523   602 D gralloc4: gralloc4: allocate buffer 1080x2400 format 0x1 usage 0xb00
+11-01 10:20:10.334  4321  4352 I OpenGLRenderer: Davey! duration=859ms;
+11-01 10:20:10.388  4321  4352 I OpenGLRenderer: Davey! duration=758ms;
+11-01 10:20:10.466  4321  4321 I Choreographer: Skipped 33 frames!  The application may be doing too much work on its main thread.
+11-01 10:20:10.487  1180  1290 V WindowManager: Relayout Window{a4f12c u0 com.example.app/com.example.app.MainActivity}: viewVisibility=0 req=1080x2400
+11-01 10:20:10.498  4321  4380 I ReactNativeJS: Running "main" with {"rootTag":11,"initialProps":{"concurrentRoot":true}}
+11-01 10:20:10.552  4321  4333 I com.example.app: Background concurrent mark compact GC freed 2428KB AllocSpace bytes, 33(627KB) LOS objects, 44% free, 11MB/23MB, paused 395us,622us total 121.176ms
+11-01 10:20:10.641  1180  1201 I ActivityManager: Changes in 10190 4 to 3, 0 to 0
+11-01 10:20:10.663  4321  4365 D OkHttp  : --> GET https://api.example.com/v1/feed?page=2
+11-01 10:20:10.747  1180  1233 D ConnectivityService: requestNetwork for uid/pid:10190/4321 activeRequest: null callbackRequest: 182 [NetworkRequest [ REQUEST id=376, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED Uid: 10190 RequestorUid: 10190 RequestorPkg: com.example.app UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false declaredMethods: AVAIL|LOST|NC

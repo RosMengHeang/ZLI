@@ -19,20 +19,30 @@ async function settingsPath(): Promise<string> {
 
 describe("mobile settings", () => {
   it("turns agent tools on until the person changes it", async () => {
-    expect(await new MobileSettingsStore(await settingsPath()).get()).toEqual({ agentTools: true });
+    expect(await new MobileSettingsStore(await settingsPath()).get()).toEqual({ agentTools: true, crashWatch: true });
   });
 
   it("saves a change and reads it back in a new store", async () => {
     const path = await settingsPath();
-    expect(await new MobileSettingsStore(path).set({ agentTools: false })).toEqual({ agentTools: false });
-    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ agentTools: false });
-    expect(await new MobileSettingsStore(path).get()).toEqual({ agentTools: false });
+    expect(await new MobileSettingsStore(path).set({ agentTools: false })).toEqual({
+      agentTools: false,
+      crashWatch: true,
+    });
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ agentTools: false, crashWatch: true });
+    expect(await new MobileSettingsStore(path).get()).toEqual({ agentTools: false, crashWatch: true });
   });
 
   it("falls back to the defaults when the file is not valid", async () => {
     const path = await settingsPath();
     await new MobileSettingsStore(path).set({ agentTools: false });
     await writeFile(path, "{ not json");
-    expect(await new MobileSettingsStore(path).get()).toEqual({ agentTools: true });
+    expect(await new MobileSettingsStore(path).get()).toEqual({ agentTools: true, crashWatch: true });
+  });
+
+  it("reads a file from an older version with the newer settings at their defaults", async () => {
+    const path = await settingsPath();
+    await new MobileSettingsStore(path).set({ agentTools: false });
+    await writeFile(path, JSON.stringify({ agentTools: false }));
+    expect(await new MobileSettingsStore(path).get()).toEqual({ agentTools: false, crashWatch: true });
   });
 });

@@ -15,11 +15,14 @@ import {
   repairScreencap,
 } from "./adb.js";
 import {
+  type BootOptions,
   type DriverDevice,
   type LogQuery,
+  type LogStream,
   type MobileDriver,
   MobileDriverError,
   type Orientation,
+  processLogStream,
   type Screenshot,
 } from "./MobileDriver.js";
 import { type ProcessRunner, type RunningProcess, runChecked } from "./ProcessRunner.js";
@@ -118,7 +121,7 @@ export class AndroidDriver implements MobileDriver {
     return devices;
   }
 
-  async boot(device: DriverDevice, options: { window?: boolean; wipeData?: boolean }): Promise<DriverDevice> {
+  async boot(device: DriverDevice, options: BootOptions): Promise<DriverDevice> {
     if (device.kind === "physical") throw new MobileDriverError("A physical phone is already on; ZLI cannot boot it.");
     if (device.state === "online") return device;
     const avdName = device.deviceId.startsWith(AVD_PREFIX) ? device.deviceId.slice(AVD_PREFIX.length) : undefined;
@@ -133,7 +136,9 @@ export class AndroidDriver implements MobileDriver {
       serial = (await this.#serialForAvd(tools, avdName)) ?? "";
     } else {
       const serials = (await this.#connected(adb, tools.env)).map((entry) => entry.serial);
-      const port = freeEmulatorPort(serials);
+      const preferred = options.preferredPort;
+      const port =
+        preferred !== undefined && !serials.includes(`emulator-${preferred}`) ? preferred : freeEmulatorPort(serials);
       serial = `emulator-${port}`;
       process = this.#deps.runner.spawn(tools.emulator, emulatorBootArgs(avdName, port, options), { env: tools.env });
       this.#started.set(avdName, process);
@@ -236,6 +241,16 @@ export class AndroidDriver implements MobileDriver {
     const output = await this.#shell(device, ["am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url]);
     if (/Error:/u.test(output)) throw new MobileDriverError(`No app on the device opens ${url}: ${output.trim()}`, 404);
     return port === undefined ? {} : { reversedPort: port };
+  }
+
+  /** Makes the device's own localhost:devicePort reach hostPort on this computer. */
+  async reverse(device: DriverDevice, devicePort: number, hostPort: number): Promise<void> {
+    await this.#adbRun(device, ["reverse", `tcp:${devicePort}`, `tcp:${hostPort}`]);
+  }
+
+  /** Undoes a reverse mapping, so the device's devicePort is its own again. */
+  async removeReverse(device: DriverDevice, devicePort: number): Promise<void> {
+    await this.#adbRun(device, ["reverse", "--remove", `tcp:${devicePort}`]);
   }
 
   async snapshot(device: DriverDevice): Promise<UiTree> {
@@ -388,6 +403,30 @@ export class AndroidDriver implements MobileDriver {
 
   #shell(device: DriverDevice, args: readonly string[]): Promise<string> {
     return this.#adbRun(device, ["shell", deviceShellCommand(args)]);
+  }
+
+  /**
+   * Follows logcat from now on. The crash buffer has native tombstones and the system buffer has ANRs; the app's own
+   * process is not filtered, because a crashed app's pid is gone by the time anyone asks.
+   */
+  async streamLogs(device: DriverDevice): Promise<LogStream> {
+    const tools = await this.#deps.tools();
+    const args = [
+      "-s",
+      this.#serial(device),
+      "logcat",
+      "-v",
+      "threadtime",
+      "-T",
+      "1",
+      "-b",
+      "main",
+      "-b",
+      "system",
+      "-b",
+      "crash",
+    ];
+    return processLogStream(this.#deps.runner.spawn(this.#adb(tools), args, { env: tools.env }));
   }
 }
 

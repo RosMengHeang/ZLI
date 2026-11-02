@@ -12,6 +12,7 @@ import {
   MobileSetupRunInput,
 } from "@zli-v2/contracts";
 
+import type { MobileDev } from "./dev/index.js";
 import { PANEL_VIEWER } from "./DeviceManager.js";
 import type { MobileService } from "./MobileService.js";
 import type { MobileSettingsStore } from "./MobileSettingsStore.js";
@@ -34,6 +35,8 @@ export function mobileIpcHandlers(deps: {
   service(): Pick<MobileService, "manager" | "setup" | "status" | "avds"> | undefined;
   settings(): Pick<MobileSettingsStore, "get" | "set"> | undefined;
   popOuts?(): Pick<PopOutWindows, "open" | "close" | "pin" | "setAspect" | "list"> | undefined;
+  /** The mobile dev features' channels, named zli:mobile:<feature>:<verb>. Read once, when the handlers are made. */
+  dev?(): Pick<MobileDev, "ipc"> | undefined;
 }): Record<string, MobileIpcHandler> {
   const service = () => {
     const current = deps.service();
@@ -129,5 +132,16 @@ export function mobileIpcHandlers(deps: {
     },
     "zli:mobile:settings-get": () => settings().get(),
     "zli:mobile:settings-set": (input) => settings().set(MobileSettings.partial().parse(input)),
+    ...devIpcHandlers(deps.dev),
   };
+}
+
+function devIpcHandlers(dev: (() => Pick<MobileDev, "ipc"> | undefined) | undefined): Record<string, MobileIpcHandler> {
+  const handlers = dev?.()?.ipc ?? {};
+  for (const channel of Object.keys(handlers)) {
+    // The feature segment keeps a feature's channel from replacing a core one such as zli:mobile:status.
+    if (!/^zli:mobile:[a-z]+:[a-z-]+$/u.test(channel))
+      throw new Error(`Mobile dev channel ${channel} must be named zli:mobile:<feature>:<verb>.`);
+  }
+  return handlers;
 }

@@ -18,7 +18,7 @@ import {
 } from "./host.js";
 import { IosSimulatorDriver, type IosTools } from "./IosSimulatorDriver.js";
 import { iosVideoEnabled } from "./IosVideoSource.js";
-import { createNodeProcessRunner, type ProcessRunner } from "./ProcessRunner.js";
+import { createNodeProcessRunner, type ProcessRunner, withDefaultEnv } from "./ProcessRunner.js";
 import { SCRCPY_SERVER_SHA256, SCRCPY_SERVER_URL, SCRCPY_VERSION } from "./scrcpy/protocol.js";
 
 export type MobileServiceOptions = {
@@ -129,10 +129,11 @@ export function createMobileService(options: MobileServiceOptions): MobileServic
     return value;
   };
 
+  const iosRunner = withDefaultEnv(runner, options.env);
   let iosTools: { at: number; value: ReturnType<typeof detectIosTools> } | undefined;
   const resolveIos = () => {
     if (iosTools && Date.now() - iosTools.at < TOOL_CACHE_MS * 10) return iosTools.value;
-    const value = detectIosTools({ os: options.os, env: options.env, home: options.home, fs, runner });
+    const value = detectIosTools({ os: options.os, env: options.env, home: options.home, fs, runner: iosRunner });
     iosTools = { at: Date.now(), value };
     return value;
   };
@@ -156,7 +157,7 @@ export function createMobileService(options: MobileServiceOptions): MobileServic
     return scrcpyDownload;
   };
 
-  const ios = new IosSimulatorDriver({ runner, tools: async () => (await resolveIos()).tools });
+  const ios = new IosSimulatorDriver({ runner, env: options.env, tools: async () => (await resolveIos()).tools });
   const manager = new DeviceManager({
     android: new AndroidDriver({ runner, tools: resolveAndroidTools }),
     ios,

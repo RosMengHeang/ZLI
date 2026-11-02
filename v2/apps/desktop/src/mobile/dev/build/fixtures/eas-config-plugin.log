@@ -1,0 +1,249 @@
+$ eas build --platform android --profile preview
+
+[SPIN_UP_BUILD_ENVIRONMENT] Preparing worker
+Build ID: 6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7
+Worker image: ubuntu-22.04-jdk-17-ndk-r26b
+Worker region: us-central1
+Starting build
+Downloading project archive
+Project archive downloaded (12.4 MB)
+Extracting project archive
+Environment:
+  Node.js 20.18.0
+  Yarn 1.22.22
+  pnpm 9.12.3
+  Bun 1.1.33
+  npm 10.8.2
+  Java 17
+  Android NDK r26b
+Environment variables loaded from the build profile "env" configuration:
+  EXPO_PUBLIC_API_URL=https://api.example.com
+  EXPO_PUBLIC_APP_ENV=preview
+  EXPO_PUBLIC_SENTRY_ENABLED=false
+  NODE_ENV=production
+  EAS_BUILD_PROFILE=preview
+  EAS_BUILD_PLATFORM=android
+Build profile resolved
+
+[READ_PACKAGE_JSON] Using package.json:
+{
+  "name": "example-app",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "lint": "eslint .",
+    "test": "jest"
+  },
+  "dependencies": {
+    "expo": "~52.0.11",
+    "expo-constants": "~17.0.3",
+    "expo-dev-client": "~5.0.4",
+    "expo-font": "~13.0.1",
+    "expo-image": "~2.0.3",
+    "expo-linking": "~7.0.3",
+    "expo-splash-screen": "~0.29.13",
+    "expo-status-bar": "~2.0.0",
+    "expo-system-ui": "~4.0.4",
+    "react": "18.3.1",
+    "react-native": "0.76.3",
+    "react-native-gesture-handler": "~2.20.2",
+    "react-native-safe-area-context": "4.12.0",
+    "react-native-screens": "~4.1.0",
+    "@react-navigation/native": "^7.0.0",
+    "@react-navigation/native-stack": "^7.0.0",
+    "expo-av": "~15.0.1",
+    "expo-blur": "~14.0.1",
+    "expo-camera": "~16.0.7",
+    "expo-clipboard": "~7.0.0",
+    "expo-device": "~7.0.1",
+    "expo-file-system": "~18.0.4",
+    "expo-haptics": "~14.0.0",
+    "expo-image-picker": "~16.0.3",
+    "expo-localization": "~16.0.0",
+    "expo-location": "~18.0.2",
+    "expo-notifications": "~0.29.9",
+    "expo-router": "~4.0.9",
+    "expo-sharing": "~13.0.0",
+    "expo-sqlite": "~15.0.3",
+    "expo-updates": "~0.26.9",
+    "expo-web-browser": "~14.0.1",
+    "@tanstack/react-query": "^5.59.20",
+    "zustand": "^5.0.1",
+    "date-fns": "^4.1.0",
+    "i18next": "^23.16.5",
+    "react-i18next": "^15.1.1",
+    "react-hook-form": "^7.53.2",
+    "zod": "^3.23.8",
+    "react-native-svg": "15.8.0",
+    "react-native-mmkv": "^3.1.0",
+    "react-native-webview": "13.12.2",
+    "@shopify/flash-list": "1.7.1",
+    "lottie-react-native": "7.1.0",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "@react-native-community/netinfo": "11.4.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~18.3.12",
+    "typescript": "~5.3.3",
+    "jest": "^29.7.0",
+    "jest-expo": "~52.0.2",
+    "eslint": "^8.57.0"
+  },
+  "private": true
+}
+
+[INSTALL_DEPENDENCIES] Running "npm ci --include=dev" in /home/expo/workingdir/build directory
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it.
+npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+npm warn deprecated @babel/plugin-proposal-class-properties@7.18.6: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-class-properties instead.
+npm warn deprecated @babel/plugin-proposal-nullish-coalescing-operator@7.18.6: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-nullish-coalescing-operator instead.
+npm warn deprecated @babel/plugin-proposal-optional-chaining@7.21.0: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-optional-chaining instead.
+npm warn deprecated @xmldom/xmldom@0.7.13: this version is no longer supported, please update to at least 0.8.*
+npm warn deprecated sudo-prompt@9.2.1: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+npm warn deprecated abab@2.0.6: Use your platform's native atob() and btoa() methods instead
+npm warn deprecated domexception@4.0.0: Use your platform's native DOMException instead
+npm warn deprecated osenv@0.1.5: This package is no longer supported.
+npm warn deprecated har-validator@5.1.5: This package is no longer supported.
+npm warn deprecated request@2.88.2: This package is no longer supported.
+npm warn deprecated uuid@3.4.0: This package is no longer supported.
+npm warn deprecated querystring@0.2.0: This package is no longer supported.
+npm warn deprecated stable@0.1.8: This package is no longer supported.
+npm warn deprecated w3c-hr-time@1.0.2: This package is no longer supported.
+npm warn deprecated source-map-resolve@0.5.3: This package is no longer supported.
+npm warn deprecated resolve-url@0.2.1: This package is no longer supported.
+npm warn deprecated urix@0.1.0: This package is no longer supported.
+npm warn deprecated source-map-url@0.4.1: This package is no longer supported.
+npm warn deprecated chokidar@2.1.8: This package is no longer supported.
+npm warn deprecated fsevents@1.2.13: This package is no longer supported.
+npm warn deprecated mkdirp@0.5.1: This package is no longer supported.
+npm warn deprecated debug@4.1.0: This package is no longer supported.
+npm warn deprecated left-pad@1.3.0: This package is no longer supported.
+npm warn deprecated node-domexception@1.0.0: This package is no longer supported.
+npm warn deprecated lodash.isequal@4.5.0: This package is no longer supported.
+npm warn deprecated lodash.get@4.4.2: This package is no longer supported.
+npm warn deprecated npmlog@6.0.2: This package is no longer supported.
+npm warn deprecated are-we-there-yet@3.0.1: This package is no longer supported.
+npm warn deprecated gauge@4.0.4: This package is no longer supported.
+npm warn deprecated rollup-plugin-terser@7.0.2: This package is no longer supported.
+npm warn deprecated sourcemap-codec@1.4.8: This package is no longer supported.
+npm warn deprecated svgo@1.3.2: This package is no longer supported.
+npm warn deprecated q@1.5.1: This package is no longer supported.
+npm warn deprecated popper.js@1.16.1: This package is no longer supported.
+npm warn deprecated core-js@2.6.12: This package is no longer supported.
+npm warn deprecated mailcomposer@4.0.1: This package is no longer supported.
+npm warn deprecated buildmail@4.0.1: This package is no longer supported.
+npm warn deprecated node-uuid@1.4.8: This package is no longer supported.
+npm warn deprecated flatten@1.0.3: This package is no longer supported.
+npm warn deprecated figgy-pudding@3.5.2: This package is no longer supported.
+npm warn deprecated move-concurrently@1.0.1: This package is no longer supported.
+npm warn deprecated copy-concurrently@1.0.5: This package is no longer supported.
+npm warn deprecated fs-write-stream-atomic@1.0.10: This package is no longer supported.
+npm warn deprecated rimraf@2.7.1: This package is no longer supported.
+npm warn deprecated glob@8.1.0: This package is no longer supported.
+npm warn deprecated acorn-dynamic-import@4.0.0: This package is no longer supported.
+npm warn deprecated trim@0.0.1: This package is no longer supported.
+npm warn deprecated cross-spawn-async@2.2.5: This package is no longer supported.
+
+> node-gyp-build@1.14.8 postinstall
+> node scripts/postinstall.js
+
+> protobufjs@8.1.8 postinstall
+> node scripts/postinstall.js
+
+> core-js@6.15.5 postinstall
+> node scripts/postinstall.js
+
+> esbuild@7.17.0 postinstall
+> node scripts/postinstall.js
+
+> sharp@4.9.8 postinstall
+> node scripts/postinstall.js
+
+> @swc/core@4.7.6 postinstall
+> node scripts/postinstall.js
+
+> unrs-resolver@5.13.9 postinstall
+> node scripts/postinstall.js
+
+> msw@1.17.1 postinstall
+> node scripts/postinstall.js
+
+> bufferutil@5.12.4 postinstall
+> node scripts/postinstall.js
+
+> utf-8-validate@8.9.8 postinstall
+> node scripts/postinstall.js
+
+> lefthook@9.18.6 postinstall
+> node scripts/postinstall.js
+
+> example-app@1.0.0 postinstall
+> patch-package && node scripts/setup-env.js
+
+patch-package 8.0.0
+Applying patches...
+react-native-screens@4.1.0 ✔
+react-native-gesture-handler@2.20.2 ✔
+expo-modules-core@2.1.0 ✔
+expo-image@2.0.3 ✔
+react-native-safe-area-context@4.12.0 ✔
+@react-navigation/native@7.0.0 ✔
+@react-navigation/native-stack@7.0.0 ✔
+expo-font@13.0.1 ✔
+expo-linking@7.0.3 ✔
+expo-constants@17.0.3 ✔
+expo-splash-screen@0.29.13 ✔
+expo-system-ui@4.0.4 ✔
+metro@0.81.0 ✔
+metro-config@0.81.0 ✔
+metro-resolver@0.81.0 ✔
+jest-expo@52.0.2 ✔
+react-native@0.76.3 ✔
+@expo/metro-config@0.19.4 ✔
+@expo/cli@0.21.5 ✔
+@expo/prebuild-config@8.0.17 ✔
+@expo/config-plugins@9.0.10 ✔
+@expo/config@10.0.4 ✔
+@expo/image-utils@0.6.3 ✔
+@expo/json-file@9.0.0 ✔
+@expo/plist@0.2.0 ✔
+@expo/spawn-async@1.7.2 ✔
+@expo/env@0.4.0 ✔
+@expo/fingerprint@0.11.2 ✔
+@expo/osascript@2.1.4 ✔
+@expo/package-manager@1.6.1 ✔
+Generated .env.local from .env.example (14 keys)
+
+added 1137 packages, and audited 1469 packages in 48s
+
+132 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+
+[READ_APP_CONFIG] Reading app config
+PluginError: Failed to resolve plugin for module "react-native-ble-plx" relative to "/home/expo/workingdir/build". Do you have node modules installed?
+    at resolvePluginForModule (/home/expo/workingdir/build/node_modules/@expo/config-plugins/build/utils/plugin-resolver.js:55:11)
+    at resolveConfigPluginFunctionWithInfo (/home/expo/workingdir/build/node_modules/@expo/config-plugins/build/utils/plugin-resolver.js:154:7)
+    at resolveConfigPluginFunction (/home/expo/workingdir/build/node_modules/@expo/config-plugins/build/utils/plugin-resolver.js:145:7)
+    at withStaticPlugin (/home/expo/workingdir/build/node_modules/@expo/config-plugins/build/plugins/withStaticPlugin.js:95:70)
+    at /home/expo/workingdir/build/node_modules/@expo/config-plugins/build/plugins/withPlugins.js:30:84
+    at Array.reduce (<anonymous>)
+    at withPlugins (/home/expo/workingdir/build/node_modules/@expo/config-plugins/build/plugins/withPlugins.js:30:18)
+    at withConfigPlugins (/home/expo/workingdir/build/node_modules/@expo/config/build/plugins/withConfigPlugins.js:31:47)
+    at fillAndReturnConfig (/home/expo/workingdir/build/node_modules/@expo/config/build/Config.js:202:78)
+    at getConfig (/home/expo/workingdir/build/node_modules/@expo/config/build/Config.js:264:10)
+Error: Failed to read the app config from the project using "npx expo config" command: npx expo config --json exited with non-zero code: 1.
+Falling back to the version of "@expo/config" shipped with the EAS CLI.
+PluginError: Failed to resolve plugin for module "react-native-ble-plx" relative to "/home/expo/workingdir/build". Do you have node modules installed?
+    at resolvePluginForModule (/home/expo/workingdir/build/node_modules/@expo/config-plugins/build/utils/plugin-resolver.js:55:11)
+    at resolveConfigPluginFunctionWithInfo (/home/expo/workingdir/build/node_modules/@expo/config-plugins/build/utils/plugin-resolver.js:154:7)
+    at resolveConfigPluginFunction (/home/expo/workingdir/build/node_modules/@expo/config-plugins/build/utils/plugin-resolver.js:145:7)
+    at withStaticPlugin (/home/expo/workingdir/build/node_modules/@expo/config-plugins/build/plugins/withStaticPlugin.js:95:70)
+Build failed
+Failed to resolve plugin for module "react-native-ble-plx" relative to "/home/expo/workingdir/build". Do you have node modules installed?
