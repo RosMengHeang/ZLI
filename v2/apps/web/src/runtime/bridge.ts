@@ -3,6 +3,7 @@ import type {
   AgentReachRequest,
   BrowserTabProjection,
   BrowserViewport,
+  MobileAccessStatus,
   MobileAvdCreateInput,
   MobileAvdList,
   MobileDevice,
@@ -124,6 +125,14 @@ export type ZliBridge = {
     onActivate(listener: (event: { sessionId: string }) => void): () => void;
     /** Fires when the person clicks an agent's request to connect a service. */
     onOpenConnector?(listener: (event: { connectorId: string }) => void): () => void;
+  };
+  mobileAccess?: {
+    getStatus(): Promise<MobileAccessStatus>;
+    setEnabled(enabled: boolean): Promise<MobileAccessStatus>;
+    startPairing(): Promise<MobileAccessStatus>;
+    cancelPairing(): Promise<MobileAccessStatus>;
+    revoke(deviceId: string): Promise<MobileAccessStatus>;
+    onStatus(listener: (status: MobileAccessStatus) => void): () => void;
   };
   /** Present in the desktop app. Questions from agents that want to reach other projects. */
   agentReach?: {

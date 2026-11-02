@@ -16,6 +16,7 @@ export * from "./limits.js";
 export * from "./mcp.js";
 export * from "./mcpCatalog.js";
 export * from "./mobile.js";
+export * from "./mobileAccess.js";
 export * from "./mobileConditions.js";
 export * from "./mobileDev.js";
 export * from "./mobileDoctor.js";

@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <!-- Lets Android 16 show the status as a Live Update in the status bar. -->
+  <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+
+  <application>
+    <service
+      android:name="dev.zli.remote.livestatus.LiveStatusService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="Keeps the encrypted connection to the paired ZLI desktop app open while one of its coding agents works or waits for an answer, so the ongoing notification stays current and its Approve, Reject, and Stop buttons reach the desktop." />
+    </service>
+    <receiver
+      android:name="dev.zli.remote.livestatus.LiveStatusActionReceiver"
+      android:exported="false" />
+  </application>
+</manifest>

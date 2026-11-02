@@ -35,6 +35,7 @@ import {
 } from "./appSettings.js";
 import { IntegrationsSection, type IntegrationsView } from "./IntegrationsSection.js";
 import { IssuesSection } from "./IssuesSection.js";
+import { MobileAccessSection } from "./MobileAccessSection.js";
 import { MobileSection } from "./MobileSection.js";
 import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
 import { SkillsSection } from "./SkillsSection.js";
@@ -54,6 +55,7 @@ export type SettingsSection =
   | "issues"
   | "mobile"
   | "shortcuts"
+  | "phoneAccess"
   | "notifications"
   | "updates";
 
@@ -104,6 +106,13 @@ const sections: readonly SectionEntry[] = [
     group: "Tools",
     keywords:
       "phone android emulator iphone simulator device frame sdk avd metro port worktree doctor expo crash build package mac ssh remote",
+  },
+  {
+    id: "phoneAccess",
+    label: "Phone access",
+    icon: "handoff",
+    group: "Tools",
+    keywords: "zli remote pair phone qr code mobile access",
   },
   { id: "shortcuts", label: "Shortcuts", icon: "command", group: "App", keywords: "keys keyboard bindings" },
   { id: "notifications", label: "Notifications", icon: "bell", group: "App", keywords: "sound alerts" },
@@ -310,6 +319,7 @@ export function SettingsDialog({
             {section === "shortcuts" ? <ShortcutSettings /> : null}
             {section === "notifications" ? <NotificationSection {...notifications} /> : null}
             {section === "mobile" ? <MobileSection /> : null}
+            {section === "phoneAccess" ? <MobileAccessSection /> : null}
             {section === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
           </section>
         </div>

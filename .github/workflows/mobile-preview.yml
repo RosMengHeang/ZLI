@@ -1,0 +1,277 @@
+name: Mobile preview
+
+# Builds ZLI Remote in demo mode for an iPhone simulator and an Android emulator, captures every screen
+# and the live status, and keeps one comment on the pull request up to date with the screenshots.
+on:
+  pull_request:
+    paths:
+      - "v2/apps/mobile/**"
+      - "v2/packages/contracts/**"
+      - "v2/packages/client-runtime/**"
+      - "v2/packages/remote-protocol/**"
+      - "v2/pnpm-lock.yaml"
+      - ".github/workflows/mobile-preview.yml"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request to build and comment on. Empty builds the selected branch without a comment.
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-preview-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      head: ${{ steps.plan.outputs.head }}
+      base: ${{ steps.plan.outputs.base }}
+      sides: ${{ steps.plan.outputs.sides }}
+      pr: ${{ steps.plan.outputs.pr }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          INPUT_PR: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = pull_request ]; then
+            pr="$EVENT_PR" head="$EVENT_HEAD" base="$EVENT_BASE"
+            publish=$([ "$EVENT_HEAD_REPO" = "$GITHUB_REPOSITORY" ] && echo true || echo false)
+          elif [ -n "$INPUT_PR" ]; then
+            pr="$INPUT_PR"
+            head="$(gh pr view "$pr" --json headRefOid -q .headRefOid)"
+            base="$(gh pr view "$pr" --json baseRefOid -q .baseRefOid)"
+            publish="$(gh pr view "$pr" --json isCrossRepository -q 'if .isCrossRepository then "false" else "true" end')"
+          else
+            pr="" head="$GITHUB_SHA" base="" publish=false
+          fi
+          # A before/after needs the base to have this preview too; until then only this side is shown.
+          sides='["head"]'
+          if [ -n "$base" ]; then
+            git fetch -q origin "$base" "$head" || true
+            if git cat-file -e "$base:v2/apps/mobile/preview/flows/screens.yaml" 2>/dev/null; then
+              sides='["base","head"]'
+            fi
+          fi
+          {
+            echo "pr=$pr"
+            echo "head=$head"
+            echo "base=$base"
+            echo "sides=$sides"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          echo "Preview of $head (base ${base:-none}), sides $sides, comment on PR ${pr:-none}: $publish"
+
+  ios:
+    name: iPhone (${{ matrix.side }})
+    needs: plan
+    runs-on: macos-26
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        side: ${{ fromJSON(needs.plan.outputs.sides) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.side == 'base' && needs.plan.outputs.base || needs.plan.outputs.head }}
+      - name: Use Xcode 26
+        run: |
+          set -euo pipefail
+          xcode="$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -n 1)"
+          if [ -n "$xcode" ]; then sudo xcode-select -s "$xcode"; fi
+          xcodebuild -version
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.9
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: v2/.nvmrc
+          cache: pnpm
+          cache-dependency-path: v2/pnpm-lock.yaml
+      # Maestro runs on Java.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: cocoapods-${{ hashFiles('v2/pnpm-lock.yaml') }}
+          restore-keys: cocoapods-
+      - run: pnpm install --frozen-lockfile
+        working-directory: v2
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+      - name: Build for the simulator
+        run: bash v2/apps/mobile/preview/ios.sh build "$RUNNER_TEMP/preview"
+      - name: Capture the screens
+        run: bash v2/apps/mobile/preview/ios.sh capture "$RUNNER_TEMP/preview"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preview-ios-${{ matrix.side }}
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 14
+          path: ${{ runner.temp }}/preview
+
+  android:
+    name: Android (${{ matrix.side }})
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        side: ${{ fromJSON(needs.plan.outputs.sides) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.side == 'base' && needs.plan.outputs.base || needs.plan.outputs.head }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.9
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: v2/.nvmrc
+          cache: pnpm
+          cache-dependency-path: v2/pnpm-lock.yaml
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: pnpm install --frozen-lockfile
+        working-directory: v2
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+      - name: Build the APK
+        run: bash v2/apps/mobile/preview/android.sh build "$RUNNER_TEMP/preview"
+      - name: Let the emulator use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      # The runner's own command-line tools predate API levels like 36.1 and write target=android-0 into the
+      # AVD, which leaves SurfaceFlinger crashing in a loop. The emulator action only installs its newer
+      # pinned tools when there are none.
+      - name: Update the Android command-line tools
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/cmdline-tools.zip" \
+            https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip
+          unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$RUNNER_TEMP/cmdline-tools"
+          rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+          mv "$RUNNER_TEMP/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
+      - name: Capture the screens
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          # Live Updates, the status bar chip, need Android 16 QPR2.
+          system-image-api-level: "36.1"
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          # The 36.1 image's default data partition is too small for the release APK.
+          disk-size: 6000M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          pre-emulator-launch-script: grep -E "^(target|image.sysdir)" "$ANDROID_AVD_HOME/test.avd/config.ini"
+          script: bash v2/apps/mobile/preview/android.sh capture "$RUNNER_TEMP/preview"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preview-android-${{ matrix.side }}
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 14
+          path: ${{ runner.temp }}/preview
+
+  # GitHub comments cannot carry image uploads, so the screenshots go to the pr-media branch and the
+  # comment links them from there. Pull requests from forks get the artifacts but no comment.
+  comment:
+    needs: [plan, ios, android]
+    if: ${{ always() && needs.plan.outputs.pr != '' && needs.plan.outputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: preview-*
+          path: ${{ runner.temp }}/shots
+      - name: Publish the screenshots to pr-media
+        id: media
+        env:
+          PR: ${{ needs.plan.outputs.pr }}
+          SHOTS: ${{ runner.temp }}/shots
+        run: |
+          set -euo pipefail
+          dest="pr/$PR/$GITHUB_RUN_ID"
+          media="$RUNNER_TEMP/media"
+          if git ls-remote --exit-code --heads origin pr-media > /dev/null; then
+            git fetch -q --depth=1 origin pr-media:refs/remotes/origin/pr-media
+            git worktree add -q -B pr-media "$media" origin/pr-media
+          else
+            git worktree add -q --orphan -b pr-media "$media"
+          fi
+          cd "$media"
+          # Only the newest run of each pull request is kept.
+          git rm -r -q --ignore-unmatch "pr/$PR"
+          mkdir -p "$dest"
+          rsync -a --prune-empty-dirs --exclude 'maestro/' --include '*/' --include '*.png' --exclude '*' \
+            "$SHOTS/" "$dest/"
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Phone preview for #$PR, run $GITHUB_RUN_ID" || true
+          git push -q origin pr-media
+          echo "url=https://raw.githubusercontent.com/$GITHUB_REPOSITORY/pr-media/$dest" >> "$GITHUB_OUTPUT"
+      - name: Update the comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.plan.outputs.pr }}
+          SHOTS_DIR: ${{ runner.temp }}/shots
+          MEDIA_URL: ${{ steps.media.outputs.url }}
+          HEAD_SHA: ${{ needs.plan.outputs.head }}
+          BASE_SHA: ${{ needs.plan.outputs.base }}
+          COMPARE: ${{ needs.plan.outputs.sides == '["base","head"]' && '1' || '0' }}
+          IOS_RESULT: ${{ needs.ios.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          node v2/apps/mobile/preview/comment.mjs > "$RUNNER_TEMP/comment.md"
+          id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- zli-mobile-preview -->"))) | .id' \
+            | head -n 1)"
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          fi

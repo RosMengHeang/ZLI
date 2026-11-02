@@ -1,0 +1,77 @@
+{
+  "expo": {
+    "name": "ZLI Remote",
+    "slug": "zli-remote",
+    "scheme": "zli-remote",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#0a0a0b",
+    "ios": {
+      "bundleIdentifier": "dev.zli.remote",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "ZLI Remote connects to the ZLI desktop app on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "dev.zli.remote",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundImage": "./assets/adaptive-icon-background.png",
+        "monochromeImage": "./assets/adaptive-icon.png"
+      },
+      "blockedPermissions": ["android.permission.RECORD_AUDIO"]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "ZLI Remote uses the camera to scan the pairing code shown on your desktop.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ZLI Remote opens your photos so you can attach one to a message for an agent.",
+          "cameraPermission": "ZLI Remote uses the camera to take a photo you attach to a message for an agent.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#346bf1",
+          "enableRemoteNotifications": false
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
+      [
+        "expo-widgets",
+        {
+          "groupIdentifier": "group.dev.zli.remote"
+        }
+      ]
+    ]
+  }
+}
