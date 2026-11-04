@@ -1,10 +1,20 @@
 // @vitest-environment jsdom
 
-import type { RuntimeProjection, TerminalProjection, ThreadProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { afterEach, describe, expect, it } from "vitest";
+import type {
+  RpcResponse,
+  RuntimeProjection,
+  TerminalProjection,
+  ThreadProjection,
+  WorktreeProjection,
+} from "@zli-v2/contracts";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { registerTerminalModes } from "../terminal/terminalModes.js";
+import type { Dispatch } from "./pullRequestClient.js";
+import { terminalPaste } from "./reviewComments.js";
 import {
   defaultSendTarget,
+  deliverToAgent,
   lastSendTarget,
   messageForTarget,
   rememberSendTarget,
@@ -177,12 +187,20 @@ describe("rememberSendTarget", () => {
 });
 
 describe("sentNotice", () => {
+  const image = { name: "a.png", mimeType: "image/png", dataBase64: "" } as const;
+
   it("says where the message went and what is left to do in a terminal", () => {
     expect(sentNotice(chat)).toBe("Sent to Codex.");
     expect(sentNotice(terminal)).toBe("Pasted in Claude Code. Press Enter there to send it.");
-    expect(sentNotice(terminal, [{ name: "a.png", mimeType: "image/png", dataBase64: "" }])).toBe(
+    expect(sentNotice(terminal, [image])).toBe(
       "Pasted in Claude Code without the images. Press Enter there to send it.",
     );
+  });
+
+  it("drops the Enter instruction once the terminal paste was submitted", () => {
+    expect(sentNotice(terminal, [], terminal.worktreeId, true)).toBe("Sent to Claude Code.");
+    expect(sentNotice(terminal, [image], terminal.worktreeId, true)).toBe("Sent to Claude Code without the images.");
+    expect(sentNotice(chat, [image], chat.worktreeId, true)).toBe("Sent to Codex.");
   });
 
   it("names the worktree of an agent that works elsewhere", () => {
@@ -192,5 +210,169 @@ describe("sentNotice", () => {
     expect(sentNotice(pasted, [{ name: "a.png", mimeType: "image/png", dataBase64: "" }], "w1")).toBe(
       "Pasted in Claude Code on cursor-foia without the images. Press Enter there to send it.",
     );
+    expect(sentNotice(pasted, [{ name: "a.png", mimeType: "image/png", dataBase64: "" }], "w1", true)).toBe(
+      "Sent to Claude Code on cursor-foia without the images.",
+    );
+  });
+});
+
+type Written = { type?: string; data?: string; terminalId?: string; threadId?: string; text?: string };
+
+function recordingDispatch(failOn?: (command: Written) => string | undefined): {
+  dispatch: Dispatch;
+  commands: Written[];
+} {
+  const commands: Written[] = [];
+  const dispatch: Dispatch = async (request) => {
+    const command = (request as { command: Written }).command;
+    commands.push(command);
+    const message = failOn?.(command);
+    if (!message) return undefined;
+    return {
+      commandId: "00000000-0000-4000-8000-000000000099",
+      accepted: false,
+      error: { code: "unavailable", message, retryable: false },
+    } as RpcResponse;
+  };
+  return { dispatch, commands };
+}
+
+function mountTerminal(terminalId: string, bracketed: boolean) {
+  return registerTerminalModes(terminalId, {
+    synced: () => true,
+    bracketedPaste: () => bracketed,
+    flush: async () => undefined,
+  });
+}
+
+describe("deliverToAgent", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("pastes into a terminal and presses Enter 150ms later when the send should submit", async () => {
+    vi.useFakeTimers();
+    const unregister = mountTerminal(terminal.terminalId, true);
+    const { dispatch, commands } = recordingDispatch();
+    try {
+      const done = deliverToAgent({
+        dispatch,
+        target: terminal,
+        message: "one\ntwo",
+        worktreeId: terminal.worktreeId,
+        submit: true,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(commands.map((command) => command.data)).toEqual([terminalPaste("one\ntwo", true)]);
+      await vi.advanceTimersByTimeAsync(149);
+      expect(commands).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await done;
+      expect(commands.map((command) => command.data)).toEqual([terminalPaste("one\ntwo", true), "\r"]);
+      expect(commands.every((command) => command.terminalId === terminal.terminalId)).toBe(true);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("presses Enter for a terminal in another worktree without showing it", async () => {
+    vi.useFakeTimers();
+    const onShowAgent = vi.fn();
+    const elsewhere = { ...terminal, worktreeId: "w2", branch: "cursor-foia" };
+    const { dispatch, commands } = recordingDispatch();
+    const done = deliverToAgent({
+      dispatch,
+      target: elsewhere,
+      message: "Fix the card.",
+      worktreeId: "w1",
+      onShowAgent,
+      submit: true,
+    });
+    await vi.advanceTimersByTimeAsync(149);
+    expect(onShowAgent).not.toHaveBeenCalled();
+    expect(commands.map((command) => command.data)).toEqual([terminalPaste("Fix the card.", true)]);
+    await vi.advanceTimersByTimeAsync(1);
+    await done;
+    expect(commands.map((command) => command.data)).toEqual([terminalPaste("Fix the card.", true), "\r"]);
+  });
+
+  it("leaves the paste at the prompt when the send does not submit", async () => {
+    vi.useFakeTimers();
+    const unregister = mountTerminal(terminal.terminalId, false);
+    const { dispatch, commands } = recordingDispatch();
+    try {
+      await deliverToAgent({
+        dispatch,
+        target: terminal,
+        message: "one\ntwo",
+        worktreeId: terminal.worktreeId,
+      });
+      await vi.advanceTimersByTimeAsync(200);
+      expect(commands.map((command) => command.data)).toEqual([terminalPaste("one\ntwo", false)]);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("does not press Enter when the paste is refused", async () => {
+    vi.useFakeTimers();
+    const unregister = mountTerminal(terminal.terminalId, true);
+    const { dispatch, commands } = recordingDispatch(() => "The terminal is busy.");
+    try {
+      await expect(
+        deliverToAgent({
+          dispatch,
+          target: terminal,
+          message: "Fix it.",
+          worktreeId: terminal.worktreeId,
+          submit: true,
+        }),
+      ).rejects.toThrow("The terminal is busy.");
+      await vi.advanceTimersByTimeAsync(200);
+      expect(commands).toHaveLength(1);
+      expect(commands[0]?.data).not.toBe("\r");
+    } finally {
+      unregister();
+    }
+  });
+
+  it("reports a refused Enter after the paste has landed", async () => {
+    vi.useFakeTimers();
+    const unregister = mountTerminal(terminal.terminalId, true);
+    const { dispatch, commands } = recordingDispatch((command) =>
+      command.data === "\r" ? "The terminal has closed." : undefined,
+    );
+    try {
+      const done = deliverToAgent({
+        dispatch,
+        target: terminal,
+        message: "Fix it.",
+        worktreeId: terminal.worktreeId,
+        submit: true,
+      });
+      const failed = expect(done).rejects.toThrow("The terminal has closed.");
+      await vi.advanceTimersByTimeAsync(150);
+      await failed;
+      expect(commands.map((command) => command.data)).toEqual([terminalPaste("Fix it.", true), "\r"]);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("queues a chat message and does not write to a terminal", async () => {
+    const { dispatch, commands } = recordingDispatch();
+    await deliverToAgent({
+      dispatch,
+      target: chat,
+      message: "Fix it.",
+      attachments: [{ name: "a.png", mimeType: "image/png", dataBase64: "abc" }],
+      submit: true,
+    });
+    expect(commands).toEqual([
+      expect.objectContaining({
+        type: "thread.queue",
+        threadId: chat.threadId,
+        text: "Fix it.",
+        attachments: [{ name: "a.png", mimeType: "image/png", dataBase64: "abc" }],
+      }),
+    ]);
   });
 });

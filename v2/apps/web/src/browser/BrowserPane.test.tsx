@@ -725,7 +725,7 @@ describe("BrowserPane sending to other worktrees", () => {
     );
   });
 
-  it("pastes in a terminal agent elsewhere without moving the app there, and says the images stay behind", async () => {
+  it("submits an annotation in a terminal agent elsewhere without moving the app there", async () => {
     const terminalId = "00000000-0000-4000-8000-000000000501";
     const terminal = {
       terminalId,
@@ -747,19 +747,69 @@ describe("BrowserPane sending to other worktrees", () => {
     });
     await act(async () => {
       document.querySelector<HTMLElement>('[role="menu"] [role="group"] [role^="menuitem"]')?.click();
+      await vi.waitFor(() => {
+        const writes = fake.dispatched.filter((entry) => entry.command.type === "terminal.write");
+        expect(writes).toHaveLength(2);
+      });
     });
-    expect(onShowAgent).not.toHaveBeenCalled();
-    const command = fake.dispatched.at(-1)?.command;
-    expect(command).toMatchObject({ type: "terminal.write", terminalId });
+    const writes = fake.dispatched.filter((entry) => entry.command.type === "terminal.write");
+    expect(writes.map((entry) => entry.command.terminalId)).toEqual([terminalId, terminalId]);
     expect(
-      String(command?.data).startsWith("\x1b[200~This annotation was made in the browser of another worktree"),
+      String(writes[0]?.command.data).startsWith(
+        "\x1b[200~This annotation was made in the browser of another worktree",
+      ),
     ).toBe(true);
+    expect(String(writes[0]?.command.data).endsWith("\x1b[201~")).toBe(true);
+    expect(writes[1]?.command.data).toBe("\r");
+    expect(onShowAgent).not.toHaveBeenCalled();
     expect(onNotice).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: "Pasted in Claude Code on cursor-foia without the images. Press Enter there to send it.",
+        message: "Sent to Claude Code on cursor-foia without the images.",
       }),
     );
     expect(container.querySelector('[aria-label="Annotations"]')).toBeNull();
+  });
+
+  it("submits an annotation from the send dialog into a terminal", async () => {
+    const terminalId = "00000000-0000-4000-8000-000000000501";
+    const terminal = {
+      terminalId,
+      sessionId: "00000000-0000-4000-8000-000000000502",
+      worktreeId: foia.worktreeId,
+      kind: "agent",
+      agent: { provider: "claude-code" },
+      status: "running",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } as unknown as TerminalProjection;
+    const fake = createBridge(baseTab, [], [], { worktrees, terminals: [terminal] });
+    const design = withAnnotate(fake.bridge);
+    const { container } = await renderPane(fake.bridge, false);
+    await annotateOne(container, design);
+    await act(async () => {
+      buttonNamed(container, "Send 1 annotation")?.click();
+    });
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Send annotations"]');
+    expect(dialog).not.toBeNull();
+    expect(buttonNamed(dialog ?? container, "Paste in terminal")).toBeUndefined();
+    await act(async () => {
+      dialog?.querySelector<HTMLInputElement>('input[type="radio"]')?.click();
+    });
+    expect(dialog?.textContent).toContain("Sent to the terminal without the images, which only chat agents receive.");
+    expect(dialog?.textContent).not.toContain("without pressing Enter");
+    await act(async () => {
+      if (dialog) buttonNamed(dialog, "Send")?.click();
+      await vi.waitFor(() => {
+        const writes = fake.dispatched.filter((entry) => entry.command.type === "terminal.write");
+        expect(writes).toHaveLength(2);
+      });
+    });
+    const writes = fake.dispatched.filter((entry) => entry.command.type === "terminal.write");
+    expect(writes[1]?.command).toMatchObject({ type: "terminal.write", terminalId, data: "\r" });
+    expect(
+      String(fake.dispatched.find((entry) => entry.command.type === "terminal.write")?.command.data).startsWith(
+        "\x1b[200~",
+      ),
+    ).toBe(true);
   });
 
   it("keeps the annotations when the agent in another worktree does not take them", async () => {

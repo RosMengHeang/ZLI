@@ -166,7 +166,12 @@ export function messageForTarget(
   return `${otherWorktrees.context(target)}\n\n${message}`;
 }
 
-/** Queues the message in the agent's chat, or pastes it at its terminal prompt without pressing Enter. */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Queues the message in the agent's chat, or pastes it at its terminal prompt.
+ * `submit` presses Enter after a terminal paste, the same way `zli send` does.
+ */
 export async function deliverToAgent({
   dispatch,
   target,
@@ -174,6 +179,7 @@ export async function deliverToAgent({
   attachments = [],
   worktreeId,
   onShowAgent,
+  submit = false,
 }: {
   dispatch: Dispatch;
   target: SendTarget;
@@ -182,6 +188,8 @@ export async function deliverToAgent({
   /** The worktree the message is sent from. */
   worktreeId?: string | undefined;
   onShowAgent?: ((sessionId: string, mode: SessionMode) => void) | undefined;
+  /** After a terminal paste, wait and press Enter so the agent receives the message. */
+  submit?: boolean | undefined;
 }): Promise<void> {
   let command: Record<string, unknown>;
   if (target.mode === "chat") {
@@ -209,6 +217,15 @@ export async function deliverToAgent({
   }
   const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
   if (response?.accepted === false) throw new Error(response.error.message);
+  if (target.mode !== "terminal" || !submit) return;
+  // Agent CLIs treat text and Enter that arrive in one read as a paste, which would not submit.
+  await sleep(150);
+  const enter = await dispatch({
+    protocolVersion: 1,
+    commandId: makeCommandId(),
+    command: { type: "terminal.write", terminalId: target.terminalId, data: "\r" },
+  });
+  if (enter?.accepted === false) throw new Error(enter.error.message);
 }
 
 /** The confirmation shown after a message went out without the dialog. */
@@ -216,9 +233,11 @@ export function sentNotice(
   target: SendTarget,
   attachments: readonly SendAttachment[] = [],
   worktreeId: string = target.worktreeId,
+  submitted = false,
 ): string {
   const agent = target.worktreeId === worktreeId ? target.agent : `${target.agent} on ${target.branch}`;
   if (target.mode === "chat") return `Sent to ${agent}.`;
+  if (submitted) return attachments.length > 0 ? `Sent to ${agent} without the images.` : `Sent to ${agent}.`;
   return attachments.length > 0
     ? `Pasted in ${agent} without the images. Press Enter there to send it.`
     : `Pasted in ${agent}. Press Enter there to send it.`;

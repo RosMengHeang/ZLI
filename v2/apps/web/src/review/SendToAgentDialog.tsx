@@ -51,6 +51,7 @@ export function SendToAgentDialog({
   otherWorktrees,
   initialTarget,
   initialError,
+  submit = false,
   onSent,
   onClose,
   onShowAgent,
@@ -72,6 +73,8 @@ export function SendToAgentDialog({
   initialTarget?: string | undefined;
   /** Why a send started outside the dialog failed. */
   initialError?: string | undefined;
+  /** Presses Enter after pasting into a terminal, so the agent receives the message. */
+  submit?: boolean | undefined;
   onSent?: ((target: SendTarget) => void) | undefined;
   onClose(): void;
   onShowAgent?: ((sessionId: string, mode: SessionMode) => void) | undefined;
@@ -96,7 +99,15 @@ export function SendToAgentDialog({
     setSending(true);
     setError(undefined);
     try {
-      await deliverToAgent({ dispatch, target: selected, message: outgoing, attachments, worktreeId, onShowAgent });
+      await deliverToAgent({
+        dispatch,
+        target: selected,
+        message: outgoing,
+        attachments,
+        worktreeId,
+        onShowAgent,
+        submit,
+      });
       rememberSendTarget(worktreeId, selected.key);
       onSent?.(selected);
       onClose();
@@ -220,9 +231,13 @@ export function SendToAgentDialog({
         <div className="dialog-footer">
           <span className="dialog-footer-note">
             {selected?.mode === "terminal"
-              ? attachments.length > 0
-                ? "Pasted at the agent's prompt without the images, which only chat agents receive."
-                : "Pasted at the agent's prompt without pressing Enter, so you can read it first."
+              ? submit
+                ? attachments.length > 0
+                  ? "Sent to the terminal without the images, which only chat agents receive."
+                  : "Sent to the terminal."
+                : attachments.length > 0
+                  ? "Pasted at the agent's prompt without the images, which only chat agents receive."
+                  : "Pasted at the agent's prompt without pressing Enter, so you can read it first."
               : selected
                 ? attachments.length > 0
                   ? `Sent as a chat message with ${attachments.length} image${attachments.length === 1 ? "" : "s"}.`
@@ -240,7 +255,7 @@ export function SendToAgentDialog({
             shortcut="Mod+Enter"
             onClick={() => void send()}
           >
-            {selected?.mode === "terminal" ? "Paste in terminal" : "Send"}
+            {selected?.mode === "terminal" && !submit ? "Paste in terminal" : "Send"}
           </Button>
         </div>
       </Dialog>
