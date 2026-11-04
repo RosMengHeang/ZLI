@@ -13,7 +13,7 @@ export const UpdateState = z.discriminatedUnion("status", [
     version: Version,
     notes: ReleaseNotes.optional(),
     releaseUrl: z.string().url(),
-    /** False where the app cannot replace itself, such as unsigned macOS builds; the release page has the download. */
+    /** False where this copy cannot replace itself, such as a translocated macOS app. The release page has the download. */
     canAutoInstall: z.boolean(),
   }),
   z.object({ status: z.literal("downloading"), version: Version, percent: z.number().min(0).max(100) }),
