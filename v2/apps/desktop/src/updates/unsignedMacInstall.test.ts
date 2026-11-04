@@ -24,7 +24,8 @@ afterEach(async () => {
 });
 
 describe("mac app bundle", () => {
-  it("finds the bundle that contains the executable", () => {
+  // macAppBundle splits on the platform separator. These fixtures are macOS paths, so Windows never splits them.
+  it.skipIf(process.platform === "win32")("finds the bundle that contains the executable", () => {
     expect(macAppBundle("/Applications/ZLI.app/Contents/MacOS/ZLI")).toBe("/Applications/ZLI.app");
     expect(macAppBundle("/usr/local/bin/electron")).toBeUndefined();
     expect(isTranslocatedMacApp("/private/var/folders/ab/AppTranslocation/XYZ/d/ZLI.app")).toBe(true);
@@ -61,36 +62,40 @@ describe("unsigned macOS swap", () => {
     expect(UNSIGNED_MAC_UPDATE_SCRIPT).not.toContain("/Applications");
   });
 
-  it("replaces ZLI.app after the process exits and opens the new copy", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "zli-update-swap-"));
-    cleanups.push(() => rm(directory, { recursive: true, force: true }));
-    const bundle = join(directory, "ZLI.app");
-    const marker = join(bundle, "Contents", "MacOS", "marker");
-    mkdirSync(join(bundle, "Contents", "MacOS"), { recursive: true });
-    writeFileSync(marker, "old");
-    const zip = await zipApp(directory, "new");
-    const opened = join(directory, "opened");
-    const bin = join(directory, "bin");
-    writeStubs(bin, opened);
+  // The installer only accepts absolute macOS paths (/…/ZLI.app). Windows temp paths are not those.
+  it.skipIf(process.platform === "win32")(
+    "replaces ZLI.app after the process exits and opens the new copy",
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "zli-update-swap-"));
+      cleanups.push(() => rm(directory, { recursive: true, force: true }));
+      const bundle = join(directory, "ZLI.app");
+      const marker = join(bundle, "Contents", "MacOS", "marker");
+      mkdirSync(join(bundle, "Contents", "MacOS"), { recursive: true });
+      writeFileSync(marker, "old");
+      const zip = await zipApp(directory, "new");
+      const opened = join(directory, "opened");
+      const bin = join(directory, "bin");
+      writeStubs(bin, opened);
 
-    const sleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-    sleepers.push(sleeper);
-    startUnsignedMacInstall({
-      zipPath: zip,
-      bundlePath: bundle,
-      pid: sleeper.pid ?? 1,
-      logPath: join(directory, "update.log"),
-      errorPath: join(directory, "update-error.txt"),
-      pathEnv: `${bin}:/usr/bin:/bin`,
-    });
-    sleeper.kill("SIGKILL");
+      const sleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+      sleepers.push(sleeper);
+      startUnsignedMacInstall({
+        zipPath: zip,
+        bundlePath: bundle,
+        pid: sleeper.pid ?? 1,
+        logPath: join(directory, "update.log"),
+        errorPath: join(directory, "update-error.txt"),
+        pathEnv: `${bin}:/usr/bin:/bin`,
+      });
+      sleeper.kill("SIGKILL");
 
-    expect(await readWhenReady(opened)).toBe(`${bundle}\n`);
-    expect(await readFile(marker, "utf8")).toBe("new");
-    expect(await readUnsignedMacInstallError(join(directory, "update-error.txt"))).toBeUndefined();
-  });
+      expect(await readWhenReady(opened)).toBe(`${bundle}\n`);
+      expect(await readFile(marker, "utf8")).toBe("new");
+      expect(await readUnsignedMacInstallError(join(directory, "update-error.txt"))).toBeUndefined();
+    },
+  );
 
-  it("leaves the installed app in place when the zip has no ZLI.app", async () => {
+  it.skipIf(process.platform === "win32")("leaves the installed app in place when the zip has no ZLI.app", async () => {
     const directory = await mkdtemp(join(tmpdir(), "zli-update-bad-"));
     cleanups.push(() => rm(directory, { recursive: true, force: true }));
     const bundle = join(directory, "ZLI.app");
