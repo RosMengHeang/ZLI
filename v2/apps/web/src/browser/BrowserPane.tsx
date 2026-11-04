@@ -9,7 +9,7 @@ import {
 } from "@zli-v2/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DevServerBar, devServerLabel, originOf } from "../devservers/DevServers.js";
-import { type SentNotice, SendToAgentButton } from "../review/SendToAgentButton.js";
+import { SendToAgentButton, type SentNotice } from "../review/SendToAgentButton.js";
 import type { OtherWorktrees } from "../review/sendToAgent.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import type { SessionMode } from "../sessions/sessions.js";
@@ -681,6 +681,7 @@ export function BrowserPane({
             onNotice={onNotice}
             onOpenChange={setSendingDesign}
             onShowAgent={onShowAgent}
+            submit
           >
             <span className="browser-annotate-count">{annotations.length}</span>
             Send

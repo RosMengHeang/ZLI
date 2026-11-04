@@ -47,6 +47,8 @@ type Props = {
   children: ReactNode;
   onSent?: (() => void) | undefined;
   onNotice?: ((notice: SentNotice) => void) | undefined;
+  /** Presses Enter after pasting into a terminal, so the agent receives the message. */
+  submit?: boolean | undefined;
   /** Reports when the menu or the dialog opens and closes, for views that must make room for them. */
   onOpenChange?: ((open: boolean) => void) | undefined;
   onShowAgent?: ((sessionId: string, mode: SessionMode) => void) | undefined;
@@ -77,6 +79,7 @@ export function SendToAgentButton({
   onNotice,
   onOpenChange,
   onShowAgent,
+  submit = false,
 }: Props) {
   const { dispatch } = useRuntime();
   const worktreeId = worktree.worktreeId;
@@ -95,7 +98,7 @@ export function SendToAgentButton({
 
   const notify = (next: SendTarget) =>
     onNotice?.({
-      message: sentNotice(next, attachments, worktreeId),
+      message: sentNotice(next, attachments, worktreeId, submit),
       ...(onShowAgent ? { action: { label: "Show", run: () => onShowAgent(next.sessionId, next.mode) } } : {}),
     });
 
@@ -110,6 +113,7 @@ export function SendToAgentButton({
         attachments,
         worktreeId,
         onShowAgent,
+        submit,
       });
       rememberSendTarget(worktreeId, next.key);
       onSent?.();
@@ -223,6 +227,7 @@ export function SendToAgentButton({
           otherWorktrees={otherWorktrees}
           initialTarget={dialog.target}
           initialError={dialog.error}
+          submit={submit}
           onSent={(sent) => {
             onSent?.();
             // The dialog shows an agent here once the message is sent; one elsewhere gets the notice instead.
