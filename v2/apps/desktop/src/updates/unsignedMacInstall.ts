@@ -93,10 +93,18 @@ export function startUnsignedMacInstall(options: {
   logPath: string;
   errorPath: string;
   pathEnv?: string;
+  /** Seconds to wait after the app pid is gone. Production leaves this unset (half a second). */
+  settleSeconds?: number;
   spawn?: InstallSpawn;
 }): void {
   assertInstallPaths(options.zipPath, options.bundlePath);
   if (!Number.isInteger(options.pid) || options.pid <= 0) throw new Error("ZLI could not start the update installer.");
+  if (
+    options.settleSeconds !== undefined &&
+    (!Number.isFinite(options.settleSeconds) || options.settleSeconds < 0 || options.settleSeconds > 5)
+  ) {
+    throw new Error("ZLI could not start the update installer.");
+  }
   const scriptPath = join(tmpdir(), `zli-update-${options.pid}.sh`);
   writeFileSync(scriptPath, UNSIGNED_MAC_UPDATE_SCRIPT, { mode: 0o755 });
   const env: NodeJS.ProcessEnv = { PATH: options.pathEnv ?? "/usr/bin:/bin:/usr/sbin:/sbin" };
@@ -110,6 +118,7 @@ export function startUnsignedMacInstall(options: {
   env.ZLI_UPDATE_APP_NAME = MAC_APP_BUNDLE_NAME;
   env.ZLI_UPDATE_LOG = options.logPath;
   env.ZLI_UPDATE_ERROR = options.errorPath;
+  if (options.settleSeconds !== undefined) env.ZLI_UPDATE_SETTLE_SECONDS = String(options.settleSeconds);
   const spawn = options.spawn ?? (nodeSpawn as InstallSpawn);
   const child = spawn("/bin/bash", [scriptPath], { detached: true, stdio: "ignore", env });
   child.unref();
@@ -135,10 +144,15 @@ fail() {
 rm -f "\${ZLI_UPDATE_ERROR}"
 log "waiting for \${ZLI_UPDATE_PID}"
 
+# Half a second after the process is gone, so macOS has dropped its file locks. Tests pass 0.
+settle="\${ZLI_UPDATE_SETTLE_SECONDS:-0.5}"
+case "\${settle}" in
+  ""|*[!0-9.]*|*.*.*) fail "Could not wait for ZLI to quit." ;;
+esac
 while kill -0 "\${ZLI_UPDATE_PID}" 2>/dev/null; do
   sleep 0.2
 done
-sleep 0.5
+sleep "\${settle}"
 
 work=$(mktemp -d "\${TMPDIR:-/tmp}/zli-update.XXXXXX") || fail "Could not create a temporary folder for the update."
 trap 'rm -rf "\${work}"' EXIT

@@ -16,10 +16,8 @@ import {
 } from "./unsignedMacInstall.js";
 
 const cleanups: Array<() => Promise<void>> = [];
-const sleepers: Array<{ kill(signal?: NodeJS.Signals): boolean }> = [];
 
 afterEach(async () => {
-  for (const sleeper of sleepers.splice(0)) sleeper.kill("SIGKILL");
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
 });
 
@@ -59,6 +57,7 @@ describe("unsigned macOS swap", () => {
   it("keeps paths in the environment", () => {
     expect(UNSIGNED_MAC_UPDATE_SCRIPT).toContain("ditto -x -k " + '"$' + "{ZLI_UPDATE_ZIP}" + '"');
     expect(UNSIGNED_MAC_UPDATE_SCRIPT).toContain("open " + '"$' + "{ZLI_UPDATE_BUNDLE}" + '"');
+    expect(UNSIGNED_MAC_UPDATE_SCRIPT).toContain("ZLI_UPDATE_SETTLE_SECONDS:-0.5");
     expect(UNSIGNED_MAC_UPDATE_SCRIPT).not.toContain("/Applications");
   });
 
@@ -77,17 +76,15 @@ describe("unsigned macOS swap", () => {
       const bin = join(directory, "bin");
       writeStubs(bin, opened);
 
-      const sleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-      sleepers.push(sleeper);
       startUnsignedMacInstall({
         zipPath: zip,
         bundlePath: bundle,
-        pid: sleeper.pid ?? 1,
+        pid: await reapedPid(),
         logPath: join(directory, "update.log"),
         errorPath: join(directory, "update-error.txt"),
         pathEnv: `${bin}:/usr/bin:/bin`,
+        settleSeconds: 0,
       });
-      sleeper.kill("SIGKILL");
 
       expect(await readWhenReady(opened)).toBe(`${bundle}\n`);
       expect(await readFile(marker, "utf8")).toBe("new");
@@ -110,22 +107,32 @@ describe("unsigned macOS swap", () => {
     const bin = join(directory, "bin");
     writeStubs(bin, join(directory, "opened"));
 
-    const sleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-    sleepers.push(sleeper);
     startUnsignedMacInstall({
       zipPath: zip,
       bundlePath: bundle,
-      pid: sleeper.pid ?? 1,
+      pid: await reapedPid(),
       logPath: join(directory, "update.log"),
       errorPath: join(directory, "update-error.txt"),
       pathEnv: `${bin}:/usr/bin:/bin`,
+      settleSeconds: 0,
     });
-    sleeper.kill("SIGKILL");
 
     expect(await readWhenReady(join(directory, "update-error.txt"))).toContain("did not contain ZLI.app");
     expect(await readFile(marker, "utf8")).toBe("old");
   });
 });
+
+/** A pid that has already been reaped, so the helper's kill -0 loop exits on the first check. */
+async function reapedPid(): Promise<number> {
+  const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  const pid = child.pid;
+  if (pid === undefined) throw new Error("sleeper did not start");
+  await new Promise<void>((resolve, reject) => {
+    child.once("exit", () => resolve());
+    child.once("error", reject);
+  });
+  return pid;
+}
 
 async function zipApp(directory: string, contents: string): Promise<string> {
   const source = join(directory, "source");
