@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, type SpawnOptions, spawn, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -90,6 +90,7 @@ describe("unsigned macOS swap", () => {
         settleSeconds: 0,
         skipWait: true,
         openCommand: join(bin, "open"),
+        spawn: spawnAndWait,
       });
 
       const openedText = await readWhenReady(opened, errorPath);
@@ -124,12 +125,29 @@ describe("unsigned macOS swap", () => {
       settleSeconds: 0,
       skipWait: true,
       openCommand: join(bin, "open"),
+      spawn: spawnAndWait,
     });
 
     expect(await readWhenReady(join(directory, "update-error.txt"))).toContain("did not contain ZLI.app");
     expect(await readFile(marker, "utf8")).toBe("old");
   });
 });
+
+/** Runs the helper in this process and surfaces its stderr. Detached on macOS was still going when the 5s test limit hit. */
+function spawnAndWait(command: string, args: readonly string[], options: SpawnOptions): { unref(): void } {
+  const result = spawnSync(command, args, {
+    env: options.env,
+    encoding: "utf8",
+    timeout: 4_000,
+  });
+  // Exit 1 is the helper's own fail() after it records the error. Anything else did not finish.
+  if (result.error || (result.status !== 0 && result.status !== 1)) {
+    throw new Error(
+      `swap script failed (${result.status ?? "signal"}): ${result.stderr || result.stdout || result.error?.message}`,
+    );
+  }
+  return { unref() {} };
+}
 
 /** A pid that has already been reaped, so the helper's kill -0 loop exits on the first check. */
 async function reapedPid(): Promise<number> {
