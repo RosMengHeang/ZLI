@@ -56,8 +56,11 @@ describe("unsigned macOS install error", () => {
 describe("unsigned macOS swap", () => {
   it("keeps paths in the environment", () => {
     expect(UNSIGNED_MAC_UPDATE_SCRIPT).toContain("ditto -x -k " + '"$' + "{ZLI_UPDATE_ZIP}" + '"');
-    expect(UNSIGNED_MAC_UPDATE_SCRIPT).toContain("open " + '"$' + "{ZLI_UPDATE_BUNDLE}" + '"');
+    expect(UNSIGNED_MAC_UPDATE_SCRIPT).toContain(
+      '"' + "$" + "{ZLI_UPDATE_OPEN:-open}" + '" "' + "$" + "{ZLI_UPDATE_BUNDLE}" + '"',
+    );
     expect(UNSIGNED_MAC_UPDATE_SCRIPT).toContain("ZLI_UPDATE_SETTLE_SECONDS:-0.5");
+    expect(UNSIGNED_MAC_UPDATE_SCRIPT).toContain("kill -0");
     expect(UNSIGNED_MAC_UPDATE_SCRIPT).not.toContain("/Applications");
   });
 
@@ -76,17 +79,21 @@ describe("unsigned macOS swap", () => {
       const bin = join(directory, "bin");
       writeStubs(bin, opened);
 
+      const errorPath = join(directory, "update-error.txt");
       startUnsignedMacInstall({
         zipPath: zip,
         bundlePath: bundle,
         pid: await reapedPid(),
         logPath: join(directory, "update.log"),
-        errorPath: join(directory, "update-error.txt"),
+        errorPath,
         pathEnv: `${bin}:/usr/bin:/bin`,
         settleSeconds: 0,
+        skipWait: true,
+        openCommand: join(bin, "open"),
       });
 
-      expect(await readWhenReady(opened)).toBe(`${bundle}\n`);
+      const openedText = await readWhenReady(opened, errorPath);
+      expect(openedText).toBe(`${bundle}\n`);
       expect(await readFile(marker, "utf8")).toBe("new");
       expect(await readUnsignedMacInstallError(join(directory, "update-error.txt"))).toBeUndefined();
     },
@@ -115,6 +122,8 @@ describe("unsigned macOS swap", () => {
       errorPath: join(directory, "update-error.txt"),
       pathEnv: `${bin}:/usr/bin:/bin`,
       settleSeconds: 0,
+      skipWait: true,
+      openCommand: join(bin, "open"),
     });
 
     expect(await readWhenReady(join(directory, "update-error.txt"))).toContain("did not contain ZLI.app");
@@ -178,14 +187,22 @@ zipfile.ZipFile(sys.argv[3]).extractall(sys.argv[4])
   chmodSync(join(bin, "open"), 0o755);
 }
 
-async function readWhenReady(path: string): Promise<string> {
+async function readWhenReady(path: string, errorPath?: string): Promise<string> {
   const started = Date.now();
-  while (Date.now() - started < 5_000) {
+  while (Date.now() - started < 4_000) {
+    if (errorPath) {
+      try {
+        const failure = (await readFile(errorPath, "utf8")).trim();
+        if (failure) throw new Error(failure);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
     try {
       return await readFile(path, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
   }
   throw new Error(`timed out waiting for ${path}`);

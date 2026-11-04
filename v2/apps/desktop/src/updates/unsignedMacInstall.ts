@@ -95,6 +95,13 @@ export function startUnsignedMacInstall(options: {
   pathEnv?: string;
   /** Seconds to wait after the app pid is gone. Production leaves this unset (half a second). */
   settleSeconds?: number;
+  /**
+   * Tests only. A pid that has already exited can be reused by the rest of the suite, and then
+   * kill -0 never fails. Production leaves this unset and waits for the real process.
+   */
+  skipWait?: boolean;
+  /** Tests pass the stub. Production uses macOS open. */
+  openCommand?: string;
   spawn?: InstallSpawn;
 }): void {
   assertInstallPaths(options.zipPath, options.bundlePath);
@@ -119,6 +126,11 @@ export function startUnsignedMacInstall(options: {
   env.ZLI_UPDATE_LOG = options.logPath;
   env.ZLI_UPDATE_ERROR = options.errorPath;
   if (options.settleSeconds !== undefined) env.ZLI_UPDATE_SETTLE_SECONDS = String(options.settleSeconds);
+  if (options.skipWait) env.ZLI_UPDATE_SKIP_WAIT = "1";
+  if (options.openCommand !== undefined) {
+    if (!SAFE_ABSOLUTE_PATH.test(options.openCommand)) throw new Error("ZLI could not start the update installer.");
+    env.ZLI_UPDATE_OPEN = options.openCommand;
+  }
   const spawn = options.spawn ?? (nodeSpawn as InstallSpawn);
   const child = spawn("/bin/bash", [scriptPath], { detached: true, stdio: "ignore", env });
   child.unref();
@@ -144,15 +156,18 @@ fail() {
 rm -f "\${ZLI_UPDATE_ERROR}"
 log "waiting for \${ZLI_UPDATE_PID}"
 
-# Half a second after the process is gone, so macOS has dropped its file locks. Tests pass 0.
-settle="\${ZLI_UPDATE_SETTLE_SECONDS:-0.5}"
-case "\${settle}" in
-  ""|*[!0-9.]*|*.*.*) fail "Could not wait for ZLI to quit." ;;
-esac
-while kill -0 "\${ZLI_UPDATE_PID}" 2>/dev/null; do
-  sleep 0.2
-done
-sleep "\${settle}"
+# Half a second after the process is gone, so macOS has dropped its file locks.
+# ZLI_UPDATE_SKIP_WAIT is for tests: a dead pid is often reused before kill -0 runs.
+if [[ "\${ZLI_UPDATE_SKIP_WAIT:-}" != "1" ]]; then
+  settle="\${ZLI_UPDATE_SETTLE_SECONDS:-0.5}"
+  case "\${settle}" in
+    ""|*[!0-9.]*|*.*.*) fail "Could not wait for ZLI to quit." ;;
+  esac
+  while kill -0 "\${ZLI_UPDATE_PID}" 2>/dev/null; do
+    sleep 0.2
+  done
+  sleep "\${settle}"
+fi
 
 work=$(mktemp -d "\${TMPDIR:-/tmp}/zli-update.XXXXXX") || fail "Could not create a temporary folder for the update."
 trap 'rm -rf "\${work}"' EXIT
@@ -196,5 +211,5 @@ fi
 rm -rf "\${backup}"
 xattr -dr com.apple.quarantine "\${ZLI_UPDATE_BUNDLE}" 2>/dev/null || true
 log "replaced \${ZLI_UPDATE_BUNDLE}"
-open "\${ZLI_UPDATE_BUNDLE}" || fail "ZLI was replaced, but it did not open."
+"\${ZLI_UPDATE_OPEN:-open}" "\${ZLI_UPDATE_BUNDLE}" || fail "ZLI was replaced, but it did not open."
 `;
