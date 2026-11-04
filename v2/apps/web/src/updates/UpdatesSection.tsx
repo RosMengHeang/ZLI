@@ -90,7 +90,7 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
         </SettingRow>
         <Switch
           label="Install updates automatically"
-          hint="Downloads new versions in the background and installs them when ZLI restarts. On macOS, ZLI links to the download instead for now."
+          hint="Downloads new versions in the background and installs them when ZLI restarts."
           checked={status.autoInstall}
           disabled={disabled}
           onChange={(autoInstall) => void updates.setAutoInstall(autoInstall)}

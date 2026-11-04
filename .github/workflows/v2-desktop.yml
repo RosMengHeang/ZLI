@@ -67,12 +67,12 @@ jobs:
         working-directory: v2
     env:
       RELEASE_VERSION: ${{ inputs.release_version }}
-      # TODO(macOS signing): Squirrel.Mac only installs updates into a signed, notarized app, so macOS users
-      # download new versions from the release page for now. To make macOS updates install on their own, add
-      # the repository secrets CSC_LINK (base64 Developer ID Application .p12), CSC_KEY_PASSWORD, APPLE_ID,
-      # APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID, pass them to the gate in release.yml with
-      # `secrets: inherit`, uncomment the lines below, and turn on notarize in apps/desktop/electron-builder.yml.
-      # ZLI_MAC_SIGNED=1 tells the app it may install updates itself; the build step reads it.
+      # Unsigned macOS builds replace ZLI.app from the downloaded zip. Squirrel.Mac only installs into a
+      # Developer ID signed app. To notarize and switch macOS updates to Squirrel, add the repository secrets
+      # CSC_LINK (base64 Developer ID Application .p12), CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
+      # and APPLE_TEAM_ID, pass them to the gate in release.yml with `secrets: inherit`, uncomment the lines
+      # below, and turn on notarize in apps/desktop/electron-builder.yml.
+      # ZLI_MAC_SIGNED=1 tells the app to install through Squirrel; the build step reads it.
       # CSC_LINK: ${{ inputs.release_version != '' && runner.os == 'macOS' && secrets.CSC_LINK || '' }}
       # CSC_KEY_PASSWORD: ${{ inputs.release_version != '' && runner.os == 'macOS' && secrets.CSC_KEY_PASSWORD || '' }}
       # APPLE_ID: ${{ secrets.APPLE_ID }}

@@ -35,8 +35,9 @@ mac:
   target:
     - dmg
     - zip
-  # TODO(macOS signing): once the release workflow has the Developer ID and Apple ID secrets, turn these on
-  # so builds are signed and notarized, and set ZLI_MAC_SIGNED there so the app installs its own updates.
+  # Unsigned builds install by replacing ZLI.app from the sha512-checked zip. Squirrel.Mac still needs a
+  # Developer ID: once the release workflow has the certificate and Apple ID secrets, turn these on so builds
+  # are signed and notarized, and set ZLI_MAC_SIGNED there so the app installs through Squirrel instead.
   # hardenedRuntime: true
   # notarize: true
 linux:

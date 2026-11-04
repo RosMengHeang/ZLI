@@ -11,7 +11,7 @@ export function updateStatusText(status: UpdateStatus): string {
       return "Checking for updates.";
     case "available":
       if (!state.canAutoInstall) {
-        return `ZLI ${state.version} is available. This Mac build cannot install updates itself yet, so download it from the release page.`;
+        return `ZLI ${state.version} is available. This copy cannot replace itself, so download it from the release page.`;
       }
       return `ZLI ${state.version} is available.`;
     case "downloading":

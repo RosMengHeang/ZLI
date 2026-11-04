@@ -268,6 +268,109 @@ describe("UpdateService downloads", () => {
     expect(await service.quitAndInstall()).toBe(false);
   });
 
+  it("replaces an unsigned macOS app from the downloaded zip instead of calling Squirrel", async () => {
+    const installed: string[] = [];
+    const prepareToInstall = vi.fn(async () => {});
+    const exit = vi.fn();
+    const { service, updater } = createService({
+      platform: "darwin",
+      installUnsignedMac: (zipPath) => {
+        installed.push(zipPath);
+      },
+      prepareToInstall,
+      exit,
+    });
+    updater.available = { version: "0.2.0", releaseNotes: "Faster startup" };
+
+    await service.check();
+    expect(updater.autoDownload).toBe(false);
+    expect(updater.autoInstallOnAppQuit).toBe(false);
+    expect(updater.downloads).toBe(1);
+    expect(service.status().state).toEqual({ status: "downloading", version: "0.2.0", percent: 0 });
+
+    updater.emit("update-downloaded", {
+      version: "0.2.0",
+      downloadedFile: "/tmp/ZLI-0.2.0-mac-arm64.zip",
+    });
+    expect(service.status().state).toEqual({ status: "ready", version: "0.2.0", notes: "Faster startup" });
+    service.installDownloadedOnQuit();
+    expect(installed).toEqual(["/tmp/ZLI-0.2.0-mac-arm64.zip"]);
+    // Quitting installs once. Restart to update must not start a second swap.
+    expect(await service.quitAndInstall()).toBe(true);
+    expect(installed).toEqual(["/tmp/ZLI-0.2.0-mac-arm64.zip"]);
+    expect(updater.installs).toEqual([]);
+    expect(prepareToInstall).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledOnce();
+  });
+
+  it("installs an unsigned macOS update on Restart when automatic installs are off", async () => {
+    const installed: string[] = [];
+    const { service, updater } = createService({
+      platform: "darwin",
+      settings: memorySettings({ autoInstall: false }),
+      installUnsignedMac: (zipPath) => {
+        installed.push(zipPath);
+      },
+    });
+    updater.available = { version: "0.2.0" };
+    await service.check();
+    expect(updater.downloads).toBe(0);
+    expect(service.status().state).toMatchObject({ status: "available", canAutoInstall: true });
+
+    await service.download();
+    updater.emit("update-downloaded", { version: "0.2.0", downloadedFile: "/tmp/ZLI-0.2.0-mac-arm64.zip" });
+    service.installDownloadedOnQuit();
+    expect(installed).toEqual([]);
+    expect(await service.quitAndInstall()).toBe(true);
+    expect(installed).toEqual(["/tmp/ZLI-0.2.0-mac-arm64.zip"]);
+    expect(updater.installs).toEqual([]);
+  });
+
+  it("opens the release page when the macOS release has no zip for this Mac", async () => {
+    const { service, updater, opened } = createService({
+      platform: "darwin",
+      installUnsignedMac: () => {
+        throw new Error("should not replace");
+      },
+    });
+    updater.available = { version: "0.2.0", releaseNotes: "Notes" };
+    updater.downloadUpdate = async () => {
+      throw Object.assign(new Error("ZIP file not provided: []"), { code: "ERR_UPDATER_ZIP_FILE_NOT_FOUND" });
+    };
+
+    await service.check();
+    expect(service.status().state).toEqual({
+      status: "available",
+      version: "0.2.0",
+      notes: "Notes",
+      releaseUrl: "https://github.com/RosMengHeang/ZLI/releases/tag/v0.2.0",
+      canAutoInstall: false,
+    });
+    await service.download();
+    expect(opened).toEqual(["https://github.com/RosMengHeang/ZLI/releases/tag/v0.2.0"]);
+  });
+
+  it("starts the current version again when replacing the macOS app fails", async () => {
+    const relaunch = vi.fn();
+    const { service, updater, settings } = createService({
+      platform: "darwin",
+      installUnsignedMac: () => {
+        throw new Error("disk full");
+      },
+      relaunch,
+    });
+    updater.available = { version: "0.2.0" };
+    await service.check();
+    updater.emit("update-downloaded", { version: "0.2.0", downloadedFile: "/tmp/ZLI-0.2.0-mac-arm64.zip" });
+
+    expect(await service.quitAndInstall()).toBe(false);
+    expect(relaunch).toHaveBeenCalledOnce();
+    expect(updater.installs).toEqual([]);
+    const message = "ZLI 0.2.0 was not installed. Check for updates, then try Restart to update again.";
+    expect(service.status().state).toEqual({ status: "error", message });
+    expect(settings.current().installError).toBe(message);
+  });
+
   it("only reports an update when automatic installs are off, until the person asks", async () => {
     const { service, updater } = createService({ settings: memorySettings({ autoInstall: false }) });
     updater.available = { version: "0.2.0" };
