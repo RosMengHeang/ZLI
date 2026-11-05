@@ -4,8 +4,7 @@ import { app, type BrowserWindow, ipcMain } from "electron";
 import { type UpdaterLike, UpdateService } from "./UpdateService.js";
 import { UpdateSettingsStore } from "./UpdateSettingsStore.js";
 import {
-  bundleParentWritable,
-  isTranslocatedMacApp,
+  canReplaceMacBundle,
   macAppBundle,
   readUnsignedMacInstallError,
   startUnsignedMacInstall,
@@ -34,8 +33,7 @@ export async function registerUpdates(options: {
   await settings.load();
   const signedMac = typeof __ZLI_MAC_SIGNED__ === "boolean" && __ZLI_MAC_SIGNED__;
   const bundle = process.platform === "darwin" ? macAppBundle(process.execPath) : undefined;
-  const replaceBundle =
-    bundle !== undefined && !signedMac && !isTranslocatedMacApp(bundle) && bundleParentWritable(bundle);
+  const replaceBundle = bundle !== undefined && !signedMac && canReplaceMacBundle(bundle);
   const installPaths = unsignedMacInstallPaths(options.settingsPath);
   // A swap that failed after the previous process exited is the message this launch shows.
   const installError = await readUnsignedMacInstallError(installPaths.errorPath);
@@ -49,13 +47,14 @@ export async function registerUpdates(options: {
     macCanAutoInstall: signedMac,
     ...(replaceBundle && bundle
       ? {
-          installUnsignedMac: (zipPath: string) =>
+          installUnsignedMac: (zipPath: string, { reopen }: { reopen: boolean }) =>
             startUnsignedMacInstall({
               zipPath,
               bundlePath: bundle,
               pid: process.pid,
               logPath: installPaths.logPath,
               errorPath: installPaths.errorPath,
+              reopen,
             }),
         }
       : {}),
