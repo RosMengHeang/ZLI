@@ -1,5 +1,5 @@
 import { execFileSync, type SpawnOptions, spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assertInstallPaths,
   bundleParentWritable,
+  canReplaceMacBundle,
   isTranslocatedMacApp,
   macAppBundle,
   readUnsignedMacInstallError,
@@ -39,6 +40,13 @@ describe("mac app bundle", () => {
   it("can write a real folder and not a missing one", () => {
     expect(bundleParentWritable("/no/such/zli-parent/ZLI.app")).toBe(false);
     expect(bundleParentWritable(join(tmpdir(), "ZLI.app"))).toBe(true);
+  });
+
+  it("only replaces a copy the installer accepts", () => {
+    expect(canReplaceMacBundle(join(tmpdir(), "ZLI.app"))).toBe(true);
+    expect(canReplaceMacBundle(join(tmpdir(), "ZLI 2.app"))).toBe(false);
+    expect(canReplaceMacBundle(join(tmpdir(), "AppTranslocation", "ZLI.app"))).toBe(false);
+    expect(canReplaceMacBundle(join(tmpdir(), "no-such-zli-parent", "ZLI.app"))).toBe(false);
   });
 });
 
@@ -97,6 +105,7 @@ describe("unsigned macOS swap", () => {
         pathEnv: `${bin}:/usr/bin:/bin`,
         settleSeconds: 0,
         skipWait: true,
+        reopen: true,
         openCommand: join(bin, "open"),
         spawn: spawnAndWait,
       });
@@ -135,6 +144,7 @@ describe("unsigned macOS swap", () => {
         pathEnv: `${bin}:/usr/bin:/bin`,
         settleSeconds: 0,
         skipWait: true,
+        reopen: false,
         openCommand: join(bin, "open"),
         spawn: spawnAndWait,
       });
@@ -144,7 +154,191 @@ describe("unsigned macOS swap", () => {
     },
     SWAP_TEST_TIMEOUT_MS,
   );
+
+  it.skipIf(process.platform === "win32")(
+    "leaves ZLI closed after a swap that runs on quit",
+    async () => {
+      const swap = await swapFixture();
+      runSwap(swap, { reopen: false });
+
+      expect(await readFile(swap.marker, "utf8")).toBe("new");
+      expect(existsSync(swap.opened)).toBe(false);
+    },
+    SWAP_TEST_TIMEOUT_MS,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "records the error, then opens the installed app, when Restart cannot unpack the update",
+    async () => {
+      const swap = await swapFixture();
+      writeFileSync(swap.zip, "not a zip");
+      // The new launch reads the error file, so the stub proves it exists by the time open runs.
+      writeFileSync(
+        join(swap.bin, "open"),
+        `#!/bin/sh\ncp ${JSON.stringify(swap.errorPath)} ${JSON.stringify(swap.opened)}\n`,
+        {
+          mode: 0o755,
+        },
+      );
+      runSwap(swap, { reopen: true });
+
+      expect(await readFile(swap.opened, "utf8")).toContain("Could not open the downloaded update.");
+      expect(await readFile(swap.marker, "utf8")).toBe("old");
+    },
+    SWAP_TEST_TIMEOUT_MS,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "leaves ZLI closed when a swap on quit fails",
+    async () => {
+      const swap = await swapFixture();
+      writeFileSync(swap.zip, "not a zip");
+      runSwap(swap, { reopen: false });
+
+      expect(await readFile(swap.errorPath, "utf8")).toContain("Could not open the downloaded update.");
+      expect(existsSync(swap.opened)).toBe(false);
+    },
+    SWAP_TEST_TIMEOUT_MS,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "puts the previous app back and opens it when the new app cannot be moved in",
+    async () => {
+      const swap = await swapFixture();
+      writeFailingMove(swap.bin, { failRestore: false });
+      runSwap(swap, { reopen: true });
+
+      expect(await readFile(swap.errorPath, "utf8")).toContain("the previous version was put back");
+      expect(await readFile(swap.marker, "utf8")).toBe("old");
+      expect(existsSync(join(swap.bundle, "partial"))).toBe(false);
+      expect(await readFile(swap.opened, "utf8")).toBe(`${swap.bundle}\n`);
+    },
+    SWAP_TEST_TIMEOUT_MS,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "says where the previous app is when it cannot be put back",
+    async () => {
+      const swap = await swapFixture();
+      const backup = join(swap.directory, ".ZLI.app.zli-previous");
+      writeFailingMove(swap.bin, { failRestore: true });
+      runSwap(swap, { reopen: true });
+
+      const message = await readFile(swap.errorPath, "utf8");
+      expect(message).not.toContain("was put back");
+      expect(message).toContain(backup);
+      expect(await readFile(join(backup, "Contents", "MacOS", "marker"), "utf8")).toBe("old");
+    },
+    SWAP_TEST_TIMEOUT_MS,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "waits for the app process to exit before replacing it",
+    async () => {
+      const swap = await swapFixture();
+      const app = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+      if (app.pid === undefined) throw new Error("app stand-in did not start");
+      const exited = new Promise((resolve) => app.once("exit", resolve));
+      cleanups.push(async () => {
+        app.kill("SIGKILL");
+        await exited;
+      });
+
+      startUnsignedMacInstall({
+        zipPath: swap.zip,
+        bundlePath: swap.bundle,
+        pid: app.pid,
+        logPath: swap.logPath,
+        errorPath: swap.errorPath,
+        pathEnv: `${swap.bin}:/usr/bin:/bin`,
+        settleSeconds: 0,
+        reopen: true,
+        openCommand: join(swap.bin, "open"),
+      });
+
+      await readWhenReady(swap.logPath);
+      // Longer than the helper's 0.2 second poll, so a helper that ignored the pid has already swapped.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(await readFile(swap.marker, "utf8")).toBe("old");
+      expect(existsSync(swap.opened)).toBe(false);
+
+      app.kill("SIGKILL");
+      await exited;
+      expect(await readWhenReady(swap.opened, swap.errorPath, SWAP_SCRIPT_TIMEOUT_MS)).toBe(`${swap.bundle}\n`);
+      expect(await readFile(swap.marker, "utf8")).toBe("new");
+    },
+    SWAP_TEST_TIMEOUT_MS,
+  );
 });
+
+type SwapFixture = {
+  directory: string;
+  bundle: string;
+  marker: string;
+  zip: string;
+  bin: string;
+  opened: string;
+  logPath: string;
+  errorPath: string;
+};
+
+async function swapFixture(): Promise<SwapFixture> {
+  const directory = await mkdtemp(join(tmpdir(), "zli-update-swap-"));
+  cleanups.push(() => rm(directory, { recursive: true, force: true }));
+  const bundle = join(directory, "ZLI.app");
+  const marker = join(bundle, "Contents", "MacOS", "marker");
+  mkdirSync(join(bundle, "Contents", "MacOS"), { recursive: true });
+  writeFileSync(marker, "old");
+  const zip = await zipApp(directory, "new");
+  const opened = join(directory, "opened");
+  const bin = join(directory, "bin");
+  writeStubs(bin, opened);
+  return {
+    directory,
+    bundle,
+    marker,
+    zip,
+    bin,
+    opened,
+    logPath: join(directory, "update.log"),
+    errorPath: join(directory, "update-error.txt"),
+  };
+}
+
+function runSwap(swap: SwapFixture, options: { reopen: boolean }): void {
+  startUnsignedMacInstall({
+    zipPath: swap.zip,
+    bundlePath: swap.bundle,
+    pid: process.pid,
+    logPath: swap.logPath,
+    errorPath: swap.errorPath,
+    pathEnv: `${swap.bin}:/usr/bin:/bin`,
+    settleSeconds: 0,
+    skipWait: true,
+    reopen: options.reopen,
+    openCommand: join(swap.bin, "open"),
+    spawn: spawnAndWait,
+  });
+}
+
+/**
+ * A mv that leaves a partial copy of the new app behind and fails, as a copy between volumes can.
+ * Retries sleep between attempts, so sleep is stubbed too.
+ */
+function writeFailingMove(bin: string, options: { failRestore: boolean }): void {
+  const restore = options.failRestore ? "  *.zli-previous) exit 1 ;;\n" : "";
+  writeFileSync(
+    join(bin, "mv"),
+    `#!/bin/sh
+case "$1" in
+  */zli-update.*/ZLI.app) mkdir -p "$2/partial"; exit 1 ;;
+${restore}esac
+exec /bin/mv "$@"
+`,
+    { mode: 0o755 },
+  );
+  writeFileSync(join(bin, "sleep"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+}
 
 function spawnAndWait(command: string, args: readonly string[], options: SpawnOptions): { unref(): void } {
   const result = spawnSync(command, args, {
@@ -200,26 +394,29 @@ with zipfile.ZipFile(dest, "w") as archive:
 
 function writeStubs(bin: string, opened: string): void {
   mkdirSync(bin, { recursive: true });
-  writeFileSync(
-    join(bin, "ditto"),
-    `#!/usr/bin/env python3
+  // macOS runs the real ditto and xattr, so CI covers what the installed app uses. Linux has neither.
+  if (process.platform !== "darwin") {
+    writeFileSync(
+      join(bin, "ditto"),
+      `#!/usr/bin/env python3
 import sys, zipfile
 if sys.argv[1:3] != ["-x", "-k"]:
     raise SystemExit("unexpected ditto args: " + " ".join(sys.argv[1:]))
 zipfile.ZipFile(sys.argv[3]).extractall(sys.argv[4])
 `,
-    { mode: 0o755 },
-  );
-  writeFileSync(join(bin, "xattr"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      { mode: 0o755 },
+    );
+    writeFileSync(join(bin, "xattr"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    chmodSync(join(bin, "ditto"), 0o755);
+    chmodSync(join(bin, "xattr"), 0o755);
+  }
   writeFileSync(join(bin, "open"), `#!/bin/sh\nprintf '%s\\n' "$1" > ${JSON.stringify(opened)}\n`, { mode: 0o755 });
-  chmodSync(join(bin, "ditto"), 0o755);
-  chmodSync(join(bin, "xattr"), 0o755);
   chmodSync(join(bin, "open"), 0o755);
 }
 
-async function readWhenReady(path: string, errorPath?: string): Promise<string> {
+async function readWhenReady(path: string, errorPath?: string, timeoutMs = 4_000): Promise<string> {
   const started = Date.now();
-  while (Date.now() - started < 4_000) {
+  while (Date.now() - started < timeoutMs) {
     if (errorPath) {
       try {
         const failure = (await readFile(errorPath, "utf8")).trim();

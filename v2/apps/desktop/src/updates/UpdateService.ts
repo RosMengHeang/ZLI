@@ -62,8 +62,11 @@ export type UpdateServiceDependencies = {
    * Unsigned builds pass `installUnsignedMac` and replace ZLI.app from the downloaded zip instead.
    */
   macCanAutoInstall: boolean;
-  /** Replaces the installed app from electron-updater's sha512-checked zip. Unsigned macOS only. */
-  installUnsignedMac?(zipPath: string): void;
+  /**
+   * Replaces the installed app from electron-updater's sha512-checked zip. Unsigned macOS only.
+   * `reopen` is true for Restart to update, and false when the person is quitting.
+   */
+  installUnsignedMac?(zipPath: string, options: { reopen: boolean }): void;
   /** Ends this process without quit hooks, so the unsigned macOS helper can move the bundle. */
   exit?(): void;
   settings: UpdateSettingsHost;
@@ -234,7 +237,7 @@ export class UpdateService {
     this.bundleInstallStarted = true;
     try {
       this.deps.log?.("info", "replacing ZLI.app on quit");
-      install(zip);
+      install(zip, { reopen: false });
     } catch (error) {
       this.bundleInstallStarted = false;
       this.deps.log?.("warn", `update failed: ${updateErrorMessage(error)}`);
@@ -282,7 +285,7 @@ export class UpdateService {
     try {
       if (!this.bundleInstallStarted) {
         this.bundleInstallStarted = true;
-        install(zip);
+        install(zip, { reopen: true });
       }
     } catch (error) {
       this.bundleInstallStarted = false;

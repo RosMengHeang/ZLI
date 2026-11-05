@@ -326,6 +326,28 @@ describe("UpdateService downloads", () => {
     expect(updater.installs).toEqual([]);
   });
 
+  it("leaves ZLI closed after an unsigned macOS update installs on quit", async () => {
+    const installUnsignedMac = vi.fn();
+    const { service, updater } = createService({ platform: "darwin", installUnsignedMac });
+    updater.available = { version: "0.2.0" };
+    await service.check();
+    updater.emit("update-downloaded", { version: "0.2.0", downloadedFile: "/tmp/ZLI-0.2.0-mac-arm64.zip" });
+
+    service.installDownloadedOnQuit();
+    expect(installUnsignedMac).toHaveBeenCalledWith("/tmp/ZLI-0.2.0-mac-arm64.zip", { reopen: false });
+  });
+
+  it("opens ZLI again after an unsigned macOS update installs on Restart", async () => {
+    const installUnsignedMac = vi.fn();
+    const { service, updater } = createService({ platform: "darwin", installUnsignedMac });
+    updater.available = { version: "0.2.0" };
+    await service.check();
+    updater.emit("update-downloaded", { version: "0.2.0", downloadedFile: "/tmp/ZLI-0.2.0-mac-arm64.zip" });
+
+    expect(await service.quitAndInstall()).toBe(true);
+    expect(installUnsignedMac).toHaveBeenCalledWith("/tmp/ZLI-0.2.0-mac-arm64.zip", { reopen: true });
+  });
+
   it("opens the release page when the macOS release has no zip for this Mac", async () => {
     const { service, updater, opened } = createService({
       platform: "darwin",

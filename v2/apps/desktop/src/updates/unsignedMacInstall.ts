@@ -2,7 +2,7 @@ import { spawn as nodeSpawn, type SpawnOptions } from "node:child_process";
 import { accessSync, constants, writeFileSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 
 /**
  * Squirrel.Mac, which electron-updater uses on macOS, only installs into an app signed with a
@@ -37,6 +37,15 @@ export function bundleParentWritable(bundlePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** False sends the person to the release page. The installer only accepts a bundle named ZLI.app. */
+export function canReplaceMacBundle(bundlePath: string): boolean {
+  return (
+    basename(bundlePath) === MAC_APP_BUNDLE_NAME &&
+    !isTranslocatedMacApp(bundlePath) &&
+    bundleParentWritable(bundlePath)
+  );
 }
 
 export function unsignedMacInstallPaths(settingsPath: string): { logPath: string; errorPath: string } {
@@ -83,8 +92,8 @@ type InstallSpawn = (
 const KEPT_ENV = ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL"] as const;
 
 /**
- * Starts a detached helper that waits for this process to exit, swaps in the downloaded app, and
- * opens it. Paths are passed in the environment so the shell does not interpret them.
+ * Starts a detached helper that waits for this process to exit and swaps in the downloaded app.
+ * Paths are passed in the environment so the shell does not interpret them.
  */
 export function startUnsignedMacInstall(options: {
   zipPath: string;
@@ -92,6 +101,8 @@ export function startUnsignedMacInstall(options: {
   pid: number;
   logPath: string;
   errorPath: string;
+  /** True opens ZLI when the helper is done, for Restart to update. A plain quit leaves it closed. */
+  reopen: boolean;
   pathEnv?: string;
   /** Seconds to wait after the app pid is gone. Production leaves this unset (half a second). */
   settleSeconds?: number;
@@ -125,6 +136,7 @@ export function startUnsignedMacInstall(options: {
   env.ZLI_UPDATE_APP_NAME = MAC_APP_BUNDLE_NAME;
   env.ZLI_UPDATE_LOG = options.logPath;
   env.ZLI_UPDATE_ERROR = options.errorPath;
+  if (options.reopen) env.ZLI_UPDATE_REOPEN = "1";
   if (options.settleSeconds !== undefined) env.ZLI_UPDATE_SETTLE_SECONDS = String(options.settleSeconds);
   if (options.skipWait) env.ZLI_UPDATE_SKIP_WAIT = "1";
   if (options.openCommand !== undefined) {
@@ -140,9 +152,18 @@ export function startUnsignedMacInstall(options: {
 export const UNSIGNED_MAC_UPDATE_SCRIPT = `#!/bin/bash
 set -u
 log() { printf '%s\\n' "$1" >>"\${ZLI_UPDATE_LOG}"; }
-fail() {
+record_error() {
   printf '%s\\n' "$1" >"\${ZLI_UPDATE_ERROR}"
   log "$1"
+}
+reopen() {
+  [[ "\${ZLI_UPDATE_REOPEN:-}" == "1" ]] || return 0
+  "\${ZLI_UPDATE_OPEN:-open}" "\${ZLI_UPDATE_BUNDLE}"
+}
+# The error goes first, because the app opened here reads it when it starts.
+fail() {
+  record_error "$1"
+  reopen || log "Could not open \${ZLI_UPDATE_BUNDLE}."
   exit 1
 }
 
@@ -190,6 +211,8 @@ rm -rf "\${backup}"
 move() {
   attempt=1
   while [[ "\${attempt}" -le 10 ]]; do
+    # A move between volumes can stop partway, and mv would then move into what it left behind.
+    rm -rf "$2"
     if mv "$1" "$2"; then
       return 0
     fi
@@ -204,12 +227,17 @@ if ! move "\${ZLI_UPDATE_BUNDLE}" "\${backup}"; then
 fi
 
 if ! move "\${new_app}" "\${ZLI_UPDATE_BUNDLE}"; then
-  move "\${backup}" "\${ZLI_UPDATE_BUNDLE}" || true
-  fail "ZLI could not replace the installed app, so the previous version was put back."
+  if move "\${backup}" "\${ZLI_UPDATE_BUNDLE}"; then
+    fail "ZLI could not replace the installed app, so the previous version was put back."
+  fi
+  fail "ZLI could not replace the installed app or put the previous version back. It is at \${backup}."
 fi
 
 rm -rf "\${backup}"
 xattr -dr com.apple.quarantine "\${ZLI_UPDATE_BUNDLE}" 2>/dev/null || true
 log "replaced \${ZLI_UPDATE_BUNDLE}"
-"\${ZLI_UPDATE_OPEN:-open}" "\${ZLI_UPDATE_BUNDLE}" || fail "ZLI was replaced, but it did not open."
+if ! reopen; then
+  record_error "ZLI was replaced, but it did not open."
+  exit 1
+fi
 `;
