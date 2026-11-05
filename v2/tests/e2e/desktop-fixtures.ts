@@ -89,22 +89,40 @@ export async function freePort(): Promise<number> {
  */
 export async function clickProjectAction(row: Locator, button: Locator): Promise<void> {
   await expect(async () => {
-    await row.evaluate((label) => {
-      for (const element of label.querySelectorAll<HTMLElement>(".project-action")) {
-        element.style.setProperty("display", "inline-flex");
-        element.style.setProperty("opacity", "1");
-      }
-    });
+    await revealProjectActions(row);
     await button.click({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
 }
 
 /** Opens the Create worktree dialog from the first project's row. */
 export async function openCreateWorktree(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Create worktree" });
   const row = page.locator(".project-label").first();
   // Scope to the row. The dialog has another Create worktree button, and a page-wide role query
   // cannot see this one while it is display:none.
-  await clickProjectAction(row, row.getByRole("button", { name: "Create worktree", exact: true }));
+  const button = row.getByRole("button", { name: "Create worktree", exact: true });
+  // The scrim covers the sidebar button. A click that already opened the dialog is still reported
+  // as a miss, and every retry then times out on that same scrim.
+  await expect(async () => {
+    if (await dialog.isVisible()) return;
+    await revealProjectActions(row);
+    try {
+      await button.click({ timeout: 2_000 });
+    } catch (error) {
+      if (await dialog.isVisible()) return;
+      throw error;
+    }
+  }).toPass({ timeout: 30_000 });
+  await expect(dialog).toBeVisible();
+}
+
+function revealProjectActions(row: Locator): Promise<void> {
+  return row.evaluate((label) => {
+    for (const element of label.querySelectorAll<HTMLElement>(".project-action")) {
+      element.style.setProperty("display", "inline-flex");
+      element.style.setProperty("opacity", "1");
+    }
+  });
 }
 
 export async function createGitFixture(): Promise<{ root: string; repo: string }> {
