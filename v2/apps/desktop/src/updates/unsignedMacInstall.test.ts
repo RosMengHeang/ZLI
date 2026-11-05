@@ -53,6 +53,14 @@ describe("unsigned macOS install error", () => {
   });
 });
 
+/**
+ * macOS CI sometimes needs more than a few seconds for ditto and mv. The script still has to
+ * finish: a timeout here means it did not replace the app. Detached on macOS was still going
+ * when a 5s test limit hit, so this waits in-process and surfaces stderr.
+ */
+const SWAP_SCRIPT_TIMEOUT_MS = 15_000;
+const SWAP_TEST_TIMEOUT_MS = 20_000;
+
 describe("unsigned macOS swap", () => {
   it("keeps paths in the environment", () => {
     expect(UNSIGNED_MAC_UPDATE_SCRIPT).toContain("ditto -x -k " + '"$' + "{ZLI_UPDATE_ZIP}" + '"');
@@ -98,47 +106,51 @@ describe("unsigned macOS swap", () => {
       expect(await readFile(marker, "utf8")).toBe("new");
       expect(await readUnsignedMacInstallError(join(directory, "update-error.txt"))).toBeUndefined();
     },
+    SWAP_TEST_TIMEOUT_MS,
   );
 
-  it.skipIf(process.platform === "win32")("leaves the installed app in place when the zip has no ZLI.app", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "zli-update-bad-"));
-    cleanups.push(() => rm(directory, { recursive: true, force: true }));
-    const bundle = join(directory, "ZLI.app");
-    const marker = join(bundle, "Contents", "marker");
-    mkdirSync(join(bundle, "Contents"), { recursive: true });
-    writeFileSync(marker, "old");
-    const source = join(directory, "source");
-    mkdirSync(join(source, "Other.app"), { recursive: true });
-    writeFileSync(join(source, "Other.app", "marker"), "new");
-    const zip = join(directory, "update.zip");
-    zipDirectory(source, zip);
-    const bin = join(directory, "bin");
-    writeStubs(bin, join(directory, "opened"));
+  it.skipIf(process.platform === "win32")(
+    "leaves the installed app in place when the zip has no ZLI.app",
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "zli-update-bad-"));
+      cleanups.push(() => rm(directory, { recursive: true, force: true }));
+      const bundle = join(directory, "ZLI.app");
+      const marker = join(bundle, "Contents", "marker");
+      mkdirSync(join(bundle, "Contents"), { recursive: true });
+      writeFileSync(marker, "old");
+      const source = join(directory, "source");
+      mkdirSync(join(source, "Other.app"), { recursive: true });
+      writeFileSync(join(source, "Other.app", "marker"), "new");
+      const zip = join(directory, "update.zip");
+      zipDirectory(source, zip);
+      const bin = join(directory, "bin");
+      writeStubs(bin, join(directory, "opened"));
 
-    startUnsignedMacInstall({
-      zipPath: zip,
-      bundlePath: bundle,
-      pid: await reapedPid(),
-      logPath: join(directory, "update.log"),
-      errorPath: join(directory, "update-error.txt"),
-      pathEnv: `${bin}:/usr/bin:/bin`,
-      settleSeconds: 0,
-      skipWait: true,
-      openCommand: join(bin, "open"),
-      spawn: spawnAndWait,
-    });
+      startUnsignedMacInstall({
+        zipPath: zip,
+        bundlePath: bundle,
+        pid: await reapedPid(),
+        logPath: join(directory, "update.log"),
+        errorPath: join(directory, "update-error.txt"),
+        pathEnv: `${bin}:/usr/bin:/bin`,
+        settleSeconds: 0,
+        skipWait: true,
+        openCommand: join(bin, "open"),
+        spawn: spawnAndWait,
+      });
 
-    expect(await readWhenReady(join(directory, "update-error.txt"))).toContain("did not contain ZLI.app");
-    expect(await readFile(marker, "utf8")).toBe("old");
-  });
+      expect(await readWhenReady(join(directory, "update-error.txt"))).toContain("did not contain ZLI.app");
+      expect(await readFile(marker, "utf8")).toBe("old");
+    },
+    SWAP_TEST_TIMEOUT_MS,
+  );
 });
 
-/** Runs the helper in this process and surfaces its stderr. Detached on macOS was still going when the 5s test limit hit. */
 function spawnAndWait(command: string, args: readonly string[], options: SpawnOptions): { unref(): void } {
   const result = spawnSync(command, args, {
     env: options.env,
     encoding: "utf8",
-    timeout: 4_000,
+    timeout: SWAP_SCRIPT_TIMEOUT_MS,
   });
   // Exit 1 is the helper's own fail() after it records the error. Anything else did not finish.
   if (result.error || (result.status !== 0 && result.status !== 1)) {
