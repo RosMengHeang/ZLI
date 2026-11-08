@@ -29,6 +29,7 @@ const xterm = vi.hoisted(() => {
     static instances: FakeTerminal[] = [];
     cols = 80;
     rows = 24;
+    options: Record<string, unknown> = {};
     readonly written: Array<string | Uint8Array> = [];
     resets = 0;
     disposed = false;

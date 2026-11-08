@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { createMainWindow, secureWebPreferences, titleBarOptions } from "./ElectronWindow.js";
+import {
+  applyWindowChrome,
+  createMainWindow,
+  parseWindowChrome,
+  secureWebPreferences,
+  titleBarOptions,
+} from "./ElectronWindow.js";
 
 describe("ElectronWindow", () => {
   it("creates a Chromium window with the security posture required by Codex/Cursor-style shells", () => {
@@ -111,5 +117,38 @@ describe("ElectronWindow", () => {
     onRendererGone?.();
 
     expect(reloads).toBe(1);
+  });
+});
+
+describe("window chrome", () => {
+  it("accepts only two #rrggbb colors from the renderer", () => {
+    expect(parseWindowChrome({ background: "#ECECEF", symbols: "#52525b" })).toEqual({
+      background: "#ececef",
+      symbols: "#52525b",
+    });
+    expect(parseWindowChrome({ background: "red", symbols: "#52525b" })).toBeUndefined();
+    expect(parseWindowChrome({ background: "#ececef" })).toBeUndefined();
+    expect(parseWindowChrome(null)).toBeUndefined();
+  });
+
+  it("recolors the title bar overlay except on macOS", () => {
+    const calls: unknown[] = [];
+    const window = {
+      setBackgroundColor: (color: string) => calls.push(["background", color]),
+      setTitleBarOverlay: (options: unknown) => calls.push(["overlay", options]),
+    };
+    applyWindowChrome(window, { background: "#120a10", symbols: "#d3afc3" }, "win32");
+    applyWindowChrome(window, { background: "#000000", symbols: "#86c99b" }, "darwin");
+    expect(calls).toEqual([
+      ["background", "#120a10"],
+      ["overlay", { color: "#120a10", symbolColor: "#d3afc3" }],
+      ["background", "#000000"],
+    ]);
+  });
+
+  it("opens the window in the remembered colors", () => {
+    expect(titleBarOptions("win32", 44, { background: "#ececef", symbols: "#52525b" })).toMatchObject({
+      titleBarOverlay: { color: "#ececef", symbolColor: "#52525b", height: 44 },
+    });
   });
 });

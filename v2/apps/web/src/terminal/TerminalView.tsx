@@ -4,9 +4,10 @@ import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 import type { RpcResponse } from "@zli-v2/contracts";
-import { themeColors } from "@zli-v2/ui/colors";
+import { THEMES, type ThemeId } from "@zli-v2/ui/themes";
 import type { FileLinks } from "../files/FileIndex.js";
 import type { ZliBridge } from "../runtime/bridge.js";
+import { useAppSettings } from "../settings/appSettings.js";
 import { registerTerminalModes } from "./terminalModes.js";
 
 type Props = {
@@ -28,29 +29,9 @@ const TERMINAL_FONT_SIZE = 12;
 const ATTACH_ATTEMPTS = 30;
 
 /** The background matches --zli-terminal so output sits on its tile without a seam. */
-export const terminalTheme: ITheme = {
-  background: themeColors.terminal,
-  foreground: "#dcdcdc",
-  cursor: "rgb(180, 203, 255)",
-  cursorAccent: themeColors.terminal,
-  selectionBackground: "rgba(180, 203, 255, 0.25)",
-  black: "#1f1f1f",
-  red: "#d77c7c",
-  green: "#69c58b",
-  yellow: "#d8b56f",
-  blue: "#7fa6d9",
-  magenta: "#b99ad6",
-  cyan: "#72bcc0",
-  white: "#cfcfcf",
-  brightBlack: "#6f6f6f",
-  brightRed: "#e49a9a",
-  brightGreen: "#8bd5a5",
-  brightYellow: "#e6c98e",
-  brightBlue: "#a1bfe6",
-  brightMagenta: "#ccb3e3",
-  brightCyan: "#95d0d3",
-  brightWhite: "#f1f1f1",
-};
+export function terminalThemeFor(id: ThemeId): ITheme {
+  return THEMES[id].terminal;
+}
 
 export function TerminalView({
   bridge,
@@ -63,6 +44,9 @@ export function TerminalView({
   onFocus,
   fileLinks,
 }: Props) {
+  const themeId = useAppSettings().theme;
+  const themeRef = useRef(themeId);
+  themeRef.current = themeId;
   const fileLinksRef = useRef(fileLinks);
   fileLinksRef.current = fileLinks;
   const autoFocusRef = useRef(autoFocus);
@@ -84,7 +68,7 @@ export function TerminalView({
       lineHeight: 1.15,
       scrollback: 5_000,
       cursorBlink: false,
-      theme: terminalTheme,
+      theme: terminalThemeFor(themeRef.current),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -251,6 +235,11 @@ export function TerminalView({
     if (!running || !terminal) return;
     void sendRef.current({ type: "terminal.resize", terminalId, cols: terminal.cols, rows: terminal.rows });
   }, [running, terminalId]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (terminal) terminal.options.theme = terminalThemeFor(themeId);
+  }, [themeId]);
 
   return (
     <div

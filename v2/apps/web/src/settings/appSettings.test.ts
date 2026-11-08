@@ -23,6 +23,7 @@ describe("app settings", () => {
           shortcuts: { newAgent: "Mod+Shift+N", unknown: "Mod+U", palette: 3 },
           fileTreePosition: "top",
           sidebarLimits: { enabled: "yes", hidden: ["codex", "qwen", 4] },
+          theme: "neon",
         }),
       ),
     ).toEqual({
@@ -32,7 +33,13 @@ describe("app settings", () => {
       shortcuts: { newAgent: "Mod+Shift+N" },
       fileTreePosition: "right",
       sidebarLimits: { enabled: false, hidden: ["codex"] },
+      theme: "midnight",
     });
+  });
+
+  it("starts on Midnight and keeps a chosen theme", () => {
+    expect(DEFAULT_SETTINGS.theme).toBe("midnight");
+    expect(parseAppSettings(JSON.stringify({ theme: "sakura" })).theme).toBe("sakura");
   });
 
   it("keeps plan limits out of the sidebar until they are turned on", () => {

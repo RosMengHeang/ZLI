@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { RuntimeClient, type RuntimeTransport } from "@zli-v2/client-runtime";
@@ -71,7 +71,15 @@ import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal } from "./security/NavigationPolicy.js";
 import { registerUpdates } from "./updates/electronUpdates.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
-import { type BrowserWindowConstructor, createMainWindow } from "./window/ElectronWindow.js";
+import { writeJsonFile } from "./storage/writeJsonFile.js";
+import {
+  applyWindowChrome,
+  type BrowserWindowConstructor,
+  createMainWindow,
+  DEFAULT_CHROME,
+  parseWindowChrome,
+  type WindowChrome,
+} from "./window/ElectronWindow.js";
 import { windowsAppDetails, windowsAppId } from "./window/windowsTaskbar.js";
 
 const DEFAULT_ENVIRONMENT_ID = "00000000-0000-4000-8000-000000000001";
@@ -167,6 +175,9 @@ async function main(): Promise<void> {
       packaged: app.isPackaged,
     },
   });
+  chromePath = process.env.ZLI_DATABASE_PATH
+    ? `${databasePath}.window-chrome.json`
+    : join(app.getPath("userData"), "window-chrome.json");
   registerIpc(desktopDiagnostics);
   const window = createMainWindow(
     BrowserWindow as unknown as BrowserWindowConstructor,
@@ -174,6 +185,7 @@ async function main(): Promise<void> {
     APP_ORIGIN,
     process.platform,
     appIcon("icon-square.png"),
+    readWindowChrome(chromePath),
   );
   const electronWindow = window as unknown as BrowserWindow;
   mainWindow = electronWindow;
@@ -388,6 +400,17 @@ async function registerTestProject(client: RuntimeClient): Promise<void> {
   }
 }
 
+let chromePath: string | undefined;
+
+/** The colors of the theme the renderer last applied, so the next launch opens without a flash. */
+function readWindowChrome(path: string): WindowChrome {
+  try {
+    return parseWindowChrome(JSON.parse(readFileSync(path, "utf8"))) ?? DEFAULT_CHROME;
+  } catch {
+    return DEFAULT_CHROME;
+  }
+}
+
 function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:runtime:dispatch", async (_event, request: unknown) => {
     if (!runtime) throw new Error("Runtime is not ready.");
@@ -428,6 +451,15 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     return { accepted: true };
   });
   ipcMain.handle("zli:app:version", () => app.getVersion());
+  ipcMain.handle("zli:app:set-chrome", async (event, input: unknown) => {
+    const chrome = parseWindowChrome(input);
+    if (!chrome) throw new Error("Window colors must be two #rrggbb values.");
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window && !window.isDestroyed()) applyWindowChrome(window, chrome, process.platform);
+    // Only the main window's theme is remembered; pop-outs follow the same setting anyway.
+    if (chromePath && window === mainWindow) await writeJsonFile(chromePath, chrome).catch(() => undefined);
+    return { accepted: true };
+  });
   ipcMain.handle("zli:app:quit", () => {
     app.quit();
   });

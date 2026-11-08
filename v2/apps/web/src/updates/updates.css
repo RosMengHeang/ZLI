@@ -4,7 +4,7 @@
   cursor: pointer; font-size: var(--zli-text-xs); font-weight: 550; white-space: nowrap;
   transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease);
 }
-.update-pill:hover { border-color: var(--zli-accent); background: oklch(.571 .21 264 / .24); }
+.update-pill:hover { border-color: var(--zli-accent); background: color-mix(in srgb, var(--zli-accent) 24%, transparent); }
 .update-pill > svg { color: var(--zli-blue); }
 
 .update-status { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-4); min-height: 64px; padding: var(--zli-space-3) 0; }

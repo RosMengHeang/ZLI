@@ -12,6 +12,7 @@ import {
   type WorktreeSetupProjection,
   worktreeDevServers,
 } from "@zli-v2/contracts";
+import { THEME_IDS, THEMES } from "@zli-v2/ui/themes";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
@@ -1572,6 +1573,14 @@ function WorkspaceApp() {
     { label: "Export support bundle", icon: "download", group: "App", action: () => void exportSupportBundle() },
     { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
     { label: "Settings", icon: "settings", group: "App", shortcut: shortcuts.settings, action: () => openSettings() },
+    ...THEME_IDS.filter((id) => id !== settings.theme).map((id) => ({
+      label: `Theme: ${THEMES[id].name}`,
+      icon: "palette" as const,
+      group: "App" as const,
+      action: () => {
+        updateAppSettings((current) => ({ ...current, theme: id }));
+      },
+    })),
     {
       label: "Keyboard shortcuts",
       icon: "command",

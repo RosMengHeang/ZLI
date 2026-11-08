@@ -148,7 +148,7 @@
 .file-md h3 { font-size: 16px; }
 .file-md :is(h4, h5, h6) { font-size: var(--zli-text-md); }
 .file-md h6 { color: var(--zli-muted); }
-.file-md a { color: var(--zli-blue); text-decoration: underline; text-decoration-color: oklch(.76 .12 264 / .4); text-underline-offset: 2px; }
+.file-md a { color: var(--zli-blue); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--zli-blue) 40%, transparent); text-underline-offset: 2px; }
 .file-md a:hover { text-decoration-color: currentColor; }
 .file-md a:focus-visible { border-radius: 2px; outline-width: 1px; }
 .file-md :is(ul, ol) { padding-left: 24px; }
@@ -172,23 +172,23 @@
 .file-md-image-note { display: inline-block; padding: 2px var(--zli-space-2); border: 1px dashed var(--zli-border-strong); border-radius: var(--zli-radius-xs); color: var(--zli-dim); font-size: var(--zli-text-xs); }
 
 /* Code block colors; keep in step with SYNTAX_STYLES in codeEditor.ts. */
-.syntax-keyword { color: #b3a6dc; }
-.syntax-string, .syntax-inserted { color: #a3c49a; }
-.syntax-regexp { color: #d3a283; }
-.syntax-number { color: #d8b67e; }
-.syntax-comment { color: #6a6a6a; }
-.syntax-function, .syntax-link { color: #8fb0e3; }
-.syntax-type { color: #80bfb8; }
-.syntax-property { color: #a9bad6; }
-.syntax-variable { color: #dcdcdc; }
-.syntax-operator { color: #a3a3a3; }
-.syntax-punctuation { color: #8a8a8a; }
-.syntax-heading { color: #e6e6e6; font-weight: 600; }
+.syntax-keyword { color: var(--zli-syntax-keyword); }
+.syntax-string, .syntax-inserted { color: var(--zli-syntax-string); }
+.syntax-regexp { color: var(--zli-syntax-regexp); }
+.syntax-number { color: var(--zli-syntax-number); }
+.syntax-comment { color: var(--zli-syntax-comment); }
+.syntax-function, .syntax-link { color: var(--zli-syntax-function); }
+.syntax-type { color: var(--zli-syntax-type); }
+.syntax-property { color: var(--zli-syntax-property); }
+.syntax-variable { color: var(--zli-syntax-variable); }
+.syntax-operator { color: var(--zli-syntax-operator); }
+.syntax-punctuation { color: var(--zli-syntax-punctuation); }
+.syntax-heading { color: var(--zli-syntax-heading); font-weight: 600; }
 .syntax-emphasis { font-style: italic; }
 .syntax-strong { font-weight: 600; }
 .syntax-strikethrough { text-decoration: line-through; }
-.syntax-deleted { color: #de8f8f; }
-.syntax-invalid { color: #ec7272; }
+.syntax-deleted { color: var(--zli-syntax-deleted); }
+.syntax-invalid { color: var(--zli-syntax-invalid); }
 
 .file-search { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .file-search-form { display: flex; align-items: center; gap: var(--zli-space-1); margin: var(--zli-space-2) var(--zli-space-2) 0; padding: 0 var(--zli-space-1) 0 var(--zli-space-2); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-sm); background: var(--zli-well); transition: border-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }

@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./colors": "./src/colors.ts",
+    "./themes": "./src/themes.ts",
     "./tokens.css": "./src/tokens.css",
     "./primitives.css": "./src/primitives.css"
   }

@@ -256,13 +256,13 @@ const zliTheme = EditorView.theme(
     ".cm-line": { padding: "0 12px 0 6px" },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--zli-text)", borderLeftWidth: "1.5px" },
     "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
-      { backgroundColor: "oklch(.571 .21 264 / .28)" },
-    ".cm-selectionBackground": { backgroundColor: "oklch(.571 .21 264 / .18)" },
-    ".cm-activeLine": { backgroundColor: "rgba(255, 255, 255, .035)" },
-    ".cm-selectionMatch": { backgroundColor: "rgba(255, 255, 255, .07)" },
+      { backgroundColor: "var(--zli-selection)" },
+    ".cm-selectionBackground": { backgroundColor: "var(--zli-accent-soft)" },
+    ".cm-activeLine": { backgroundColor: "var(--zli-active-line)" },
+    ".cm-selectionMatch": { backgroundColor: "var(--zli-active)" },
     "&.cm-focused .cm-matchingBracket": {
-      backgroundColor: "rgba(255, 255, 255, .08)",
-      outline: "1px solid rgba(255, 255, 255, .14)",
+      backgroundColor: "var(--zli-active)",
+      outline: "1px solid var(--zli-border-hover)",
     },
     "&.cm-focused .cm-nonmatchingBracket": { backgroundColor: "var(--zli-red-soft)" },
     ".cm-gutters": {
@@ -284,9 +284,11 @@ const zliTheme = EditorView.theme(
     },
     ".cm-searchMatch": {
       backgroundColor: "var(--zli-amber-soft)",
-      outline: "1px solid rgba(224, 176, 90, .35)",
+      outline: "1px solid var(--zli-amber-line)",
     },
-    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "rgba(224, 176, 90, .3)" },
+    ".cm-searchMatch.cm-searchMatch-selected": {
+      backgroundColor: "color-mix(in srgb, var(--zli-amber) 30%, transparent)",
+    },
     ".cm-panels": {
       backgroundColor: "var(--zli-raised)",
       color: "var(--zli-text)",
@@ -338,7 +340,7 @@ const zliTheme = EditorView.theme(
       fontSize: "12px",
       cursor: "pointer",
     },
-    ".cm-button:hover": { backgroundColor: "var(--zli-overlay)", borderColor: "rgba(255, 255, 255, .18)" },
+    ".cm-button:hover": { backgroundColor: "var(--zli-overlay)", borderColor: "var(--zli-border-hover)" },
     ".cm-button:active": { backgroundImage: "none", backgroundColor: "var(--zli-active)" },
     ".cm-panel.cm-search [name=close]": {
       top: "6px",
@@ -368,34 +370,46 @@ const zliTheme = EditorView.theme(
   { dark: true },
 );
 
-/** `name` is the class suffix code blocks in the Markdown preview use; files.css repeats these colors. */
+/** `name` is the class suffix code blocks in the Markdown preview use; colors come from the theme tokens. */
 const SYNTAX_STYLES = [
   {
     name: "keyword",
     tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.modifier],
-    color: "#b3a6dc",
+    color: "var(--zli-syntax-keyword)",
   },
-  { name: "keyword", tag: [t.definitionKeyword, t.self, t.null], color: "#b3a6dc" },
-  { name: "string", tag: [t.string, t.special(t.string), t.character], color: "#a3c49a" },
-  { name: "regexp", tag: [t.regexp, t.escape], color: "#d3a283" },
-  { name: "number", tag: [t.number, t.bool, t.atom, t.constant(t.name), t.unit], color: "#d8b67e" },
-  { name: "comment", tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "#6a6a6a" },
-  { name: "function", tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName], color: "#8fb0e3" },
-  { name: "type", tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)], color: "#80bfb8" },
-  { name: "type", tag: [t.tagName, t.angleBracket], color: "#80bfb8" },
-  { name: "property", tag: [t.attributeName, t.propertyName, t.labelName], color: "#a9bad6" },
-  { name: "variable", tag: [t.definition(t.variableName), t.variableName], color: "#dcdcdc" },
-  { name: "operator", tag: [t.operator, t.derefOperator], color: "#a3a3a3" },
-  { name: "punctuation", tag: [t.punctuation, t.separator, t.bracket], color: "#8a8a8a" },
-  { name: "punctuation", tag: [t.meta, t.processingInstruction, t.annotation], color: "#8a8a8a" },
-  { name: "heading", tag: t.heading, color: "#e6e6e6", fontWeight: "600" },
-  { name: "link", tag: [t.link, t.url], color: "#8fb0e3", textDecoration: "underline" },
+  { name: "keyword", tag: [t.definitionKeyword, t.self, t.null], color: "var(--zli-syntax-keyword)" },
+  { name: "string", tag: [t.string, t.special(t.string), t.character], color: "var(--zli-syntax-string)" },
+  { name: "regexp", tag: [t.regexp, t.escape], color: "var(--zli-syntax-regexp)" },
+  { name: "number", tag: [t.number, t.bool, t.atom, t.constant(t.name), t.unit], color: "var(--zli-syntax-number)" },
+  {
+    name: "comment",
+    tag: [t.comment, t.lineComment, t.blockComment, t.docComment],
+    color: "var(--zli-syntax-comment)",
+  },
+  {
+    name: "function",
+    tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName],
+    color: "var(--zli-syntax-function)",
+  },
+  {
+    name: "type",
+    tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)],
+    color: "var(--zli-syntax-type)",
+  },
+  { name: "type", tag: [t.tagName, t.angleBracket], color: "var(--zli-syntax-type)" },
+  { name: "property", tag: [t.attributeName, t.propertyName, t.labelName], color: "var(--zli-syntax-property)" },
+  { name: "variable", tag: [t.definition(t.variableName), t.variableName], color: "var(--zli-syntax-variable)" },
+  { name: "operator", tag: [t.operator, t.derefOperator], color: "var(--zli-syntax-operator)" },
+  { name: "punctuation", tag: [t.punctuation, t.separator, t.bracket], color: "var(--zli-syntax-punctuation)" },
+  { name: "punctuation", tag: [t.meta, t.processingInstruction, t.annotation], color: "var(--zli-syntax-punctuation)" },
+  { name: "heading", tag: t.heading, color: "var(--zli-syntax-heading)", fontWeight: "600" },
+  { name: "link", tag: [t.link, t.url], color: "var(--zli-syntax-function)", textDecoration: "underline" },
   { name: "emphasis", tag: t.emphasis, fontStyle: "italic" },
   { name: "strong", tag: t.strong, fontWeight: "600" },
   { name: "strikethrough", tag: t.strikethrough, textDecoration: "line-through" },
-  { name: "inserted", tag: [t.inserted], color: "#a3c49a" },
-  { name: "deleted", tag: [t.deleted], color: "#de8f8f" },
-  { name: "invalid", tag: t.invalid, color: "#ec7272" },
+  { name: "inserted", tag: [t.inserted], color: "var(--zli-syntax-string)" },
+  { name: "deleted", tag: [t.deleted], color: "var(--zli-syntax-deleted)" },
+  { name: "invalid", tag: t.invalid, color: "var(--zli-syntax-invalid)" },
 ];
 
 const zliHighlight = HighlightStyle.define(SYNTAX_STYLES.map(({ name: _name, ...style }) => style));

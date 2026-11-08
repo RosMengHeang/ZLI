@@ -20,6 +20,7 @@ vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80;
     rows = 24;
+    options: Record<string, unknown> = {};
     loadAddon(): void {}
     open(): void {}
     focus(): void {}

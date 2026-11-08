@@ -374,6 +374,7 @@ export function createPreloadApi(ipc: IpcBridge, options: { testMode?: boolean }
       getVersion: () => ipc.invoke("zli:app:version"),
       quit: () => ipc.invoke("zli:app:quit"),
       openExternal: (url: string) => ipc.invoke("zli:app:open-external", { url }),
+      setChrome: (colors: { background: string; symbols: string }) => ipc.invoke("zli:app:set-chrome", colors),
     },
     notifications: {
       getSettings: async () => parseNotificationSettings(await ipc.invoke("zli:notifications:get-settings")),

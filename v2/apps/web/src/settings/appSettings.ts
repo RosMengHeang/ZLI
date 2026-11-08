@@ -4,6 +4,7 @@ import {
   PLAN_LIMIT_PROVIDERS,
   type PlanLimitProvider,
 } from "@zli-v2/contracts";
+import { DEFAULT_THEME, isThemeId, type ThemeId } from "@zli-v2/ui/themes";
 import { useSyncExternalStore } from "react";
 
 import type { SessionMode } from "../sessions/sessions.js";
@@ -52,6 +53,8 @@ export type AppSettings = {
   shortcuts: Partial<Record<ShortcutId, string>>;
   fileTreePosition: FileTreePosition;
   sidebarLimits: SidebarLimits;
+  /** The color theme of every ZLI window. */
+  theme: ThemeId;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -61,6 +64,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   shortcuts: {},
   fileTreePosition: "right",
   sidebarLimits: { enabled: false, hidden: [] },
+  theme: DEFAULT_THEME,
 };
 
 const modes: readonly SessionMode[] = ["terminal", "chat"];
@@ -141,6 +145,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     shortcuts,
     fileTreePosition: value.fileTreePosition === "left" ? "left" : "right",
     sidebarLimits: parseSidebarLimits(value.sidebarLimits),
+    theme: isThemeId(value.theme) ? value.theme : DEFAULT_THEME,
   };
 }
 
@@ -157,7 +162,8 @@ export function readAppSettings(): AppSettings {
   return cache;
 }
 
-function subscribe(listener: () => void): () => void {
+/** Calls `listener` whenever the settings change, in this window or another one. */
+export function subscribeAppSettings(listener: () => void): () => void {
   listeners.add(listener);
   const onStorage = (event: StorageEvent) => {
     if (event.key !== STORAGE_KEY) return;
@@ -172,7 +178,7 @@ function subscribe(listener: () => void): () => void {
 }
 
 export function useAppSettings(): AppSettings {
-  return useSyncExternalStore(subscribe, readAppSettings, () => DEFAULT_SETTINGS);
+  return useSyncExternalStore(subscribeAppSettings, readAppSettings, () => DEFAULT_SETTINGS);
 }
 
 export function updateAppSettings(change: (current: AppSettings) => AppSettings): AppSettings {

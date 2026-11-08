@@ -21,6 +21,7 @@ import { shortcutText } from "../ui/shortcuts.js";
 import { UpdatesSection } from "../updates/UpdatesSection.js";
 import type { Updates } from "../updates/useUpdates.js";
 import { AccountsSection } from "./AccountsSection.js";
+import { AppearanceSection } from "./AppearanceSection.js";
 import {
   type AppSettings,
   branchFromTemplate,
@@ -51,6 +52,7 @@ export type SettingsSection =
   | "skills"
   | "issues"
   | "mobile"
+  | "appearance"
   | "shortcuts"
   | "notifications"
   | "updates";
@@ -94,6 +96,13 @@ const sections: readonly SectionEntry[] = [
     icon: "smartphone",
     group: "Tools",
     keywords: "phone android emulator iphone simulator device frame sdk avd",
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    icon: "palette",
+    group: "App",
+    keywords: "theme colors dark light pink black",
   },
   { id: "shortcuts", label: "Shortcuts", icon: "command", group: "App", keywords: "keys keyboard bindings" },
   { id: "notifications", label: "Notifications", icon: "bell", group: "App", keywords: "sound alerts" },
@@ -292,6 +301,7 @@ export function SettingsDialog({
               <SkillsSection projection={projection} initialProjectId={initialProjectId} />
             ) : null}
             {section === "issues" ? <IssuesSection /> : null}
+            {section === "appearance" ? <AppearanceSection /> : null}
             {section === "shortcuts" ? <ShortcutSettings /> : null}
             {section === "notifications" ? <NotificationSection {...notifications} /> : null}
             {section === "mobile" ? <MobileSection /> : null}

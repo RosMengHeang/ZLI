@@ -82,7 +82,13 @@ export type ZliBridge = {
     take(id: string): Promise<{ name: string; dataBase64: string }>;
   };
   menu: { trigger(command: string): Promise<unknown> };
-  app: { getVersion(): Promise<string>; quit(): Promise<void>; openExternal?(url: string): Promise<unknown> };
+  app: {
+    getVersion(): Promise<string>;
+    quit(): Promise<void>;
+    openExternal?(url: string): Promise<unknown>;
+    /** Present in the desktop app: recolors the window background and its native title bar controls. */
+    setChrome?(colors: { background: string; symbols: string }): Promise<unknown>;
+  };
   test?: {
     restartRuntime(): Promise<unknown>;
     crashMain(): Promise<unknown>;
