@@ -107,6 +107,7 @@ export type DomainDecision = Extract<
       | "legacy.rollback.completed"
       | "legacy.operation.failed"
       | "terminal.status.changed"
+      | "thread.imported"
       | "thread.start.requested"
       | "thread.send.requested"
       | "thread.queued"
@@ -565,6 +566,23 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           threadId: command.threadId,
           providerSessionId: command.providerSessionId,
         },
+      ];
+    }
+    case "thread.import": {
+      const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.thread.worktreeId);
+      if (!worktree) throw new DomainError("worktree_missing", `Worktree does not exist: ${command.thread.worktreeId}`);
+      if (projection.threads.some((thread) => thread.threadId === command.thread.threadId)) {
+        throw new DomainError("thread_exists", `Thread already exists: ${command.thread.threadId}`);
+      }
+      const resumed = command.thread.providerSessionId;
+      if (resumed && projection.threads.some((thread) => thread.providerSessionId === resumed)) {
+        throw new DomainError("thread_exists", "This chat is already in ZLI.");
+      }
+      if (command.messages.some((message) => message.threadId !== command.thread.threadId)) {
+        throw new DomainError("unsupported_command", "Imported messages must belong to the imported chat.");
+      }
+      return [
+        { type: "thread.imported", thread: { ...command.thread, status: "stopped" }, messages: command.messages },
       ];
     }
     case "thread.message":

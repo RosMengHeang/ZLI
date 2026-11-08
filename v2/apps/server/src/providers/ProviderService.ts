@@ -144,7 +144,9 @@ export class ProviderService {
     }
   }
 
-  async discoverProviders(): Promise<readonly ProviderDiscovery[]> {
+  /** `refresh` skips the cache, for example right after the person installed an agent. */
+  async discoverProviders(refresh = false): Promise<readonly ProviderDiscovery[]> {
+    if (refresh && !this.discoveryInFlight) this.discoveryCache = undefined;
     const cached = this.discoveryCache;
     if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) return cached.value;
     this.discoveryInFlight ??= discoverCliProviders(this.cliProbe)

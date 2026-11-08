@@ -1248,3 +1248,33 @@ describe("Updates", () => {
     expect(calls).toEqual(["dismiss-whats-new"]);
   });
 });
+
+describe("Welcome setup", () => {
+  const fresh: RuntimeProjection = { ...projection, projects: [], worktrees: [] };
+  const welcome = () => document.querySelector(".welcome-screen");
+
+  it("opens on a fresh install, steps through the views, and stays away once skipped", async () => {
+    const container = await render(makeBridge({ ...fresh, providers: discovered.providers }));
+    expect(welcome()?.textContent).toContain("Your agents");
+    const dialog = welcome() as HTMLElement;
+    await act(async () => button(dialog, "Continue")?.click());
+    expect(welcome()?.textContent).toContain("How do you want to work?");
+    const chat = welcome()?.querySelector<HTMLInputElement>('input[value="chat"]');
+    expect(chat?.checked).toBe(true);
+    expect(welcome()?.textContent).toContain("Recommended");
+    await act(async () => button(welcome() as HTMLElement, "Continue")?.click());
+    expect(JSON.parse(window.localStorage.getItem("zli.settings.v1") ?? "{}").defaults?.mode).toBe("chat");
+    expect(welcome()?.textContent).toContain("Your projects");
+    await act(async () => button(welcome() as HTMLElement, "Skip setup")?.click());
+    expect(welcome()).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem("zli.settings.v1") ?? "{}").onboardedAt).toEqual(expect.any(String));
+    container.remove();
+    await render(makeBridge(fresh));
+    expect(welcome()).toBeNull();
+  });
+
+  it("does not open when projects are already set up", async () => {
+    await render(makeBridge(projection));
+    expect(welcome()).toBeNull();
+  });
+});

@@ -951,3 +951,57 @@ describe("agent names", () => {
     );
   });
 });
+
+describe("thread import", () => {
+  const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000406");
+  const imported = (overrides: Partial<{ worktreeId: WorktreeId; messageThread: ThreadId }> = {}) =>
+    ({
+      type: "thread.import",
+      thread: {
+        threadId,
+        worktreeId: overrides.worktreeId ?? worktreeId,
+        provider: "claude-code",
+        status: "idle",
+        capabilities: {},
+        providerSessionId: "claude-session-1",
+        createdAt: "2026-11-01T10:00:00.000Z",
+        updatedAt: "2026-11-02T10:00:00.000Z",
+      },
+      messages: [
+        { messageId: "m1", threadId: overrides.messageThread ?? threadId, role: "user", text: "Fix the login bug" },
+        { messageId: "m2", threadId, role: "assistant", text: "Fixed it." },
+      ],
+    }) satisfies RuntimeCommand;
+
+  it("adds the chat stopped, with its messages and dates, so the next message resumes it", () => {
+    const events = decide(projection("/repo"), imported());
+    expect(events).toMatchObject([{ type: "thread.imported", thread: { status: "stopped" } }]);
+    const [event] = events;
+    if (!event) throw new Error("expected an event");
+    const next = projectEvent(projection("/repo"), {
+      eventId: EventId.parse("00000000-0000-4000-8000-000000000407"),
+      sequence: 1,
+      occurredAt: "2026-11-09T00:00:00.000Z",
+      event,
+    } as RuntimeEventEnvelope);
+    expect(next.threads).toMatchObject([
+      { threadId, status: "stopped", providerSessionId: "claude-session-1", createdAt: "2026-11-01T10:00:00.000Z" },
+    ]);
+    expect(next.messages?.map((message) => message.text)).toEqual(["Fix the login bug", "Fixed it."]);
+    expect(() =>
+      decide(next, {
+        ...imported(),
+        thread: { ...imported().thread, threadId: ThreadId.parse("00000000-0000-4000-8000-000000000408") },
+      }),
+    ).toThrow("already in ZLI");
+  });
+
+  it("rejects an unknown worktree and messages for another chat", () => {
+    expect(() =>
+      decide(projection("/repo"), imported({ worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000409") })),
+    ).toThrow(DomainError);
+    expect(() =>
+      decide(projection("/repo"), imported({ messageThread: ThreadId.parse("00000000-0000-4000-8000-000000000410") })),
+    ).toThrow("must belong");
+  });
+});

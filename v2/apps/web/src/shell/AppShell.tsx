@@ -59,6 +59,8 @@ import type { HandoffRequest } from "../sessions/HandoffDialog.js";
 import { canHandOff, inlineFirstMessage, recentContextMessage } from "../sessions/handoff.js";
 import { createWorktree, ensureCheckout, samePath, startAccountSignIn, startSessionAgent } from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentPrefill, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
+import { shouldWelcome } from "../welcome/welcome.js";
+import { WelcomeDialog } from "../welcome/WelcomeDialog.js";
 import {
   type AgentSession,
   agentNameProblem,
@@ -88,7 +90,7 @@ import {
   useWorkbenchState,
   type WorkbenchState,
 } from "../sessions/workbench.js";
-import { resolveLaunchDefaults, updateAppSettings, useAppSettings } from "../settings/appSettings.js";
+import { readAppSettings, resolveLaunchDefaults, updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
@@ -233,6 +235,14 @@ function WorkspaceApp() {
   const launching = useRef(new Set<string>());
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const welcomeChecked = useRef(false);
+  // Decided once, from the first snapshot: a fresh install gets the welcome setup.
+  useEffect(() => {
+    if (welcomeChecked.current || !projection) return;
+    welcomeChecked.current = true;
+    if (shouldWelcome(readAppSettings().onboardedAt, projection)) setWelcomeOpen(true);
+  }, [projection]);
   const { asking: trustAsking, ensureTrusted, answer: answerTrust } = useAgentTrust(projectionRef);
   const agentTrustRef = useRef<string>(undefined);
   const { request: reachAsking, answer: answerReach } = useAgentReach(bridge);
@@ -797,12 +807,19 @@ function WorkspaceApp() {
     }
     const path = await bridge.dialog.openProject();
     if (!path) return;
+    const added = await registerProjectPath(path);
+    if ("error" in added) {
+      if (!added.late) showError(added.error);
+    } else showAddedProject(added.project, { startAgent, existing: added.existing });
+  };
+
+  /** Adds a folder as a project, or finds it when it is already one. */
+  const registerProjectPath = async (
+    path: string,
+  ): Promise<{ project: ProjectProjection; existing: boolean } | { error: string; late?: true }> => {
     const byPath = (current: RuntimeProjection) => current.projects.find((candidate) => samePath(candidate.path, path));
     const existing = projectionRef.current ? byPath(projectionRef.current) : undefined;
-    if (existing) {
-      showAddedProject(existing, { startAgent, existing: true });
-      return;
-    }
+    if (existing) return { project: existing, existing: true };
     const response = await dispatch({
       protocolVersion: 1,
       commandId: makeCommandId(),
@@ -811,16 +828,17 @@ function WorkspaceApp() {
     if (response?.accepted === false) {
       // Another window or the CLI can add the same folder between the check above and this command.
       const added = projectionRef.current ? byPath(projectionRef.current) : undefined;
-      if (added) showAddedProject(added, { startAgent, existing: true });
-      else showError(response.error.message);
-      return;
+      return added ? { project: added, existing: true } : { error: response.error.message };
     }
     const registered = ProjectRegisterResult.safeParse(response?.result);
     const projectId = registered.success ? registered.data.projectId : undefined;
     const project = await waitForProjection((current) =>
       projectId ? current.projects.find((candidate) => candidate.projectId === projectId) : byPath(current),
     );
-    if (project) showAddedProject(project, { startAgent, existing: false });
+    // Accepted but not yet in the projection: the sidebar shows it once it lands.
+    return project
+      ? { project, existing: false }
+      : { error: `${path} is still being added. Try again in a moment.`, late: true };
   };
 
   const showAddedProject = (
@@ -1075,11 +1093,16 @@ function WorkspaceApp() {
     if (issueStart) {
       rememberIssueLink(worktreeId, { ...issueStart.link, sessionId: launch.sessionId, linkedAt: launch.createdAt });
     }
+    // Chat + terminal puts a shell under a new chat.
+    const withTerminal =
+      request.mode === "chat" &&
+      resolveLaunchDefaults(readAppSettings(), request.project.projectId).withTerminal === true;
     updateWorkbench((state) => ({
       ...state,
       pending: [...state.pending, launch],
       activeSessionId: launch.sessionId,
       maximizedSessionId: undefined,
+      ...(withTerminal ? { drawerOpen: true } : {}),
     }));
     setSelectedWorktreeId(worktreeId);
     setNewAgentProject(undefined);
@@ -2292,6 +2315,10 @@ function WorkspaceApp() {
             onSignIn={signInAccount}
             onAddProject={() => void openProject({ startAgent: false })}
             onRemoveProject={removeProject}
+            onRunSetup={() => {
+              setSettingsSection(undefined);
+              setWelcomeOpen(true);
+            }}
             onClose={() => setSettingsSection(undefined)}
           />
         ) : null}
@@ -2412,6 +2439,44 @@ function WorkspaceApp() {
           <WorktreeDialog
             onClose={() => setWorktreeDialogProject(undefined)}
             onSubmit={(branch, baseRef) => void submitWorktree(worktreeDialogProject, branch, baseRef)}
+          />
+        )}
+        {welcomeOpen && projection && (
+          <WelcomeDialog
+            projection={projection}
+            dispatch={dispatch}
+            pickFolder={bridge?.dialog?.openProject}
+            registerProjectPath={registerProjectPath}
+            checkoutFor={async (project) => {
+              const current = projectionRef.current;
+              if (!current) return { error: "The runtime is not connected." };
+              return ensureCheckout(dispatch, current, project);
+            }}
+            onImported={(sessionIds, show) => {
+              // Imported chats wait in the sidebar; only the one setup lands on goes to the board.
+              updateWorkbench((state) => ({
+                ...state,
+                closed: [...new Set([...state.closed, ...sessionIds.filter((id) => id !== show?.sessionId)])],
+                ...(show ? { activeSessionId: show.sessionId, maximizedSessionId: undefined } : {}),
+              }));
+              if (show) setSelectedProjectId(show.projectId);
+            }}
+            onStart={async (request) => {
+              const current = projectionRef.current;
+              if (!current) return "The runtime is not connected.";
+              // The checkout may have been added a moment ago, after this render's projection.
+              const checkout = await ensureCheckout(dispatch, current, request.project);
+              if ("error" in checkout) return checkout.error;
+              const accountId = launchAccountId(accounts, request.provider, undefined);
+              const failure = await submitNewAgent({
+                ...request,
+                placement: { kind: "existing", worktreeId: checkout.worktreeId },
+                ...(accountId ? { accountId } : {}),
+              });
+              if (!failure) setSelectedProjectId(request.project.projectId);
+              return failure;
+            }}
+            onDone={() => setWelcomeOpen(false)}
           />
         )}
         {newAgentProject && projection && (

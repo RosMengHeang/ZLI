@@ -5,7 +5,7 @@ import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { permissionHint, permissionOptions } from "../chat/permissions.js";
 import type { NotificationSettings } from "../runtime/bridge.js";
 import { samePath } from "../sessions/launch.js";
-import { deriveSessions, type SessionMode, sessionStopCommands } from "../sessions/sessions.js";
+import { deriveSessions, sessionStopCommands } from "../sessions/sessions.js";
 import { defaultShortcut, shortcutActions, shortcutFromEvent, shortcutProblem } from "../shell/keybindings.js";
 import { Badge } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -32,6 +32,9 @@ import {
   type ShortcutId,
   updateAppSettings,
   useAppSettings,
+  type WorkStyle,
+  withWorkStyle,
+  workStyleOf,
 } from "./appSettings.js";
 import { IntegrationsSection, type IntegrationsView } from "./IntegrationsSection.js";
 import { IssuesSection } from "./IssuesSection.js";
@@ -131,10 +134,17 @@ export function matchingSections(query: string): readonly SectionEntry[] {
   });
 }
 
-const modeOptions: readonly PickerOption<SessionMode>[] = [
-  { value: "terminal", label: "Terminal", icon: <Icon name="terminal" size={15} /> },
+const modeOptions: readonly PickerOption<WorkStyle>[] = [
   { value: "chat", label: "Chat", icon: <Icon name="message" size={15} /> },
+  { value: "terminal", label: "Terminal", icon: <Icon name="terminal" size={15} /> },
+  { value: "chat-terminal", label: "Chat + terminal", icon: <Icon name="panelBottom" size={15} /> },
 ];
+
+const workStyleHint: Record<WorkStyle, string> = {
+  chat: "Messages, a work log, and changed files.",
+  terminal: "The agent's own CLI, as it runs in your shell.",
+  "chat-terminal": "Chat, with the terminal drawer open under it for your own commands.",
+};
 
 type Props = {
   projection: RuntimeProjection | undefined;
@@ -150,6 +160,8 @@ type Props = {
   /** Opens a terminal that runs the agent's sign-in for a sign-in account. */
   onSignIn?(account: Account): Promise<string | undefined>;
   onAddProject?(): void;
+  /** Opens the welcome setup again: agents, how new agents open, and projects to add or import. */
+  onRunSetup?(): void;
   /** Removes a project from ZLI and resolves with a problem to show, if any. */
   onRemoveProject?(projectId: string): Promise<string | undefined>;
   onClose(): void;
@@ -166,6 +178,7 @@ export function SettingsDialog({
   onRestartToUpdate = () => undefined,
   onSignIn,
   onAddProject,
+  onRunSetup,
   onRemoveProject,
   onClose,
 }: Props) {
@@ -289,7 +302,7 @@ export function SettingsDialog({
             id={`${tabsId}-panel`}
             aria-labelledby={`${tabsId}-${section}`}
           >
-            {section === "agents" ? <AgentDefaults projection={projection} /> : null}
+            {section === "agents" ? <AgentDefaults projection={projection} onRunSetup={onRunSetup} /> : null}
             {section === "agentMessages" ? <AgentMessagesSection /> : null}
             {section === "accounts" ? (
               <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
@@ -346,8 +359,9 @@ function LaunchFields({
   const discovery = listed.find((entry) => entry.provider === value.provider);
   const models = discovery?.status === "found" ? (discovery.models ?? []) : [];
   const inherit: PickerOption<string> = { value: "", label: inheritLabel };
+  const style = workStyleOf(value);
   const set = (patch: Partial<Record<keyof LaunchDefaults, string>>) => {
-    const next: Record<string, string | undefined> = { ...value, ...patch };
+    const next: Record<string, string | boolean | undefined> = { ...value, ...patch };
     for (const key of Object.keys(next)) if (!next[key]) delete next[key];
     onChange(next as LaunchDefaults);
   };
@@ -382,15 +396,15 @@ function LaunchFields({
       ) : null}
       <SettingRow
         label="View"
-        description="Terminal runs the agent's CLI. Chat shows messages and changes."
+        description={style ? workStyleHint[style] : "Chat shows messages and changes. Terminal runs the agent's CLI."}
         htmlFor={`${ids}-view`}
       >
         <Select<string>
           id={`${ids}-view`}
           label="View"
-          value={value.mode ?? ""}
+          value={style ?? ""}
           options={[inherit, ...modeOptions]}
-          onChange={(mode) => set({ mode })}
+          onChange={(next) => onChange(withWorkStyle(value, (next || undefined) as WorkStyle | undefined))}
         />
       </SettingRow>
       <SettingRow
@@ -412,7 +426,13 @@ function LaunchFields({
   );
 }
 
-function AgentDefaults({ projection }: { projection: RuntimeProjection | undefined }) {
+function AgentDefaults({
+  projection,
+  onRunSetup,
+}: {
+  projection: RuntimeProjection | undefined;
+  onRunSetup?: (() => void) | undefined;
+}) {
   const settings = useAppSettings();
   return (
     <>
@@ -427,6 +447,18 @@ function AgentDefaults({ projection }: { projection: RuntimeProjection | undefin
           onChange={(defaults) => updateAppSettings((current) => ({ ...current, defaults }))}
         />
       </SettingGroup>
+      {onRunSetup ? (
+        <SettingGroup title="Setup">
+          <SettingRow
+            label="Welcome setup"
+            description="Check your agents, pick how new agents open, and import past Claude Code or Codex chats."
+          >
+            <Button size="sm" icon="reload" onClick={onRunSetup}>
+              Run setup again
+            </Button>
+          </SettingRow>
+        </SettingGroup>
+      ) : null}
     </>
   );
 }

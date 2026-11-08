@@ -8,6 +8,7 @@ import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
 import { FileCommand } from "./files.js";
 import { GitChangesCommand } from "./gitChanges.js";
+import { HistoryCommand, MAX_IMPORTED_MESSAGES } from "./history.js";
 import { HuddleCommand } from "./huddles.js";
 import {
   AccountId,
@@ -207,6 +208,12 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
   }),
   z.object({ type: z.literal("thread.message"), message: ThreadMessageProjection }),
+  /** Internal: the runtime adds a past chat it read for history.import. */
+  z.object({
+    type: z.literal("thread.import"),
+    thread: ThreadProjection,
+    messages: z.array(ThreadMessageProjection).max(MAX_IMPORTED_MESSAGES),
+  }),
   /** Reported by the runtime once the agent CLI names its own session, so a later process can resume it. */
   z.object({
     type: z.literal("thread.provider-session"),
@@ -291,6 +298,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   ...PluginCommand.options,
   ...AccountCommand.options,
   ...LimitsCommand.options,
+  ...HistoryCommand.options,
   ...HuddleCommand.options,
   /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
   z.object({ type: z.literal("worktree.setup"), setup: WorktreeSetupProjection }),

@@ -4,6 +4,7 @@ import {
   applyHuddleEvent,
   deliverAgentMessage,
   deriveSharedProjectContexts,
+  importThread,
   type EnvironmentDescriptor,
   isHuddleEvent,
   pruneDevServers,
@@ -188,6 +189,12 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
         threads: projection.threads.map((thread) =>
           thread.threadId === event.threadId ? withAgentName(thread, event.name, envelope.occurredAt) : thread,
         ),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.imported":
+      return {
+        ...projection,
+        ...importThread(projection, event.thread, event.messages),
         lastSequence: envelope.sequence,
       };
     case "thread.start.requested":
