@@ -1,9 +1,9 @@
+import { describeApproval, describeQuestions, type InputQuestion } from "@zli-v2/client-runtime";
 import type { ThreadRequestProjection } from "@zli-v2/contracts";
 import { useMemo, useState } from "react";
 
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { describeApproval, describeQuestions, type InputQuestion } from "./requestView.js";
 
 export function RequestCard({
   request,

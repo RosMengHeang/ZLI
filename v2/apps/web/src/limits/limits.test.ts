@@ -2,7 +2,6 @@ import type { PlanLimitReading, PlanLimitWindow } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  allWindows,
   formatPercent,
   formatResetClock,
   formatResetIn,
@@ -12,7 +11,6 @@ import {
   resetText,
   showsReading,
   visibleWindows,
-  windowDisplay,
   windowLabel,
   windowName,
 } from "./limits.js";
@@ -68,8 +66,12 @@ describe("visibleWindows", () => {
   });
 
   it("shows a Cursor pool next to the month when the pool is fuller", () => {
-    const windows = [usage(43_200, 44), usage(43_200, 71, { scope: "API" }), usage(43_200, 20, { scope: "Auto" })];
-    expect(visibleWindows({ windows }).map(windowLabel)).toEqual(["Month", "API"]);
+    const windows = [
+      usage(43_200, 44),
+      usage(43_200, 71, { scope: "API models" }),
+      usage(43_200, 20, { scope: "Auto models" }),
+    ];
+    expect(visibleWindows({ windows }).map(windowLabel)).toEqual(["Month", "API models"]);
   });
 
   it("caps a row at three circles", () => {
@@ -80,36 +82,6 @@ describe("visibleWindows", () => {
       usage(10_080, 95, { scope: "Opus" }),
     ];
     expect(visibleWindows({ windows }).map(windowLabel)).toEqual(["5h", "Week", "Fable"]);
-  });
-});
-
-describe("allWindows", () => {
-  it("keeps every window: the plan shortest first, then pools in order, then a paid cap", () => {
-    const windows = [
-      usage(43_200, 5, { kind: "spend" }),
-      usage(10_080, 12),
-      usage(300, 4, { scope: "Core" }),
-      usage(300, 34),
-      usage(10_080, 1, { scope: "Core" }),
-      usage(10_080, 99, { scope: "Fable" }),
-    ];
-    expect(allWindows({ windows }).map((window) => [window.scope, window.kind, window.durationMinutes])).toEqual([
-      [undefined, undefined, 300],
-      [undefined, undefined, 10_080],
-      ["Core", undefined, 300],
-      ["Core", undefined, 10_080],
-      ["Fable", undefined, 10_080],
-      [undefined, "spend", 43_200],
-    ]);
-  });
-});
-
-describe("windowDisplay", () => {
-  it("marks nearly spent, spent, and just reset windows", () => {
-    expect(windowDisplay(usage(300, 50, { resetsAt: at(60) }), now).tone).toBeUndefined();
-    expect(windowDisplay(usage(300, 80, { resetsAt: at(60) }), now).tone).toBe("warning");
-    expect(windowDisplay(usage(300, 140, { resetsAt: at(60) }), now)).toMatchObject({ used: 100, tone: "full" });
-    expect(windowDisplay(usage(300, 90, { resetsAt: at(-1) }), now).tone).toBe("passed");
   });
 });
 
@@ -166,7 +138,9 @@ describe("showsReading", () => {
 
 describe("resetText", () => {
   it("always says something about the reset, without making one up", () => {
-    expect(plain(resetText(usage(300, 34, { resetsAt: at(130) }), now, "UTC").text)).toBe("2h 10m · 2:10 PM");
+    const timed = resetText(usage(300, 34, { resetsAt: at(130) }), now, "UTC");
+    expect(timed.text).toBe("Resets in 2h 10m");
+    expect(plain(timed.clock)).toBe("2:10 PM");
     expect(resetText(usage(300, 0), now).text).toBe("Starts when used");
     expect(resetText(usage(300, 20), now).text).toBe("Reset time unknown");
     expect(resetText(usage(43_200, 20, { kind: "spend" }), now).text).toBe("Resets monthly");

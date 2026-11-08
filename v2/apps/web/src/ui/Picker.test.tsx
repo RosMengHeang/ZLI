@@ -82,4 +82,18 @@ describe("Picker", () => {
     await act(async () => (document.activeElement as HTMLElement).click());
     expect(onChange).toHaveBeenCalledWith("1");
   });
+
+  it("stays open while another part of the window scrolls, and closes when the trigger's own container scrolls", async () => {
+    await renderPicker([{ value: "a", label: "Alpha" }]);
+    const elsewhere = document.createElement("div");
+    document.body.append(elsewhere);
+    act(() => {
+      elsewhere.dispatchEvent(new Event("scroll"));
+    });
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+    act(() => {
+      document.body.firstElementChild?.dispatchEvent(new Event("scroll"));
+    });
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+  });
 });

@@ -269,6 +269,27 @@ it("rejects terminal cwd escapes and argv, and accepts a worktree subdirectory",
       type: "result",
     });
     expect(launches.at(-1)).toEqual({ envOverrides: accepted, pathPrepend: shimDir });
+
+    const metro = { ZLI_METRO_PORT: "8142", RCT_METRO_PORT: "8142" };
+    expect(await request(browser(7, { envOverrides: metro }))).toMatchObject({ type: "result" });
+    expect(launches.at(-1)).toEqual({ envOverrides: metro });
+    for (const [n, value] of [
+      [8, "80"],
+      [9, "abc"],
+    ] as const) {
+      expect(await request(browser(n, { envOverrides: { RCT_METRO_PORT: value } }))).toMatchObject({
+        type: "error",
+        message: "Terminal environment override is not allowed: RCT_METRO_PORT",
+      });
+    }
+    for (const value of ["99999", "8142;rm"]) {
+      expect(
+        await request({
+          ...browser(0, { envOverrides: { ZLI_METRO_PORT: value } }),
+          terminalId: `00000000-0000-4000-8000-0000000001${value === "99999" ? "30" : "31"}`,
+        }),
+      ).toMatchObject({ type: "error", message: "Terminal environment override is not allowed: ZLI_METRO_PORT" });
+    }
   } finally {
     restoreEnv("ZLI_DAEMON_TOKEN", previous.token);
     restoreEnv("ZLI_DAEMON_ENDPOINT_PATH", previous.endpointPath);
@@ -289,6 +310,42 @@ it("isolates a reset runtime socket without crashing the terminal daemon", () =>
   accept(socket as unknown as Socket, service);
   expect(() => socket.emit("error", Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }))).not.toThrow();
   expect(socket.destroy).toHaveBeenCalledOnce();
+});
+
+it("passes a forced stop on to the terminal", async () => {
+  const previous = { token: process.env.ZLI_DAEMON_TOKEN, endpointPath: process.env.ZLI_DAEMON_ENDPOINT_PATH };
+  process.env.ZLI_DAEMON_TOKEN = "stop-token";
+  process.env.ZLI_DAEMON_ENDPOINT_PATH = "/tmp/zli-daemon-endpoint.json";
+  vi.resetModules();
+  try {
+    const { accept: acceptFresh } = await import("./daemon-entry.js");
+    const stops: Array<[string, { force?: boolean }]> = [];
+    const terminals = { stop: (id: string, options: { force?: boolean }) => stops.push([id, options]) };
+    const writes: string[] = [];
+    const socket = Object.assign(new EventEmitter(), {
+      setEncoding: vi.fn(),
+      destroy: vi.fn(),
+      end: vi.fn(),
+      destroyed: false,
+      write: (data: string) => {
+        writes.push(data);
+        return true;
+      },
+    });
+    acceptFresh(socket as unknown as Socket, terminals as unknown as TerminalService);
+    const id = "00000000-0000-4000-8000-000000000131";
+    socket.emit("data", `${JSON.stringify({ type: "hello", token: "stop-token", protocolVersion: 1 })}\n`);
+    socket.emit("data", `${JSON.stringify({ type: "terminal.stop", terminalId: id })}\n`);
+    socket.emit("data", `${JSON.stringify({ type: "terminal.stop", terminalId: id, force: true })}\n`);
+    await vi.waitFor(() => expect(stops).toHaveLength(2));
+    expect(stops).toEqual([
+      [id, { force: false }],
+      [id, { force: true }],
+    ]);
+  } finally {
+    restoreEnv("ZLI_DAEMON_TOKEN", previous.token);
+    restoreEnv("ZLI_DAEMON_ENDPOINT_PATH", previous.endpointPath);
+  }
 });
 
 it("stops its terminals and exits when an authenticated client asks it to shut down", async () => {

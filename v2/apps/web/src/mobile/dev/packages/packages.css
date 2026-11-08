@@ -1,0 +1,5 @@
+/* The project check's Packages group. */
+.mobile-packages .inline-error { margin: var(--zli-space-1) 0 0; }
+.mobile-packages-form { display: flex; align-items: flex-end; gap: var(--zli-space-2); }
+.mobile-packages-form .field { flex: 1; }
+.mobile-packages-form > .btn { margin-bottom: 22px; }

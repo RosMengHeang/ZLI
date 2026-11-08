@@ -8,6 +8,11 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { Switch } from "../ui/Switch.js";
 import { DeviceScreen } from "./DeviceScreen.js";
+import { DeviceSettingsDrawer } from "./dev/conditions/DeviceSettingsDrawer.js";
+import type { MobileDevContext } from "./dev/context.js";
+import { MobileDevBanners } from "./dev/MobileDevBanners.js";
+import { MobileProjectView } from "./dev/MobileProjectView.js";
+import { useWorkspace } from "./dev/workspace/useWorkspace.js";
 import { ExpoBanner } from "./ExpoBanner.js";
 import { LeaseBanner } from "./LeaseBanner.js";
 import { MobileControls } from "./MobileControls.js";
@@ -23,11 +28,13 @@ import {
   expoServer,
   formatElapsed,
   leaseNotice,
+  phoneStateHint,
   pickDevice,
   type ScreenMode,
   SLOW_BOOT_MS,
   slowBootNote,
 } from "./mobile.js";
+import { PhoneConnections } from "./PhoneConnections.js";
 import { copyScreenshot, saveScreenshot } from "./screenshots.js";
 import { useClock } from "./useClock.js";
 import { useDeviceFrame } from "./useDeviceFrame.js";
@@ -41,23 +48,33 @@ import "./mobile.css";
 export type MobileReveal = { deviceId: string; key: number };
 
 const SELECTED_KEY = "zli.mobile.device.v1";
+const DEVICE_SETTINGS_KEY = "zli.mobile.device-settings.v1";
 /** How often the agent lease banner rechecks its countdown. */
 const LEASE_TICK_MS = 15_000;
 
-type Busy = "boot" | "shutdown" | "lease" | "screenshot" | "popout";
+type Busy = "boot" | "shutdown" | "lease" | "screenshot" | "popout" | "disconnect";
 
 export function MobilePane({
   reveal,
   devServers = [],
+  worktreeId,
+  worktreeName,
   popOutRequest,
   onPopOutRequestDone,
+  onOpenTerminal,
 }: {
   reveal?: MobileReveal | undefined;
+  /** The worktree the current agent works in, for its proposals and the project check. */
+  worktreeId?: string | undefined;
+  /** That worktree's branch, so the project check can name what it looks at. */
+  worktreeName?: string | undefined;
   /** The current worktree's dev servers, newest first, so the pane can offer to open Expo on a device. */
   devServers?: readonly DevServerHint[] | undefined;
   /** Set to pop the selected device out into its own window once the device list is in. */
   popOutRequest?: number | undefined;
   onPopOutRequestDone?: (() => void) | undefined;
+  /** Opens the terminal drawer, where commands the person runs from a proposal appear. */
+  onOpenTerminal?: (() => void) | undefined;
 }) {
   const { bridge } = useRuntime();
   const mobile = bridge?.mobile;
@@ -77,8 +94,11 @@ export function MobilePane({
       mobile={mobile}
       reveal={reveal}
       devServers={devServers}
+      worktreeId={worktreeId}
+      worktreeName={worktreeName}
       popOutRequest={popOutRequest}
       onPopOutRequestDone={onPopOutRequestDone}
+      onOpenTerminal={onOpenTerminal}
     />
   );
 }
@@ -87,14 +107,20 @@ function MobilePaneBody({
   mobile,
   reveal,
   devServers,
+  worktreeId,
+  worktreeName,
   popOutRequest,
   onPopOutRequestDone,
+  onOpenTerminal,
 }: {
   mobile: MobileBridge;
   reveal: MobileReveal | undefined;
   devServers: readonly DevServerHint[];
+  worktreeId: string | undefined;
+  worktreeName: string | undefined;
   popOutRequest: number | undefined;
   onPopOutRequestDone: (() => void) | undefined;
+  onOpenTerminal: (() => void) | undefined;
 }) {
   const [devices, setDevices] = useState<MobileDevice[]>();
   const [devicesError, setDevicesError] = useState<string>();
@@ -103,15 +129,18 @@ function MobilePaneBody({
   const [statusError, setStatusError] = useState<string>();
   const { settings, error: settingsError, setAgentTools } = useMobileSettings(mobile);
   const [selectedId, setSelectedIdState] = useState<string | undefined>(() => readSelected());
-  /** Setup is open, and why: from the wrench, or to add a virtual device. */
-  const [setupFor, setSetupFor] = useState<"setup" | "new-device">();
+  /** A view over the device: setup from the wrench, to add a virtual device or a phone, or the project check. */
+  const [setupFor, setSetupFor] = useState<"setup" | "new-device" | "connect-phone" | "project">();
   const showSetup = setupFor !== undefined;
+  const showProject = setupFor === "project";
   /** Actions still running. A set, because cancelling a boot overlaps the boot it stops. */
   const [busy, setBusy] = useState<ReadonlySet<Busy>>(() => new Set());
   const [actionError, setActionError] = useState<string>();
   const [notice, showNotice] = useNotice();
   const takeOverRef = useRef<HTMLButtonElement>(null);
   const [screenMode, setScreenMode] = useState<ScreenMode>();
+  /** The worktree's own Metro port, so the Expo banner prefers its server over another worktree's. */
+  const { workspace } = useWorkspace(mobile.dev?.workspace, worktreeId);
   /** When each device was first seen booting, so the elapsed time survives re-renders and device switches. */
   const bootStartsRef = useRef(new Map<string, number>());
   /** Devices the person cancelled, whose boot call then fails on purpose. */
@@ -195,6 +224,15 @@ function MobilePaneBody({
 
   const [zoom, setZoom] = useDeviceZoom(device?.deviceId);
   const [showFrame, setShowFrame] = useDeviceFrame();
+  const [deviceSettingsOpen, setDeviceSettingsOpenState] = useState(readDeviceSettingsOpen);
+  const setDeviceSettingsOpen = (open: boolean) => {
+    setDeviceSettingsOpenState(open);
+    try {
+      window.sessionStorage.setItem(DEVICE_SETTINGS_KEY, open ? "open" : "closed");
+    } catch {
+      // Without storage the drawer starts closed next time.
+    }
+  };
   /** Devices shown in their own desktop window, which this pane then does not stream. */
   const [popOuts, setPopOuts] = useState<readonly MobilePopOut[]>([]);
   useEffect(() => {
@@ -308,6 +346,7 @@ function MobilePaneBody({
           mobile={mobile}
           status={status}
           noDevices={devices?.length === 0}
+          devices={devices ?? []}
           virtualDevices={
             // Until the first device exists, the setup card above creates it along with anything it needs.
             !needsAndroid ? (
@@ -328,6 +367,23 @@ function MobilePaneBody({
               />
             ) : undefined
           }
+          phones={
+            mobile.pairWifi ? (
+              <PhoneConnections
+                mobile={mobile}
+                devices={devices ?? []}
+                adbFound={status.android.adb.found}
+                focusConnect={setupFor === "connect-phone"}
+                onConnected={(result) => {
+                  setSelectedId(result.deviceId);
+                  setSetupFor(undefined);
+                  showNotice(result.message);
+                  void refreshDevices();
+                }}
+                onChanged={() => void refreshDevices()}
+              />
+            ) : undefined
+          }
           onRecheck={refreshStatus}
         />
       ) : (
@@ -336,8 +392,24 @@ function MobilePaneBody({
     </div>
   );
 
+  const devContext: MobileDevContext = {
+    mobile,
+    worktreeId,
+    worktreeName,
+    device,
+    online: device?.state === "online",
+    agentHolds,
+    devServers,
+    onError: setActionError,
+    onNotice: showNotice,
+    ...(onOpenTerminal ? { onOpenTerminal } : {}),
+  };
+
   let body: ReactNode;
-  if (!devices && devicesError)
+  // The key remounts the view on a worktree switch, so nothing one worktree asked for can land in another.
+  if (showProject)
+    body = <MobileProjectView key={worktreeId ?? "none"} context={devContext} onClose={() => setSetupFor(undefined)} />;
+  else if (!devices && devicesError)
     body = (
       <EmptyState icon="alert" tone="danger" title="Devices could not be listed" detail={devicesError}>
         <Button size="sm" icon="reload" loading={refreshing} onClick={() => void refreshDevices()}>
@@ -443,8 +515,8 @@ function MobilePaneBody({
       return (
         <EmptyState
           icon="shield"
-          title="Allow USB debugging on the phone"
-          detail="Unlock the phone and accept the prompt to trust this computer. The device appears here once it is allowed."
+          title={`${shown.name} is waiting for approval`}
+          detail={`${phoneStateHint(shown) ?? "Unlock the phone and accept the prompt to trust this computer."} The phone appears here once it is allowed.`}
         >
           <Button size="sm" icon="reload" loading={refreshing} onClick={() => void refreshDevices()}>
             Refresh
@@ -455,11 +527,20 @@ function MobilePaneBody({
       <EmptyState
         icon="alert"
         title={`${shown.name} is not responding`}
-        detail="adb lists it as offline. Reconnect the cable, or restart the emulator, then refresh."
+        detail={
+          shown.kind === "physical"
+            ? `adb lists it as offline. ${phoneStateHint(shown) ?? "Reconnect it, then refresh."}`
+            : "adb lists it as offline. Restart the emulator, then refresh."
+        }
       >
         <Button size="sm" icon="reload" loading={refreshing} onClick={() => void refreshDevices()}>
           Refresh
         </Button>
+        {shown.connection === "wifi" && mobile.pairWifi ? (
+          <Button size="sm" variant="ghost" onClick={() => setSetupFor("connect-phone")}>
+            Connect again
+          </Button>
+        ) : null}
       </EmptyState>
     );
   }
@@ -467,7 +548,7 @@ function MobilePaneBody({
   const android = device?.platform === "android";
   const virtual = device ? device.kind !== "physical" : false;
   const online = device?.state === "online";
-  const expo = expoServer(devServers);
+  const expo = expoServer(devServers, workspace?.metroPort);
 
   return (
     <div className="tool-pane mobile-pane">
@@ -501,14 +582,23 @@ function MobilePaneBody({
           }}
         />
         <IconButton
+          icon="gauge"
+          size="sm"
+          iconSize={14}
+          label="Project check"
+          tooltip={showProject ? "Back to the device" : "Check this project's mobile setup"}
+          pressed={showProject}
+          onClick={() => setSetupFor((current) => (current === "project" ? undefined : "project"))}
+        />
+        <IconButton
           icon="wrench"
           size="sm"
           iconSize={14}
           label="Setup"
-          tooltip={showSetup ? "Back to the device" : "Android and iOS setup"}
-          pressed={showSetup}
+          tooltip={showSetup && !showProject ? "Back to the device" : "Android and iOS setup"}
+          pressed={showSetup && !showProject}
           disabled={!devices}
-          onClick={() => setSetupFor((current) => (current ? undefined : "setup"))}
+          onClick={() => setSetupFor((current) => (current && current !== "project" ? undefined : "setup"))}
         />
       </PaneHeader>
       {devices && !showSetup ? (
@@ -523,6 +613,21 @@ function MobilePaneBody({
           stopping={busy.has("shutdown")}
           onSelect={setSelectedId}
           onNewDevice={() => setSetupFor("new-device")}
+          onConnectPhone={mobile.pairWifi ? () => setSetupFor("connect-phone") : undefined}
+          disconnecting={busy.has("disconnect")}
+          onDisconnect={
+            mobile.disconnectWifi && device
+              ? () =>
+                  void run(
+                    "disconnect",
+                    async () => {
+                      await mobile.disconnectWifi?.(device.deviceId);
+                      showNotice(`Disconnected ${device.name}.`);
+                    },
+                    `${device.name} could not be disconnected.`,
+                  )
+              : undefined
+          }
           onBoot={() => device && bootDevice(device)}
           onShutdown={() =>
             device && void run("shutdown", () => mobile.shutdown(device.deviceId), `${device.name} did not shut down.`)
@@ -563,6 +668,7 @@ function MobilePaneBody({
       {device && online && expo && !showSetup ? (
         <ExpoBanner
           mobile={mobile}
+          worktreeId={worktreeId}
           device={device}
           server={expo}
           inputBlocked={agentHolds}
@@ -571,14 +677,15 @@ function MobilePaneBody({
           onNotice={showNotice}
         />
       ) : null}
-      {actionError && !showSetup ? (
+      {!showSetup || showProject ? <MobileDevBanners context={devContext} /> : null}
+      {actionError && (!showSetup || showProject) ? (
         <div className="banner banner-danger" role="alert">
           <Icon name="alert" size={14} />
           <span className="banner-message">{actionError}</span>
         </div>
       ) : null}
       <div className="mobile-notice" role="status">
-        {notice && !showSetup ? (
+        {notice && (!showSetup || showProject) ? (
           <div key={notice.key} className="banner banner-info">
             <Icon name="check" size={14} />
             <span className="banner-message">{notice.text}</span>
@@ -607,6 +714,21 @@ function MobilePaneBody({
           canRotate={android || status?.host.os === "macos"}
           showFrame={showFrame}
           onShowFrame={setShowFrame}
+          {...(mobile.dev?.conditions
+            ? { deviceSettingsOpen, onDeviceSettings: () => setDeviceSettingsOpen(!deviceSettingsOpen) }
+            : {})}
+        />
+      ) : null}
+      {device && online && !showSetup && !poppedOut && deviceSettingsOpen && mobile.dev?.conditions ? (
+        <DeviceSettingsDrawer
+          key={`settings-${device.deviceId}`}
+          conditions={mobile.dev.conditions}
+          doctor={mobile.dev.doctor}
+          worktreeId={worktreeId}
+          device={device}
+          inputBlocked={agentHolds}
+          onBlockedInput={nudgeTakeOver}
+          onClose={() => setDeviceSettingsOpen(false)}
         />
       ) : null}
       {device && online && !showSetup ? (
@@ -634,6 +756,14 @@ function MobilePaneBody({
 
 function isAndroidVirtual(device: MobileDevice): boolean {
   return device.platform === "android" && device.kind === "emulator";
+}
+
+function readDeviceSettingsOpen(): boolean {
+  try {
+    return window.sessionStorage.getItem(DEVICE_SETTINGS_KEY) === "open";
+  } catch {
+    return false;
+  }
 }
 
 function readSelected(): string | undefined {

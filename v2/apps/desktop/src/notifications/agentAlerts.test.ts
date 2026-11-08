@@ -7,6 +7,7 @@ const worktreeId = "00000000-0000-4000-8000-000000000101";
 type ThreadInput = {
   threadId: string;
   status: string;
+  name?: string;
   sessionId?: string;
   activeTurnId?: string;
   errorMessage?: string;
@@ -16,6 +17,7 @@ type TerminalInput = {
   status: string;
   kind?: "agent" | "shell";
   title?: string;
+  name?: string;
   errorMessage?: string;
 };
 
@@ -122,6 +124,24 @@ describe("agent alerts", () => {
     ).toEqual([
       { kind: "failed", title: "Codex stopped with an error", body: "Provider exited with code 1", sessionId: "t1" },
       { kind: "failed", title: "Claude Code stopped with an error", body: "claude was not found", sessionId: "a1" },
+    ]);
+  });
+
+  it("uses the name the person gave an agent", () => {
+    const before = alertState(
+      projection({
+        threads: [{ threadId: "t1", status: "working", name: "Bob" }],
+        terminals: [{ terminalId: "a1", status: "running", name: "John" }],
+      }),
+    );
+    const after = projection({
+      threads: [{ threadId: "t1", status: "waiting", name: "Bob" }],
+      terminals: [{ terminalId: "a1", status: "failed", name: "John" }],
+      requests: [{ requestId: "r1", threadId: "t1", kind: "approval", payload: { command: "npm publish" } }],
+    });
+    expect(detectAgentAlerts(before, after).map((alert) => alert.title)).toEqual([
+      "Bob needs approval",
+      "John stopped with an error",
     ]);
   });
 

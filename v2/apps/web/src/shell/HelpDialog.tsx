@@ -22,6 +22,14 @@ const fixedGroups: { title: string; items: [string, string][] }[] = [
       ["Close a dialog or panel", "Esc"],
     ],
   },
+  {
+    title: "Zoom",
+    items: [
+      ["Zoom in", "Mod+="],
+      ["Zoom out", "Mod+-"],
+      ["Actual size", "Mod+0"],
+    ],
+  },
 ];
 
 export function HelpDialog({ version, onSupportBundle, onImportLegacy, onOpenUpdates, onClose }: HelpDialogProps) {

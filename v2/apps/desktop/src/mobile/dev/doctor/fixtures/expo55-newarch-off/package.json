@@ -1,0 +1,9 @@
+{
+  "name": "expo55-newarch-off",
+  "version": "1.0.0",
+  "dependencies": {
+    "expo": "~55.0.0",
+    "react": "19.1.0",
+    "react-native": "0.83.1"
+  }
+}

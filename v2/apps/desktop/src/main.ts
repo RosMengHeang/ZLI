@@ -4,6 +4,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { RuntimeClient, type RuntimeTransport } from "@zli-v2/client-runtime";
 import {
+  AgentReachAnswer,
+  BrowserDesignCaptureInput,
+  BrowserDesignMarkInput,
   BrowserFillInput,
   BrowserNavigateInput,
   BrowserPressInput,
@@ -14,10 +17,12 @@ import {
   BrowserSetViewportInput,
   BrowserTabIdInput,
   BrowserWaitForNetworkIdleInput,
+  MobileTestInput,
   type OpenInApp,
   OpenInRequest,
   RpcRequest,
   TerminalId,
+  withoutPrivateEnv,
 } from "@zli-v2/contracts";
 import {
   app,
@@ -39,7 +44,9 @@ import {
   createAgentControlActions,
   isAgentControlAction,
 } from "./agents/AgentControlActions.js";
+import { ReachRequests } from "./agents/ReachRequests.js";
 import { busyAgentCount, QuitController, quitWarning } from "./app/QuitController.js";
+import { claimSingleInstance } from "./app/SingleInstance.js";
 import { BrowserAutomation } from "./browser/BrowserAutomation.js";
 import { createBrowserControlActions } from "./browser/BrowserControlActions.js";
 import { BrowserControlServer } from "./browser/BrowserControlServer.js";
@@ -56,14 +63,21 @@ import {
 import { createProjectCheckout } from "./browser/projectCheckout.js";
 import { type CaptureDependencies, captureSource, listCaptureSources, parseSourceId } from "./capture/WindowCapture.js";
 import { DesktopDiagnostics } from "./diagnostics/DesktopDiagnostics.js";
-import { hostArch, hostOs } from "./mobile/host.js";
+import type { MobileDevHost, MobileDevTestOp } from "./mobile/dev/host.js";
+import { createMobileDev, type MobileDev } from "./mobile/dev/index.js";
+import { ProposalStore } from "./mobile/dev/ProposalStore.js";
+import type { FetchLike } from "./mobile/download.js";
+import { hostArch, hostOs, nodeMobileFileSystem } from "./mobile/host.js";
 import { createMobileControlActions, isMobileControlAction } from "./mobile/MobileControlActions.js";
-import { createMobileService, type MobileService } from "./mobile/MobileService.js";
+import { createMobileService, type MobileService, type MobileServiceOptions } from "./mobile/MobileService.js";
 import { MobileSettingsStore } from "./mobile/MobileSettingsStore.js";
 import { mobileIpcHandlers, streamViewer } from "./mobile/mobileIpc.js";
-import { PopOutWindows, type PopOutWindowLike, type WindowBounds } from "./mobile/PopOutWindows.js";
+import { PopOutWindows, type PopOutWindowLike } from "./mobile/PopOutWindows.js";
+import { createNodeProcessRunner, withDefaultEnv } from "./mobile/ProcessRunner.js";
+import { createFakeMobileService } from "./mobile/testing/fakeMobileService.js";
 import type { AgentNotifier } from "./notifications/AgentNotifier.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
+import { registerMobileAccess } from "./remote/electronMobileAccess.js";
 import { detectApps, launchApp, nodeEnvironment, type ResolvedApp } from "./openIn/OpenInApps.js";
 import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDaemon.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
@@ -74,11 +88,15 @@ import { resolveAppAsset } from "./window/ElectronProtocol.js";
 import { writeJsonFile } from "./storage/writeJsonFile.js";
 import {
   applyWindowChrome,
+  applyZoomKeys,
   type BrowserWindowConstructor,
   createMainWindow,
   DEFAULT_CHROME,
+  fitTitleBar,
+  nextZoomFactor,
   parseWindowChrome,
   type WindowChrome,
+  type Zoom,
 } from "./window/ElectronWindow.js";
 import { windowsAppDetails, windowsAppId } from "./window/windowsTaskbar.js";
 
@@ -101,15 +119,30 @@ if (process.platform === "win32") app.setAppUserModelId(windowsAppId(process.exe
 // Integration tests turn motion off so a click never lands on a dialog that is still animating in.
 if (process.env.ZLI_REDUCED_MOTION === "1") app.commandLine.appendSwitch("force-prefers-reduced-motion");
 
+// Integration tests give each launch its own Chromium profile (localStorage, cookies, browser tabs) so tests
+// running side by side never read each other's saved layout.
+if (process.env.ZLI_SESSION_DATA_PATH) app.setPath("sessionData", process.env.ZLI_SESSION_DATA_PATH);
+
+const defaultUserData = app.getPath("userData");
+// Electron keys the single-instance lock by userData, but the terminal daemon and the agents' control file
+// belong to the database. A launch with its own database gets its own userData, so it neither blocks nor
+// is blocked by a copy on other data, such as an installed ZLI or another test. This must run before the lock.
+if (process.env.ZLI_DATABASE_PATH) app.setPath("userData", `${resolve(process.env.ZLI_DATABASE_PATH)}.user-data`);
+
 let environment: EnvironmentProcess | undefined;
 let runtime: RuntimeClient | undefined;
 let browserManager: BrowserManager | undefined;
 let browserControl: BrowserControlServer | undefined;
 let mobile: MobileService | undefined;
 let mobileSettings: MobileSettingsStore | undefined;
+let mobileDev: MobileDev | undefined;
+/** What zli:test:mobile can call. Empty unless a mock test launch asked for the fake mobile service. */
+let mobileTestOps: Record<string, MobileDevTestOp> = {};
 let popOuts: PopOutWindows | undefined;
 let mainWindow: BrowserWindow | undefined;
 let notifier: AgentNotifier | undefined;
+let mobileAccess: { stop(): Promise<void> } | undefined;
+let reachRequests: ReachRequests | undefined;
 let approvedSupportBundleRoot: string | undefined;
 let scratchFolderPath: string | undefined;
 let daemonEndpointPath: string | undefined;
@@ -121,6 +154,10 @@ let openInApps: { at: number; apps: Promise<ResolvedApp[]> } | undefined;
 const openInIcons = new Map<string, Promise<string | undefined>>();
 /** Apps are installed and removed while ZLI runs, so the list is looked up again after a minute. */
 const OPEN_IN_TTL_MS = 60_000;
+
+// app.exit skips before-quit and will-quit, whose shutdown would stop the daemon the first copy still uses.
+const firstInstance = claimSingleInstance(app, () => mainWindow);
+if (!firstInstance) app.exit(0);
 
 /** An icon from apps/desktop/build, which packaged builds carry next to dist. */
 function appIcon(name: string): string | undefined {
@@ -154,15 +191,15 @@ async function main(): Promise<void> {
     databasePath,
     extraEnv: {
       ...browserToolEnvironment(browserToolPaths),
-      // Test and development launches use a throwaway control file, which must never be written
-      // into the user's real agent settings where it would go stale.
+      // Test and development launches must leave the user's real agent settings alone.
       ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
     },
   });
   const descriptor = await environment.start();
+  const environmentId = process.env.ZLI_ENVIRONMENT_ID ?? DEFAULT_ENVIRONMENT_ID;
   runtime = await RuntimeClient.connect({
     token: descriptor.token,
-    environmentId: process.env.ZLI_ENVIRONMENT_ID ?? DEFAULT_ENVIRONMENT_ID,
+    environmentId,
     connectTransport: async () => connectWebSocket(((await environment?.start()) ?? descriptor).url),
   });
   await registerTestProject(runtime);
@@ -189,6 +226,7 @@ async function main(): Promise<void> {
   );
   const electronWindow = window as unknown as BrowserWindow;
   mainWindow = electronWindow;
+  applyZoomKeys(window, zoomApp);
   const rendererUrl = process.env.ZLI_RENDERER_URL ?? `${APP_ORIGIN}/index.html`;
   popOuts = new PopOutWindows({
     create: (options) => new BrowserWindow(options) as unknown as PopOutWindowLike,
@@ -204,7 +242,7 @@ async function main(): Promise<void> {
     viewerFor: streamViewer,
     stopViewer: async (deviceId, viewer) => mobile?.manager.stopStream(deviceId, viewer),
     onChange: (list) => sendToMobileWindows("zli:mobile:popouts", list),
-    onScreen: (bounds) => screen.getAllDisplays().some((display) => overlaps(display.workArea, bounds)),
+    workAreas: () => screen.getAllDisplays().map((display) => display.workArea),
     log: (message, error) => console.error(message, error),
   });
   const taskbarDetails = process.platform === "win32" ? windowsAppDetails(process.execPath, app.isPackaged) : undefined;
@@ -234,6 +272,23 @@ async function main(): Promise<void> {
     prepareToInstall: () => quitController.stop(),
     log: (level, message) => desktopDiagnostics.record(level, message, { component: "updates" }),
   }).catch((error: unknown) => console.error("Update checks could not start", error));
+  mobileAccess = await registerMobileAccess({
+    window: electronWindow,
+    settingsPath: process.env.ZLI_DATABASE_PATH
+      ? `${databasePath}.mobile-access.json`
+      : join(app.getPath("userData"), "mobile-access.json"),
+    upstream: async () => {
+      const current = (await environment?.start()) ?? descriptor;
+      return { url: current.url, token: current.token, environmentId };
+    },
+    projection: () => runtime?.projection(),
+    subscribe: (listener) => runtime?.subscribe((projection) => listener(projection)) ?? (() => undefined),
+    fetch: (url, init) => net.fetch(url, init),
+    log: (level, message, detail) => desktopDiagnostics.record(level, message, { component: "mobile", ...detail }),
+  }).catch((error: unknown) => {
+    console.error("Phone access could not start", error);
+    return undefined;
+  });
   browserManager = new BrowserManager(
     {
       create: ({ session: browserSession }) =>
@@ -254,6 +309,7 @@ async function main(): Promise<void> {
     },
     {
       sessionModule: session,
+      zoomFactor: () => (electronWindow.webContents.isDestroyed() ? 1 : electronWindow.webContents.getZoomFactor()),
       onProjection: (tab) => {
         void runtime
           ?.command({
@@ -297,7 +353,11 @@ async function main(): Promise<void> {
   });
   // ready-to-show can fire before loadURL resolves, so the listener goes first. A window that misses it
   // stays hidden and Chromium stops drawing frames for it.
-  window.once?.("ready-to-show", () => window.show?.());
+  window.once?.("ready-to-show", () => {
+    // Chromium restores the last zoom for the app's origin, so the native controls are fitted to it first.
+    fitTitleBar(window, process.platform, window.webContents.getZoomFactor?.() ?? 1);
+    window.show?.();
+  });
   if (window.loadURL) await window.loadURL(rendererUrl);
   if (window.isVisible?.() === false) window.show?.();
 }
@@ -338,33 +398,91 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
   mobileSettings = new MobileSettingsStore(
     testLaunch ? `${databasePath}.mobile-settings.json` : join(userData, "mobile-settings.json"),
   );
-  mobile = createMobileService({
-    os: hostOs(),
-    arch: hostArch(),
-    env: process.env,
-    home: app.getPath("home"),
-    // The Android SDK and Java ZLI installs are large, so test launches share the real folder instead of
-    // downloading their own; only settings stay beside the throwaway database.
-    mobileDir: join(userData, "mobile"),
-    events: {
-      devices: (devices) => sendToMobileWindows("zli:mobile:devices", devices),
-      stream: (message) => sendToMobileWindows("zli:mobile:stream", message),
-      setup: (progress) => sendToMobileWindows("zli:mobile:setup", progress),
-    },
-  });
+  const mobileEnv = withoutPrivateEnv(process.env);
+  const mobileEvents: NonNullable<MobileServiceOptions["events"]> = {
+    devices: (devices) => sendToMobileWindows("zli:mobile:devices", devices),
+    stream: (message) => sendToMobileWindows("zli:mobile:stream", message),
+    setup: (progress) => sendToMobileWindows("zli:mobile:setup", progress),
+  };
+  // End-to-end tests drive a fake emulator, so they need no Android SDK, adb, or network.
+  const fakeMobile =
+    process.env.ZLI_TEST_PROVIDER === "mock" && process.env.ZLI_TEST_MOBILE === "fake"
+      ? createFakeMobileService({ os: hostOs(), arch: hostArch(), events: mobileEvents })
+      : undefined;
+  mobile =
+    fakeMobile?.service ??
+    createMobileService({
+      os: hostOs(),
+      arch: hostArch(),
+      env: mobileEnv,
+      home: app.getPath("home"),
+      // The Android SDK and Java ZLI installs are large, so test launches share the real folder instead of
+      // downloading their own; only settings stay beside the throwaway database.
+      mobileDir: join(defaultUserData, "mobile"),
+      events: mobileEvents,
+      iosHost: async () => (await mobileSettings?.get())?.iosRemoteHost || undefined,
+    });
   const settingsStore = mobileSettings;
+  const liveWorktrees = () => (runtime?.projection()?.worktrees ?? []).filter((entry) => entry.status !== "cancelled");
+  const devHost: MobileDevHost = {
+    runner: fakeMobile?.runner ?? withDefaultEnv(createNodeProcessRunner(), mobileEnv),
+    fs: nodeMobileFileSystem,
+    fetch: fakeMobile?.fetch ?? (globalThis.fetch as unknown as FetchLike),
+    os: hostOs(),
+    env: mobileEnv,
+    home: app.getPath("home"),
+    worktrees: liveWorktrees,
+    worktreePath: (worktreeId) => liveWorktrees().find((entry) => entry.worktreeId === worktreeId)?.path,
+    manager: () => mobile?.manager,
+    settings: () => settingsStore.get(),
+    proposals: new ProposalStore({
+      worktrees: liveWorktrees,
+      command: runtimeCommand,
+      onChange: (list) => sendToMobileWindows("zli:mobile:proposals", list),
+    }),
+    send: sendToMobileWindows,
+    now: () => new Date(),
+  };
+  const dev = createMobileDev(devHost);
+  mobileDev = dev;
+  mobileTestOps = fakeMobile ? { ...fakeMobile.testOps, ...dev.testOps } : {};
   const mobileActions = createMobileControlActions({
     manager: () => mobile?.manager,
     worktrees: () => runtime?.projection()?.worktrees ?? [],
     settings: () => settingsStore.get(),
     status: () => (mobile ? mobile.status() : Promise.reject(new Error("ZLI's mobile service is not running."))),
     reveal: (event) => sendToWindow("zli:mobile:reveal", event),
+    dev,
   });
+  const reach = new ReachRequests({
+    show: (request) => sendToWindow("zli:agents:reach-request", request ?? null),
+    notify: (request) =>
+      notifier?.reachRequest({
+        title: request.project,
+        body: request.target
+          ? `${request.agent} wants to message ${request.target.agent} in ${request.target.project}. Open ZLI to allow it.`
+          : `${request.agent} wants to reach agents in your other projects. Open ZLI to allow it.`,
+      }),
+    allow: async () => {
+      const response = await runtimeCommand({
+        protocolVersion: 1,
+        commandId: randomUUID(),
+        command: { type: "mcp.agentScope", scope: "all" },
+      });
+      if (!response.accepted) throw new Error(response.error.message);
+    },
+    // End-to-end tests check what an agent hears when nobody answers without waiting the full time.
+    ...(process.env.ZLI_TEST_PROVIDER === "mock" && process.env.ZLI_TEST_REACH_WAIT_MS
+      ? { waitMs: Number(process.env.ZLI_TEST_REACH_WAIT_MS) }
+      : {}),
+  });
+  reachRequests = reach;
   const agentActions = createAgentControlActions({
     projection: () => runtime?.projection(),
     subscribe: (listener) => runtime?.subscribe(() => listener()) ?? (() => undefined),
     command: runtimeCommand,
     askToConnect: (request) => notifier?.connectorRequest(request),
+    askToReach: (request) => reach.ask(request),
   });
   // The zli agent tool shares this service and endpoint file with zli-browser, so agents need one variable.
   browserControl = new BrowserControlServer({
@@ -450,6 +568,10 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     runtime.attachTerminal(terminalId, afterSequence);
     return { accepted: true };
   });
+  ipcMain.handle("zli:agents:reach-current", () => reachRequests?.current() ?? null);
+  ipcMain.handle("zli:agents:reach-answer", (_event, input: unknown) =>
+    reachRequests?.answer(AgentReachAnswer.parse(input)),
+  );
   ipcMain.handle("zli:app:version", () => app.getVersion());
   ipcMain.handle("zli:app:set-chrome", async (event, input: unknown) => {
     const chrome = parseWindowChrome(input);
@@ -462,6 +584,10 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   });
   ipcMain.handle("zli:app:quit", () => {
     app.quit();
+  });
+  ipcMain.handle("zli:app:zoom", (event, input: { zoom?: unknown }) => {
+    if (input?.zoom !== "in" && input?.zoom !== "out" && input?.zoom !== "reset") throw new Error("Unknown zoom.");
+    zoomApp(input.zoom);
   });
   ipcMain.handle("zli:test:restart-runtime", () => {
     if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
@@ -604,6 +730,14 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:browser:design-cancel", (_event, input: unknown) =>
     browserManager?.designCancel(BrowserTabIdInput.parse(input).browserTabId),
   );
+  ipcMain.handle("zli:browser:design-mark", (_event, input: unknown) => {
+    const parsed = BrowserDesignMarkInput.parse(input);
+    return browserManager?.designMark(parsed.browserTabId, parsed.marks, parsed.drop);
+  });
+  ipcMain.handle("zli:browser:design-capture", (_event, input: unknown) => {
+    const parsed = BrowserDesignCaptureInput.parse(input);
+    return browserManager?.designCapture(parsed.browserTabId, { bounds: parsed.bounds, strokes: parsed.strokes });
+  });
   ipcMain.handle("zli:browser:console", (_event, input: unknown) =>
     browserManager?.consoleEntries(BrowserTabIdInput.parse(input).browserTabId),
   );
@@ -650,6 +784,15 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
     lastOpenIn = undefined;
     return opened;
   });
+  ipcMain.handle("zli:test:mobile", (_event, input: unknown) => {
+    if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
+    if (process.env.ZLI_TEST_MOBILE !== "fake")
+      throw new Error("Launch with ZLI_TEST_MOBILE=fake to use mobile test controls.");
+    const request = MobileTestInput.parse(input);
+    const operation = mobileTestOps[request.op];
+    if (!operation) throw new Error(`There is no mobile test operation named ${request.op}.`);
+    return operation(request.input);
+  });
   ipcMain.handle("zli:test:take-external-url", () => {
     if (process.env.ZLI_TEST_PROVIDER !== "mock") throw new Error("Test runtime controls are disabled.");
     const url = lastExternalUrl ?? null;
@@ -663,24 +806,29 @@ function registerMobileIpc(): void {
     service: () => mobile,
     settings: () => mobileSettings,
     popOuts: () => popOuts,
+    dev: () => mobileDev,
   });
   for (const [channel, handle] of Object.entries(handlers))
     ipcMain.handle(channel, (event, input: unknown) => handle(input, { viewer: streamViewer(event.sender.id) }));
+}
+
+/**
+ * Chromium shares a page zoom across windows on the same origin, so pop-outs follow the main window and
+ * every window's native controls are refitted.
+ */
+function zoomApp(zoom: Zoom): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const factor = nextZoomFactor(mainWindow.webContents.getZoomFactor(), zoom);
+  mainWindow.webContents.setZoomFactor(factor);
+  fitTitleBar(mainWindow, process.platform, factor);
+  popOuts?.fitTitleBars(factor);
+  void browserManager?.relayout();
 }
 
 /** Device and stream events go to the main window and to every pop-out window showing a device. */
 function sendToMobileWindows(channel: string, payload: unknown): void {
   if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send(channel, payload);
   for (const target of popOuts?.targets() ?? []) target.send?.(channel, payload);
-}
-
-function overlaps(area: WindowBounds, bounds: WindowBounds): boolean {
-  return (
-    bounds.x < area.x + area.width &&
-    bounds.x + bounds.width > area.x &&
-    bounds.y < area.y + area.height &&
-    bounds.y + bounds.height > area.y
-  );
 }
 
 function installedApps(): Promise<ResolvedApp[]> {
@@ -744,10 +892,12 @@ function connectWebSocket(url: string): Promise<RuntimeTransport> {
   });
 }
 
-void main().catch((error) => {
-  console.error(error);
-  app.quit();
-});
+if (firstInstance) {
+  void main().catch((error) => {
+    console.error(error);
+    app.quit();
+  });
+}
 
 app.on("will-quit", () => {
   browserControl?.stop();
@@ -787,8 +937,13 @@ async function confirmQuit(busyCount: number): Promise<boolean> {
 /** Stops chats, agent CLIs, and terminals, so nothing ZLI started keeps running after it quits. */
 async function shutdownRuntime(): Promise<void> {
   browserManager?.closeAll({ persist: false });
+  await mobileAccess?.stop().catch(() => undefined);
   // Before the mobile service, so each window's bounds are saved and its stream share is let go first.
   await popOuts?.closeAll().catch((error: unknown) => console.error("Pop-out windows did not close cleanly", error));
+  await mobileDev
+    ?.dispose()
+    .catch((error: unknown) => console.error("Mobile dev features did not stop cleanly", error));
+  mobileDev = undefined;
   // Emulators ZLI started would otherwise keep running, and scrcpy servers keep the device awake.
   await mobile?.dispose().catch((error: unknown) => console.error("Mobile devices did not stop cleanly", error));
   mobile = undefined;

@@ -1,6 +1,15 @@
-import type { MobileButton, MobilePlatform } from "@zli-v2/contracts";
+import type {
+  DeviceAppearance,
+  DeviceConditions,
+  DeviceLocation,
+  DeviceNotification,
+  DevicePermission,
+  DeviceTextSize,
+  MobileButton,
+  MobilePlatform,
+} from "@zli-v2/contracts";
 
-import type { DriverDevice, LogQuery, MobileDriver, Orientation, Screenshot } from "./MobileDriver.js";
+import type { DriverDevice, LogQuery, LogStream, MobileDriver, Orientation, Screenshot } from "./MobileDriver.js";
 import type { UiTree } from "./uiTree.js";
 
 /** A driver that keeps devices in memory and records each action as a readable line. */
@@ -102,6 +111,74 @@ export class FakeDriver implements MobileDriver {
 
   async dispose(): Promise<void> {
     this.actions.push("dispose");
+  }
+
+  /** Log streams that are running, by device. */
+  readonly logStreams = new Map<string, Set<{ emit(line: string): void; stop(): void }>>();
+  /** When set, streamLogs rejects with it, as a missing adb would. */
+  streamError: Error | undefined;
+
+  async streamLogs(device: DriverDevice): Promise<LogStream> {
+    if (this.streamError) throw this.streamError;
+    this.actions.push(`stream-logs ${device.deviceId}`);
+    const listeners: ((line: string) => void)[] = [];
+    let stop: () => void = () => undefined;
+    const exited = new Promise<void>((resolve) => {
+      stop = resolve;
+    });
+    const streams = this.logStreams.get(device.deviceId) ?? new Set();
+    this.logStreams.set(device.deviceId, streams);
+    const entry = {
+      emit: (line: string) => {
+        for (const listener of listeners) listener(line);
+      },
+      stop: () => {
+        streams.delete(entry);
+        stop();
+      },
+    };
+    streams.add(entry);
+    return { onLine: (listener) => void listeners.push(listener), stop: entry.stop, exited };
+  }
+
+  /** What readConditions answers; the setters below change it. */
+  conditions: DeviceConditions = {};
+
+  async readConditions(): Promise<DeviceConditions> {
+    return { ...this.conditions };
+  }
+
+  async setAppearance(device: DriverDevice, appearance: DeviceAppearance): Promise<void> {
+    this.actions.push(`appearance ${device.deviceId} ${appearance}`);
+    this.conditions = { ...this.conditions, appearance };
+  }
+
+  async setTextSize(device: DriverDevice, textSize: DeviceTextSize): Promise<void> {
+    this.actions.push(`text-size ${device.deviceId} ${textSize}`);
+    this.conditions = { ...this.conditions, textSize };
+  }
+
+  async setLocation(device: DriverDevice, location: DeviceLocation): Promise<void> {
+    this.actions.push(`location ${device.deviceId} ${location.latitude},${location.longitude}`);
+  }
+
+  async clearLocation(device: DriverDevice): Promise<void> {
+    this.actions.push(`clear-location ${device.deviceId}`);
+  }
+
+  async setPermission(device: DriverDevice, appId: string, permission: DevicePermission, grant: boolean) {
+    this.actions.push(`${grant ? "grant" : "revoke"} ${device.deviceId} ${appId} ${permission}`);
+  }
+
+  async sendNotification(device: DriverDevice, appId: string, notification: DeviceNotification): Promise<void> {
+    this.actions.push(`notify ${device.deviceId} ${appId} ${notification.title}|${notification.body}`);
+  }
+
+  /** Prints lines to every running log stream of the device. Returns how many streams got them. */
+  emitLog(deviceId: string, lines: readonly string[]): number {
+    const streams = [...(this.logStreams.get(deviceId) ?? [])];
+    for (const stream of streams) for (const line of lines) stream.emit(line);
+    return streams.length;
   }
 
   #setState(deviceId: string, state: DriverDevice["state"]): void {

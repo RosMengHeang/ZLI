@@ -66,7 +66,8 @@ test("hands a chat to another agent, starts a scratch chat, and attaches a windo
 
     // Other platforms need screen recording permission that CI runners cannot grant.
     if (process.platform === "win32") {
-      await scratchTile.getByRole("button", { name: "Attach a window" }).click();
+      await scratchTile.getByRole("button", { name: "Add files and more", exact: true }).click();
+      await page.getByRole("menuitem", { name: /^Attach a window/u }).click();
       const picker = scratchTile.getByRole("region", { name: "Attach a window" });
       const source = picker.locator(".capture-source").first();
       await expect(source).toBeVisible({ timeout: 20_000 });

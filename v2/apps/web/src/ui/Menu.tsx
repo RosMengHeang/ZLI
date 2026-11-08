@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { scrollMovesAnchor, useAnchoredPlacement } from "./anchoredPopup.js";
 import { type ButtonVariant, cx } from "./Button.js";
 import { Icon, type IconName } from "./Icon.js";
 import { ariaShortcut, shortcutText } from "./shortcuts.js";
@@ -32,6 +33,8 @@ export type MenuEntry =
   | "separator";
 
 export type MenuAction = {
+  /** Tells items apart when two can share a label. */
+  id?: string | undefined;
   label: string;
   icon?: IconName | undefined;
   /** Drawn in place of the icon, such as an app's logo. */
@@ -41,10 +44,12 @@ export type MenuAction = {
   /** Why the item is disabled, or what it does. */
   title?: string | undefined;
   tone?: "danger" | undefined;
+  /** Makes the item an on and off choice, shown with a check while it is on. */
+  checked?: boolean | undefined;
   run(): void;
 };
-/** A separator draws a rule between two runs of items. */
-export type MenuItem = MenuAction | { separator: true };
+/** A separator draws a rule between two runs of items. A heading names the items after it, up to the next one. */
+export type MenuItem = MenuAction | { separator: true } | { heading: string };
 export type MenuRequest = {
   x: number;
   y: number;
@@ -59,12 +64,31 @@ export type MenuRequest = {
 const EDGE = 4;
 const GAP = 4;
 const ANCHORED_GAP = 6;
-const ENABLED = '[role="menuitem"]:not([aria-disabled="true"])';
-
-type Placement = { left: number; maxHeight: number } & ({ top: number } | { bottom: number });
+const ENABLED = ':is([role="menuitem"], [role="menuitemcheckbox"]):not([aria-disabled="true"])';
 
 function isAction(item: MenuItem): item is MenuAction {
-  return !("separator" in item);
+  return !("separator" in item) && !("heading" in item);
+}
+
+type MenuBlock =
+  | { kind: "item"; item: MenuAction }
+  | { kind: "separator" }
+  | { kind: "group"; heading: string; items: MenuAction[] };
+
+function menuBlocks(items: readonly MenuItem[]): MenuBlock[] {
+  const blocks: MenuBlock[] = [];
+  let group: Extract<MenuBlock, { kind: "group" }> | undefined;
+  for (const item of items) {
+    if ("heading" in item) {
+      group = { kind: "group", heading: item.heading, items: [] };
+      blocks.push(group);
+    } else if ("separator" in item) {
+      group = undefined;
+      blocks.push({ kind: "separator" });
+    } else if (group) group.items.push(item);
+    else blocks.push({ kind: "item", item });
+  }
+  return blocks;
 }
 
 /** A popup menu. Arrow keys move between items; Escape, a click elsewhere, or scrolling closes it. */
@@ -74,6 +98,7 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
     document.activeElement instanceof HTMLElement ? document.activeElement : null,
   );
   const [position, setPosition] = useState({ left: request.x, top: request.y });
+  const groupId = useId();
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -96,6 +121,7 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
       if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
       if (event.type === "pointerdown" && event.target instanceof Node && request.anchor?.contains(event.target))
         return;
+      if (event.type === "scroll" && !scrollMovesAnchor(event, request.anchor)) return;
       onClose();
     };
     document.addEventListener("pointerdown", close, true);
@@ -133,6 +159,33 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
   };
 
   const withIcons = request.items.some((item) => isAction(item) && (item.icon || item.media));
+  const action = (item: MenuAction) => (
+    <button
+      key={item.id ?? item.label}
+      className={cx("menu-item", item.tone === "danger" && "is-danger")}
+      type="button"
+      {...(item.checked === undefined
+        ? { role: "menuitem" }
+        : { role: "menuitemcheckbox", "aria-checked": item.checked })}
+      tabIndex={-1}
+      aria-disabled={item.disabled || undefined}
+      title={item.title}
+      onClick={() => {
+        if (item.disabled) return;
+        dismiss();
+        item.run();
+      }}
+    >
+      {withIcons ? (
+        <span className="menu-item-icon" aria-hidden="true">
+          {item.media ?? (item.icon ? <Icon name={item.icon} size={13} /> : null)}
+        </span>
+      ) : null}
+      <span className="menu-item-label">{item.label}</span>
+      {item.shortcut ? <span className="menu-shortcut">{shortcutText(item.shortcut)}</span> : null}
+      {item.checked ? <Icon className="menu-item-check" name="check" size={13} /> : null}
+    </button>
+  );
   return createPortal(
     <div
       className="menu"
@@ -143,30 +196,21 @@ export function Menu({ request, onClose }: { request: MenuRequest; onClose(): vo
       onKeyDown={onKeyDown}
       onContextMenu={(event) => event.preventDefault()}
     >
-      {request.items.map((item, index) =>
-        isAction(item) ? (
-          <button
-            key={item.label}
-            className={cx("menu-item", item.tone === "danger" && "is-danger")}
-            type="button"
-            role="menuitem"
-            tabIndex={-1}
-            aria-disabled={item.disabled || undefined}
-            title={item.title}
-            onClick={() => {
-              if (item.disabled) return;
-              dismiss();
-              item.run();
-            }}
+      {menuBlocks(request.items).map((block, index) =>
+        block.kind === "item" ? (
+          action(block.item)
+        ) : block.kind === "group" ? (
+          // biome-ignore lint/a11y/useSemanticElements: a menu groups its items with role="group"; a fieldset is for form fields.
+          <div
+            key={`group-${block.heading}-${block.items[0]?.id ?? block.items[0]?.label ?? index}`}
+            role="group"
+            aria-labelledby={`${groupId}-${index}`}
           >
-            {withIcons ? (
-              <span className="menu-item-icon" aria-hidden="true">
-                {item.media ?? (item.icon ? <Icon name={item.icon} size={13} /> : null)}
-              </span>
-            ) : null}
-            <span className="menu-item-label">{item.label}</span>
-            {item.shortcut ? <span className="menu-shortcut">{shortcutText(item.shortcut)}</span> : null}
-          </button>
+            <div className="picker-group-label" id={`${groupId}-${index}`} role="presentation">
+              {block.heading}
+            </div>
+            {block.items.map(action)}
+          </div>
         ) : (
           // biome-ignore lint/suspicious/noArrayIndexKey: separators have no identity of their own.
           <hr key={`separator-${index}`} className="menu-separator" />
@@ -188,6 +232,9 @@ type AnchoredMenuButtonProps = {
   size?: "xs" | "sm" | "md";
   iconSize?: number | undefined;
   disabled?: boolean | undefined;
+  /** Which edge of the button the menu lines up with. */
+  align?: "start" | "end" | undefined;
+  className?: string | undefined;
   ref?: Ref<HTMLButtonElement>;
 };
 
@@ -272,12 +319,19 @@ function AnchoredMenuButton({
   size = "sm",
   iconSize,
   disabled = false,
+  align = "end",
+  className,
   ref,
 }: AnchoredMenuButtonProps) {
   const [open, setOpen] = useState(false);
-  const [placement, setPlacement] = useState<Placement>();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const placement = useAnchoredPlacement(open, triggerRef, menuRef, {
+    prefer: "above",
+    align,
+    gap: ANCHORED_GAP,
+    edge: EDGE,
+  });
   const menuId = useId();
   const focusLastRef = useRef(false);
 
@@ -289,25 +343,8 @@ function AnchoredMenuButton({
 
   const close = (returnFocus: boolean) => {
     setOpen(false);
-    setPlacement(undefined);
     if (returnFocus) triggerRef.current?.focus();
   };
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    const anchor = triggerRef.current?.getBoundingClientRect();
-    const menu = menuRef.current;
-    if (!anchor || !menu) return;
-    const above = anchor.top - ANCHORED_GAP - EDGE;
-    const below = window.innerHeight - anchor.bottom - ANCHORED_GAP - EDGE;
-    const left = Math.max(EDGE, Math.min(anchor.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - EDGE));
-    const up = menu.offsetHeight <= above || above >= below;
-    setPlacement(
-      up
-        ? { left, bottom: window.innerHeight - anchor.top + ANCHORED_GAP, maxHeight: above }
-        : { left, top: anchor.bottom + ANCHORED_GAP, maxHeight: below },
-    );
-  }, [open]);
 
   // The menu is measured while hidden, and hidden elements cannot take focus, so focus waits for placement.
   const placed = placement !== undefined;
@@ -326,7 +363,7 @@ function AnchoredMenuButton({
       if (!inside(event.target)) close(false);
     };
     const onScroll = (event: Event) => {
-      if (!inside(event.target)) close(false);
+      if (scrollMovesAnchor(event, triggerRef.current)) close(false);
     };
     const onLeave = () => close(false);
     document.addEventListener("pointerdown", onPointerDown, true);
@@ -364,7 +401,7 @@ function AnchoredMenuButton({
       <button
         ref={setTrigger}
         type="button"
-        className={cx("btn btn-ghost btn-icon", size !== "md" && `btn-${size}`)}
+        className={cx("btn btn-ghost btn-icon", size !== "md" && `btn-${size}`, className)}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -388,6 +425,7 @@ function AnchoredMenuButton({
             <div
               ref={menuRef}
               className="picker-menu menu"
+              data-align={align}
               data-side={placement && "top" in placement ? "bottom" : "top"}
               style={
                 placement

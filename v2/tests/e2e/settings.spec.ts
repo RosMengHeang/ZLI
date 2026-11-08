@@ -90,7 +90,7 @@ test("keeps MCP servers added in Settings for every agent", async () => {
     await expect(form).toHaveCount(0);
     await settings.getByRole("tab", { name: "Installed" }).click();
     await expect(settings.locator(".mcp-row-command")).toHaveText("npx -y @modelcontextprotocol/server-github");
-    await expect(settings).toContainText("ZLI is set to leave those files alone");
+    await expect(settings).toContainText("ZLI gives these servers only to agents it starts.");
 
     const saved = JSON.parse(await readFile(join(root, "mcp-servers.json"), "utf8"));
     expect(saved.servers).toEqual([

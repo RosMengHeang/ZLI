@@ -125,7 +125,9 @@ export class ClaudeCodeClient {
   private readonly completed: ClaudeTranscriptTurn[] = [];
   private readonly unsubscribeMessage: () => void;
   private readonly unsubscribeClose: () => void;
-  private currentSessionId: string | undefined;
+  private currentSessionId: string;
+  /** Set once the CLI answers initialize or prints its init record, whichever comes first. */
+  private ready = false;
   private active: ActiveTurn | undefined;
   private initRequestId = "";
   private initFailure: Error | undefined;
@@ -144,19 +146,23 @@ export class ClaudeCodeClient {
     private readonly command: string,
     private readonly permissionMode: ClaudePermissionMode,
     private model: string | undefined,
+    sessionId: string,
   ) {
+    this.currentSessionId = sessionId;
     this.unsubscribeMessage = peer.onMessage((message) => this.handleMessage(message));
     this.unsubscribeClose = peer.onClose((error) => this.onPeerClose(error));
   }
 
   static async start(options: ClaudeCodeClientOptions): Promise<ClaudeCodeClient> {
     const command = options.command ?? "claude";
-    const peer = options.peer ?? spawnClaudePeer(options, command);
+    const sessionId = options.resumeSessionId?.trim() || randomUUID();
+    const peer = options.peer ?? spawnClaudePeer(options, command, sessionId);
     const client = new ClaudeCodeClient(
       peer,
       command,
       options.permissionMode ?? "full-access",
       options.model?.trim() || undefined,
+      sessionId,
     );
     try {
       client.sendInitialize();
@@ -175,7 +181,7 @@ export class ClaudeCodeClient {
   }
 
   /** The CLI's conversation id, which a later process can resume. */
-  get sessionId(): string | undefined {
+  get sessionId(): string {
     return this.currentSessionId;
   }
 
@@ -186,7 +192,7 @@ export class ClaudeCodeClient {
   async sendTurn(input: { text: string; model?: string; reasoningEffort?: string }): Promise<ClaudeTurnResult> {
     this.assertOpen();
     const sessionId = this.currentSessionId;
-    if (!sessionId) throw new ClaudeProviderError("request_failed", "Claude Code session is not started.");
+    if (!this.ready) throw new ClaudeProviderError("request_failed", "Claude Code session is not started.");
     if (this.active) throw new ClaudeProviderError("request_failed", "Claude Code already has a turn in progress.");
     const model = input.model?.trim();
     const effort = input.reasoningEffort?.trim() || undefined;
@@ -254,7 +260,7 @@ export class ClaudeCodeClient {
   }
 
   private waitForInit(timeoutMs: number): Promise<void> {
-    if (this.currentSessionId) return Promise.resolve();
+    if (this.ready) return Promise.resolve();
     if (this.initFailure) return Promise.reject(this.initFailure);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -284,17 +290,17 @@ export class ClaudeCodeClient {
     const message = classifyClaudeMessage(raw);
     switch (message.kind) {
       case "init":
-        if (this.currentSessionId === message.sessionId) return;
-        if (this.currentSessionId) {
+        if (!this.ready) {
           this.currentSessionId = message.sessionId;
-          this.emit({ type: "session.identified", sessionId: message.sessionId });
+          this.resolveInit();
           return;
         }
+        if (this.currentSessionId === message.sessionId) return;
         this.currentSessionId = message.sessionId;
-        this.resolveInit();
+        this.emit({ type: "session.identified", sessionId: message.sessionId });
         return;
       case "invalid":
-        if (!this.currentSessionId && message.reason === "init") {
+        if (!this.ready && message.reason === "init") {
           this.failInit(
             new ClaudeProviderError("invalid_response", "Claude Code session init did not include a session id."),
           );
@@ -313,10 +319,12 @@ export class ClaudeCodeClient {
         this.answerControl(message);
         return;
       case "control_response":
-        if (message.requestId === this.initRequestId && !message.ok && !this.currentSessionId) {
-          this.failInit(
-            new ClaudeProviderError("request_failed", message.error ?? "Claude Code rejected session initialize."),
-          );
+        if (message.requestId === this.initRequestId && !this.ready) {
+          if (message.ok) this.resolveInit();
+          else
+            this.failInit(
+              new ClaudeProviderError("request_failed", message.error ?? "Claude Code rejected session initialize."),
+            );
           return;
         }
         if (!message.ok) {
@@ -459,7 +467,7 @@ export class ClaudeCodeClient {
   }
 
   private onPeerClose(error?: Error): void {
-    if (!this.currentSessionId) {
+    if (!this.ready) {
       this.failInit(this.startupError(error));
       return;
     }
@@ -488,7 +496,7 @@ export class ClaudeCodeClient {
   }
 
   private failInit(error: Error): void {
-    if (this.currentSessionId || this.initFailure) return;
+    if (this.ready || this.initFailure) return;
     this.initFailure = error;
     const gate = this.initGate;
     this.initGate = undefined;
@@ -496,6 +504,8 @@ export class ClaudeCodeClient {
   }
 
   private resolveInit(): void {
+    if (this.ready || this.initFailure) return;
+    this.ready = true;
     const gate = this.initGate;
     this.initGate = undefined;
     gate?.resolve();
@@ -521,7 +531,7 @@ export class ClaudeCodeClient {
   }
 }
 
-function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string): ClaudePeer {
+function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string, sessionId: string): ClaudePeer {
   if (!options.spawnProcess) {
     assertWorktree(options.cwd);
     if (isPathCommand(command)) assertClaudeBinary(command);
@@ -533,7 +543,7 @@ function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string): Cla
   const args = claudeSessionArgs({
     ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
     ...(options.model?.trim() ? { model: options.model.trim() } : {}),
-    ...(options.resumeSessionId?.trim() ? { resumeSessionId: options.resumeSessionId.trim() } : {}),
+    ...(options.resumeSessionId?.trim() ? { resumeSessionId: options.resumeSessionId.trim() } : { sessionId }),
     ...(options.mcpConfig ? { mcpConfig: options.mcpConfig } : {}),
   });
   const child = spawnProcess(command, args, {

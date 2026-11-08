@@ -23,6 +23,14 @@ class FakeClient {
     this.calls.push({ method: "interrupt", value: providerTurnId });
   }
 
+  async respondToApproval(requestId: string, allow: boolean, options: { forSession?: boolean } = {}) {
+    this.calls.push({ method: "approval", value: { requestId, allow, ...options } });
+  }
+
+  async respondToUserInput(requestId: string, answers: Record<string, string>) {
+    this.calls.push({ method: "user-input", value: { requestId, answers } });
+  }
+
   transcript(): readonly DroidTranscriptTurn[] {
     return this.turns;
   }
@@ -50,8 +58,8 @@ describe("DroidProviderAdapter", () => {
 
     expect(adapter.capabilities).toEqual({
       exactResume: false,
-      structuredApproval: false,
-      structuredUserInput: false,
+      structuredApproval: true,
+      structuredUserInput: true,
       conversationRollback: false,
       modelSwitch: "in-session",
       permissionSwitch: "in-session",
@@ -96,14 +104,35 @@ describe("DroidProviderAdapter", () => {
       },
     ]);
     await expect(adapter.readThread({ threadId })).resolves.toEqual({ threadId, turns: client.turns });
-    await expect(adapter.respondToRequest({ threadId, requestId: "1", decision: {} })).rejects.toMatchObject({
-      code: "unsupported",
-    });
-    await expect(
-      adapter.respondToUserInput({ threadId, requestId: "1", answers: { answer: "no" } }),
-    ).rejects.toMatchObject({ code: "unsupported" });
     await expect(adapter.rollbackThread({ threadId, numTurns: 1 })).rejects.toMatchObject({ code: "unsupported" });
     expect(client.calls.map((call) => call.method)).toEqual(["turn"]);
+  });
+
+  it("forwards Droid's permission and question requests and sends the answers back", async () => {
+    const client = new FakeClient();
+    const adapter = new DroidProviderAdapter({ createClient: async () => client });
+    const events: ProviderEvent[] = [];
+    adapter.subscribe((event) => events.push(event));
+    await adapter.startSession({ threadId, cwd: "/work/tree" });
+
+    const payload = { toolName: "Execute", input: { command: "echo hi" }, toolUseId: "t1" };
+    client.emit({ type: "approval.requested", requestId: "perm-1", payload });
+    client.emit({ type: "user-input.requested", requestId: "ask-1", payload: { questions: [] } });
+    expect(events).toEqual([
+      { type: "approval.requested", threadId, requestId: "perm-1", payload },
+      { type: "user-input.requested", threadId, requestId: "ask-1", payload: { questions: [] } },
+    ]);
+
+    await adapter.respondToRequest({ threadId, requestId: "perm-1", decision: { approved: true } });
+    await adapter.respondToRequest({ threadId, requestId: "perm-2", decision: { approved: true, scope: "session" } });
+    await adapter.respondToRequest({ threadId, requestId: "perm-3", decision: { approved: false } });
+    await adapter.respondToUserInput({ threadId, requestId: "ask-1", answers: { "0": "SQLite" } });
+    expect(client.calls).toEqual([
+      { method: "approval", value: { requestId: "perm-1", allow: true, forSession: false } },
+      { method: "approval", value: { requestId: "perm-2", allow: true, forSession: true } },
+      { method: "approval", value: { requestId: "perm-3", allow: false, forSession: false } },
+      { method: "user-input", value: { requestId: "ask-1", answers: { "0": "SQLite" } } },
+    ]);
   });
 
   it("closes the CLI on stop, keeps protocol errors off the thread, and drops only a dead session", async () => {

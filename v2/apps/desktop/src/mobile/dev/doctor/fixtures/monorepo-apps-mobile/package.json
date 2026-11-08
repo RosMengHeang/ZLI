@@ -1,0 +1,8 @@
+{
+  "name": "monorepo",
+  "private": true,
+  "packageManager": "pnpm@10.12.0",
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

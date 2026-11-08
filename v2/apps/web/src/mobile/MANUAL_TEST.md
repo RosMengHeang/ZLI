@@ -99,6 +99,12 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
   Expected: the window reshapes to landscape and keeps its long side, and the frame turns with the screen. Rotating back returns it to portrait.
 - [ ] Move and resize the window, pin it, then quit and restart ZLI and pop the device out again.
   Expected: the window opens where you left it, at the same size, still pinned. If that spot is no longer on any screen (for example a display was unplugged), it opens centered on the main display instead.
+- [ ] Click Compact window (the bottom panel icon) in the window's title bar.
+  Expected: the bottom bar goes away and the window gets shorter by its height, so the device stays the same size. The button shows as pressed. Clicking it again brings the bar back and the window grows back.
+- [ ] Turn on Compact window and the pin, put the window over a chat in the main window, then close and pop the device out again.
+  Expected: it opens compact and pinned, where you left it. Another device's window still opens with its bottom bar.
+- [ ] Move the window so only a sliver of its title bar is on screen, close it, and pop the device out again.
+  Expected: it opens centered at the same size instead of at the edge where it could not be grabbed.
 - [ ] Click "Bring it back" in the panel, then pop out again and close the window with its close button.
   Expected: both ways close the window and the panel shows the live screen again. "Show the window" brings the window to the front without closing it.
 - [ ] While an agent holds the device, look at the pop-out window.
@@ -128,9 +134,13 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Open the device picker with an emulator running and a USB phone connected, then with only one device.
   Expected: Emulators and Phones headings, each device with its Android version and state, and "New virtual device" last. The picker shows with one device too. With no devices it reads "No devices" and does not open.
 - [ ] Open the virtual device manager from the device picker ("+ New virtual device") and from Setup.
-  Expected: a "Virtual devices" section under Android with each device's system image and state, Boot for devices that are off, and Delete. From the picker, the Create form's Name field has focus.
-- [ ] In the Create form, pick a system image and a device profile, keep the suggested name (for example Pixel_7_API_35), and click Create.
+  Expected: a "Virtual devices" section under Android with each device's system image and state, Boot for devices that are off, Delete, and "New device…". From the picker, the New device dialog opens with its Name field focused.
+- [ ] In the New device dialog, pick a system image and a device profile, keep the suggested name (for example Pixel_7_API_35), and click Create.
   Expected: the image list shows only images already installed, and says so. The profile list starts with Pixel 7 and adds the Pixel profiles your avdmanager knows. After up to a minute, "Created <name>." shows, and the new device appears in the list and in the device picker as Off.
+- [ ] On a Mac with Xcode, open Settings > Mobile, click "New device…", and pick iPhone simulator. Pick an iPhone model and an iOS version, keep the suggested name, and click Create.
+  Expected: while the lists load, "Reading iPhone models and iOS versions from Xcode" shows. The iOS version list only offers runtimes that support the picked model. The new simulator shows in the Devices list as Off. Creating it twice with the same name shows an error next to the form.
+- [ ] In Settings > Mobile, click the trash button on a simulator or emulator that is off.
+  Expected: the row asks "Delete it and its data?"; "Keep it" backs out, and "Delete <name> for good" removes it. Running devices and USB phones have no trash button.
 - [ ] Type a name with a space, or the name of an existing device.
   Expected: a warning under the field and a disabled Create button.
 - [ ] Click Boot on the new device.
@@ -138,15 +148,29 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Click Delete on a running device, then on one that is off.
   Expected: Delete is disabled while the device runs. For the one that is off, a confirm row asks "Delete it and its data?"; "Keep it" backs out, and Delete removes it from the list and the picker.
 - [ ] Use an SDK from Android Studio without the command-line tools (no avdmanager).
-  Expected: the list still shows with Boot, Delete is disabled, the Create form is gone, and a line explains that avdmanager comes with the command-line tools.
+  Expected: the list still shows with Boot, Delete is disabled, "New device…" is gone, and a line explains that avdmanager comes with the command-line tools.
 
 ## Android USB phone
 
 - [ ] Connect a phone with USB debugging on, before accepting the computer's key.
-  Expected: the panel shows "Allow USB debugging on the phone" and the badge reads "Waiting for approval".
+  Expected: the panel shows "<phone> is waiting for approval" with "Allow USB debugging on the phone, then check the prompt on its screen.", and the badge reads "Waiting for approval".
 - [ ] Accept the prompt on the phone, then click Refresh.
-  Expected: the phone shows as Running with its screen, and tap, swipe, wheel scroll, and typing work like the emulator. Boot and Shut down do not appear.
+  Expected: the phone shows as Ready under Phones in the device picker, with "Android <version> over USB". Its screen shows, and tap, swipe, wheel scroll, and typing work like the emulator. Boot, Shut down, and Disconnect do not appear.
 
+## Android phone over Wi-Fi (Android 11 and newer)
+
+- [ ] On the phone, turn on Developer options > Wireless debugging and tap Pair device with pairing code. In the panel, pick "Connect a phone" from the device picker.
+  Expected: Setup opens at the Phones section with the Pairing address field focused.
+- [ ] Enter the pairing address and the 6-digit code, leave Connect port empty, and click Pair and connect.
+  Expected: the panel goes back to the device view, shows the phone with "Android <version> over Wi-Fi, ready", and a notice says "Paired and connected to <phone>." If mDNS does not find the phone, an info banner asks for the port and the Connect to an address form is filled with the phone's IP address.
+- [ ] Pair again with a wrong code.
+  Expected: a red banner says the phone did not accept the code and to open the pairing dialog again.
+- [ ] Type an address without a port, a port over 65535, or a 5-digit code, and submit.
+  Expected: a warning under the field, and nothing reaches adb.
+- [ ] Click Disconnect in the toolbar.
+  Expected: the stream stops, the phone leaves the list, and "Connect to an address" with the port from the Wireless debugging screen brings it back without pairing.
+- [ ] Turn Wireless debugging off on the phone while it is connected, then click Refresh.
+  Expected: the phone shows as Offline with the hint to check Wireless debugging and the Wi-Fi network, and a Connect again button.
 ## Linux Android
 
 - [ ] Repeat setup, boot, tap, swipe, wheel scroll, type, paste, and the buttons on Linux with KVM.
@@ -183,6 +207,46 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
 - [ ] Uninstall or rename idb, then click Refresh.
   Expected: Setup lists idb as missing with the install command. Screenshots still show; taps report that they need idb.
 
+## Per-worktree Metro port
+
+Use a project with at least one worktree besides the checkout, and an Android emulator or a Mac with Xcode.
+
+- [ ] Open the project view for a worktree, then for the checkout.
+  Expected: the worktree's "Metro port" row shows a port from 8100 to 8199, and the checkout shows 8081. Settings > Mobile > Worktrees lists the same ports.
+- [ ] In a ZLI terminal of the worktree, run `echo $RCT_METRO_PORT $ZLI_METRO_PORT`, then start `npx expo start` with no `--port`.
+  Expected: both print the worktree's port, and Expo starts on that port without asking about 8081.
+- [ ] With Metro running from the worktree, look at the "Metro port" row. Then start Metro on the same port from a second worktree's folder in a plain terminal, and look at the first worktree again.
+  Expected: "Running here" while it runs from this worktree. With the other worktree's Metro, "Used by <branch>", the amber banner names that branch, and the Expo banner's Open is disabled with the tooltip "Port <port> belongs to <branch>".
+- [ ] On macOS, repeat the owner check. On Linux, repeat it with `lsof` removed from `PATH`.
+  Expected: the same owner on macOS. On Linux the `ss` fallback finds the same owner.
+- [ ] Ask an agent in the worktree to boot an emulator with `zli-mobile boot`.
+  Expected: the emulator's serial matches the worktree's "Emulator port" row (for example emulator-5560). If that port is taken, it boots on any free port.
+- [ ] With a development build made for 8081 on the emulator, open the worktree's URL from the Expo banner, or have the agent call `mobile_workspace` and open its URL. Then run `adb -s <serial> reverse --list`.
+  Expected: the app loads the worktree's bundle, the notice says "The device's localhost:8081 now reaches port <port> too.", and the list shows `tcp:8081 tcp:<port>`.
+- [ ] Repeat the open on a USB phone.
+  Expected: no 8081 mapping is added for the phone.
+- [ ] In a project with `expo-dev-client` and a `scheme` in `app.json`, look at "Open on a device", then open it on a device.
+  Expected: "Development build" and `<scheme>://expo-development-client/?url=http%3A%2F%2Flocalhost%3A<port>`. It opens in the development build, not Expo Go. Without `expo-dev-client`, it reads "Expo Go" and `exp://localhost:<port>`. With `expo-dev-client` but no scheme, the URL starts with `exp+<slug>://`.
+- [ ] Create a second worktree, note both ports, then remove or cancel the first worktree and reopen the second's project view and a new terminal there.
+  Expected: the second worktree keeps its port, in the view and in `$RCT_METRO_PORT`.
+- [ ] Open a worktree's URL on the emulator so the 8081 mapping is set, then hand the device to another worktree's agent or let the holder's lease lapse.
+  Expected: `adb -s <serial> reverse --list` no longer lists `tcp:8081`. Opening again from the new holder re-adds it with its own port.
+
+## Project check: Toolchain and Packages
+
+- [ ] On a Mac with Xcode and CocoaPods, open an Expo or React Native worktree and click Project check.
+  Expected: the Toolchain group lists Xcode and CocoaPods versions, and Signing says how many iPhone signing identities this Mac has. No certificate names or team ids appear.
+- [ ] On Linux or Windows, open the same worktree.
+  Expected: Xcode and CocoaPods say "Not checked on this computer", Signing says "iPhone: not checked on this computer.", and nothing is shown as an error because of it.
+- [ ] In a real Expo project with `node_modules` installed, click Run Expo checks.
+  Expected: the three exact command lines appear with Run and Cancel, and nothing runs until Run. After Run, each check shows Passed, Failed, or Timed out within about a minute, and mismatched packages from `expo install --check` are listed.
+- [ ] Remove `node_modules` and click Run Expo checks, then Run.
+  Expected: each check says "Not installed in this project".
+- [ ] Online, type `react-native-reanimated react-native-fs` under Packages and click Check.
+  Expected: answers from React Native Directory within a few seconds, and the install line uses `npx expo install` in Expo apps or the lockfile's package manager otherwise.
+- [ ] Turn off the network and check a package.
+  Expected: Not checked with "React Native Directory could not be reached", and Propose install is still offered.
+
 ## Agent and person handoff
 
 - [ ] In an agent terminal, run `zli-mobile devices`, `zli-mobile tap e3`, and `zli-mobile screenshot`.
@@ -210,3 +274,30 @@ Start on a Windows machine with no Android SDK, or rename `ANDROID_HOME` for the
   Expected: the screen falls back to screenshots, the chip reads "Screenshots", and its tooltip gives the reason.
 - [ ] WebCodecs unavailable (run with `--disable-features=WebCodecs`, or force a decode error).
   Expected: the panel polls screenshots itself, the note under the screen says the video could not be decoded, and input keeps working.
+
+## Crash watch and build brief
+
+Crash watch reads a device's log only while an agent holds the device or a window shows it. It is on by default, under Settings > Mobile > Crash watch.
+
+- [ ] Android: install an app that throws from a button (for example `throw IllegalStateException("test")` in a click handler), open it in the panel, and tap the button.
+  Expected: within about two seconds a red banner reads "<package> crashed: IllegalStateException: test". Show details lists the frames and the log lines before the crash.
+- [ ] Crash it again the same way.
+  Expected: the same banner gains "×2". No second banner appears.
+- [ ] Let an agent drive the device, crash the app, then have the agent run any other zli-mobile tool.
+  Expected: that result ends with "The app crashed … ago: … Call mobile_crashes for the stack." The result after it has no notice. mobile_crashes returns the title, the frames, and "Last N log lines:".
+- [ ] Native crash: crash a native library, for example with a null dereference in a JNI call.
+  Expected: one banner with "Fatal signal 11 (SIGSEGV)". Once the tombstone is written, Show details lists `#00 pc …` frames.
+- [ ] ANR: block the main thread for more than 5 seconds and tap the screen.
+  Expected: a banner "<package> crashed: ANR in <package>: Input dispatching timed out…".
+- [ ] iOS simulator (macOS): raise an uncaught `NSException` in the app.
+  Expected: a banner with the exception name and reason.
+- [ ] Turn off Watch for crashes, then crash the app.
+  Expected: no banner, and ZLI's `adb logcat -v threadtime -T 1` process for the device is gone.
+- [ ] Close the Mobile panel and wait two minutes with no agent on the device.
+  Expected: ZLI's `logcat` process for that device stops.
+- [ ] Rename adb while a device runs, then reopen the panel.
+  Expected: the desktop log says once that ZLI could not read the device's log. Nothing else changes.
+- [ ] Project check > Build failure: paste the end of a real failed `./gradlew assembleDebug` or `xcodebuild` log and click Explain.
+  Expected: the class badge, the first real error line rather than the final `FAILURE:` line, Show context with 20 lines on each side, and Send to agent, which sends the brief to the worktree's chat agent.
+- [ ] From an agent, call mobile_build_brief with `logPath` set to a log in the temp folder, then to a file outside the worktree such as `~/.ssh/config`.
+  Expected: the first returns the brief. The second is refused with "ZLI reads build logs only from this worktree or the temp folder."

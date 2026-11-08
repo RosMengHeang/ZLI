@@ -36,5 +36,6 @@ describe("pasted text", () => {
     expect(attachmentOnlyMessage(0, 1)).toBe("See the attached text.");
     expect(attachmentOnlyMessage(0, 2)).toBe("See the attached texts.");
     expect(attachmentOnlyMessage(1, 1)).toBe("See the attached files.");
+    expect(attachmentOnlyMessage(0, 0, 1)).toBe("See the attached files.");
   });
 });

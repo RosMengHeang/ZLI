@@ -1,8 +1,15 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
 import {
   CommandId,
   type EnvironmentDescriptor,
   EnvironmentId,
+  metroPortFor,
   ProjectId,
   TerminalId,
   WorktreeId,
@@ -12,6 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { type BrowserToolConfig, codexMcpArgs } from "../browser-tool/browserTool.js";
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
+import { WorktreeAgentFiles } from "../worktrees/WorktreeAgentFiles.js";
 import { TerminalReactor, type TerminalReactorOptions } from "./TerminalReactor.js";
 import { type PtyFactory, type PtyProcess, type PtySpawnInput, TerminalService } from "./TerminalService.js";
 
@@ -59,7 +67,11 @@ function command(type: string, value: Record<string, unknown>) {
 
 const resources: Array<{ database: Database; reactor: TerminalReactor }> = [];
 
-async function setup(factory: PtyFactory, options: TerminalReactorOptions = {}) {
+async function setup(
+  factory: PtyFactory,
+  options: TerminalReactorOptions = {},
+  worktreePath = "C:/workspace/project-tree",
+) {
   const database = new Database({ path: ":memory:" });
   const engine = new Engine({ database, environment });
   const reactor = new TerminalReactor(engine, new TerminalService(factory), options);
@@ -70,7 +82,7 @@ async function setup(factory: PtyFactory, options: TerminalReactorOptions = {}) 
     command("worktree.create", {
       worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000302"),
       projectId,
-      path: "C:/workspace/project-tree",
+      path: worktreePath,
       workspaceRoot: "C:/workspace",
       branch: "codex/terminal",
     }),
@@ -78,11 +90,14 @@ async function setup(factory: PtyFactory, options: TerminalReactorOptions = {}) 
   return { engine, reactor, worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000302") };
 }
 
-afterEach(() => {
+const temps: string[] = [];
+
+afterEach(async () => {
   for (const resource of resources.splice(0)) {
     resource.reactor.stop();
     resource.database.close();
   }
+  for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
 describe("TerminalReactor", () => {
@@ -172,7 +187,7 @@ describe("TerminalReactor", () => {
     const pty = new FakePty();
     const spawned: PtySpawnInput[] = [];
     const resolved: string[] = [];
-    const { engine, worktreeId } = await setup(
+    const { engine, reactor, worktreeId } = await setup(
       {
         spawn: async (input) => {
           spawned.push(input);
@@ -199,7 +214,7 @@ describe("TerminalReactor", () => {
         agent: { provider: "claude-code", model: "claude-sonnet-4-5" },
       }),
     );
-    await engine.waitForReactors();
+    await reactor.waitForIdle();
 
     expect(resolved).toEqual(["claude-code"]);
     expect(spawned).toMatchObject([
@@ -212,6 +227,47 @@ describe("TerminalReactor", () => {
     expect((await engine.projection()).terminals).toMatchObject([
       { terminalId: id, status: "running", kind: "agent", agent: { provider: "claude-code" } },
     ]);
+  });
+
+  it("gives every terminal in a worktree its Metro port, and none in the project's checkout", async () => {
+    const spawned: PtySpawnInput[] = [];
+    const { engine, reactor, worktreeId } = await setup({
+      spawn: async (input) => {
+        spawned.push(input);
+        return new FakePty();
+      },
+    });
+    const projectId = (await engine.projection()).projects[0]?.projectId;
+    const checkoutId = WorktreeId.parse("00000000-0000-4000-8000-000000000399");
+    await engine.dispatchPromise(
+      command("worktree.import", {
+        worktreeId: checkoutId,
+        projectId,
+        path: "C:/workspace/project",
+        branch: "main",
+        kind: "checkout",
+      }),
+    );
+    const create = (n: number, target: string) =>
+      engine.dispatchPromise(
+        command("terminal.create", {
+          terminalId: TerminalId.parse(`00000000-0000-4000-8000-00000000039${n}`),
+          worktreeId: target,
+          cwd: target === checkoutId ? "C:/workspace/project" : "C:/workspace/project-tree",
+          shell: "powershell.exe",
+          title: "Terminal",
+          cols: 120,
+          rows: 32,
+        }),
+      );
+    await create(1, worktreeId);
+    await create(2, checkoutId);
+    await reactor.waitForIdle();
+
+    const port = String(metroPortFor(worktreeId, (await engine.projection()).worktrees));
+    expect(Number(port)).toBeGreaterThanOrEqual(8100);
+    expect(spawned[0]?.envOverrides).toEqual({ ZLI_METRO_PORT: port, RCT_METRO_PORT: port });
+    expect(spawned[1]?.envOverrides).toBeUndefined();
   });
 
   it("fails an agent terminal with a clear message when its CLI is missing", async () => {
@@ -429,6 +485,56 @@ describe("TerminalReactor", () => {
     expect(asked).toEqual([{ worktreeId }, { worktreeId }, { worktreeId }]);
   });
 
+  it("gives Droid its servers in a project MCP file in the worktree that git does not see", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zli-reactor-"));
+    temps.push(root);
+    const run = promisify(execFile);
+    await run("git", ["init", "--quiet", root]);
+    const statePath = `${root}-state.json`;
+    temps.push(statePath);
+    const agentFiles = new WorktreeAgentFiles({ statePath });
+    const spawned: PtySpawnInput[] = [];
+    const github = { name: "github", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } };
+    const { engine, reactor, worktreeId } = await setup(
+      {
+        spawn: async (input) => {
+          spawned.push(input);
+          return new FakePty();
+        },
+      },
+      {
+        resolveAgentCli: async (provider) => `/usr/bin/${provider}`,
+        mcpServers: async () => [github],
+        env: {},
+        writeWorktreeFile: (worktreePath, relPath, contents) => agentFiles.writeFile(worktreePath, relPath, contents),
+      },
+      root,
+    );
+    await engine.dispatchPromise(
+      command("terminal.create", {
+        terminalId: TerminalId.parse("00000000-0000-4000-8000-000000000341"),
+        worktreeId,
+        cwd: root,
+        shell: "bash",
+        title: "Droid",
+        cols: 120,
+        rows: 32,
+        agent: { provider: "droid" },
+      }),
+    );
+    await reactor.waitForIdle();
+
+    expect(spawned[0]?.args).toEqual(["--auto", "high"]);
+    const file = join(root, ".factory", "mcp.json");
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+      mcpServers: { github: { type: "stdio", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } } },
+    });
+    expect((await run("git", ["status", "--porcelain"], { cwd: root })).stdout).toBe("");
+
+    await agentFiles.removeAll();
+    await expect(readFile(file, "utf8")).rejects.toThrow();
+  });
+
   it("projects a PTY exit once", async () => {
     const pty = new FakePty();
     const { engine, worktreeId } = await setup({ spawn: async () => pty });
@@ -568,5 +674,29 @@ describe("TerminalReactor accounts", () => {
     await reactor.waitForIdle();
     expect(spawned).toEqual([]);
     expect((await engine.projection()).terminals[0]).toMatchObject({ status: "failed" });
+  });
+
+  it("answers the agent's folder trust question only in a project the person trusted", async () => {
+    const spawned: PtySpawnInput[] = [];
+    const { engine, reactor, worktreeId } = await setup(spawnInto(spawned), {
+      resolveAgentCli: async (provider) => `C:\\bin\\${provider}.exe`,
+      env: {},
+    });
+    await create(engine, worktreeId, 6, { provider: "gemini", permissionMode: "supervised" });
+    await create(engine, worktreeId, 7, { provider: "kimi", permissionMode: "supervised" });
+    await reactor.waitForIdle();
+    const projectId = (await engine.projection()).projects[0]?.projectId;
+    await engine.dispatchPromise(command("project.agents", { projectId, trusted: true }));
+    await create(engine, worktreeId, 8, { provider: "gemini", permissionMode: "supervised" });
+    await create(engine, worktreeId, 9, { provider: "kimi", permissionMode: "supervised" });
+    await reactor.waitForIdle();
+
+    expect(spawned.map((input) => input.args)).toEqual([[], [], ["--skip-trust"], []]);
+    expect(spawned.map((input) => input.envOverrides?.KIMI_CODE_TRUST_WORKSPACE)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      "1",
+    ]);
   });
 });

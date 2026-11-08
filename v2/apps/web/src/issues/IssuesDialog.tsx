@@ -1,7 +1,9 @@
 import type {
   IssueDetail,
+  IssueListResult,
+  IssueListUnavailable,
   IssueSource,
-  IssueSummary,
+  IssueSourcesResult,
   LinearStatusResult,
   ProjectProjection,
   RuntimeProjection,
@@ -15,40 +17,52 @@ import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { EmptyState } from "../ui/Pane.js";
 import { Segmented } from "../ui/Segmented.js";
-import { ISSUE_SOURCE_NAMES, updatedLabel } from "./issueStart.js";
-import { getIssue, linearStatus, listIssues } from "./issuesClient.js";
+import {
+  ISSUE_SOURCE_NAMES,
+  lastIssueSource,
+  pickIssueSource,
+  rememberIssueSource,
+  unavailableText,
+  updatedLabel,
+} from "./issueStart.js";
+import { getIssue, issueSources, linearStatus, listIssues } from "./issuesClient.js";
 import "./issues.css";
 
 const SEARCH_DELAY_MS = 300;
 
 type Loaded<T> = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; value: T };
+type Listed = IssueListResult & { source: IssueSource };
 
 export function IssuesDialog({
   projection,
   initialProject,
   onClose,
   onStart,
+  onStartWithoutIssue,
   onConnectLinear,
 }: {
   projection: RuntimeProjection;
   initialProject: ProjectProjection | undefined;
   onClose(): void;
   onStart(project: ProjectProjection, issue: IssueDetail): void;
+  onStartWithoutIssue(project: ProjectProjection): void;
   onConnectLinear(): void;
 }) {
   const { bridge, dispatch } = useRuntime();
   const ids = useId();
   const [projectId, setProjectId] = useState(initialProject?.projectId ?? projection.projects[0]?.projectId);
   const project = projection.projects.find((candidate) => candidate.projectId === projectId);
-  const [source, setSource] = useState<IssueSource>("github");
+  const [picked, setPicked] = useState(() => (projectId ? lastIssueSource(projectId) : undefined));
+  const [forges, setForges] = useState<{ projectId: string; value: IssueSourcesResult }>();
   const [linear, setLinear] = useState<LinearStatusResult>();
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [openOnly, setOpenOnly] = useState(true);
   const [mine, setMine] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [list, setList] = useState<Loaded<IssueSummary[]>>({ status: "loading" });
+  const [list, setList] = useState<Loaded<Listed>>({ status: "loading" });
   const [selected, setSelected] = useState<string>();
   const [detail, setDetail] = useState<Loaded<IssueDetail>>();
   const [openError, setOpenError] = useState<string>();
@@ -60,7 +74,9 @@ export function IssuesDialog({
       .then((status) => {
         if (!cancelled) setLinear(status);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setLinear({ connected: false });
+      });
     return () => {
       cancelled = true;
     };
@@ -71,11 +87,35 @@ export function IssuesDialog({
     return () => clearTimeout(timer);
   }, [query]);
 
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    issueSources(dispatch, projectId)
+      .then((value) => {
+        if (!cancelled) setForges({ projectId, value });
+      })
+      .catch(() => {
+        // Without an answer the dialog reads GitHub, whose own errors say what is wrong.
+        if (!cancelled) setForges({ projectId, value: { sources: ["github"] } });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, projectId]);
+
+  const linearConnected = linear?.connected === true && !linear.problem;
+  const projectForges = forges && forges.projectId === projectId ? forges.value : undefined;
+  const source = projectForges
+    ? pickIssueSource(picked, projectForges.sources, linear ? { connected: linearConnected } : undefined)
+    : undefined;
+  const available: IssueSource[] = [...(projectForges?.sources ?? []), ...(linearConnected ? ["linear" as const] : [])];
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is the retry trigger.
   useEffect(() => {
     if (!projectId) return;
     let cancelled = false;
     setList({ status: "loading" });
+    if (!source) return;
     listIssues(dispatch, projectId, source, {
       ...(search ? { query: search } : {}),
       state: openOnly ? "open" : "all",
@@ -83,7 +123,7 @@ export function IssuesDialog({
     })
       .then((result) => {
         if (cancelled) return;
-        setList({ status: "ready", value: result.issues });
+        setList({ status: "ready", value: { ...result, source } });
         setSelected((current) =>
           current && result.issues.some((issue) => issue.key === current) ? current : result.issues[0]?.key,
         );
@@ -97,7 +137,7 @@ export function IssuesDialog({
   }, [dispatch, projectId, source, search, openOnly, mine, attempt]);
 
   useEffect(() => {
-    if (!projectId || !selected) {
+    if (!projectId || !selected || !source) {
       setDetail(undefined);
       return;
     }
@@ -116,14 +156,22 @@ export function IssuesDialog({
   }, [dispatch, projectId, source, selected]);
 
   const chooseSource = (next: IssueSource) => {
-    setSource(next);
+    setPicked(next);
+    if (projectId) rememberIssueSource(projectId, next);
     setSelected(undefined);
   };
 
-  const issues = list.status === "ready" ? list.value : [];
+  // A list from the source shown before a switch is not this source's list yet.
+  const shown: Loaded<Listed> = list.status === "ready" && list.value.source !== source ? { status: "loading" } : list;
+  const issues = shown.status === "ready" ? shown.value.issues : [];
+  const unavailable =
+    source === null
+      ? (projectForges?.unavailable ?? { code: "other_host" as const })
+      : shown.status === "ready"
+        ? shown.value.unavailable
+        : undefined;
   const ready = detail?.status === "ready" ? detail.value : undefined;
-  const linearConnected = linear?.connected === true && !linear.problem;
-  const sourceName = ISSUE_SOURCE_NAMES[source];
+  const sourceName = source ? ISSUE_SOURCE_NAMES[source] : undefined;
 
   return (
     <Dialog
@@ -150,18 +198,16 @@ export function IssuesDialog({
             }))}
             onChange={(next) => {
               setProjectId(next as typeof projectId);
+              setPicked(lastIssueSource(next));
               setSelected(undefined);
             }}
           />
         ) : null}
-        {linearConnected ? (
+        {source && available.length > 1 ? (
           <Segmented<IssueSource>
             label="Source"
             value={source}
-            options={[
-              { value: "github", label: "GitHub" },
-              { value: "linear", label: "Linear" },
-            ]}
+            options={available.map((value) => ({ value, label: ISSUE_SOURCE_NAMES[value] }))}
             onChange={chooseSource}
           />
         ) : null}
@@ -172,7 +218,7 @@ export function IssuesDialog({
             type="search"
             value={query}
             aria-label="Search issues"
-            placeholder={source === "github" ? "Search, or #123" : "Search, or ENG-123"}
+            placeholder={source === "linear" ? "Search, or ENG-123" : "Search, or #123"}
             spellCheck={false}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -186,18 +232,26 @@ export function IssuesDialog({
           </Button>
         </fieldset>
       </div>
-      <div className="issues-layout">
+      <div className={`issues-layout${unavailable ? " is-unavailable" : ""}`}>
         <div className="issues-list-region">
-          {list.status === "loading" ? (
+          {unavailable && project ? (
+            <NoIssueSource
+              unavailable={unavailable}
+              linearConnected={linearConnected}
+              onShowLinear={() => chooseSource("linear")}
+              onConnectLinear={onConnectLinear}
+              onStartWithoutIssue={() => onStartWithoutIssue(project)}
+            />
+          ) : shown.status === "loading" ? (
             <p className="loading-line issues-state" role="status">
               <span className="spinner" aria-hidden="true" />
-              Loading {sourceName} issues
+              {sourceName ? `Loading ${sourceName} issues` : "Loading issues"}
             </p>
-          ) : list.status === "error" ? (
+          ) : shown.status === "error" ? (
             <div className="issues-state">
               <p className="inline-error" role="alert">
                 <Icon name="alert" size={13} />
-                <span>{list.message}</span>
+                <span>{shown.message}</span>
               </p>
               <Button size="sm" icon="reload" onClick={() => setAttempt((value) => value + 1)}>
                 Try again
@@ -242,7 +296,7 @@ export function IssuesDialog({
             </ul>
           )}
         </div>
-        <section className="issue-detail" aria-label="Issue details">
+        <section className="issue-detail" aria-label="Issue details" hidden={unavailable !== undefined}>
           {!detail ? (
             <p className="issues-state issues-empty">Select an issue to see it here.</p>
           ) : detail.status === "loading" ? (
@@ -288,13 +342,48 @@ export function IssuesDialog({
           icon="play"
           disabled={!ready || !project}
           onClick={() => {
-            if (ready && project) onStart(project, ready);
+            if (!ready || !project) return;
+            rememberIssueSource(project.projectId, ready.source);
+            onStart(project, ready);
           }}
         >
           Start agent
         </Button>
       </div>
     </Dialog>
+  );
+}
+
+/** No GitHub or GitLab remote: says where the remote is and offers what still works. */
+function NoIssueSource({
+  unavailable,
+  linearConnected,
+  onShowLinear,
+  onConnectLinear,
+  onStartWithoutIssue,
+}: {
+  unavailable: IssueListUnavailable;
+  linearConnected: boolean;
+  onShowLinear(): void;
+  onConnectLinear(): void;
+  onStartWithoutIssue(): void;
+}) {
+  const { title, detail } = unavailableText(unavailable);
+  return (
+    <EmptyState icon="issue" title={title} detail={detail}>
+      {linearConnected ? (
+        <Button size="sm" onClick={onShowLinear}>
+          Show Linear issues
+        </Button>
+      ) : (
+        <Button size="sm" onClick={onConnectLinear}>
+          Connect Linear
+        </Button>
+      )}
+      <Button size="sm" variant="primary" icon="agentNew" onClick={onStartWithoutIssue}>
+        Start without an issue
+      </Button>
+    </EmptyState>
   );
 }
 

@@ -2,10 +2,13 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 /** Writes JSON through a temporary file, so a crash mid-write never leaves half a settings file. */
-export async function writeJsonFile(path: string, value: unknown): Promise<void> {
+export async function writeJsonFile(path: string, value: unknown, options: { mode?: number } = {}): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
+    ...(options.mode === undefined ? {} : { mode: options.mode }),
+  });
   await renameWithRetry(temporary, path);
 }
 

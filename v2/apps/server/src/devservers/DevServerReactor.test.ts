@@ -111,7 +111,7 @@ async function setup(options: { alive?: (url: string) => boolean } = {}) {
         ...(agent ? { agent: { provider: "claude-code" } } : {}),
       }),
     );
-    await engine.waitForReactors();
+    await terminalReactor.waitForIdle();
     const pty = ptys.get(terminalId);
     if (!pty) throw new Error("terminal did not start");
     return pty;

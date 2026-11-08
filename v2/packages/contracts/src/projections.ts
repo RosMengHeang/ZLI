@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
+import { dropHuddleMembers, HuddlePost, HuddleProjection } from "./huddles.js";
 import { EnvironmentId, ProjectId, ThreadId, WorktreeId } from "./ids.js";
 import { LegacyImportProjection } from "./import.js";
 import { SetupTrustProjection, WorktreeSetupProjection } from "./projectConfig.js";
@@ -40,6 +41,8 @@ export const ProjectProjection = z.object({
   name: z.string().min(1),
   /** False when the folder is not a Git repository. Missing means it is one, or it has not been checked yet. */
   git: z.boolean().optional(),
+  /** The person let agents work in this folder, so ZLI answers each agent CLI's own "trust this folder?" question. */
+  agentsTrusted: z.boolean().optional(),
 });
 export type ProjectProjection = z.infer<typeof ProjectProjection>;
 
@@ -52,6 +55,8 @@ export const WorktreeProjection = z.object({
   errorMessage: z.string().min(1).optional(),
   /** "checkout" is the project's own working copy. Removing it only forgets it; files stay on disk. */
   kind: z.enum(["worktree", "checkout"]).optional(),
+  /** The worktree's Metro port, pinned at creation so it never moves while the worktree exists. */
+  metroPort: z.number().int().optional(),
 });
 export type WorktreeProjection = z.infer<typeof WorktreeProjection>;
 
@@ -129,6 +134,8 @@ export const RuntimeProjection = z.object({
   lastSequence: z.number().int().nonnegative(),
   worktreeSetups: z.array(WorktreeSetupProjection).optional(),
   setupTrust: z.array(SetupTrustProjection).optional(),
+  huddles: z.array(HuddleProjection).optional(),
+  huddlePosts: z.array(HuddlePost).optional(),
 });
 export type RuntimeProjection = z.infer<typeof RuntimeProjection>;
 
@@ -169,7 +176,7 @@ export function removeSession(
     requests.filter((request) => threads.has(request.threadId)).map((request) => `thread-request:${request.requestId}`),
   );
   return {
-    ...projection,
+    ...dropHuddleMembers(projection, [...terminalIds, ...threadIds]),
     terminals: projection.terminals.filter((terminal) => !terminals.has(terminal.terminalId)),
     threads: projection.threads.filter((thread) => !threads.has(thread.threadId)),
     ...(projection.messages

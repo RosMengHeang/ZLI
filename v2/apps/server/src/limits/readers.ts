@@ -1,20 +1,14 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
 import type { PlanLimitProvider } from "@zli-v2/contracts";
 
 import { readClaudeLimits } from "./claudeLimits.js";
 import { type CodexLimitClient, readCodexLimits } from "./codexLimits.js";
-import { readCopilotLimits } from "./copilotLimits.js";
 import { readCursorLimits } from "./cursorLimits.js";
 import { readDroidLimits } from "./droidLimits.js";
 import { findGeminiOAuthClient, readGeminiLimits } from "./geminiLimits.js";
 import { readKimiLimits } from "./kimiLimits.js";
 import { openCodeCredentials, readOpenCodeLimits } from "./openCodeLimits.js";
 import type { LimitRead, LimitReader, LimitTarget } from "./PlanLimits.js";
-import { defaultLimitReaderDeps } from "./readerDeps.js";
-
-const execFileAsync = promisify(execFile);
+import { defaultLimitReaderDeps, keyringSecret, runCli } from "./readerDeps.js";
 
 /** Reads each provider's limits the way its own CLI stores the login. */
 export function planLimitReader(options: {
@@ -43,24 +37,20 @@ export function planLimitReader(options: {
         });
       case "cursor-agent":
         return readCursorLimits(target.configDir, deps);
+      case "droid":
+        return readDroidLimits({
+          ...deps,
+          secretStore: (service, account) => keyringSecret(deps, service, account),
+          // Droid's own auth check renews an expired sign-in through Droid, which saves the new tokens.
+          refreshLogin: async () => {
+            const command = await options.resolveCli("droid");
+            if (command) await runCli(command, ["doctor", "--checks", "auth", "--json"]);
+          },
+        });
       case "kimi":
         return readKimiLimits(target.configDir, deps);
       case "opencode":
         return readOpenCodeLimits({ ...deps, credentials: openCodeCredentials });
-      case "droid":
-        return readDroidLimits(target.apiKey, deps);
-      case "copilot":
-        return readCopilotLimits(target, { ...deps, ghToken });
     }
   };
-}
-
-/** Copilot CLI falls back to GitHub CLI's login, so ZLI asks it the same way. */
-async function ghToken(): Promise<string | undefined> {
-  try {
-    const { stdout } = await execFileAsync("gh", ["auth", "token"], { timeout: 5_000, windowsHide: true });
-    return stdout.trim() || undefined;
-  } catch {
-    return undefined;
-  }
 }

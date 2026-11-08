@@ -4,6 +4,7 @@ import {
   type PluginAction,
   type PluginOrigin,
   type ProjectProjection,
+  ProjectRegisterResult,
   type RuntimeProjection,
   type SetupDecision,
   threadOccupiesWorktree,
@@ -12,7 +13,7 @@ import {
   type WorktreeSetupProjection,
   worktreeDevServers,
 } from "@zli-v2/contracts";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
@@ -27,6 +28,8 @@ import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { filesWorktreeFor } from "../files/filesWorktree.js";
 import { QuickOpen } from "../files/QuickOpen.js";
+import { HuddlePane } from "../huddle/HuddlePane.js";
+import { sessionOfAgent } from "../huddle/huddles.js";
 import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
 import { MobilePane, type MobileReveal } from "../mobile/MobilePane.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
@@ -44,6 +47,7 @@ import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.
 import { usePullRequestPolling } from "../review/pullRequestStore.js";
 import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
+import type { SentNotice } from "../review/SendToAgentButton.js";
 import { getBridge, type NotificationSettings, type ZliBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
@@ -57,26 +61,48 @@ import { createWorktree, ensureCheckout, samePath, startAccountSignIn, startSess
 import { NewAgentDialog, type NewAgentPrefill, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import {
   type AgentSession,
+  agentNameProblem,
   deriveSessions,
   gridLayout,
   type PendingLaunch,
   type SessionMode,
+  sessionAgentName,
+  sessionParents,
+  sessionRenameCommand,
   sessionStopCommands,
   sessionTitle,
 } from "../sessions/sessions.js";
 import { groupFinished, useRunStates } from "../sessions/useRunStates.js";
-import { forgetSession, useWorkbenchState } from "../sessions/workbench.js";
+import {
+  closeProjectAgents,
+  focusProject,
+  forgetSession,
+  forgetStaleBoards,
+  keepPendingLaunch,
+  MIN_DRAWER_HEIGHT,
+  MIN_GRID_HEIGHT,
+  MIN_GRID_WIDTH,
+  openProjectAgents,
+  roomBesideGrid,
+  sessionProjects,
+  useWorkbenchState,
+  type WorkbenchState,
+} from "../sessions/workbench.js";
 import { resolveLaunchDefaults, updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog.js";
+import { AgentReachDialog } from "../setup/AgentReachDialog.js";
+import { AgentTrustDialog } from "../setup/AgentTrustDialog.js";
+import { useAgentReach } from "../setup/agentReach.js";
+import { AGENTS_NOT_TRUSTED, useAgentTrust } from "../setup/agentTrust.js";
 import { themeChoices } from "../theme/customThemes.js";
 import { ThemeEditor } from "../theme/ThemeEditor.js";
 import { useThemeEditor } from "../theme/themeEditorStore.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
-import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
+import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -86,12 +112,24 @@ import { RestartToUpdateDialog } from "../updates/RestartToUpdateDialog.js";
 import { UpdatePill } from "../updates/UpdatePill.js";
 import { busyAgentCount } from "../updates/updateCopy.js";
 import { useUpdates } from "../updates/useUpdates.js";
-import { PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
-import { CloseAgentDialog, DeleteAgentDialog, deletableWorktree, KeepRunDialog } from "./AgentDialogs.js";
+import { MIN_PANEL_WIDTH, PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
+import {
+  CloseAgentDialog,
+  DeleteAgentDialog,
+  deletableWorktree,
+  KeepRunDialog,
+  RenameAgentDialog,
+} from "./AgentDialogs.js";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
-import { DisconnectedState, GridEmptyState, LoadingFilesPane, RuntimeLoadingState } from "./ShellStates.js";
+import {
+  DisconnectedState,
+  GridEmptyState,
+  LoadingFilesPane,
+  ProjectEmptyNotice,
+  RuntimeLoadingState,
+} from "./ShellStates.js";
 import { type SidePane, sidePaneLabel, Topbar } from "./Topbar.js";
 import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
 import { WorktreeDialog } from "./WorktreeDialog.js";
@@ -131,10 +169,24 @@ function WorkspaceApp() {
   const { state: accountsState, accounts } = useAccounts();
   const loadedAccounts = accountsState.status === "ready" ? accounts : undefined;
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
+  /** A project the person just added from this window. It has no worktree yet, so no worktree can stand for it. */
+  const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [sidePane, setSidePane] = useState<SidePane>();
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
+  /** The huddle tab in view in the Huddle panel. */
+  const [huddleId, setHuddleId] = useState<string>();
   const [panelWidth, setPanelWidth] = usePanelWidth(sidePane ?? "files");
   const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
+  const [workspaceBodyRef, workspaceSpace] = useWorkspaceSpace();
+  // The remembered sizes stay as chosen; a smaller window only shrinks what is shown, so they return when it grows.
+  const panelMax = workspaceSpace
+    ? roomBesideGrid(workspaceSpace.width - workspaceSpace.gutter, MIN_PANEL_WIDTH, MIN_GRID_WIDTH)
+    : Number.POSITIVE_INFINITY;
+  const drawerMax = workspaceSpace
+    ? roomBesideGrid(workspaceSpace.height - workspaceSpace.gutter, MIN_DRAWER_HEIGHT, MIN_GRID_HEIGHT)
+    : Number.POSITIVE_INFINITY;
+  const shownPanelWidth = Math.min(panelWidth, panelMax);
+  const shownDrawerHeight = Math.min(workbench.drawerHeight, drawerMax);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [worktreeDialogProject, setWorktreeDialogProject] = useState<ProjectProjection>();
   const [newAgentProject, setNewAgentProject] = useState<ProjectProjection | "default">();
@@ -147,6 +199,7 @@ function WorkspaceApp() {
     action?: { label: string; run(): void };
   }>();
   const showError = useCallback((message: string) => setNotice({ message, tone: "danger" }), []);
+  const showSent = useCallback((sent: SentNotice) => setNotice({ ...sent, tone: "info" }), []);
   const [legacyImportBatchId, setLegacyImportBatchId] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>();
@@ -156,6 +209,7 @@ function WorkspaceApp() {
   const [usageOpen, setUsageOpen] = useState(false);
   const [closeRequest, setCloseRequest] = useState<AgentSession>();
   const [deleteRequest, setDeleteRequest] = useState<AgentSession>();
+  const [renameRequestId, setRenameRequestId] = useState<string>();
   const [actionRequest, setActionRequest] = useState<{
     action: PluginAction;
     pluginName: string;
@@ -182,6 +236,10 @@ function WorkspaceApp() {
   const launching = useRef(new Set<string>());
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
+  const { asking: trustAsking, ensureTrusted, answer: answerTrust } = useAgentTrust(projectionRef);
+  const agentTrustRef = useRef<string>(undefined);
+  const { request: reachAsking, answer: answerReach } = useAgentReach(bridge);
+  const reachRef = useRef(false);
 
   const sessions = useMemo(
     () => (projection ? deriveSessions(projection, workbench.pending, workbench.chats) : []),
@@ -203,6 +261,10 @@ function WorkspaceApp() {
   const tiles = useMemo(
     () => sessions.filter((session) => !workbench.closed.includes(session.sessionId)),
     [sessions, workbench.closed],
+  );
+  const projectOf = useMemo(
+    () => sessionProjects(sessions, projection?.worktrees ?? []),
+    [sessions, projection?.worktrees],
   );
   const backgroundSessionIds = useMemo(
     () =>
@@ -226,6 +288,25 @@ function WorkspaceApp() {
     findWorktree(selectedWorktreeId) ??
     projection?.worktrees.find((worktree) => worktree.status === "ready");
   const contextProject = projection?.projects.find((project) => project.projectId === contextWorktree?.projectId);
+  const selectedProject = projection?.projects.find((project) => project.projectId === selectedProjectId);
+  const contextProjectId = contextProject?.projectId;
+  const lastContextProjectId = useRef(contextProjectId);
+  // Starting or showing work in another project moves the person on from the project they added.
+  useEffect(() => {
+    if (lastContextProjectId.current === contextProjectId) return;
+    lastContextProjectId.current = contextProjectId;
+    if (contextProjectId) setSelectedProjectId((current) => (current === contextProjectId ? current : undefined));
+  }, [contextProjectId]);
+  /** The added project while it still has no agents, so the board and sidebar point at New agent there. */
+  const emptySelectedProject = useMemo(() => {
+    if (!selectedProject || !projection) return undefined;
+    const worktreeIds = new Set<string>(
+      projection.worktrees
+        .filter((worktree) => worktree.projectId === selectedProject.projectId)
+        .map((worktree) => worktree.worktreeId),
+    );
+    return sessions.some((session) => worktreeIds.has(session.worktreeId)) ? undefined : selectedProject;
+  }, [selectedProject, projection, sessions]);
   const hasProjects = (projection?.projects.length ?? 0) > 0;
   /** A folder picked in the Files panel while the focused agent's worktree is not ready. */
   const [filesFolderId, setFilesFolderId] = useState<string>();
@@ -235,8 +316,12 @@ function WorkspaceApp() {
   );
   const pluginActions = usePluginContributions(paletteOpen).actions;
 
+  const activeSessionIdRef = useRef(workbench.activeSessionId);
+  activeSessionIdRef.current = workbench.activeSessionId;
   const focusSession = useCallback(
     (session: AgentSession) => {
+      // Focus coming back to the tile that already had it, as when a dialog closes, keeps the added project.
+      if (session.sessionId !== activeSessionIdRef.current) setSelectedProjectId(undefined);
       setSelectedWorktreeId(session.worktreeId);
       updateWorkbench((state) =>
         state.activeSessionId === session.sessionId &&
@@ -255,6 +340,16 @@ function WorkspaceApp() {
     },
     [updateWorkbench],
   );
+
+  const parents = useMemo(() => sessionParents(sessions), [sessions]);
+  const parentChip = (session: AgentSession) => {
+    const parent = parents.get(session.sessionId);
+    if (!parent || !projection) return undefined;
+    return {
+      label: sessionAgentName(parent) ?? sessionTitle(parent, projection.messages, projection.providers),
+      onOpen: () => focusSession(parent),
+    };
+  };
 
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
@@ -420,7 +515,21 @@ function WorkspaceApp() {
   );
 
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
-  const toggleSidebar = () => updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
+  // Zoomed far in, the window is too narrow to keep the sidebar beside the work, so it starts hidden
+  // there without changing the saved choice for wider windows.
+  const narrow = useNarrowWindow();
+  const [narrowSidebarOpen, setNarrowSidebarOpen] = useState(false);
+  const sidebarOpen = narrow ? narrowSidebarOpen : workbench.sidebarOpen;
+  const toggleSidebar = () =>
+    narrow
+      ? setNarrowSidebarOpen((open) => !open)
+      : updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
+  const hideSidebar = () =>
+    narrow ? setNarrowSidebarOpen(false) : updateWorkbench((state) => ({ ...state, sidebarOpen: false }));
+  const openHuddle = useCallback((next: string) => {
+    setHuddleId(next);
+    setSidePane("huddle");
+  }, []);
   const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
   const openSettings = (section: SettingsSection = "agents") => {
     setPaletteOpen(false);
@@ -473,6 +582,10 @@ function WorkspaceApp() {
       if (mobileAvailable) toggleSidePane("mobile");
     },
     toggleChanges: () => toggleSidePane("review"),
+    toggleHuddle: () => toggleSidePane("huddle"),
+    focusProject: () => {
+      if (contextProject) showOnlyProject(contextProject.projectId);
+    },
     settings: () => openSettings(),
     escape: () => {
       setPaletteOpen(false);
@@ -496,6 +609,8 @@ function WorkspaceApp() {
       if (whatsNewRef.current) updates.dismissWhatsNew();
       const approval = setupApprovalRef.current;
       if (approval) deferSetup(approval);
+      if (agentTrustRef.current) answerTrust(agentTrustRef.current, false);
+      if (reachRef.current) void answerReach(false);
     },
   });
   useEffect(
@@ -510,11 +625,11 @@ function WorkspaceApp() {
   useEffect(() => {
     if (!projection) return;
     const existing = new Set(sessions.filter((session) => !session.pending).map((session) => session.sessionId));
-    const settled = workbench.pending.filter((launch) => existing.has(launch.sessionId));
-    if (settled.length > 0) {
+    const worktreeIds = new Set(projection.worktrees.map((worktree) => worktree.worktreeId));
+    if (workbench.pending.some((launch) => !keepPendingLaunch(launch, existing, worktreeIds))) {
       updateWorkbench((state) => ({
         ...state,
-        pending: state.pending.filter((launch) => !existing.has(launch.sessionId)),
+        pending: state.pending.filter((launch) => keepPendingLaunch(launch, existing, worktreeIds)),
       }));
     }
     for (const launch of workbench.pending) {
@@ -541,13 +656,15 @@ function WorkspaceApp() {
       }
       launching.current.add(launch.sessionId);
       const fork = launch.fork;
-      const forked = fork
-        ? forkWorktree(dispatch, worktree.worktreeId, fork).then(
-            () => undefined,
-            (cause: unknown) =>
-              cause instanceof Error ? cause.message : "The files could not be copied into the new worktree.",
-          )
-        : Promise.resolve(undefined);
+      const forked = ensureTrusted(worktree.projectId).then((trusted) => {
+        if (!trusted) return AGENTS_NOT_TRUSTED;
+        if (!fork) return undefined;
+        return forkWorktree(dispatch, worktree.worktreeId, fork).then(
+          () => undefined,
+          (cause: unknown) =>
+            cause instanceof Error ? cause.message : "The files could not be copied into the new worktree.",
+        );
+      });
       void forked
         .then(
           (failure) =>
@@ -555,9 +672,10 @@ function WorkspaceApp() {
             startSessionAgent(dispatch, projection, {
               provider,
               mode: launch.mode,
-              permissionMode: launch.permissionMode ?? "full-access",
+              permissionMode: launch.permissionMode ?? "supervised",
               ...(launch.model ? { model: launch.model } : {}),
               ...(launch.accountId ? { accountId: launch.accountId } : {}),
+              ...(launch.name ? { name: launch.name } : {}),
               sessionId: launch.sessionId,
               worktreeId: worktree.worktreeId,
               cwd: worktree.path,
@@ -585,7 +703,7 @@ function WorkspaceApp() {
           });
         });
     }
-  }, [dispatch, projection, sessions, updateWorkbench, workbench.pending]);
+  }, [dispatch, ensureTrusted, projection, sessions, updateWorkbench, workbench.pending]);
 
   // A first message goes out once its agent can take input: an idle chat, or a CLI that had time to draw.
   const delivering = useRef(new Set<string>());
@@ -651,6 +769,17 @@ function WorkspaceApp() {
     }));
   }, [projection, sessions, updateWorkbench, workbench.groups]);
 
+  // Remembered boards let go of agents that were deleted or lost their worktree, and of removed projects.
+  const projectIds = useMemo(
+    () => new Set(projection?.projects.map((project) => project.projectId)),
+    [projection?.projects],
+  );
+  useEffect(() => {
+    if (!projection) return;
+    const stale = (state: WorkbenchState) => forgetStaleBoards(state, projectOf, projectIds);
+    if (stale(workbench) === workbench) return;
+    updateWorkbench(stale);
+  }, [projection, projectOf, projectIds, updateWorkbench, workbench]);
   useEffect(() => {
     const finished = workbench.groups.filter((group) => !group.notified && groupFinished(group, runStates));
     if (finished.length === 0) return;
@@ -668,19 +797,58 @@ function WorkspaceApp() {
     });
   }, [runStates, updateWorkbench, workbench.groups]);
 
-  const openProject = async () => {
+  /**
+   * Adds a folder and points the person at their first agent there. From Settings the project is only
+   * selected, so New agent does not open on top of the Settings dialog.
+   */
+  const openProject = async ({ startAgent = true }: { startAgent?: boolean } = {}) => {
     if (!bridge) {
       showError("The desktop bridge is unavailable. Start ZLI from Electron.");
       return;
     }
     const path = await bridge.dialog.openProject();
     if (!path) return;
+    const byPath = (current: RuntimeProjection) => current.projects.find((candidate) => samePath(candidate.path, path));
+    const existing = projectionRef.current ? byPath(projectionRef.current) : undefined;
+    if (existing) {
+      showAddedProject(existing, { startAgent, existing: true });
+      return;
+    }
     const response = await dispatch({
       protocolVersion: 1,
       commandId: makeCommandId(),
       command: { type: "project.register", path },
     });
-    if (response?.accepted === false) showError(response.error.message);
+    if (response?.accepted === false) {
+      // Another window or the CLI can add the same folder between the check above and this command.
+      const added = projectionRef.current ? byPath(projectionRef.current) : undefined;
+      if (added) showAddedProject(added, { startAgent, existing: true });
+      else showError(response.error.message);
+      return;
+    }
+    const registered = ProjectRegisterResult.safeParse(response?.result);
+    const projectId = registered.success ? registered.data.projectId : undefined;
+    const project = await waitForProjection((current) =>
+      projectId ? current.projects.find((candidate) => candidate.projectId === projectId) : byPath(current),
+    );
+    if (project) showAddedProject(project, { startAgent, existing: false });
+  };
+
+  const showAddedProject = (
+    project: ProjectProjection,
+    { startAgent, existing }: { startAgent: boolean; existing: boolean },
+  ) => {
+    setSelectedProjectId(project.projectId);
+    const worktrees = projectionRef.current?.worktrees ?? [];
+    const hasAgents = sessionsRef.current.some((session) =>
+      worktrees.some(
+        (worktree) => worktree.worktreeId === session.worktreeId && worktree.projectId === project.projectId,
+      ),
+    );
+    if (existing) setNotice({ message: `${project.name} is already in ZLI.`, tone: "info" });
+    if (!startAgent || hasAgents) return;
+    setPaletteOpen(false);
+    setNewAgentProject(project);
   };
 
   /** Polls the projection, which catches up with a command a moment after it is accepted. */
@@ -740,7 +908,7 @@ function WorkspaceApp() {
         worktreeId: checkout.worktreeId,
         provider,
         mode: "chat",
-        permissionMode: defaults.permissionMode ?? "full-access",
+        permissionMode: defaults.permissionMode ?? "supervised",
         ...(defaults.provider === provider && defaults.model ? { model: defaults.model } : {}),
         ...(accountId ? { accountId } : {}),
         createdAt: new Date().toISOString(),
@@ -912,6 +1080,7 @@ function WorkspaceApp() {
       ...(request.model ? { model: request.model } : {}),
       ...(request.prompt ? { prompt: request.prompt } : {}),
       ...(request.accountId ? { accountId: request.accountId } : {}),
+      ...(request.name ? { name: request.name } : {}),
       createdAt: new Date().toISOString(),
     };
     if (issueStart) {
@@ -1072,6 +1241,20 @@ function WorkspaceApp() {
     }
   };
 
+  const renameSession = async (session: AgentSession, name: string | null): Promise<string | undefined> => {
+    const command = sessionRenameCommand(session, name);
+    if (!command) return "This agent has not started yet. Try again once it is running.";
+    try {
+      const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
+      if (!response) return "The runtime is not connected.";
+      if (response.accepted === false) return response.error.message;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : "The name could not be saved.";
+    }
+    setRenameRequestId(undefined);
+    return undefined;
+  };
+
   const deleteSession = async (session: AgentSession, removeWorktree: boolean, deleteBranch = false): Promise<void> => {
     setNotice(undefined);
     const worktree = removeWorktree ? findWorktree(session.worktreeId) : undefined;
@@ -1098,6 +1281,15 @@ function WorkspaceApp() {
       ...(deleteBranch ? { deleteBranch: true } : {}),
     });
     if (removed && worktree.worktreeId === selectedWorktreeId) setSelectedWorktreeId(undefined);
+  };
+
+  const renameProject = async (projectId: string, name: string) => {
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeCommandId(),
+      command: { type: "project.rename", projectId, name },
+    });
+    if (response?.accepted === false) showError(response.error.message);
   };
 
   /** Removes a project from ZLI. Its folder, and the folders of its worktrees, stay on disk. */
@@ -1154,6 +1346,19 @@ function WorkspaceApp() {
     return undefined;
   };
 
+  /** Brings forward the tile that holds a huddle member, switching to that chat when it is an earlier one. */
+  const openHuddleAgent = async (agentId: string) => {
+    const session = sessionOfAgent(sessionsRef.current, agentId);
+    if (!session) {
+      showError("This agent is gone. It may have been deleted.");
+      return;
+    }
+    const isEarlierChat =
+      session.thread?.threadId !== agentId && session.threads?.some((thread) => thread.threadId === agentId);
+    if (isEarlierChat) await openChat(session, agentId);
+    showAgent(session.sessionId);
+  };
+
   const closeTileNow = (session: AgentSession) =>
     updateWorkbench((state) => ({
       ...state,
@@ -1206,16 +1411,21 @@ function WorkspaceApp() {
     if (!isSelectableProvider(session.provider)) return Promise.resolve("This agent is not supported.");
     const model = session.thread?.model ?? session.terminal?.agent?.model;
     const accountId = sessionAccountId(session);
-    const started = startSessionAgent(dispatch, projection, {
-      provider: session.provider,
-      mode,
-      permissionMode: session.thread?.permissionMode ?? session.terminal?.agent?.permissionMode ?? "full-access",
-      ...(model ? { model } : {}),
-      ...(accountId ? { accountId } : {}),
-      sessionId: session.sessionId,
-      worktreeId: worktree.worktreeId,
-      cwd: worktree.path,
-    });
+    const provider = session.provider;
+    const started = ensureTrusted(worktree.projectId).then((trusted) =>
+      trusted
+        ? startSessionAgent(dispatch, projection, {
+            provider,
+            mode,
+            permissionMode: session.thread?.permissionMode ?? session.terminal?.agent?.permissionMode ?? "full-access",
+            ...(model ? { model } : {}),
+            ...(accountId ? { accountId } : {}),
+            sessionId: session.sessionId,
+            worktreeId: worktree.worktreeId,
+            cwd: worktree.path,
+          })
+        : AGENTS_NOT_TRUSTED,
+    );
     // A chat started while an earlier one is on screen is the newest, so the tile shows it instead.
     return started.then((failure) => {
       if (!failure && mode === "chat") {
@@ -1376,6 +1586,31 @@ function WorkspaceApp() {
     }
   };
 
+  /**
+   * Shows only the project's agents, as they were when it last left the board. The panels follow the
+   * agent it focuses.
+   */
+  const showOnlyProject = (projectId: string) => {
+    const next = focusProject(workbench, projectOf, projectId);
+    if (next === workbench) return;
+    updateWorkbench((state) => focusProject(state, projectOf, projectId));
+    const focused = sessions.find((session) => session.sessionId === next.activeSessionId);
+    if (focused) setSelectedWorktreeId(focused.worktreeId);
+  };
+  /** Bulk tile changes for one project. None of them stops an agent, so none asks first. */
+  const projectAgentActions = (projectId: string): ProjectAgentActions => {
+    const changes = (change: typeof focusProject) => change(workbench, projectOf, projectId) !== workbench;
+    return {
+      focus: changes(focusProject) ? () => showOnlyProject(projectId) : undefined,
+      open: changes(openProjectAgents)
+        ? () => updateWorkbench((state) => openProjectAgents(state, projectOf, projectId))
+        : undefined,
+      close: changes(closeProjectAgents)
+        ? () => updateWorkbench((state) => closeProjectAgents(state, projectOf, projectId))
+        : undefined,
+    };
+  };
+
   const deferSetup = (setup: WorktreeSetupProjection) =>
     setDeferredSetups((current) => [...current, setupDeferKey(setup)]);
   const reviewSetup = (worktreeId: string) =>
@@ -1383,6 +1618,20 @@ function WorkspaceApp() {
   const showSetupOutput = (worktreeId: string) => {
     focusWorktree(worktreeId);
     updateWorkbench((state) => ({ ...state, drawerOpen: true }));
+  };
+  const trustAgents = async (projectId: string): Promise<string | undefined> => {
+    try {
+      const response = await dispatch({
+        protocolVersion: 1,
+        commandId: makeCommandId(),
+        command: { type: "project.agents", projectId, trusted: true },
+      });
+      if (response?.accepted === false) return response.error.message;
+      answerTrust(projectId, true);
+      return undefined;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : "The answer could not be saved.";
+    }
   };
   const respondToSetup = async (
     setup: WorktreeSetupProjection,
@@ -1410,7 +1659,7 @@ function WorkspaceApp() {
       ? [
           {
             label: "New agent",
-            icon: "plus" as const,
+            icon: "agentNew" as const,
             group: "Create" as const,
             shortcut: shortcuts.newAgent,
             action: () => openNewAgent(),
@@ -1521,6 +1770,17 @@ function WorkspaceApp() {
       group: "Go to",
       action: () => setPromptManager({ projectId: contextProject?.projectId }),
     },
+    ...(contextProject && focusProject(workbench, projectOf, contextProject.projectId) !== workbench
+      ? [
+          {
+            label: "Show only this project",
+            icon: "eye" as const,
+            group: "View" as const,
+            shortcut: shortcuts.focusProject,
+            action: () => showOnlyProject(contextProject.projectId),
+          },
+        ]
+      : []),
     {
       label: "Toggle terminal",
       icon: "terminal",
@@ -1574,12 +1834,44 @@ function WorkspaceApp() {
       action: () => setSidePane("review"),
     },
     {
-      label: workbench.sidebarOpen ? "Hide sidebar" : "Show sidebar",
+      label: "Focus huddle",
+      icon: "users",
+      group: "View",
+      shortcut: shortcuts.toggleHuddle,
+      action: () => setSidePane("huddle"),
+    },
+    {
+      label: sidebarOpen ? "Hide sidebar" : "Show sidebar",
       icon: "panelLeft",
       group: "View",
       shortcut: shortcuts.toggleSidebar,
       action: toggleSidebar,
     },
+    ...(bridge?.app.zoom
+      ? [
+          {
+            label: "Zoom in",
+            icon: "zoomIn" as const,
+            group: "View" as const,
+            shortcut: "Mod+=",
+            action: () => void bridge.app.zoom?.("in"),
+          },
+          {
+            label: "Zoom out",
+            icon: "zoomOut" as const,
+            group: "View" as const,
+            shortcut: "Mod+-",
+            action: () => void bridge.app.zoom?.("out"),
+          },
+          {
+            label: "Actual size",
+            icon: "search" as const,
+            group: "View" as const,
+            shortcut: "Mod+0",
+            action: () => void bridge.app.zoom?.("reset"),
+          },
+        ]
+      : []),
     { label: "Export support bundle", icon: "download", group: "App", action: () => void exportSupportBundle() },
     { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
     { label: "Settings", icon: "settings", group: "App", shortcut: shortcuts.settings, action: () => openSettings() },
@@ -1642,6 +1934,8 @@ function WorkspaceApp() {
         }))
       : []),
   ];
+  // Looked up by id so the dialog follows the agent as it changes, and closes if it is deleted.
+  const renaming = renameRequestId ? sessions.find((session) => session.sessionId === renameRequestId) : undefined;
   const otherOverlayOpen =
     paletteOpen ||
     quickOpen ||
@@ -1653,6 +1947,7 @@ function WorkspaceApp() {
     usageOpen ||
     closeRequest !== undefined ||
     deleteRequest !== undefined ||
+    renaming !== undefined ||
     actionRequest !== undefined ||
     handoffRequest !== undefined ||
     workbench.groups.some((group) => group.groupId === compareGroupId) ||
@@ -1663,11 +1958,23 @@ function WorkspaceApp() {
   // Waits behind other dialogs so it never stacks on top of one.
   const setupApproval = otherOverlayOpen ? undefined : nextSetupApproval(projection, deferredSetups);
   setupApprovalRef.current = setupApproval;
+  // Agents wait for this answer, and their worktree's setup comes first.
+  const agentTrustProjectId = otherOverlayOpen || setupApproval ? undefined : trustAsking;
+  agentTrustRef.current = agentTrustProjectId;
+  // An agent waits on this too, behind the questions that block an agent from starting.
+  const reachRequest = otherOverlayOpen || setupApproval || agentTrustProjectId ? undefined : reachAsking;
+  reachRef.current = reachRequest !== undefined;
   // What's new waits behind everything else, setup approvals included.
-  const whatsNew = otherOverlayOpen || setupApproval ? undefined : updates.whatsNew;
+  const whatsNew =
+    otherOverlayOpen || setupApproval || agentTrustProjectId || reachRequest ? undefined : updates.whatsNew;
   whatsNewRef.current = whatsNew !== undefined;
-  const overlayOpen = otherOverlayOpen || setupApproval !== undefined || whatsNew !== undefined;
-  const { columns, rows } = gridLayout(visibleTiles.length, gridWidth);
+  const overlayOpen =
+    otherOverlayOpen ||
+    setupApproval !== undefined ||
+    agentTrustProjectId !== undefined ||
+    reachRequest !== undefined ||
+    whatsNew !== undefined;
+  const { columns, rows, tall } = gridLayout(visibleTiles.length, gridWidth);
   const handoffSession = handoffRequest
     ? sessions.find((session) => session.sessionId === handoffRequest.sessionId)
     : undefined;
@@ -1676,8 +1983,8 @@ function WorkspaceApp() {
 
   return (
     <FileIndexProvider onOpenFile={openFile}>
-      <div className={`app-shell${workbench.sidebarOpen ? "" : " is-sidebar-hidden"}`}>
-        {workbench.sidebarOpen ? (
+      <div className={`app-shell${sidebarOpen ? "" : " is-sidebar-hidden"}`}>
+        {sidebarOpen ? (
           <Sidebar
             projection={projection}
             sessions={sessions}
@@ -1685,11 +1992,18 @@ function WorkspaceApp() {
             activeSessionId={activeSession?.sessionId}
             backgroundSessionIds={backgroundSessionIds}
             activeWorktreeId={contextWorktree?.worktreeId}
-            onSelectSession={focusSession}
+            currentProjectId={selectedProject?.projectId ?? contextProject?.projectId}
+            selectedProjectId={selectedProject?.projectId}
+            onSelectSession={(session) => {
+              setSelectedProjectId(undefined);
+              focusSession(session);
+            }}
             onStopSession={(session) => void stopSession(session)}
             onDeleteSession={setDeleteRequest}
+            onRenameSession={(session) => setRenameRequestId(session.sessionId)}
             onSelectWorktree={(worktree) => {
               setNotice(undefined);
+              if (worktree.projectId !== selectedProjectId) setSelectedProjectId(undefined);
               setSelectedWorktreeId(worktree.worktreeId);
               const latest = tiles.filter((session) => session.worktreeId === worktree.worktreeId).at(-1);
               updateWorkbench((state) => ({ ...state, activeSessionId: latest?.sessionId }));
@@ -1699,21 +2013,32 @@ function WorkspaceApp() {
             onCreateWorktree={(project) =>
               setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])
             }
+            onRemoveProject={async (projectId) => {
+              const name = projection?.projects.find((project) => project.projectId === projectId)?.name ?? "project";
+              const problem = await removeProject(projectId);
+              if (!problem)
+                setNotice({ message: `Removed ${name} from ZLI. Its folder is still on disk.`, tone: "info" });
+              return problem;
+            }}
+            onRenameProject={(projectId, name) => void renameProject(projectId, name)}
             onWorktreeAction={(worktree, action) => void worktreeAction(worktree, action)}
             onReviewSetup={(worktree) => reviewSetup(worktree.worktreeId)}
             onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}
             onOpenHelp={() => setHelpOpen(true)}
-            onOpenSettings={() => openSettings()}
+            onOpenSettings={openSettings}
             onOpenUsage={openUsage}
-            onHideSidebar={() => updateWorkbench((state) => ({ ...state, sidebarOpen: false }))}
+            onHideSidebar={hideSidebar}
             runGroups={workbench.groups}
             runStates={runStates}
             onCompareRuns={(group) => setCompareGroupId(group.groupId)}
+            onOpenHuddle={openHuddle}
+            onHuddleError={showError}
+            projectAgentActions={projectAgentActions}
           />
         ) : null}
         <main className="main-workspace">
           <Topbar
-            sidebarOpen={workbench.sidebarOpen}
+            sidebarOpen={sidebarOpen}
             project={contextWorktree ? contextProject : undefined}
             worktree={contextWorktree}
             hasProjects={hasProjects}
@@ -1766,76 +2091,94 @@ function WorkspaceApp() {
           ) : !projection ? (
             <RuntimeLoadingState />
           ) : (
-            <div className="workspace-body">
+            <div className="workspace-body" ref={workspaceBodyRef}>
               <div className="workbench-column">
                 <section className="agent-grid-region" aria-label="Agents" ref={gridRegionRef}>
                   {visibleTiles.length === 0 ? (
                     <GridEmptyState
                       projection={projection}
+                      project={emptySelectedProject}
                       closedCount={sessions.length}
                       onOpenProject={() => void openProject()}
                       onNewAgent={() => openNewAgent()}
                       onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
                     />
                   ) : (
-                    <div
-                      className="agent-grid"
-                      style={{
-                        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                        // Rows keep a usable height; past that the grid scrolls.
-                        gridTemplateRows: `repeat(${rows}, minmax(${rows > 1 ? 260 : 0}px, 1fr))`,
-                      }}
-                    >
-                      {visibleTiles.map((session) => (
-                        <AgentTile
-                          key={session.sessionId}
-                          projection={projection}
-                          session={session}
-                          accountLabel={accountLabel(loadedAccounts, sessionAccountId(session))}
-                          worktree={findWorktree(session.worktreeId)}
-                          active={session.sessionId === activeSession?.sessionId}
-                          maximized={maximized?.sessionId === session.sessionId}
-                          canMaximize={tiles.length > 1}
-                          onFocus={() => focusSession(session)}
-                          onToggleMaximize={() =>
-                            updateWorkbench((state) => ({
-                              ...state,
-                              maximizedSessionId:
-                                state.maximizedSessionId === session.sessionId ? undefined : session.sessionId,
-                            }))
-                          }
-                          onStop={() => void stopSession(session)}
-                          onClose={() => closeTile(session)}
-                          onOpenDiff={(path) => {
-                            focusSession(session);
-                            setSidePane("review");
-                            setReviewFocus(path ? { path, nonce: Date.now() } : undefined);
-                          }}
-                          onStart={(mode) => startInSession(session, mode)}
-                          onRetryPending={() => retryPending(session)}
-                          onDismissPending={() => closeTileNow(session)}
-                          onReviewSetup={() => reviewSetup(session.worktreeId)}
-                          onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
-                          onHandoff={handoffTarget(session) ? () => setHandoffRequest(session) : undefined}
-                          onNewChat={
-                            newChatTarget(session) ? (withContext) => startNewChat(session, withContext) : undefined
-                          }
-                          canCarryContext={canHandOff(session, projection.messages)}
-                          newChatRequest={
-                            newChatRequest?.sessionId === session.sessionId ? newChatRequest.nonce : undefined
-                          }
-                          newChatShortcut={shortcuts.newChat}
-                          onOpenChat={(threadId) => void openChat(session, threadId)}
-                          onOpenConnectors={openConnectors}
-                          run={runPosition(workbench.groups, session.sessionId)}
-                          onStartRuns={
-                            runPosition(workbench.groups, session.sessionId)
-                              ? undefined
-                              : (request) => startRuns(session, request)
-                          }
+                    <>
+                      {emptySelectedProject ? (
+                        <ProjectEmptyNotice
+                          project={emptySelectedProject}
+                          onNewAgent={() => openNewAgent(emptySelectedProject)}
+                          onDismiss={() => setSelectedProjectId(undefined)}
                         />
-                      ))}
-                    </div>
+                      ) : null}
+                      <div
+                        className="agent-grid"
+                        style={{
+                          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                          // Rows keep a usable height; past that the grid scrolls.
+                          gridTemplateRows: `repeat(${rows}, minmax(${rows > 1 ? 260 : 0}px, 1fr))`,
+                        }}
+                      >
+                        {visibleTiles.map((session, index) => (
+                          <AgentTile
+                            key={session.sessionId}
+                            projection={projection}
+                            session={session}
+                            tall={index < tall}
+                            accountLabel={accountLabel(loadedAccounts, sessionAccountId(session))}
+                            worktree={findWorktree(session.worktreeId)}
+                            active={session.sessionId === activeSession?.sessionId}
+                            maximized={maximized?.sessionId === session.sessionId}
+                            canMaximize={tiles.length > 1}
+                            onFocus={() => focusSession(session)}
+                            onToggleMaximize={() =>
+                              updateWorkbench((state) => ({
+                                ...state,
+                                maximizedSessionId:
+                                  state.maximizedSessionId === session.sessionId ? undefined : session.sessionId,
+                              }))
+                            }
+                            onStop={() => void stopSession(session)}
+                            onClose={() => closeTile(session)}
+                            onRename={
+                              sessionRenameCommand(session, null)
+                                ? () => setRenameRequestId(session.sessionId)
+                                : undefined
+                            }
+                            startedBy={parentChip(session)}
+                            onOpenHuddle={openHuddle}
+                            onOpenDiff={(path) => {
+                              focusSession(session);
+                              setSidePane("review");
+                              setReviewFocus(path ? { path, nonce: Date.now() } : undefined);
+                            }}
+                            onStart={(mode) => startInSession(session, mode)}
+                            onRetryPending={() => retryPending(session)}
+                            onDismissPending={() => closeTileNow(session)}
+                            onReviewSetup={() => reviewSetup(session.worktreeId)}
+                            onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
+                            onHandoff={handoffTarget(session) ? () => setHandoffRequest(session) : undefined}
+                            onNewChat={
+                              newChatTarget(session) ? (withContext) => startNewChat(session, withContext) : undefined
+                            }
+                            canCarryContext={canHandOff(session, projection.messages)}
+                            newChatRequest={
+                              newChatRequest?.sessionId === session.sessionId ? newChatRequest.nonce : undefined
+                            }
+                            newChatShortcut={shortcuts.newChat}
+                            onOpenChat={(threadId) => void openChat(session, threadId)}
+                            onOpenConnectors={openConnectors}
+                            run={runPosition(workbench.groups, session.sessionId)}
+                            onStartRuns={
+                              runPosition(workbench.groups, session.sessionId)
+                                ? undefined
+                                : (request) => startRuns(session, request)
+                            }
+                          />
+                        ))}
+                      </div>
+                    </>
                   )}
                 </section>
                 {workbench.drawerOpen ? (
@@ -1843,7 +2186,8 @@ function WorkspaceApp() {
                     projection={projection}
                     worktree={contextWorktree}
                     sessionId={activeSession?.sessionId}
-                    height={workbench.drawerHeight}
+                    height={shownDrawerHeight}
+                    maxHeight={drawerMax}
                     onHeightChange={(drawerHeight) => updateWorkbench((state) => ({ ...state, drawerHeight }))}
                     onClose={() => updateWorkbench((state) => ({ ...state, drawerOpen: false }))}
                   />
@@ -1851,11 +2195,11 @@ function WorkspaceApp() {
               </div>
               {sidePane ? (
                 <>
-                  <PanelResizer width={panelWidth} onChange={setPanelWidth} />
+                  <PanelResizer width={shownPanelWidth} max={panelMax} onChange={setPanelWidth} />
                   <aside
                     className="tool-panel"
                     aria-label={`${sidePaneLabel[sidePane]} panel`}
-                    style={{ width: panelWidth }}
+                    style={{ width: shownPanelWidth }}
                   >
                     {sidePane === "files" ? (
                       <Suspense fallback={<LoadingFilesPane />}>
@@ -1879,19 +2223,35 @@ function WorkspaceApp() {
                         reveal={browserReveal}
                         openRequest={browserOpen}
                         onShowAgent={showAgent}
+                        onNotice={showSent}
                         projects={projection?.projects}
                         onOpenProject={openBrowserInProject}
+                      />
+                    ) : sidePane === "huddle" ? (
+                      <HuddlePane
+                        projection={projection}
+                        selectedId={huddleId}
+                        onSelect={setHuddleId}
+                        onOpenAgent={(agentId) => void openHuddleAgent(agentId)}
                       />
                     ) : sidePane === "mobile" ? (
                       <MobilePane
                         reveal={mobileReveal}
                         devServers={mobileDevServers}
+                        worktreeId={contextWorktree?.worktreeId}
+                        worktreeName={contextWorktree?.branch}
                         popOutRequest={mobilePopOutRequest}
                         onPopOutRequestDone={() => setMobilePopOutRequest(undefined)}
+                        onOpenTerminal={() => updateWorkbench((state) => ({ ...state, drawerOpen: true }))}
                       />
                     ) : (
                       <Suspense fallback={<LoadingState label="Loading the changes" />}>
-                        <ReviewPane worktree={contextWorktree} focus={reviewFocus} onShowAgent={showAgent} />
+                        <ReviewPane
+                          worktree={contextWorktree}
+                          focus={reviewFocus}
+                          onShowAgent={showAgent}
+                          onNotice={showSent}
+                        />
                       </Suspense>
                     )}
                   </aside>
@@ -1952,7 +2312,7 @@ function WorkspaceApp() {
             updates={updates}
             onRestartToUpdate={restartToUpdate}
             onSignIn={signInAccount}
-            onAddProject={() => void openProject()}
+            onAddProject={() => void openProject({ startAgent: false })}
             onRemoveProject={removeProject}
             onClose={() => setSettingsSection(undefined)}
           />
@@ -1970,7 +2330,9 @@ function WorkspaceApp() {
         {closeRequest && projection && (
           <CloseAgentDialog
             title={sessionTitle(closeRequest, projection.messages, projection.providers)}
-            provider={providerDisplayName(closeRequest.provider, projection.providers)}
+            provider={
+              sessionAgentName(closeRequest) ?? providerDisplayName(closeRequest.provider, projection.providers)
+            }
             onStopAndClose={() => {
               const session = closeRequest;
               setCloseRequest(undefined);
@@ -1988,7 +2350,9 @@ function WorkspaceApp() {
         {deleteRequest && projection && (
           <DeleteAgentDialog
             title={sessionTitle(deleteRequest, projection.messages, projection.providers)}
-            provider={providerDisplayName(deleteRequest.provider, projection.providers)}
+            provider={
+              sessionAgentName(deleteRequest) ?? providerDisplayName(deleteRequest.provider, projection.providers)
+            }
             running={sessionStopCommands(deleteRequest).length > 0}
             worktree={deletableWorktree(projection, sessions, deleteRequest)}
             onDelete={(removeWorktree) => {
@@ -1999,6 +2363,17 @@ function WorkspaceApp() {
             onCancel={() => setDeleteRequest(undefined)}
           />
         )}
+        {renaming && projection ? (
+          <RenameAgentDialog
+            current={sessionAgentName(renaming)}
+            agent={renameSubtitle(renaming, projection)}
+            problem={(name) =>
+              agentNameProblem(projection, findWorktree(renaming.worktreeId)?.projectId, name, renaming)
+            }
+            onRename={(name) => renameSession(renaming, name)}
+            onCancel={() => setRenameRequestId(undefined)}
+          />
+        ) : null}
         {actionRequest ? (
           <PluginActionDialog
             action={actionRequest.action}
@@ -2065,7 +2440,9 @@ function WorkspaceApp() {
           <NewAgentDialog
             projection={projection}
             initialProject={
-              newAgentProject === "default" ? (contextProject ?? projection.projects[0]) : newAgentProject
+              newAgentProject === "default"
+                ? (selectedProject ?? contextProject ?? projection.projects[0])
+                : newAgentProject
             }
             initialWorktreeId={selectedWorktreeId ?? contextWorktree?.worktreeId}
             prefill={issueStart?.prefill}
@@ -2096,6 +2473,10 @@ function WorkspaceApp() {
                 });
                 setNewAgentProject(project);
               }}
+              onStartWithoutIssue={(project) => {
+                setIssuesProject(undefined);
+                setNewAgentProject(project);
+              }}
             />
           </Suspense>
         ) : null}
@@ -2117,6 +2498,17 @@ function WorkspaceApp() {
             onRespond={(decision) => respondToSetup(setupApproval, decision)}
             onDefer={() => deferSetup(setupApproval)}
           />
+        ) : null}
+        {agentTrustProjectId && projection ? (
+          <AgentTrustDialog
+            key={agentTrustProjectId}
+            project={projection.projects.find((project) => project.projectId === agentTrustProjectId)}
+            onTrust={() => trustAgents(agentTrustProjectId)}
+            onDecline={() => answerTrust(agentTrustProjectId, false)}
+          />
+        ) : null}
+        {reachRequest ? (
+          <AgentReachDialog key={reachRequest.requestId} request={reachRequest} onAnswer={answerReach} />
         ) : null}
         {restartConfirm && readyUpdate ? (
           <RestartToUpdateDialog
@@ -2171,6 +2563,13 @@ function notificationCommands(
   ];
 }
 
+/** The agent's task and provider. A chat with no messages yet is titled by its provider, so that shows once. */
+function renameSubtitle(session: AgentSession, projection: RuntimeProjection): string {
+  const provider = providerDisplayName(session.provider, projection.providers);
+  const title = sessionTitle(session, projection.messages, projection.providers);
+  return title === provider ? provider : `${title} · ${provider}`;
+}
+
 /** The content width of an element, kept current as it resizes. */
 function useElementWidth<T extends HTMLElement>(): [(element: T | null) => void, number | undefined] {
   const [width, setWidth] = useState<number>();
@@ -2183,4 +2582,55 @@ function useElementWidth<T extends HTMLElement>(): [(element: T | null) => void,
     return () => observer.disconnect();
   }, []);
   return [ref, width];
+}
+
+type WorkspaceSpace = { width: number; height: number; gutter: number };
+
+/** The content box the agent grid shares with the terminal drawer and the side panel, and the gutter between them. */
+function useWorkspaceSpace(): [(element: HTMLElement | null) => void, WorkspaceSpace | undefined] {
+  const [space, setSpace] = useState<WorkspaceSpace>();
+  const ref = useCallback((element: HTMLElement | null) => {
+    if (!element) return;
+    const measure = () => {
+      // An element that is not laid out (as in jsdom) has no size to fit panels into.
+      if (element.clientWidth === 0 && element.clientHeight === 0) return;
+      const style = getComputedStyle(element);
+      const next = {
+        width: Math.floor(
+          element.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
+        ),
+        height: Math.floor(
+          element.clientHeight - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom),
+        ),
+        gutter: Number.parseFloat(style.getPropertyValue("--zli-gutter")) || 0,
+      };
+      setSpace((current) =>
+        current?.width === next.width && current.height === next.height && current.gutter === next.gutter
+          ? current
+          : next,
+      );
+    };
+    // Measuring on attach, during the commit, means a remembered size that no longer fits is never painted.
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, space];
+}
+
+const NARROW_WINDOW = "(max-width: 720px)";
+
+/** Whether the window is too narrow for the sidebar and the work side by side, which zooming in can cause. */
+function useNarrowWindow(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      if (typeof window.matchMedia !== "function") return () => undefined;
+      const query = window.matchMedia(NARROW_WINDOW);
+      query.addEventListener("change", onChange);
+      return () => query.removeEventListener("change", onChange);
+    },
+    () => typeof window.matchMedia === "function" && window.matchMedia(NARROW_WINDOW).matches,
+  );
 }

@@ -1,0 +1,507 @@
+$ cd android && ./gradlew :app:assembleDebug --console=plain
+Starting a Gradle Daemon (subsequent builds will be faster)
+Configuration on demand is an incubating feature.
+
+> Configure project :app
+ ℹ️  Applying gradle plugin 'expo-dev-launcher-gradle-plugin' (expo-dev-launcher@5.0.17)
+
+> Configure project :expo
+
+Using expo modules
+  - expo-modules-core (2.1.0)
+  - expo-constants (17.0.3)
+  - expo-asset (11.0.1)
+  - expo-file-system (18.0.4)
+  - expo-font (13.0.1)
+  - expo-keep-awake (14.0.1)
+  - expo-linking (7.0.3)
+  - expo-splash-screen (0.29.13)
+  - expo-image (2.0.3)
+  - expo-haptics (14.0.0)
+  - expo-dev-client (5.0.4)
+  - expo-dev-launcher (5.0.17)
+  - expo-dev-menu (6.0.12)
+  - expo-dev-menu-interface (1.9.2)
+  - expo-json-utils (0.14.0)
+  - expo-manifests (0.15.4)
+  - expo-updates-interface (1.0.0)
+  - expo-system-ui (4.0.4)
+
+[ExpoRootProject] Using the following versions:
+  - buildTools: 35.0.0
+  - minSdk: 24
+  - compileSdk: 35
+  - targetSdk: 34
+  - ndk: 26.1.10909125
+  - kotlin: 1.9.24
+  - ksp: 1.9.24-1.0.20
+
+> Configure project :react-native-reanimated
+Android gradle plugin: 8.6.0
+Gradle: 8.10.2
+
+> Task :expo:preBuild UP-TO-DATE
+> Task :expo:preDebugBuild UP-TO-DATE
+> Task :expo:writeDebugAarMetadata UP-TO-DATE
+> Task :expo:generateDebugResValues UP-TO-DATE
+> Task :expo:generateDebugResources UP-TO-DATE
+> Task :expo:packageDebugResources UP-TO-DATE
+> Task :expo:processDebugManifest UP-TO-DATE
+> Task :expo:compileDebugLibraryResources UP-TO-DATE
+> Task :expo:parseDebugLocalResources UP-TO-DATE
+> Task :expo:generateDebugRFile UP-TO-DATE
+> Task :expo:generateDebugBuildConfig UP-TO-DATE
+> Task :expo:javaPreCompileDebug UP-TO-DATE
+> Task :expo:compileDebugKotlin
+w: file:///home/person/app/node_modules/expo/android/src/main/java/expo/modules/expo/Utils.kt:62:28 'constructor Handler()' is deprecated. Deprecated in Java
+> Task :expo:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+> Task :expo:bundleLibCompileToJarDebug
+> Task :expo:mergeDebugShaders UP-TO-DATE
+> Task :expo:compileDebugShaders NO-SOURCE
+> Task :expo:generateDebugAssets UP-TO-DATE
+> Task :expo:mergeDebugAssets UP-TO-DATE
+> Task :expo:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo:mergeDebugNativeLibs NO-SOURCE
+> Task :expo:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo:prepareDebugArtProfile UP-TO-DATE
+> Task :expo:bundleLibRuntimeToJarDebug
+> Task :expo-modules-core:preBuild UP-TO-DATE
+> Task :expo-modules-core:preDebugBuild UP-TO-DATE
+> Task :expo-modules-core:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-modules-core:generateDebugResValues UP-TO-DATE
+> Task :expo-modules-core:generateDebugResources UP-TO-DATE
+> Task :expo-modules-core:packageDebugResources UP-TO-DATE
+> Task :expo-modules-core:processDebugManifest UP-TO-DATE
+> Task :expo-modules-core:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-modules-core:parseDebugLocalResources UP-TO-DATE
+> Task :expo-modules-core:generateDebugRFile UP-TO-DATE
+> Task :expo-modules-core:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-modules-core:javaPreCompileDebug UP-TO-DATE
+> Task :expo-modules-core:compileDebugKotlin
+> Task :expo-modules-core:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+> Task :expo-modules-core:bundleLibCompileToJarDebug
+> Task :expo-modules-core:mergeDebugShaders UP-TO-DATE
+> Task :expo-modules-core:compileDebugShaders NO-SOURCE
+> Task :expo-modules-core:generateDebugAssets UP-TO-DATE
+> Task :expo-modules-core:mergeDebugAssets UP-TO-DATE
+> Task :expo-modules-core:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-modules-core:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-modules-core:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-modules-core:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-modules-core:bundleLibRuntimeToJarDebug
+> Task :expo-constants:preBuild UP-TO-DATE
+> Task :expo-constants:preDebugBuild UP-TO-DATE
+> Task :expo-constants:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-constants:generateDebugResValues UP-TO-DATE
+> Task :expo-constants:generateDebugResources UP-TO-DATE
+> Task :expo-constants:packageDebugResources UP-TO-DATE
+> Task :expo-constants:processDebugManifest UP-TO-DATE
+> Task :expo-constants:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-constants:parseDebugLocalResources UP-TO-DATE
+> Task :expo-constants:generateDebugRFile UP-TO-DATE
+> Task :expo-constants:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-constants:javaPreCompileDebug UP-TO-DATE
+> Task :expo-constants:compileDebugKotlin
+w: file:///home/person/app/node_modules/expo-constants/android/src/main/java/expo/modules/constants/ModuleRegistry.kt:123:36 'getter for uiImplementation: UIImplementation!' is deprecated. Deprecated in Java
+w: file:///home/person/app/node_modules/expo-constants/android/src/main/java/expo/modules/constants/ConstantsService.kt:151:14 'getter for reactNativeHost: ReactNativeHost' is deprecated. Deprecated in Java
+> Task :expo-constants:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+> Task :expo-constants:bundleLibCompileToJarDebug
+> Task :expo-constants:mergeDebugShaders UP-TO-DATE
+> Task :expo-constants:compileDebugShaders NO-SOURCE
+> Task :expo-constants:generateDebugAssets UP-TO-DATE
+> Task :expo-constants:mergeDebugAssets UP-TO-DATE
+> Task :expo-constants:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-constants:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-constants:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-constants:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-constants:bundleLibRuntimeToJarDebug
+> Task :expo-asset:preBuild UP-TO-DATE
+> Task :expo-asset:preDebugBuild UP-TO-DATE
+> Task :expo-asset:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-asset:generateDebugResValues UP-TO-DATE
+> Task :expo-asset:generateDebugResources UP-TO-DATE
+> Task :expo-asset:packageDebugResources UP-TO-DATE
+> Task :expo-asset:processDebugManifest UP-TO-DATE
+> Task :expo-asset:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-asset:parseDebugLocalResources UP-TO-DATE
+> Task :expo-asset:generateDebugRFile UP-TO-DATE
+> Task :expo-asset:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-asset:javaPreCompileDebug UP-TO-DATE
+> Task :expo-asset:compileDebugKotlin
+> Task :expo-asset:compileDebugJavaWithJavac
+> Task :expo-asset:bundleLibCompileToJarDebug
+> Task :expo-asset:mergeDebugShaders UP-TO-DATE
+> Task :expo-asset:compileDebugShaders NO-SOURCE
+> Task :expo-asset:generateDebugAssets UP-TO-DATE
+> Task :expo-asset:mergeDebugAssets UP-TO-DATE
+> Task :expo-asset:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-asset:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-asset:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-asset:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-asset:bundleLibRuntimeToJarDebug
+> Task :expo-file-system:preBuild UP-TO-DATE
+> Task :expo-file-system:preDebugBuild UP-TO-DATE
+> Task :expo-file-system:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-file-system:generateDebugResValues UP-TO-DATE
+> Task :expo-file-system:generateDebugResources UP-TO-DATE
+> Task :expo-file-system:packageDebugResources UP-TO-DATE
+> Task :expo-file-system:processDebugManifest UP-TO-DATE
+> Task :expo-file-system:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-file-system:parseDebugLocalResources UP-TO-DATE
+> Task :expo-file-system:generateDebugRFile UP-TO-DATE
+> Task :expo-file-system:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-file-system:javaPreCompileDebug UP-TO-DATE
+> Task :expo-file-system:compileDebugKotlin
+w: file:///home/person/app/node_modules/expo-file-system/android/src/main/java/expo/modules/filesystem/Utils.kt:109:13 'onCatalystInstanceDestroy(): Unit' is deprecated. Deprecated in Java
+w: file:///home/person/app/node_modules/expo-file-system/android/src/main/java/expo/modules/filesystem/Utils.kt:331:26 'getter for reactNativeHost: ReactNativeHost' is deprecated. Deprecated in Java
+> Task :expo-file-system:compileDebugJavaWithJavac
+> Task :expo-file-system:bundleLibCompileToJarDebug
+> Task :expo-file-system:mergeDebugShaders UP-TO-DATE
+> Task :expo-file-system:compileDebugShaders NO-SOURCE
+> Task :expo-file-system:generateDebugAssets UP-TO-DATE
+> Task :expo-file-system:mergeDebugAssets UP-TO-DATE
+> Task :expo-file-system:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-file-system:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-file-system:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-file-system:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-file-system:bundleLibRuntimeToJarDebug
+> Task :expo-font:preBuild UP-TO-DATE
+> Task :expo-font:preDebugBuild UP-TO-DATE
+> Task :expo-font:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-font:generateDebugResValues UP-TO-DATE
+> Task :expo-font:generateDebugResources UP-TO-DATE
+> Task :expo-font:packageDebugResources UP-TO-DATE
+> Task :expo-font:processDebugManifest UP-TO-DATE
+> Task :expo-font:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-font:parseDebugLocalResources UP-TO-DATE
+> Task :expo-font:generateDebugRFile UP-TO-DATE
+> Task :expo-font:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-font:javaPreCompileDebug UP-TO-DATE
+> Task :expo-font:compileDebugKotlin
+w: file:///home/person/app/node_modules/expo-font/android/src/main/java/expo/modules/font/ReactActivityDelegateWrapper.kt:208:35 Unchecked cast: Any? to Map<String, Any?>
+w: file:///home/person/app/node_modules/expo-font/android/src/main/java/expo/modules/font/ExpoModulesPackage.kt:136:33 'onCatalystInstanceDestroy(): Unit' is deprecated. Deprecated in Java
+> Task :expo-font:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+> Task :expo-font:bundleLibCompileToJarDebug
+> Task :expo-font:mergeDebugShaders UP-TO-DATE
+> Task :expo-font:compileDebugShaders NO-SOURCE
+> Task :expo-font:generateDebugAssets UP-TO-DATE
+> Task :expo-font:mergeDebugAssets UP-TO-DATE
+> Task :expo-font:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-font:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-font:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-font:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-font:bundleLibRuntimeToJarDebug
+> Task :expo-keep-awake:preBuild UP-TO-DATE
+> Task :expo-keep-awake:preDebugBuild UP-TO-DATE
+> Task :expo-keep-awake:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-keep-awake:generateDebugResValues UP-TO-DATE
+> Task :expo-keep-awake:generateDebugResources UP-TO-DATE
+> Task :expo-keep-awake:packageDebugResources UP-TO-DATE
+> Task :expo-keep-awake:processDebugManifest UP-TO-DATE
+> Task :expo-keep-awake:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-keep-awake:parseDebugLocalResources UP-TO-DATE
+> Task :expo-keep-awake:generateDebugRFile UP-TO-DATE
+> Task :expo-keep-awake:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-keep-awake:javaPreCompileDebug UP-TO-DATE
+> Task :expo-keep-awake:compileDebugKotlin
+w: file:///home/person/app/node_modules/expo-keep-awake/android/src/main/java/expo/modules/keepawake/ModuleRegistry.kt:159:39 'onCatalystInstanceDestroy(): Unit' is deprecated. Deprecated in Java
+w: file:///home/person/app/node_modules/expo-keep-awake/android/src/main/java/expo/modules/keepawake/FontLoaderModule.kt:109:29 Elvis operator (?:) always returns the left operand of non-nullable type String
+> Task :expo-keep-awake:compileDebugJavaWithJavac
+> Task :expo-keep-awake:bundleLibCompileToJarDebug
+> Task :expo-keep-awake:mergeDebugShaders UP-TO-DATE
+> Task :expo-keep-awake:compileDebugShaders NO-SOURCE
+> Task :expo-keep-awake:generateDebugAssets UP-TO-DATE
+> Task :expo-keep-awake:mergeDebugAssets UP-TO-DATE
+> Task :expo-keep-awake:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-keep-awake:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-keep-awake:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-keep-awake:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-keep-awake:bundleLibRuntimeToJarDebug
+> Task :expo-linking:preBuild UP-TO-DATE
+> Task :expo-linking:preDebugBuild UP-TO-DATE
+> Task :expo-linking:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-linking:generateDebugResValues UP-TO-DATE
+> Task :expo-linking:generateDebugResources UP-TO-DATE
+> Task :expo-linking:packageDebugResources UP-TO-DATE
+> Task :expo-linking:processDebugManifest UP-TO-DATE
+> Task :expo-linking:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-linking:parseDebugLocalResources UP-TO-DATE
+> Task :expo-linking:generateDebugRFile UP-TO-DATE
+> Task :expo-linking:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-linking:javaPreCompileDebug UP-TO-DATE
+> Task :expo-linking:compileDebugKotlin
+w: file:///home/person/app/node_modules/expo-linking/android/src/main/java/expo/modules/linking/AssetModule.kt:92:17 'onCatalystInstanceDestroy(): Unit' is deprecated. Deprecated in Java
+w: file:///home/person/app/node_modules/expo-linking/android/src/main/java/expo/modules/linking/Utils.kt:32:8 'getter for currentActivity: Activity?' is deprecated. Deprecated in Java
+w: file:///home/person/app/node_modules/expo-linking/android/src/main/java/expo/modules/linking/AssetModule.kt:330:20 'getter for uiImplementation: UIImplementation!' is deprecated. Deprecated in Java
+> Task :expo-linking:compileDebugJavaWithJavac
+> Task :expo-linking:bundleLibCompileToJarDebug
+> Task :expo-linking:mergeDebugShaders UP-TO-DATE
+> Task :expo-linking:compileDebugShaders NO-SOURCE
+> Task :expo-linking:generateDebugAssets UP-TO-DATE
+> Task :expo-linking:mergeDebugAssets UP-TO-DATE
+> Task :expo-linking:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-linking:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-linking:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-linking:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-linking:bundleLibRuntimeToJarDebug
+> Task :expo-splash-screen:preBuild UP-TO-DATE
+> Task :expo-splash-screen:preDebugBuild UP-TO-DATE
+> Task :expo-splash-screen:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-splash-screen:generateDebugResValues UP-TO-DATE
+> Task :expo-splash-screen:generateDebugResources UP-TO-DATE
+> Task :expo-splash-screen:packageDebugResources UP-TO-DATE
+> Task :expo-splash-screen:processDebugManifest UP-TO-DATE
+> Task :expo-splash-screen:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-splash-screen:parseDebugLocalResources UP-TO-DATE
+> Task :expo-splash-screen:generateDebugRFile UP-TO-DATE
+> Task :expo-splash-screen:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-splash-screen:javaPreCompileDebug UP-TO-DATE
+> Task :expo-splash-screen:compileDebugKotlin
+w: file:///home/person/app/node_modules/expo-splash-screen/android/src/main/java/expo/modules/splashscreen/ConstantsService.kt:84:15 'getter for reactNativeHost: ReactNativeHost' is deprecated. Deprecated in Java
+w: file:///home/person/app/node_modules/expo-splash-screen/android/src/main/java/expo/modules/splashscreen/FileSystemModule.kt:113:31 'onCatalystInstanceDestroy(): Unit' is deprecated. Deprecated in Java
+w: file:///home/person/app/node_modules/expo-splash-screen/android/src/main/java/expo/modules/splashscreen/ExpoModulesPackage.kt:192:30 Variable 'ctx' is never used
+> Task :expo-splash-screen:compileDebugJavaWithJavac
+> Task :expo-splash-screen:bundleLibCompileToJarDebug
+> Task :expo-splash-screen:mergeDebugShaders UP-TO-DATE
+> Task :expo-splash-screen:compileDebugShaders NO-SOURCE
+> Task :expo-splash-screen:generateDebugAssets UP-TO-DATE
+> Task :expo-splash-screen:mergeDebugAssets UP-TO-DATE
+> Task :expo-splash-screen:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-splash-screen:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-splash-screen:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-splash-screen:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-splash-screen:bundleLibRuntimeToJarDebug
+> Task :expo-image:preBuild UP-TO-DATE
+> Task :expo-image:preDebugBuild UP-TO-DATE
+> Task :expo-image:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-image:generateDebugResValues UP-TO-DATE
+> Task :expo-image:generateDebugResources UP-TO-DATE
+> Task :expo-image:packageDebugResources UP-TO-DATE
+> Task :expo-image:processDebugManifest UP-TO-DATE
+> Task :expo-image:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-image:parseDebugLocalResources UP-TO-DATE
+> Task :expo-image:generateDebugRFile UP-TO-DATE
+> Task :expo-image:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-image:javaPreCompileDebug UP-TO-DATE
+> Task :expo-image:compileDebugKotlin
+w: file:///home/person/app/node_modules/expo-image/android/src/main/java/expo/modules/image/ConstantsService.kt:61:6 Unchecked cast: Any? to Map<String, Any?>
+> Task :expo-image:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+> Task :expo-image:bundleLibCompileToJarDebug
+> Task :expo-image:mergeDebugShaders UP-TO-DATE
+> Task :expo-image:compileDebugShaders NO-SOURCE
+> Task :expo-image:generateDebugAssets UP-TO-DATE
+> Task :expo-image:mergeDebugAssets UP-TO-DATE
+> Task :expo-image:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-image:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-image:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-image:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-image:bundleLibRuntimeToJarDebug
+> Task :expo-haptics:preBuild UP-TO-DATE
+> Task :expo-haptics:preDebugBuild UP-TO-DATE
+> Task :expo-haptics:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-haptics:generateDebugResValues UP-TO-DATE
+> Task :expo-haptics:generateDebugResources UP-TO-DATE
+> Task :expo-haptics:packageDebugResources UP-TO-DATE
+> Task :expo-haptics:processDebugManifest UP-TO-DATE
+> Task :expo-haptics:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-haptics:parseDebugLocalResources UP-TO-DATE
+> Task :expo-haptics:generateDebugRFile UP-TO-DATE
+> Task :expo-haptics:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-haptics:javaPreCompileDebug UP-TO-DATE
+> Task :expo-haptics:compileDebugKotlin
+w: file:///home/person/app/node_modules/expo-haptics/android/src/main/java/expo/modules/haptics/KotlinInteropModuleRegistry.kt:179:14 'onCatalystInstanceDestroy(): Unit' is deprecated. Deprecated in Java
+> Task :expo-haptics:compileDebugJavaWithJavac
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+> Task :expo-haptics:bundleLibCompileToJarDebug
+> Task :expo-haptics:mergeDebugShaders UP-TO-DATE
+> Task :expo-haptics:compileDebugShaders NO-SOURCE
+> Task :expo-haptics:generateDebugAssets UP-TO-DATE
+> Task :expo-haptics:mergeDebugAssets UP-TO-DATE
+> Task :expo-haptics:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-haptics:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-haptics:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-haptics:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-haptics:bundleLibRuntimeToJarDebug
+> Task :expo-dev-client:preBuild UP-TO-DATE
+> Task :expo-dev-client:preDebugBuild UP-TO-DATE
+> Task :expo-dev-client:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-dev-client:generateDebugResValues UP-TO-DATE
+> Task :expo-dev-client:generateDebugResources UP-TO-DATE
+> Task :expo-dev-client:packageDebugResources UP-TO-DATE
+> Task :expo-dev-client:processDebugManifest UP-TO-DATE
+> Task :expo-dev-client:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-dev-client:parseDebugLocalResources UP-TO-DATE
+> Task :expo-dev-client:generateDebugRFile UP-TO-DATE
+> Task :expo-dev-client:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-dev-client:javaPreCompileDebug UP-TO-DATE
+> Task :expo-dev-client:compileDebugKotlin
+> Task :expo-dev-client:compileDebugJavaWithJavac
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+> Task :expo-dev-client:bundleLibCompileToJarDebug
+> Task :expo-dev-client:mergeDebugShaders UP-TO-DATE
+> Task :expo-dev-client:compileDebugShaders NO-SOURCE
+> Task :expo-dev-client:generateDebugAssets UP-TO-DATE
+> Task :expo-dev-client:mergeDebugAssets UP-TO-DATE
+> Task :expo-dev-client:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-dev-client:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-dev-client:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-dev-client:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-dev-client:bundleLibRuntimeToJarDebug
+> Task :expo-dev-launcher:preBuild UP-TO-DATE
+> Task :expo-dev-launcher:preDebugBuild UP-TO-DATE
+> Task :expo-dev-launcher:writeDebugAarMetadata UP-TO-DATE
+> Task :expo-dev-launcher:generateDebugResValues UP-TO-DATE
+> Task :expo-dev-launcher:generateDebugResources UP-TO-DATE
+> Task :expo-dev-launcher:packageDebugResources UP-TO-DATE
+> Task :expo-dev-launcher:processDebugManifest UP-TO-DATE
+> Task :expo-dev-launcher:compileDebugLibraryResources UP-TO-DATE
+> Task :expo-dev-launcher:parseDebugLocalResources UP-TO-DATE
+> Task :expo-dev-launcher:generateDebugRFile UP-TO-DATE
+> Task :expo-dev-launcher:generateDebugBuildConfig UP-TO-DATE
+> Task :expo-dev-launcher:javaPreCompileDebug UP-TO-DATE
+> Task :expo-dev-launcher:compileDebugKotlin
+> Task :expo-dev-launcher:compileDebugJavaWithJavac
+> Task :expo-dev-launcher:bundleLibCompileToJarDebug
+> Task :expo-dev-launcher:mergeDebugShaders UP-TO-DATE
+> Task :expo-dev-launcher:compileDebugShaders NO-SOURCE
+> Task :expo-dev-launcher:generateDebugAssets UP-TO-DATE
+> Task :expo-dev-launcher:mergeDebugAssets UP-TO-DATE
+> Task :expo-dev-launcher:mergeDebugJniLibFolders UP-TO-DATE
+> Task :expo-dev-launcher:mergeDebugNativeLibs NO-SOURCE
+> Task :expo-dev-launcher:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :expo-dev-launcher:prepareDebugArtProfile UP-TO-DATE
+> Task :expo-dev-launcher:bundleLibRuntimeToJarDebug
+> Task :react-native-safe-area-context:preBuild UP-TO-DATE
+> Task :react-native-safe-area-context:preDebugBuild UP-TO-DATE
+> Task :react-native-safe-area-context:writeDebugAarMetadata UP-TO-DATE
+> Task :react-native-safe-area-context:generateDebugResValues UP-TO-DATE
+> Task :react-native-safe-area-context:generateDebugResources UP-TO-DATE
+> Task :react-native-safe-area-context:packageDebugResources UP-TO-DATE
+> Task :react-native-safe-area-context:processDebugManifest UP-TO-DATE
+> Task :react-native-safe-area-context:compileDebugLibraryResources UP-TO-DATE
+> Task :react-native-safe-area-context:parseDebugLocalResources UP-TO-DATE
+> Task :react-native-safe-area-context:generateDebugRFile UP-TO-DATE
+> Task :react-native-safe-area-context:generateDebugBuildConfig UP-TO-DATE
+> Task :react-native-safe-area-context:javaPreCompileDebug UP-TO-DATE
+> Task :react-native-safe-area-context:compileDebugKotlin
+> Task :react-native-safe-area-context:compileDebugJavaWithJavac
+> Task :react-native-safe-area-context:bundleLibCompileToJarDebug
+> Task :react-native-safe-area-context:mergeDebugShaders UP-TO-DATE
+> Task :react-native-safe-area-context:compileDebugShaders NO-SOURCE
+> Task :react-native-safe-area-context:generateDebugAssets UP-TO-DATE
+> Task :react-native-safe-area-context:mergeDebugAssets UP-TO-DATE
+> Task :react-native-safe-area-context:mergeDebugJniLibFolders UP-TO-DATE
+> Task :react-native-safe-area-context:mergeDebugNativeLibs NO-SOURCE
+> Task :react-native-safe-area-context:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :react-native-safe-area-context:prepareDebugArtProfile UP-TO-DATE
+> Task :react-native-safe-area-context:bundleLibRuntimeToJarDebug
+> Task :react-native-screens:preBuild UP-TO-DATE
+> Task :react-native-screens:preDebugBuild UP-TO-DATE
+> Task :react-native-screens:writeDebugAarMetadata UP-TO-DATE
+> Task :react-native-screens:generateDebugResValues UP-TO-DATE
+> Task :react-native-screens:generateDebugResources UP-TO-DATE
+> Task :react-native-screens:packageDebugResources UP-TO-DATE
+> Task :react-native-screens:processDebugManifest UP-TO-DATE
+> Task :react-native-screens:compileDebugLibraryResources UP-TO-DATE
+> Task :react-native-screens:parseDebugLocalResources UP-TO-DATE
+> Task :react-native-screens:generateDebugRFile UP-TO-DATE
+> Task :react-native-screens:generateDebugBuildConfig UP-TO-DATE
+> Task :react-native-screens:javaPreCompileDebug UP-TO-DATE
+> Task :react-native-screens:compileDebugKotlin
+> Task :react-native-screens:compileDebugJavaWithJavac
+> Task :react-native-screens:bundleLibCompileToJarDebug
+> Task :react-native-screens:mergeDebugShaders UP-TO-DATE
+> Task :react-native-screens:compileDebugShaders NO-SOURCE
+> Task :react-native-screens:generateDebugAssets UP-TO-DATE
+> Task :react-native-screens:mergeDebugAssets UP-TO-DATE
+> Task :react-native-screens:mergeDebugJniLibFolders UP-TO-DATE
+> Task :react-native-screens:mergeDebugNativeLibs NO-SOURCE
+> Task :react-native-screens:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :react-native-screens:prepareDebugArtProfile UP-TO-DATE
+> Task :react-native-screens:bundleLibRuntimeToJarDebug
+> Task :react-native-gesture-handler:preBuild UP-TO-DATE
+> Task :react-native-gesture-handler:preDebugBuild UP-TO-DATE
+> Task :react-native-gesture-handler:writeDebugAarMetadata UP-TO-DATE
+> Task :react-native-gesture-handler:generateDebugResValues UP-TO-DATE
+> Task :react-native-gesture-handler:generateDebugResources UP-TO-DATE
+> Task :react-native-gesture-handler:packageDebugResources UP-TO-DATE
+> Task :react-native-gesture-handler:processDebugManifest UP-TO-DATE
+> Task :react-native-gesture-handler:compileDebugLibraryResources UP-TO-DATE
+> Task :react-native-gesture-handler:parseDebugLocalResources UP-TO-DATE
+> Task :react-native-gesture-handler:generateDebugRFile UP-TO-DATE
+> Task :react-native-gesture-handler:generateDebugBuildConfig UP-TO-DATE
+> Task :react-native-gesture-handler:javaPreCompileDebug UP-TO-DATE
+> Task :react-native-gesture-handler:compileDebugKotlin
+> Task :react-native-gesture-handler:compileDebugJavaWithJavac
+> Task :react-native-gesture-handler:bundleLibCompileToJarDebug
+> Task :react-native-gesture-handler:mergeDebugShaders UP-TO-DATE
+> Task :react-native-gesture-handler:compileDebugShaders NO-SOURCE
+> Task :react-native-gesture-handler:generateDebugAssets UP-TO-DATE
+> Task :react-native-gesture-handler:mergeDebugAssets UP-TO-DATE
+> Task :react-native-gesture-handler:mergeDebugJniLibFolders UP-TO-DATE
+> Task :react-native-gesture-handler:mergeDebugNativeLibs NO-SOURCE
+> Task :react-native-gesture-handler:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :react-native-gesture-handler:prepareDebugArtProfile UP-TO-DATE
+> Task :react-native-gesture-handler:bundleLibRuntimeToJarDebug
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:generateAutolinkingNewArchitectureFiles
+> Task :app:generateAutolinkingPackageList
+> Task :app:generateCodegenSchemaFromJavaScript SKIPPED
+> Task :app:generateCodegenArtifactsFromSchema SKIPPED
+> Task :app:generateReactNativeEntryPoint
+> Task :app:checkDebugAarMetadata
+> Task :app:generateDebugResValues
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:mergeDebugResources
+> Task :app:packageDebugResources
+> Task :app:parseDebugLocalResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:processDebugManifestForPackage
+> Task :app:processDebugResources
+> Task :app:compileDebugKotlin
+> Task :app:javaPreCompileDebug
+> Task :app:compileDebugJavaWithJavac
+> Task :app:dexBuilderDebug
+
+> Task :app:mergeExtDexDebug FAILED
+ERROR:D8: java.lang.OutOfMemoryError: Java heap space
+	at com.android.tools.r8.dex.DexParser.parseClassDefs(DexParser.java:612)
+	at com.android.tools.r8.dex.ApplicationReader$ClassReader.readDexSources(ApplicationReader.java:331)
+	at com.android.tools.r8.dex.ApplicationReader.read(ApplicationReader.java:142)
+	at com.android.tools.r8.D8.lambda$run$1(D8.java:233)
+	at com.android.tools.r8.utils.ExceptionUtils.withCompilationHandler(ExceptionUtils.java:96)
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:mergeExtDexDebug'.
+> A failure occurred while executing com.android.build.gradle.internal.tasks.DexMergingWorkAction
+   > java.lang.OutOfMemoryError: Java heap space
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 6m 2s
+287 actionable tasks: 287 executed

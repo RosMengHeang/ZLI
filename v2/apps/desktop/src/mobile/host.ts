@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, readdir, readFile, stat } from "node:fs/promises";
+import { access, lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { posix, win32 } from "node:path";
 
 /** The read-only file access SDK detection needs, injectable for tests. */
@@ -8,6 +8,10 @@ export type MobileFileSystem = {
   isDirectory(path: string): Promise<boolean>;
   readdir(path: string): Promise<string[]>;
   readFile(path: string): Promise<string>;
+  /** The path with symlinks resolved, for comparing against paths tools report. */
+  realpath?(path: string): Promise<string>;
+  /** Whether the path is a symbolic link, so nothing writes through it. */
+  isLink?(path: string): Promise<boolean>;
 };
 
 export const nodeMobileFileSystem: MobileFileSystem = {
@@ -34,6 +38,14 @@ export const nodeMobileFileSystem: MobileFileSystem = {
     }
   },
   readFile: (path) => readFile(path, "utf8"),
+  realpath: (path) => realpath(path),
+  isLink: async (path) => {
+    try {
+      return (await lstat(path)).isSymbolicLink();
+    } catch {
+      return false;
+    }
+  },
 };
 
 export type HostOs = "linux" | "macos" | "windows";

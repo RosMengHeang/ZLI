@@ -26,10 +26,13 @@ const kinds: { id: Kind; label: string }[] = [
 export function IntegrationsSection({
   initialView = "browse",
   focusConnector,
+  onAgentMessages,
 }: {
   initialView?: IntegrationsView | undefined;
   /** A catalog id whose card Browse opens on, by searching for it. */
   focusConnector?: string | undefined;
+  /** Opens the Settings section that holds the zli tool's settings. */
+  onAgentMessages?: (() => void) | undefined;
 }) {
   const [view, setView] = useState<IntegrationsView>(initialView);
   const [query, setQuery] = useState(() => MCP_CATALOG.find((entry) => entry.id === focusConnector)?.title ?? "");
@@ -151,7 +154,12 @@ export function IntegrationsSection({
         ) : null}
         {view === "installed" ? (
           <>
-            <McpServersSection view="installed" onBrowse={toBrowse} onCustom={toCustom} />
+            <McpServersSection
+              view="installed"
+              onBrowse={toBrowse}
+              onCustom={toCustom}
+              onAgentMessages={onAgentMessages}
+            />
             <PluginsSection view="installed" onBrowse={toBrowse} onCustom={toCustom} />
           </>
         ) : null}

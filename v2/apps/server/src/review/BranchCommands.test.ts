@@ -19,7 +19,7 @@ import {
   runPullRequestCommand,
 } from "./PullRequestService.js";
 
-type Call = { command: "git" | "gh"; args: string[] };
+type Call = { command: Parameters<ProcessRunner>[0]; args: string[] };
 type Handler = (line: string, args: string[]) => ProcessResult | undefined;
 
 const ok = (stdout = ""): ProcessResult => ({ code: 0, stdout, stderr: "" });

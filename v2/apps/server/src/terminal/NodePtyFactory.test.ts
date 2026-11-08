@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { NodePtyFactory } from "./NodePtyFactory.js";
 
@@ -73,6 +73,30 @@ describe("NodePtyFactory", () => {
     expect(spawned[0]?.env.ZLI_DAEMON_TOKEN).toBeUndefined();
   });
 
+  it("keeps ZLI's private variables out of a terminal that gets the worktree's Metro port", async () => {
+    const spawned: Array<{ shell: string; args: string[] | string; env: NodeJS.ProcessEnv }> = [];
+    const factory = new NodePtyFactory({ platform: "linux", load: async () => recordingModule(spawned) });
+
+    await factory.spawn({
+      cwd: "/workspace/tree",
+      shell: "/bin/bash",
+      envOverrides: { ZLI_METRO_PORT: "8142", RCT_METRO_PORT: "8142" },
+      env: {
+        PATH: "/usr/bin",
+        ZLI_RUNTIME_TOKEN: "secret",
+        ZLI_DAEMON_TOKEN: "secret",
+        ZLI_DAEMON_ENDPOINT_PATH: "/tmp/daemon.json",
+      },
+      cols: 80,
+      rows: 24,
+    });
+
+    expect(spawned[0]?.env).toMatchObject({ ZLI_METRO_PORT: "8142", RCT_METRO_PORT: "8142" });
+    expect(spawned[0]?.env.ZLI_RUNTIME_TOKEN).toBeUndefined();
+    expect(spawned[0]?.env.ZLI_DAEMON_TOKEN).toBeUndefined();
+    expect(spawned[0]?.env.ZLI_DAEMON_ENDPOINT_PATH).toBeUndefined();
+  });
+
   it("puts the browser shim first on PATH under the key Windows already uses", async () => {
     const spawned: Array<{ shell: string; args: string[] | string; env: NodeJS.ProcessEnv }> = [];
     const factory = new NodePtyFactory({ platform: "win32", load: async () => recordingModule(spawned) });
@@ -110,7 +134,100 @@ describe("NodePtyFactory", () => {
     expect(spawned[0]).toMatchObject({ shell: "/usr/local/bin/droid", args: ["--auto", "high"] });
   });
 
-  it("omits daemon credentials from the child environment when the parent has them", async () => {
+  it("hangs up the shell's process group on stop and kills the group when forced", async () => {
+    const signals: Array<[number, string]> = [];
+    const ptyKills: Array<string | undefined> = [];
+    let groupSignalFails = false;
+    const factory = new NodePtyFactory({
+      platform: "linux",
+      load: async () => killRecordingModule(ptyKills),
+      signal: (pid, signal) => {
+        if (groupSignalFails) throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+        signals.push([pid, signal]);
+      },
+      listProcesses: async () => [{ pid: 31, ppid: 1, pgid: 31 }],
+    });
+    const pty = await factory.spawn({ cwd: "/workspace", shell: "/bin/bash", cols: 80, rows: 24 });
+
+    pty.kill();
+    pty.kill(true);
+    await vi.waitFor(() =>
+      expect(signals).toEqual([
+        [-31, "SIGHUP"],
+        [-31, "SIGKILL"],
+      ]),
+    );
+    expect(ptyKills).toEqual([]);
+
+    groupSignalFails = true;
+    pty.kill();
+    expect(ptyKills).toEqual(["SIGHUP"]);
+  });
+
+  it("kills the shell's jobs and their process groups before the shell when forced", async () => {
+    const signals: Array<[number, string]> = [];
+    const factory = new NodePtyFactory({
+      platform: "darwin",
+      load: async () => killRecordingModule([]),
+      signal: (pid, signal) => signals.push([pid, signal]),
+      listProcesses: async () => [
+        { pid: 1, ppid: 0, pgid: 1 },
+        { pid: 31, ppid: 1, pgid: 31 },
+        { pid: 40, ppid: 31, pgid: 40 },
+        { pid: 41, ppid: 40, pgid: 40 },
+        { pid: 42, ppid: 41, pgid: 42 },
+        { pid: 50, ppid: 31, pgid: 31 },
+        { pid: 60, ppid: 1, pgid: 60 },
+      ],
+    });
+    const pty = await factory.spawn({ cwd: "/workspace", shell: "/bin/zsh", cols: 80, rows: 24 });
+
+    pty.kill(true);
+    await vi.waitFor(() => expect(signals.at(-1)).toEqual([-31, "SIGKILL"]));
+    expect(signals).toEqual([
+      [-40, "SIGKILL"],
+      [40, "SIGKILL"],
+      [50, "SIGKILL"],
+      [41, "SIGKILL"],
+      [-42, "SIGKILL"],
+      [42, "SIGKILL"],
+      [-31, "SIGKILL"],
+    ]);
+  });
+
+  it("still kills the shell's group when the process list cannot be read", async () => {
+    const signals: Array<[number, string]> = [];
+    const factory = new NodePtyFactory({
+      platform: "linux",
+      load: async () => killRecordingModule([]),
+      signal: (pid, signal) => signals.push([pid, signal]),
+      listProcesses: async () => {
+        throw new Error("spawn ps ENOENT");
+      },
+    });
+    const pty = await factory.spawn({ cwd: "/workspace", shell: "/bin/bash", cols: 80, rows: 24 });
+
+    pty.kill(true);
+    await vi.waitFor(() => expect(signals).toEqual([[-31, "SIGKILL"]]));
+  });
+
+  it("leaves stopping a Windows terminal to node-pty", async () => {
+    const signals: string[] = [];
+    const ptyKills: Array<string | undefined> = [];
+    const factory = new NodePtyFactory({
+      platform: "win32",
+      load: async () => killRecordingModule(ptyKills),
+      signal: (_pid, signal) => signals.push(signal),
+    });
+    const pty = await factory.spawn({ cwd: "C:\\workspace", shell: "powershell.exe", cols: 80, rows: 24 });
+
+    pty.kill();
+    pty.kill(true);
+    expect(ptyKills).toEqual([undefined, undefined]);
+    expect(signals).toEqual([]);
+  });
+
+  it("omits daemon credentials and the runtime token from the child environment", async () => {
     const previous = {
       token: process.env.ZLI_DAEMON_TOKEN,
       endpointPath: process.env.ZLI_DAEMON_ENDPOINT_PATH,
@@ -141,6 +258,7 @@ describe("NodePtyFactory", () => {
       ZLI_DAEMON_TOKEN: "explicit-token",
       ZLI_DAEMON_ENDPOINT_PATH: "/tmp/explicit-endpoint.json",
       ZLI_DAEMON_VERSION: "kept-version",
+      ZLI_RUNTIME_TOKEN: "runtime-token",
       TERM: "xterm-256color",
     };
 
@@ -156,6 +274,7 @@ describe("NodePtyFactory", () => {
       expect(spawned[1]?.env?.ZLI_DAEMON_TOKEN).toBeUndefined();
       expect(spawned[1]?.env?.ZLI_DAEMON_ENDPOINT_PATH).toBeUndefined();
       expect(spawned[1]?.env?.ZLI_DAEMON_VERSION).toBe("kept-version");
+      expect(spawned[1]?.env?.ZLI_RUNTIME_TOKEN).toBeUndefined();
       expect(spawned[1]?.env?.TERM).toBe("xterm-256color");
       expect(explicitEnv.ZLI_DAEMON_TOKEN).toBe("explicit-token");
       expect(explicitEnv.ZLI_DAEMON_ENDPOINT_PATH).toBe("/tmp/explicit-endpoint.json");
@@ -180,6 +299,19 @@ function recordingModule(spawned: Array<{ shell: string; args: string[] | string
         onExit: () => ({ dispose: () => undefined }),
       };
     },
+  };
+}
+
+function killRecordingModule(kills: Array<string | undefined>) {
+  return {
+    spawn: () => ({
+      pid: 31,
+      write: () => undefined,
+      resize: () => undefined,
+      kill: (signal?: string) => kills.push(signal),
+      onData: () => ({ dispose: () => undefined }),
+      onExit: () => ({ dispose: () => undefined }),
+    }),
   };
 }
 

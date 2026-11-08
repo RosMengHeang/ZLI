@@ -1,6 +1,8 @@
 import {
   EnvironmentId,
   EventId,
+  METRO_BAND,
+  metroPortFor,
   ProjectId,
   type RuntimeCommand,
   type RuntimeEvent,
@@ -45,7 +47,7 @@ function projection(worktreePath: string): RuntimeProjection {
   };
 }
 
-function terminalCreate(cwd: string): RuntimeCommand {
+function terminalCreate(cwd: string): Extract<RuntimeCommand, { type: "terminal.create" }> {
   return {
     type: "terminal.create",
     terminalId,
@@ -544,6 +546,58 @@ describe("queued messages", () => {
     expect(() => decide(waiting, { type: "thread.steer", threadId, queueId: "q9" })).toThrow(/no longer queued/u);
   });
 
+  it("closes the agent's open requests when its turn or session ends, so queued messages go out", () => {
+    const otherThreadId = ThreadId.parse("00000000-0000-4000-8000-000000000433");
+    const base = withThread("waiting");
+    let waiting: RuntimeProjection = {
+      ...base,
+      threads: [
+        ...base.threads,
+        { threadId: otherThreadId, worktreeId, provider: "codex", status: "waiting", capabilities: {} },
+      ],
+    } as RuntimeProjection;
+    waiting = apply(waiting, queue("q1"));
+    waiting = apply(waiting, {
+      type: "thread.request",
+      request: { requestId: "r1", threadId, kind: "approval", payload: {} },
+    });
+    waiting = apply(waiting, {
+      type: "thread.request",
+      request: { requestId: "r2", threadId: otherThreadId, kind: "user-input", payload: {} },
+    });
+
+    for (const status of ["idle", "stopped", "failed", "starting"] as const) {
+      expect(decide(waiting, { type: "thread.status", threadId, status })).toEqual([
+        { type: "thread.request.resolved", threadId, requestId: "r1" },
+        { type: "thread.status.changed", threadId, status },
+      ]);
+      const ended = apply(waiting, { type: "thread.status", threadId, status });
+      expect(ended.requests?.map((request) => request.requestId)).toEqual(["r2"]);
+      expect(ended.attention.map((item) => item.id)).toEqual(["thread-request:r2"]);
+      expect(() =>
+        decide(ended, { type: "thread.respond", threadId, requestId: "r1", decision: { approved: true } }),
+      ).toThrow(/does not exist/u);
+    }
+
+    const idle = apply(waiting, { type: "thread.status", threadId, status: "idle" });
+    expect(decide(idle, { type: "thread.queue.flush", threadId })).toEqual([
+      { type: "thread.queue.removed", threadId, queueId: "q1" },
+      { type: "thread.send.requested", threadId, text: "q1" },
+    ]);
+  });
+
+  it("keeps open requests while the turn is still paused on them", () => {
+    const waiting = apply(withThread("waiting"), {
+      type: "thread.request",
+      request: { requestId: "r1", threadId, kind: "approval", payload: {} },
+    });
+    for (const status of ["waiting", "working"] as const) {
+      expect(decide(waiting, { type: "thread.status", threadId, status })).toEqual([
+        { type: "thread.status.changed", threadId, status },
+      ]);
+    }
+  });
+
   it("rejects messages for an ended agent, past the queue limit, or with a mode the agent cannot take", () => {
     expect(() => decide(withThread("stopped"), queue("q1"))).toThrow(/has ended/u);
     let state = withThread("working");
@@ -624,6 +678,27 @@ describe("turn usage", () => {
   });
 });
 
+describe("agent trust", () => {
+  const projectId = ProjectId.parse("00000000-0000-4000-8000-000000000404");
+  const state: RuntimeProjection = {
+    ...projection("/work/app"),
+    projects: [{ projectId, path: "/work/app", name: "app" }],
+  };
+
+  it("records that the person let agents work in a project, and refuses an unknown project", () => {
+    expect(decide(state, { type: "project.agents", projectId, trusted: true })).toEqual([
+      { type: "project.agents.changed", projectId, trusted: true },
+    ]);
+    expect(() =>
+      decide(state, {
+        type: "project.agents",
+        projectId: ProjectId.parse("00000000-0000-4000-8000-000000000405"),
+        trusted: true,
+      }),
+    ).toThrow(DomainError);
+  });
+});
+
 describe("projects without Git", () => {
   const projectId = ProjectId.parse("00000000-0000-4000-8000-000000000403");
   const plain = (git: boolean | undefined): RuntimeProjection => ({
@@ -646,8 +721,233 @@ describe("projects without Git", () => {
     ]);
   });
 
+  it("renames a project", () => {
+    expect(decide(plain(undefined), { type: "project.rename", projectId, name: "Shop" })).toEqual([
+      { type: "project.renamed", projectId, name: "Shop" },
+    ]);
+  });
+
   it("refuses a new worktree for a folder that is not a Git repository", () => {
     expect(() => decide(plain(false), create)).toThrow(/not a Git repository/u);
     expect(decide(plain(undefined), create)[0]?.type).toBe("worktree.create.requested");
+  });
+});
+
+describe("worktree Metro port", () => {
+  const projectId = ProjectId.parse("00000000-0000-4000-8000-000000000406");
+  const firstId = WorktreeId.parse("00000000-0000-4000-8000-000000000407");
+  const secondId = WorktreeId.parse("00000000-0000-4000-8000-000000000408");
+  let sequence = 0;
+  const state = (): RuntimeProjection => ({
+    ...projection("/work/app"),
+    worktrees: [],
+    projects: [{ projectId, path: "/work/app", name: "app" }],
+  });
+  const create = (id: WorktreeId, branch: string): RuntimeCommand => ({
+    type: "worktree.create",
+    worktreeId: id,
+    projectId,
+    path: `/work/app-worktrees/${branch}`,
+    workspaceRoot: "/work/app-worktrees",
+    branch,
+  });
+  const fold = (current: RuntimeProjection, events: RuntimeEvent[]): RuntimeProjection =>
+    events.reduce(
+      (folded, event) =>
+        projectEvent(folded, {
+          protocolVersion: 1,
+          sequence: folded.lastSequence + 1,
+          eventId: EventId.parse(`00000000-0000-4000-8000-${String(900 + ++sequence).padStart(12, "0")}`),
+          occurredAt: "2026-10-28T10:00:00.000Z",
+          event,
+        }),
+      current,
+    );
+
+  it("pins each worktree's port at creation, and removal of an older one never moves it", () => {
+    let current = state();
+    const first = decide(current, create(firstId, "one"))[0];
+    if (first?.type !== "worktree.create.requested") throw new Error("expected worktree.create.requested");
+    const firstPort = first.worktree.metroPort as number;
+    expect(firstPort).toBeGreaterThanOrEqual(METRO_BAND.first);
+    expect(firstPort).toBeLessThan(METRO_BAND.first + METRO_BAND.size);
+    current = fold(current, [first]);
+
+    const second = decide(current, create(secondId, "two"))[0];
+    if (second?.type !== "worktree.create.requested") throw new Error("expected worktree.create.requested");
+    const secondPort = second.worktree.metroPort as number;
+    expect(secondPort).not.toBe(firstPort);
+    current = fold(current, [second]);
+    expect(metroPortFor(secondId, current.worktrees)).toBe(secondPort);
+
+    current = fold(current, decide(current, { type: "worktree.removed", worktreeId: firstId }));
+    expect(current.worktrees.map((worktree) => worktree.worktreeId)).toEqual([secondId]);
+    expect(metroPortFor(secondId, current.worktrees)).toBe(secondPort);
+  });
+
+  it("pins a port for an imported worktree but not for the checkout", () => {
+    const current = state();
+    const imported = decide(current, {
+      type: "worktree.import",
+      worktreeId: firstId,
+      projectId,
+      path: "/work/app-worktrees/one",
+      branch: "one",
+    })[0];
+    if (imported?.type !== "worktree.imported") throw new Error("expected worktree.imported");
+    expect(imported.worktree.metroPort).toBeGreaterThanOrEqual(METRO_BAND.first);
+
+    const checkout = decide(current, {
+      type: "worktree.import",
+      worktreeId: secondId,
+      projectId,
+      path: "/work/app",
+      branch: "main",
+      kind: "checkout",
+    })[0];
+    if (checkout?.type !== "worktree.imported") throw new Error("expected worktree.imported");
+    expect(checkout.worktree.metroPort).toBeUndefined();
+    expect(metroPortFor(secondId, [checkout.worktree])).toBe(8081);
+  });
+});
+
+describe("agent names", () => {
+  const otherWorktree = WorktreeId.parse("00000000-0000-4000-8000-000000000431");
+  const firstThread = ThreadId.parse("00000000-0000-4000-8000-000000000432");
+  const secondThread = ThreadId.parse("00000000-0000-4000-8000-000000000433");
+  const agentTerminal = TerminalId.parse("00000000-0000-4000-8000-000000000434");
+  let sequence = 0;
+  const fold = (state: RuntimeProjection, events: RuntimeEvent[]) =>
+    events.reduce(
+      (current, event) =>
+        projectEvent(current, {
+          protocolVersion: 1,
+          sequence: current.lastSequence + 1,
+          eventId: EventId.parse(`00000000-0000-4000-8000-${String(500 + ++sequence).padStart(12, "0")}`),
+          occurredAt: "2026-10-28T10:00:00.000Z",
+          event,
+        }),
+      state,
+    );
+  const twoProjects = (): RuntimeProjection => {
+    const base = projection("/repo/tree");
+    return {
+      ...base,
+      worktrees: [
+        ...base.worktrees,
+        {
+          worktreeId: otherWorktree,
+          projectId: ProjectId.parse("00000000-0000-4000-8000-000000000435"),
+          path: "/other",
+          branch: "main",
+          status: "ready",
+        },
+      ],
+    };
+  };
+  const start = (
+    threadId: ThreadId,
+    name: string,
+    onWorktree = worktreeId,
+  ): Extract<RuntimeCommand, { type: "thread.start" }> => ({
+    type: "thread.start",
+    threadId,
+    worktreeId: onWorktree,
+    provider: "codex",
+    cwd: "/repo/tree",
+    shareWorktree: true,
+    name,
+  });
+
+  it("names agents at start and keeps names unique within a project only", () => {
+    let state = fold(twoProjects(), decide(twoProjects(), start(firstThread, "Bob")));
+    expect(state.threads[0]).toMatchObject({ threadId: firstThread, name: "Bob" });
+    expect(() => decide(state, start(secondThread, "bob"))).toThrow(
+      "Another agent in this project is already called bob. Pick a different name.",
+    );
+    expect(() =>
+      decide(state, {
+        ...terminalCreate("/repo/tree"),
+        terminalId: agentTerminal,
+        agent: { provider: "codex" },
+        name: " BOB ",
+      }),
+    ).toThrow(DomainError);
+    state = fold(state, decide(state, start(secondThread, "Bob", otherWorktree)));
+    expect(state.threads.map((thread) => thread.name)).toEqual(["Bob", "Bob"]);
+  });
+
+  it("frees a name once its agent stops", () => {
+    let state = fold(twoProjects(), decide(twoProjects(), start(firstThread, "Bob")));
+    state = fold(state, [{ type: "thread.status.changed", threadId: firstThread, status: "stopped" }]);
+    expect(decide(state, start(secondThread, "Bob"))).toMatchObject([{ thread: { name: "Bob" } }]);
+  });
+
+  it("resumes a stopped agent without its name when another agent took it", () => {
+    let state = fold(twoProjects(), decide(twoProjects(), start(firstThread, "Bob")));
+    state = fold(state, [
+      { type: "thread.provider-session.recorded", threadId: firstThread, providerSessionId: "session-1" },
+      { type: "thread.status.changed", threadId: firstThread, status: "stopped" },
+    ]);
+    const queue: RuntimeCommand = { type: "thread.queue", queueId: "q1", threadId: firstThread, text: "back" };
+    expect(decide(state, queue).map((event) => event.type)).toEqual(["thread.queued", "thread.resume.requested"]);
+    state = fold(state, decide(state, start(secondThread, "bob")));
+    state = fold(state, decide(state, queue));
+    expect(state.threads.map((thread) => thread.name)).toEqual([undefined, "bob"]);
+  });
+
+  it("renames and clears the name of a chat or terminal agent", () => {
+    let state = fold(twoProjects(), decide(twoProjects(), start(firstThread, "Bob")));
+    state = fold(
+      state,
+      decide(state, { ...terminalCreate("/repo/tree"), terminalId: agentTerminal, agent: { provider: "claude-code" } }),
+    );
+    expect(() => decide(state, { type: "terminal.rename", terminalId: agentTerminal, name: "Bob" })).toThrow(
+      "already called Bob",
+    );
+    state = fold(state, decide(state, { type: "terminal.rename", terminalId: agentTerminal, name: "John" }));
+    state = fold(state, decide(state, { type: "thread.rename", threadId: firstThread, name: "bob" }));
+    expect(state.threads[0]?.name).toBe("bob");
+    expect(state.terminals[0]).toMatchObject({ name: "John", updatedAt: "2026-10-28T10:00:00.000Z" });
+    state = fold(state, decide(state, { type: "thread.rename", threadId: firstThread, name: null }));
+    expect(state.threads[0]).not.toHaveProperty("name");
+  });
+
+  it("links a sub-agent to the agent in the same project that started it", () => {
+    let state = fold(twoProjects(), decide(twoProjects(), start(firstThread, "Bob")));
+    state = fold(state, decide(state, { ...start(secondThread, "John"), startedBy: firstThread }));
+    expect(state.threads[1]).toMatchObject({ name: "John", startedBy: firstThread });
+    state = fold(
+      state,
+      decide(state, {
+        ...terminalCreate("/repo/tree"),
+        terminalId: agentTerminal,
+        agent: { provider: "codex" },
+        startedBy: secondThread,
+      }),
+    );
+    expect(state.terminals[0]?.startedBy).toBe(secondThread);
+    expect(() =>
+      decide(state, { ...start(ThreadId.parse("00000000-0000-4000-8000-000000000436"), "Ann"), startedBy: "nobody" }),
+    ).toThrow("The agent that started this one does not exist: nobody");
+    expect(() =>
+      decide(state, {
+        ...start(ThreadId.parse("00000000-0000-4000-8000-000000000437"), "Ann", otherWorktree),
+        startedBy: firstThread,
+      }),
+    ).toThrow("A sub-agent has to start in the same project as the agent that started it.");
+    expect(() => decide(state, { ...terminalCreate("/repo/tree"), startedBy: firstThread })).toThrow(
+      "Only agent terminals can be sub-agents.",
+    );
+  });
+
+  it("only names agent terminals", () => {
+    const state = fold(projection("/repo/tree"), decide(projection("/repo/tree"), terminalCreate("/repo/tree")));
+    expect(() => decide(state, { type: "terminal.rename", terminalId, name: "Bob" })).toThrow(
+      "Only agent terminals take a name.",
+    );
+    expect(() => decide(projection("/repo/tree"), { ...terminalCreate("/repo/tree"), name: "Bob" })).toThrow(
+      "Only agent terminals take a name.",
+    );
   });
 });

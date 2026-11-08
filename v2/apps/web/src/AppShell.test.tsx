@@ -20,7 +20,8 @@ vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80;
     rows = 24;
-    options: Record<string, unknown> = {};
+    options = {};
+    unicode = { activeVersion: "6" };
     loadAddon(): void {}
     open(): void {}
     focus(): void {}
@@ -32,6 +33,9 @@ vi.mock("@xterm/xterm", () => ({
     registerLinkProvider() {
       return { dispose: () => undefined };
     }
+    onRender() {
+      return { dispose: () => undefined };
+    }
     dispose(): void {}
   },
 }));
@@ -40,6 +44,15 @@ vi.mock("@xterm/addon-fit", () => ({
     fit(): void {}
   },
 }));
+vi.mock("@xterm/addon-webgl", () => ({
+  WebglAddon: class {
+    onContextLoss() {
+      return { dispose: () => undefined };
+    }
+    dispose(): void {}
+  },
+}));
+vi.mock("@xterm/addon-unicode11", () => ({ Unicode11Addon: class {} }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -183,7 +196,7 @@ describe("AppShell", () => {
   it("shows the project, an empty agent board, and a terminal drawer on demand", async () => {
     const container = await render(makeBridge(projection));
     expect(container.querySelector(".project-label")?.textContent).toContain("repo");
-    expect(container.querySelector(".sidebar-scroll > h2")?.textContent).toBe("Projects");
+    expect(container.querySelector(".sidebar-heading")?.textContent).toBe("Projects");
     expect(container.textContent).toContain("main");
     expect(container.textContent).toContain("No agents on the board");
     expect(container.querySelector('[aria-label="Terminal panel"]')).toBeNull();
@@ -260,7 +273,7 @@ describe("AppShell", () => {
       devices: async () => [device],
       onDevices: () => () => undefined,
       onReveal: () => () => undefined,
-      getSettings: async () => ({ agentTools: true }),
+      getSettings: async () => ({ agentTools: true, crashWatch: true }),
       startStream: async (deviceId: string) => ({ deviceId, mode: "stills" as const, width: 0, height: 0 }),
       stopStream: async () => undefined,
       onStream: () => () => undefined,
@@ -308,16 +321,44 @@ describe("AppShell", () => {
       button(container, "Start agent")?.click();
     });
     expect(container.querySelector('[aria-label="New agent"][role="dialog"]')).toBeNull();
-    const create = dispatched
-      .map((request) => (request as { command: Record<string, unknown> }).command)
-      .find((command) => command.type === "terminal.create");
+    // The first agent in a project waits until the person lets agents work there.
+    await vi.waitFor(() =>
+      expect(container.querySelector('[role="dialog"][aria-label="Let agents work in this project"]')).not.toBeNull(),
+    );
+    expect(commands(dispatched).some((command) => command.type === "terminal.create")).toBe(false);
+    await act(async () => {
+      button(container, "Let agents work")?.click();
+    });
+    expect(commands(dispatched)).toContainEqual({ type: "project.agents", projectId, trusted: true });
+    await vi.waitFor(() =>
+      expect(commands(dispatched).some((command) => command.type === "terminal.create")).toBe(true),
+    );
+    const create = commands(dispatched).find((command) => command.type === "terminal.create");
     expect(create).toMatchObject({
       worktreeId,
       cwd: "C:/repo",
-      agent: { provider: "claude-code", permissionMode: "full-access" },
+      agent: { provider: "claude-code", permissionMode: "supervised" },
     });
     expect(typeof create?.sessionId).toBe("string");
     expect(container.querySelector(".agent-tile")?.textContent).toContain("Claude Code");
+  });
+
+  it("does not start an agent when the person does not let agents work in the project", async () => {
+    const dispatched: unknown[] = [];
+    const container = await render(makeBridge(discovered, dispatched));
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
+    });
+    await act(async () => {
+      button(container, "Start agent")?.click();
+    });
+    await vi.waitFor(() => expect(button(container, "Not now")).not.toBeUndefined());
+    await act(async () => {
+      button(container, "Not now")?.click();
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain("only after you let them work here"));
+    expect(commands(dispatched).some((command) => command.type === "terminal.create")).toBe(false);
+    expect(commands(dispatched).some((command) => command.type === "project.agents")).toBe(false);
   });
 
   it("shows running agent terminals as tiles and sidebar rows grouped under the project", async () => {
@@ -416,6 +457,7 @@ describe("AppShell", () => {
     const latestId = "00000000-0000-4000-8000-000000000403";
     const chats: RuntimeProjection = {
       ...discovered,
+      projects: discovered.projects.map((project) => ({ ...project, agentsTrusted: true })),
       threads: [
         {
           threadId: olderId,
@@ -533,6 +575,290 @@ describe("AppShell", () => {
     await runFromPalette();
     expect(container.querySelector('[aria-label="Run plugin action"]')).toBeNull();
     expect(terminals()).toHaveLength(2);
+  });
+});
+
+describe("Project boards", () => {
+  const shopId = ProjectId.parse("00000000-0000-4000-8000-000000000020");
+  const shopWorktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000021");
+  const ids = {
+    a1: "00000000-0000-4000-8000-000000000211",
+    a2: "00000000-0000-4000-8000-000000000212",
+    b1: "00000000-0000-4000-8000-000000000213",
+  };
+  // Every agent is called Bob, so only the session id tells them apart.
+  const bob = (sessionId: string, worktree: string) =>
+    ({
+      terminalId: sessionId.replace(/2(\d\d)$/u, "3$1"),
+      worktreeId: worktree,
+      title: "Claude Code",
+      status: "running",
+      kind: "agent",
+      name: "Bob",
+      agent: { provider: "claude-code", permissionMode: "full-access" },
+      sessionId,
+    }) as RuntimeProjection["terminals"][number];
+  const twoProjects: RuntimeProjection = {
+    ...discovered,
+    projects: [...discovered.projects, { projectId: shopId, path: "C:/shop", name: "shop" }],
+    worktrees: [
+      ...discovered.worktrees,
+      { worktreeId: shopWorktreeId, projectId: shopId, path: "C:/shop", branch: "trunk", status: "ready" },
+    ],
+    terminals: [bob(ids.a1, worktreeId), bob(ids.a2, worktreeId), bob(ids.b1, shopWorktreeId)],
+  };
+  const shown = (container: HTMLElement) =>
+    [...container.querySelectorAll(".agent-tile")].map((tile) => tile.getAttribute("data-session-id"));
+  const menuItem = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')].find(
+      (item) => item.querySelector(".menu-item-label")?.textContent === label,
+    );
+  const fromProjectMenu = async (container: HTMLElement, project: string, label: string) => {
+    await act(async () => button(container, `${project} actions`)?.click());
+    const item = menuItem(label);
+    if (!item) throw new Error(`The ${project} menu has no ${label}.`);
+    await act(async () => item.click());
+  };
+
+  it("swaps one project's agents for another's and back, without stopping any agent", async () => {
+    const dispatched: unknown[] = [];
+    const container = await render(makeBridge(twoProjects, dispatched));
+    expect(shown(container)).toEqual([ids.a1, ids.a2, ids.b1]);
+    await act(async () => button(container, "repo actions")?.click());
+    expect(menuItem("Open all agents")?.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => document.body.dispatchEvent(new Event("pointerdown")));
+
+    await fromProjectMenu(container, "shop", "Show only this project");
+    expect(shown(container)).toEqual([ids.b1]);
+    expect(container.querySelector(".topbar-project")?.textContent).toBe("shop");
+    expect(container.querySelector(".topbar-branch")?.textContent).toBe("trunk");
+    const repoRows = container.querySelectorAll('section[aria-label="repo"] .session-row');
+    expect([...repoRows].map((row) => row.getAttribute("aria-label")?.endsWith(", in the background"))).toEqual([
+      true,
+      true,
+    ]);
+
+    await fromProjectMenu(container, "repo", "Show only this project");
+    expect(shown(container)).toEqual([ids.a1, ids.a2]);
+    expect(container.querySelector(".topbar-project")?.textContent).toBe("repo");
+
+    await fromProjectMenu(container, "repo", "Close all agents");
+    expect(shown(container)).toEqual([]);
+    expect(container.querySelector('[role="dialog"][aria-label="Close agent"]')).toBeNull();
+    await fromProjectMenu(container, "shop", "Show only this project");
+    expect(shown(container)).toEqual([ids.b1]);
+    await fromProjectMenu(container, "repo", "Open all agents");
+    expect(shown(container)).toEqual([ids.a1, ids.a2, ids.b1]);
+    await fromProjectMenu(container, "shop", "Show only this project");
+    expect(shown(container)).toEqual([ids.b1]);
+    expect(commands(dispatched).filter((command) => String(command.type).endsWith(".stop"))).toEqual([]);
+
+    // The boards survive a reload.
+    document.body.replaceChildren();
+    const again = await render(makeBridge(twoProjects));
+    expect(shown(again)).toEqual([ids.b1]);
+    await fromProjectMenu(again, "repo", "Show only this project");
+    expect(shown(again)).toEqual([ids.a1, ids.a2]);
+  });
+
+  it("shows only the focused agent's project from the keyboard and the palette", async () => {
+    const container = await render(makeBridge(twoProjects));
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('section[aria-label="shop"] .session-row')?.click(),
+    );
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "P", code: "KeyP", ctrlKey: true, shiftKey: true, cancelable: true }),
+      );
+    });
+    expect(shown(container)).toEqual([ids.b1]);
+
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('section[aria-label="repo"] .session-row')?.click(),
+    );
+    expect(shown(container)).toEqual([ids.a1, ids.b1]);
+    await act(async () => container.querySelector<HTMLButtonElement>(".command-trigger")?.click());
+    const command = button(container, "Show only this project");
+    expect(command?.textContent).toContain("CtrlShiftP");
+    await act(async () => command?.click());
+    expect(shown(container)).toEqual([ids.a1, ids.a2]);
+  });
+});
+
+describe("Add project", () => {
+  const addedId = ProjectId.parse("00000000-0000-4000-8000-000000000020");
+  const added = { projectId: addedId, path: "C:/guider-crm", name: "guider-crm" };
+  const accepted = (result?: unknown) => ({
+    commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"),
+    accepted: true as const,
+    ...(result ? { result } : {}),
+  });
+
+  /** A runtime whose projection learns about a registered folder only after the command is answered. */
+  function addingBridge(
+    start: RuntimeProjection,
+    options: { picked?: string | undefined; arrives?: boolean; reject?: string } = {},
+  ) {
+    const { arrives = true, reject } = options;
+    const picked = "picked" in options ? options.picked : "C:/guider-crm";
+    const dispatched: unknown[] = [];
+    let current = start;
+    let emit: (next: RuntimeProjection) => void = () => undefined;
+    const bridge = makeBridge(start, dispatched);
+    bridge.runtime.getProjection = async () => current;
+    bridge.runtime.onProjection = (listener) => {
+      emit = listener;
+      return () => {
+        emit = () => undefined;
+      };
+    };
+    bridge.dialog.openProject = async () => picked;
+    bridge.runtime.dispatch = async (request: unknown) => {
+      dispatched.push(request);
+      const command = (request as { command: { type: string } }).command;
+      if (command.type !== "project.register") return accepted();
+      if (reject) {
+        return {
+          commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"),
+          accepted: false as const,
+          error: { code: "invalid_request" as const, message: reject, retryable: false },
+        };
+      }
+      if (arrives) {
+        setTimeout(() => {
+          current = { ...current, projects: [...current.projects, added], lastSequence: current.lastSequence + 1 };
+          emit(current);
+        }, 150);
+      }
+      return accepted({ projectId: addedId });
+    };
+    const addElsewhere = () => {
+      current = { ...current, projects: [...current.projects, added], lastSequence: current.lastSequence + 1 };
+      emit(current);
+    };
+    return { bridge, dispatched, addElsewhere };
+  }
+
+  const newAgentDialog = () => document.querySelector<HTMLElement>('[role="dialog"][aria-label="New agent"]');
+  const clickAddProject = async (container: HTMLElement) => {
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".sidebar-add-project")?.click();
+    });
+  };
+  const registered = (dispatched: unknown[]) =>
+    commands(dispatched).filter((command) => command.type === "project.register");
+
+  it("opens New agent for the added project, and keeps pointing at it after Cancel", async () => {
+    const { bridge } = addingBridge(withAgent);
+    const container = await render(bridge);
+    expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
+    await clickAddProject(container);
+    await vi.waitFor(() => expect(newAgentDialog()).not.toBeNull());
+    expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
+
+    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+    expect(newAgentDialog()).toBeNull();
+    expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
+    expect(container.querySelector(".board-project-notice")?.textContent).toContain("No agents in guider-crm yet.");
+    const section = container.querySelector<HTMLElement>('.sidebar-project[aria-label="guider-crm"]');
+    expect(section?.textContent).toContain("No agents yet.");
+    expect(section?.querySelector('[aria-label="New agent in guider-crm"]')?.classList.contains("is-shown")).toBe(true);
+
+    const startOne = section ? button(section, "Start an agent in guider-crm") : undefined;
+    expect(startOne?.textContent).toBe("Start one");
+    await act(async () => startOne?.click());
+    expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
+    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+
+    // The board notice opens New agent for the added project, not the one whose tile is focused.
+    await act(async () => button(container.querySelector(".board-project-notice") ?? container, "New agent")?.click());
+    expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
+    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+
+    // Picking an agent in another project moves on from the added one.
+    await act(async () => container.querySelector<HTMLButtonElement>(".session-row")?.click());
+    expect(container.querySelector(".board-project-notice")).toBeNull();
+    expect(
+      container
+        .querySelector('.sidebar-project[aria-label="guider-crm"] [aria-label="New agent in guider-crm"]')
+        ?.classList.contains("is-shown"),
+    ).toBe(true);
+  });
+
+  it("names the added project on an empty board", async () => {
+    const { bridge } = addingBridge(discovered);
+    const container = await render(bridge);
+    expect(container.textContent).toContain("No agents on the board");
+    await clickAddProject(container);
+    await vi.waitFor(() => expect(newAgentDialog()).not.toBeNull());
+    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+    expect(container.querySelector(".empty-state-title")?.textContent).toBe("No agents in guider-crm yet");
+    expect(container.textContent).not.toContain("No agents on the board");
+  });
+
+  it("does nothing when the folder picker is cancelled", async () => {
+    const { bridge, dispatched } = addingBridge(withAgent, { picked: undefined });
+    const container = await render(bridge);
+    await clickAddProject(container);
+    expect(registered(dispatched)).toHaveLength(0);
+    expect(newAgentDialog()).toBeNull();
+    expect(container.querySelector(".board-project-notice")).toBeNull();
+  });
+
+  it("shows why a folder could not be added, without opening New agent", async () => {
+    const { bridge, dispatched } = addingBridge(withAgent, { reject: "Choose a folder, not a file." });
+    const container = await render(bridge);
+    await clickAddProject(container);
+    expect(registered(dispatched)).toHaveLength(1);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Choose a folder, not a file.");
+    expect(newAgentDialog()).toBeNull();
+  });
+
+  it("selects a folder that is already a project instead of adding it again", async () => {
+    const empty = addingBridge(discovered, { picked: "c:\\repo\\" });
+    const container = await render(empty.bridge);
+    await clickAddProject(container);
+    expect(registered(empty.dispatched)).toHaveLength(0);
+    expect(container.textContent).toContain("repo is already in ZLI.");
+    expect(newAgentDialog()?.textContent).toContain("Start agent");
+    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+    document.body.replaceChildren();
+
+    // A project that already has agents is only selected.
+    const busy = addingBridge(withAgent, { picked: "C:/repo" });
+    const again = await render(busy.bridge);
+    await clickAddProject(again);
+    expect(registered(busy.dispatched)).toHaveLength(0);
+    expect(again.textContent).toContain("repo is already in ZLI.");
+    expect(newAgentDialog()).toBeNull();
+    expect(again.querySelector(".board-project-notice")).toBeNull();
+  });
+
+  it("opens nothing for a project added from somewhere else", async () => {
+    const { bridge, addElsewhere } = addingBridge(withAgent);
+    const container = await render(bridge);
+    await act(async () => addElsewhere());
+    expect(container.querySelector('.sidebar-project[aria-label="guider-crm"]')).not.toBeNull();
+    expect(newAgentDialog()).toBeNull();
+    expect(container.querySelector(".board-project-notice")).toBeNull();
+  });
+
+  it("gives up quietly when the added project never shows up", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { bridge, dispatched } = addingBridge(withAgent, { arrives: false });
+      const container = await render(bridge);
+      await clickAddProject(container);
+      expect(registered(dispatched)).toHaveLength(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9000);
+      });
+      expect(newAgentDialog()).toBeNull();
+      expect(container.querySelector(".board-project-notice")).toBeNull();
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

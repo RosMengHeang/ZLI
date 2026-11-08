@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { writeJsonFile } from "../storage/writeJsonFile.js";
 
 const MAX_NOTES = 50_000;
+const MAX_INSTALL_ERROR = 1_000;
 const VERSION = /^\d+\.\d+\.\d+$/u;
 
 export type UpdateSettings = {
@@ -12,6 +13,8 @@ export type UpdateSettings = {
   lastSeenVersion?: string;
   /** The newest release this install was offered, kept so its notes can be shown after updating. */
   offered?: { version: string; notes?: string };
+  /** Shown after ZLI starts again when a package install failed, such as a closed password prompt. */
+  installError?: string;
 };
 
 export const DEFAULT_UPDATE_SETTINGS: UpdateSettings = { autoInstall: true };
@@ -25,11 +28,22 @@ export function parseUpdateSettings(value: unknown, base: UpdateSettings = DEFAU
       ? record.lastSeenVersion
       : base.lastSeenVersion;
   const offered = parseOffered(record.offered) ?? base.offered;
+  const installError = parseInstallError(record, base.installError);
   return {
     autoInstall: typeof record.autoInstall === "boolean" ? record.autoInstall : base.autoInstall,
     ...(lastSeenVersion ? { lastSeenVersion } : {}),
     ...(offered ? { offered } : {}),
+    ...(installError ? { installError } : {}),
   };
+}
+
+/** An empty string clears a stored failure. Anything that is not a string keeps `base`. */
+function parseInstallError(record: Record<string, unknown>, base: string | undefined): string | undefined {
+  if (!("installError" in record)) return base;
+  const value = record.installError;
+  if (typeof value !== "string") return base;
+  const trimmed = value.trim().slice(0, MAX_INSTALL_ERROR);
+  return trimmed || undefined;
 }
 
 function parseOffered(value: unknown): UpdateSettings["offered"] {

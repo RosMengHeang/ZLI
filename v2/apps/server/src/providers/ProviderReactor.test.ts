@@ -6,7 +6,7 @@ import {
   type ThreadId as ThreadIdValue,
   WorktreeId,
 } from "@zli-v2/contracts";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
@@ -54,6 +54,7 @@ class FakeAdapter implements ProviderAdapter {
   }
   async respondToUserInput(): Promise<void> {}
   async stopSession(): Promise<void> {
+    if (!this.started) throw new Error("Fake session does not exist");
     this.started = false;
   }
   listSessions(): ReadonlyArray<ProviderSession> {
@@ -79,7 +80,9 @@ class FakeAdapter implements ProviderAdapter {
     this.events.add(listener);
     return () => this.events.delete(listener);
   }
+  /** Like the real adapters, a closed session is forgotten before anyone hears about it. */
   emit(event: ProviderEvent): void {
+    if (event.type === "session.closed") this.started = false;
     for (const listener of this.events) listener(event);
   }
 }
@@ -163,6 +166,70 @@ describe("ProviderReactor", () => {
     adapter.emit({ type: "turn.completed", threadId, turnId: "turn-3", status: "completed" });
     await reactor.waitForIdle();
     expect((await state()).status).toBe("idle");
+
+    reactor.stop();
+    await service.stopAll();
+    service.dispose();
+  });
+
+  it("interrupts a turn that was stopped while the provider was still accepting it", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    let accept: (() => void) | undefined;
+    const adapter = new (class extends FakeAdapter {
+      interrupted: (string | undefined)[] = [];
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        await new Promise<void>((resolve) => {
+          accept = resolve;
+        });
+        return { turnId: "turn-1" };
+      }
+      override async interruptTurn(input?: { turnId?: string }): Promise<void> {
+        this.interrupted.push(input?.turnId);
+      }
+    })();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`10000000-0000-4000-8000-0000000019${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    const status = async () => (await engine.projection()).threads[0]?.status;
+
+    await dispatch({ type: "project.register", path: "C:\\workspace\\stop" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\stop-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/stop",
+    });
+    await dispatch({ type: "thread.start", threadId, worktreeId, provider: "codex", cwd: "C:\\workspace\\stop-tree" });
+    await reactor.waitForIdle();
+
+    await dispatch({ type: "thread.queue", queueId: "s1", threadId, text: "keep working" });
+    await vi.waitFor(() => expect(accept).toBeDefined());
+    await dispatch({ type: "thread.interrupt", threadId });
+    await vi.waitFor(async () => expect(await status()).toBe("idle"));
+    accept?.();
+    await reactor.waitForIdle();
+    expect(adapter.interrupted.at(-1)).toBe("turn-1");
+    expect(await status()).toBe("idle");
+
+    // The provider's own start report for the stopped turn arrives late and must not revive it.
+    adapter.emit({ type: "turn.started", threadId, turnId: "turn-1" });
+    await reactor.waitForIdle();
+    expect(await status()).toBe("idle");
 
     reactor.stop();
     await service.stopAll();
@@ -653,6 +720,68 @@ describe("ProviderReactor resume", () => {
     await cleanup();
   });
 
+  it("starts the agent again on its conversation when a message follows a crash", async () => {
+    const adapter = new (class extends IdentifiedAdapter {
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        return { turnId: `turn-${this.turnInputs.length}` };
+      }
+    })();
+    const { reactor, dispatch, thread, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.queue", queueId: "c1", threadId, text: "before the crash" });
+    await reactor.waitForIdle();
+    expect((await thread())?.status).toBe("working");
+
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    await reactor.waitForIdle();
+    expect(await thread()).toMatchObject({ status: "stopped", errorMessage: "Codex exited (1)." });
+
+    await dispatch({ type: "thread.queue", queueId: "c2", threadId, text: "after the crash" });
+    await reactor.waitForIdle();
+    expect(adapter.startInputs.map((input) => input.resumeSessionId)).toEqual([undefined, "conv-1"]);
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["before the crash", "after the crash"]);
+    expect(await thread()).toMatchObject({ status: "working", providerSessionId: "conv-1" });
+
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-2", status: "completed" });
+    await reactor.waitForIdle();
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    await reactor.waitForIdle();
+    await dispatch({ type: "thread.queue", queueId: "c3", threadId, text: "and again" });
+    await reactor.waitForIdle();
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["before the crash", "after the crash", "and again"]);
+    expect((await thread())?.status).toBe("working");
+    await cleanup();
+  });
+
+  it("interrupts the new turn, not the one that died, when Stop follows a send after a crash", async () => {
+    let releaseTurn: (() => void) | undefined;
+    const adapter = new (class extends IdentifiedAdapter {
+      readonly interrupted: (string | undefined)[] = [];
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        if (this.turnInputs.length > 1) await new Promise<void>((resolve) => (releaseTurn = resolve));
+        return { turnId: `turn-${this.turnInputs.length}` };
+      }
+      override async interruptTurn(input?: { turnId?: string }): Promise<void> {
+        this.interrupted.push(input?.turnId);
+      }
+    })();
+    const { reactor, dispatch, thread, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.queue", queueId: "c1", threadId, text: "first" });
+    await reactor.waitForIdle();
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    await reactor.waitForIdle();
+
+    await dispatch({ type: "thread.queue", queueId: "c2", threadId, text: "second" });
+    await vi.waitFor(() => expect(releaseTurn).toBeDefined());
+    await dispatch({ type: "thread.interrupt", threadId });
+    releaseTurn?.();
+    await reactor.waitForIdle();
+    expect(adapter.interrupted.at(-1)).toBe("turn-2");
+    expect((await thread())?.status).toBe("idle");
+    await cleanup();
+  });
+
   it("keeps refusing messages to an ended chat that has no conversation id", async () => {
     const adapter = new FakeAdapter();
     const { reactor, dispatch, cleanup } = await setup(adapter);
@@ -662,6 +791,176 @@ describe("ProviderReactor resume", () => {
       status: "rejected",
       error: { message: expect.stringContaining("Start a new chat") },
     });
+    await cleanup();
+  });
+});
+
+describe("ProviderReactor open requests", () => {
+  async function setup(adapter: FakeAdapter) {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`50000000-0000-4000-8000-0000000009${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    await dispatch({ type: "project.register", path: "C:\\workspace\\requests" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\requests-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/requests",
+    });
+    await dispatch({
+      type: "thread.start",
+      threadId,
+      worktreeId,
+      provider: "codex",
+      cwd: "C:\\workspace\\requests-tree",
+    });
+    await reactor.waitForIdle();
+    await dispatch({ type: "thread.send", threadId, text: "clean the build folder" });
+    await reactor.waitForIdle();
+    adapter.emit({
+      type: "approval.requested",
+      threadId,
+      requestId: "approval-1",
+      payload: { command: "rm -rf build" },
+    });
+    await reactor.waitForIdle();
+    const state = async () => {
+      const projection = await engine.projection();
+      return {
+        status: projection.threads[0]?.status,
+        requests: (projection.requests ?? []).map((request) => request.requestId),
+        attention: projection.attention.map((item) => item.id),
+      };
+    };
+    expect(await state()).toEqual({
+      status: "waiting",
+      requests: ["approval-1"],
+      attention: ["thread-request:approval-1"],
+    });
+    const cleanup = async () => {
+      reactor.stop();
+      await service.stopAll();
+      service.dispose();
+    };
+    return { engine, service, reactor, dispatch, state, cleanup };
+  }
+
+  const closed = { status: "idle", requests: [], attention: [] };
+
+  it("closes the request when the turn is stopped, so the next message is sent", async () => {
+    const adapter = new FakeAdapter();
+    const { reactor, dispatch, state, cleanup } = await setup(adapter);
+
+    await dispatch({ type: "thread.interrupt", threadId });
+    await reactor.waitForIdle();
+    expect(await state()).toEqual(closed);
+
+    await dispatch({ type: "thread.queue", queueId: "after-stop", threadId, text: "hello after stop" });
+    await reactor.waitForIdle();
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["clean the build folder", "hello after stop"]);
+    expect((await state()).status).toBe("working");
+    await cleanup();
+  });
+
+  it("closes the request when the session is stopped", async () => {
+    const { reactor, dispatch, state, cleanup } = await setup(new FakeAdapter());
+    await dispatch({ type: "thread.stop", threadId });
+    await reactor.waitForIdle();
+    expect(await state()).toEqual({ ...closed, status: "stopped" });
+    await cleanup();
+  });
+
+  it("closes the request when the session ends or fails on its own", async () => {
+    const endings: [ProviderEvent, string][] = [
+      [{ type: "session.closed", threadId, reason: "provider process exited" }, "stopped"],
+      [{ type: "provider.error", threadId, message: "Codex crashed" }, "failed"],
+    ];
+    for (const [event, status] of endings) {
+      const adapter = new FakeAdapter();
+      const { reactor, state, cleanup } = await setup(adapter);
+      adapter.emit(event);
+      await reactor.waitForIdle();
+      expect(await state()).toEqual({ ...closed, status });
+      await cleanup();
+    }
+  });
+
+  it("closes requests left open by a restart, and an answer to one is refused without failing the chat", async () => {
+    const { engine, reactor, service, dispatch, state } = await setup(new FakeAdapter());
+    reactor.stop();
+    service.dispose();
+
+    const restartedService = new ProviderService(new ProviderRegistry([new FakeAdapter()]));
+    const restartedReactor = new ProviderReactor(engine, restartedService);
+    await restartedReactor.reconcileOrphanedThreads();
+    await restartedReactor.waitForIdle();
+    expect(await state()).toEqual({ ...closed, status: "stopped" });
+
+    const answer = await dispatch({
+      type: "thread.respond",
+      threadId,
+      requestId: "approval-1",
+      decision: { approved: true },
+    });
+    expect(answer).toMatchObject({ status: "rejected", error: { message: expect.stringContaining("does not exist") } });
+    await restartedReactor.waitForIdle();
+    expect((await state()).status).toBe("stopped");
+
+    // A chat that an older build stopped with its request still open is cleaned up on the next start.
+    await dispatch({
+      type: "thread.request",
+      request: { requestId: "approval-2", threadId, kind: "approval", payload: {} },
+    });
+    restartedReactor.stop();
+    restartedService.dispose();
+    const laterService = new ProviderService(new ProviderRegistry([new FakeAdapter()]));
+    const laterReactor = new ProviderReactor(engine, laterService);
+    await laterReactor.reconcileOrphanedThreads();
+    await laterReactor.waitForIdle();
+    expect(await state()).toEqual({ ...closed, status: "stopped" });
+    laterReactor.stop();
+    laterService.dispose();
+  });
+
+  it("does not fail the chat when an answer loses a race with the session ending", async () => {
+    const adapter = new (class extends FakeAdapter {
+      override async respondToRequest(): Promise<void> {
+        this.emit({ type: "session.closed", threadId, reason: "provider process exited" });
+        throw new Error("Provider session does not exist");
+      }
+    })();
+    const { reactor, dispatch, state, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.respond", threadId, requestId: "approval-1", decision: { approved: true } });
+    await reactor.waitForIdle();
+    expect(await state()).toEqual({ ...closed, status: "stopped" });
+    await cleanup();
+  });
+
+  it("leaves the chat idle when the answered turn finishes before the answer is recorded", async () => {
+    const adapter = new (class extends FakeAdapter {
+      override async respondToRequest(): Promise<void> {
+        this.emit({ type: "turn.completed", threadId, turnId: "provider-turn", status: "completed" });
+      }
+    })();
+    const { reactor, dispatch, state, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.respond", threadId, requestId: "approval-1", decision: { approved: true } });
+    await reactor.waitForIdle();
+    expect(await state()).toEqual(closed);
     await cleanup();
   });
 });
@@ -881,6 +1180,57 @@ describe("ProviderReactor accounts", () => {
     expect(asked).toEqual(["work"]);
     expect(adapter.startInputs[0]?.account).toEqual({ accountId: "work", env: { CODEX_HOME: "/zli/accounts/work" } });
     expect((await engine.projection()).threads[0]?.accountId).toBe("work");
+    reactor.stop();
+  });
+});
+
+describe("ProviderReactor folder trust", () => {
+  it("names the project folder for the agent to trust only after the person trusted the project", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`30000000-0000-4000-8000-0000000010${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    await dispatch({ type: "project.register", path: "C:\\workspace\\trust" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    const projectId = ProjectId.parse(project.projectId);
+    const start = async (n: number) => {
+      const tree = WorktreeId.parse(`00000000-0000-4000-8000-000000000a1${n}`);
+      await dispatch({
+        type: "worktree.create",
+        worktreeId: tree,
+        projectId,
+        path: `C:\\workspace\\trust-${n}`,
+        workspaceRoot: "C:\\workspace",
+        branch: `feature/trust-${n}`,
+      });
+      await dispatch({
+        type: "thread.start",
+        threadId: ThreadId.parse(`00000000-0000-4000-8000-000000000a2${n}`),
+        worktreeId: tree,
+        provider: "codex",
+        cwd: `C:\\workspace\\trust-${n}`,
+      });
+      await reactor.waitForIdle();
+      // The fake reports one session for every thread, so the next start would look like a duplicate.
+      adapter.started = false;
+    };
+    await start(1);
+    await dispatch({ type: "project.agents", projectId, trusted: true });
+    await start(2);
+
+    expect(adapter.startInputs.map((input) => input.trustedProjectPath)).toEqual([undefined, "C:\\workspace\\trust"]);
     reactor.stop();
   });
 });

@@ -1,8 +1,21 @@
-import type { MobileDevice, MobilePanelInput, MobileStreamEvent, MobileStreamInfo } from "@zli-v2/contracts";
+import {
+  METRO_DEFAULT_PORT,
+  type MobileDevice,
+  type MobilePanelInput,
+  type MobileStreamEvent,
+  type MobileStreamInfo,
+} from "@zli-v2/contracts";
 import type { AndroidDriver } from "./AndroidDriver.js";
-import { ANDROID_KEYCODES } from "./adb.js";
+import { ANDROID_KEYCODES, reverseExtra } from "./adb.js";
+import { sshHostName } from "./CommandHost.js";
 import { DeviceLeases, type LeaseOwner } from "./DeviceLeases.js";
-import { type DriverDevice, type MobileDriver, MobileDriverError, type Screenshot } from "./MobileDriver.js";
+import {
+  type BootOptions,
+  type DriverDevice,
+  type MobileDriver,
+  MobileDriverError,
+  type Screenshot,
+} from "./MobileDriver.js";
 import {
   encodeInjectKeycode,
   encodeInjectText,
@@ -88,6 +101,8 @@ export class DeviceManager {
   #listing: Promise<MobileDevice[]> | undefined;
   /** Devices whose boot was stopped by a shutdown, so the boot reports a cancel instead of a failure. */
   readonly #cancelledBoots = new Set<string>();
+  /** The 8081 mapping each device carries, with the lease holder who set it, so it can be undone on handover. */
+  readonly #metroMaps = new Map<string, { readonly ownerKey: string; readonly port: number }>();
 
   constructor(deps: DeviceManagerDeps) {
     this.#deps = deps;
@@ -128,7 +143,7 @@ export class DeviceManager {
     return device.platform === "android" ? this.#deps.android : this.#deps.ios;
   }
 
-  async boot(deviceId: string, options: { window?: boolean; wipeData?: boolean } = {}): Promise<MobileDevice> {
+  async boot(deviceId: string, options: BootOptions = {}): Promise<MobileDevice> {
     const device = await this.find(deviceId);
     this.#devices = this.#devices.map((entry) =>
       entry.deviceId === deviceId ? { ...entry, state: "booting" } : entry,
@@ -159,6 +174,8 @@ export class DeviceManager {
       if (booting) this.#cancelledBoots.delete(deviceId);
       throw cause;
     }
+    // The mapping dies with the device, so dropping the record is enough.
+    this.#metroMaps.delete(deviceId);
     this.leases.release(deviceId);
     await this.list();
   }
@@ -271,7 +288,9 @@ export class DeviceManager {
         fallbackReason = `Live video from idb is unavailable, so the panel shows screenshots: ${cause instanceof Error ? cause.message : String(cause)}`;
       }
     } else {
-      fallbackReason = IOS_STILLS_REASON;
+      fallbackReason = device.host
+        ? `Simulators on ${sshHostName(device.host)} are shown as screenshots over SSH, about one a second, and faster for a few seconds after you use them.`
+        : IOS_STILLS_REASON;
     }
     if (stream.mode === "stills") void this.#pollStills(device, stream);
     const info = { ...this.#info(stream), ...(fallbackReason ? { fallbackReason: fallbackReason.slice(0, 500) } : {}) };
@@ -311,12 +330,56 @@ export class DeviceManager {
   }
 
   /** Opens a URL from the Mobile panel. On Android a localhost URL's port is forwarded to the device first. */
-  async openUrl(deviceId: string, url: string): Promise<{ reversedPort?: number }> {
+  async openUrl(
+    deviceId: string,
+    url: string,
+    options: { metroPort?: number } = {},
+  ): Promise<{ reversedPort?: number; mapped8081To?: number }> {
     const { device, driver } = await this.#forPanel(deviceId);
     try {
-      return await driver.openUrl(device, url);
+      const mapped8081To = await this.mapMetro(device, url, options.metroPort);
+      return { ...(await driver.openUrl(device, url)), ...(mapped8081To ? { mapped8081To } : {}) };
     } finally {
       this.#markActive(device);
+    }
+  }
+
+  /**
+   * On an Android emulator opening a worktree's Metro port, also maps the emulator's localhost:8081 to that port,
+   * so an app built for 8081 loads this worktree's bundle. Returns the port it mapped to, or undefined.
+   */
+  async mapMetro(device: MobileDevice, url: string, metroPort: number | undefined): Promise<number | undefined> {
+    if (device.platform !== "android") return undefined;
+    const port = reverseExtra(url, device.kind === "emulator", metroPort);
+    if (port === undefined) return undefined;
+    try {
+      await this.#deps.android.reverse(device, METRO_DEFAULT_PORT, port);
+      this.#metroMaps.set(device.deviceId, { ownerKey: this.#leaseKey(device.deviceId), port });
+      return port;
+    } catch {
+      // The worktree's own URL still opens; only apps that ignore it and dial 8081 miss out.
+      return undefined;
+    }
+  }
+
+  /**
+   * The person and "no lease" share one key: taking over must not undo a mapping the person just opened with.
+   * An agent's key is its own, so its mapping is undone when its lease lapses or the device changes hands.
+   */
+  #leaseKey(deviceId: string): string {
+    const lease = this.leases.get(deviceId);
+    return lease?.kind === "agent" ? lease.ownerId : "person";
+  }
+
+  /** Undoes the 8081 mapping once the lease holder who set it no longer holds the device. */
+  #undoStaleMaps(): void {
+    for (const [deviceId, map] of this.#metroMaps) {
+      if (this.#leaseKey(deviceId) === map.ownerKey) continue;
+      this.#metroMaps.delete(deviceId);
+      const device = this.#devices.find((entry) => entry.deviceId === deviceId);
+      // An offline device lost the mapping with its adb connection; there is nothing to undo.
+      if (device?.state !== "online") continue;
+      void this.#deps.android.removeReverse(device, METRO_DEFAULT_PORT).catch(() => undefined);
     }
   }
 
@@ -522,6 +585,11 @@ export class DeviceManager {
       );
   }
 
+  /** A running device for a panel action from a mobile dev feature, refused while an agent holds it. */
+  panelDevice(deviceId: string): Promise<{ device: MobileDevice; driver: MobileDriver }> {
+    return this.#forPanel(deviceId);
+  }
+
   /** A running device for a panel action, refused while an agent holds it, like panel input. */
   async #forPanel(deviceId: string): Promise<{ device: MobileDevice; driver: MobileDriver }> {
     this.#refuseWhileAgentHolds(deviceId);
@@ -535,6 +603,7 @@ export class DeviceManager {
   }
 
   #publish(): void {
+    this.#undoStaleMaps();
     this.#deps.events?.devices?.(this.cached());
   }
 }

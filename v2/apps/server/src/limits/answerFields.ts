@@ -59,15 +59,6 @@ export function retryAfterMs(header: string | null, now: number): number {
     : RATE_LIMIT_BACKOFF_MS;
 }
 
-/** When a JWT expires, in milliseconds, or undefined when it does not say. */
-export function jwtExpiry(token: string): number | undefined {
-  const payload = token.split(".")[1];
-  if (!payload) return undefined;
-  const claims = record(parseJson(Buffer.from(payload, "base64url").toString("utf8")));
-  const exp = number(claims?.exp);
-  return exp === undefined ? undefined : exp * 1000;
-}
-
 export function parseJson(value: string): unknown {
   try {
     return JSON.parse(value);

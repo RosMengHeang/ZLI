@@ -85,6 +85,18 @@ const paths = {
       <path d="m20 20-3.5-3.5" />
     </>
   ),
+  zoomIn: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5M11 8v6M8 11h6" />
+    </>
+  ),
+  zoomOut: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5M8 11h6" />
+    </>
+  ),
   settings: (
     <>
       <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
@@ -115,6 +127,12 @@ const paths = {
     </>
   ),
   code: <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />,
+  annotate: (
+    <>
+      <path d="M20 10V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2v3l3.5-3" />
+      <path d="m13.5 12.5 7.5 2.6-3.2 1.4-1.4 3.2Z" />
+    </>
+  ),
   crosshair: (
     <>
       <circle cx="12" cy="12" r="8" />
@@ -286,11 +304,36 @@ const paths = {
       <path d="M12 8v4M12 16h.01" />
     </>
   ),
+  lock: (
+    <>
+      <rect width="18" height="11" x="3" y="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </>
+  ),
+  lockOpen: (
+    <>
+      <rect width="18" height="11" x="3" y="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z" />
+      <circle cx="12" cy="13" r="3" />
+    </>
+  ),
   cpu: (
     <>
       <rect width="16" height="16" x="4" y="4" rx="2" />
       <rect width="6" height="6" x="9" y="9" rx="1" />
       <path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2" />
+    </>
+  ),
+  /** A chip with pins on two sides: a model with no maker's logo. Pins on all four sides read as a gear when small. */
+  chip: (
+    <>
+      <rect width="12" height="16" x="6" y="4" rx="2" />
+      <path d="M10.5 4a1.5 1.5 0 0 0 3 0M3 9h3M3 15h3M18 9h3M18 15h3" />
     </>
   ),
   loader: (
@@ -314,6 +357,15 @@ const paths = {
     <>
       <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
       <circle cx="12" cy="7" r="4" />
+    </>
+  ),
+  /** Several people: a huddle of agents. */
+  users: (
+    <>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </>
   ),
   bell: (
@@ -360,6 +412,14 @@ const paths = {
       <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
       <path d="M3 3v5h5" />
       <path d="M12 7v5l4 2" />
+    </>
+  ),
+  /** An agent tile with a shell prompt, and a plus that breaks out of its corner. Distinct from New chat's pen. */
+  agentNew: (
+    <>
+      <path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" />
+      <path d="m8 10 3 3-3 3M13 16h3" />
+      <path d="M18 3v6M15 6h6" />
     </>
   ),
   squarePen: (

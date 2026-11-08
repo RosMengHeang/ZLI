@@ -28,7 +28,6 @@ export async function readOpenCodeLimits(deps: OpenCodeLimitDeps): Promise<Limit
   const keys = await openCodeKeys(deps);
   if (keys.length === 0) return { state: "signed-out", message: "No OpenCode Go key is set up.", windows: [] };
   let rejectedGoKey = false;
-  let expiredKey = false;
   for (const { key, forGo } of keys) {
     const response = await send(deps, OPENCODE_GO_USAGE_URL, {
       headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
@@ -43,8 +42,7 @@ export async function readOpenCodeLimits(deps: OpenCodeLimitDeps): Promise<Limit
       };
     }
     const body = await response.text().catch(() => "");
-    const error = record(record(parseJson(body))?.error);
-    const errorType = error?.type;
+    const errorType = record(record(parseJson(body))?.error)?.type;
     const read = response.ok ? openCodeLimitRead(parseJson(body)) : undefined;
     if (read) return read;
     // A sign-in redirect can come back as a successful HTML page.
@@ -57,23 +55,14 @@ export async function readOpenCodeLimits(deps: OpenCodeLimitDeps): Promise<Limit
     if (!rejected)
       return { state: "error", message: "OpenCode did not report usage. ZLI will try again.", windows: [] };
     if (forGo && (response.status === 401 || errorType === "AuthError")) rejectedGoKey = true;
-    if (error?.code === "api_key_expired") expiredKey = true;
   }
-  if (rejectedGoKey) {
-    return {
-      state: "expired",
-      message: "OpenCode turned down the Go key. Connect OpenCode Go again in OpenCode.",
-      windows: [],
-    };
-  }
-  if (expiredKey) {
-    return {
-      state: "expired",
-      message: "The OpenCode key has expired. Create a new one in OpenCode Console and connect it again.",
-      windows: [],
-    };
-  }
-  return { state: "unavailable", message: "This OpenCode key has no Go subscription.", windows: [] };
+  return rejectedGoKey
+    ? {
+        state: "expired",
+        message: "OpenCode turned down the Go key. Connect OpenCode Go again in OpenCode.",
+        windows: [],
+      }
+    : { state: "unavailable", message: "This OpenCode key has no Go subscription.", windows: [] };
 }
 
 /** Undefined when the answer is not Go usage, such as a page or an error. */
@@ -98,8 +87,8 @@ export function openCodeLimitRead(body: unknown): LimitRead | undefined {
 
 /**
  * OpenCode 2 stores keys in its database: a Go key as "opencode-go", and the Console connection,
- * which also carries Go, as "opencode". OpenCode 1 keeps the same two names in auth.json, or inline
- * in OPENCODE_AUTH_CONTENT, which then replaces the file. OPENCODE_API_KEY comes last.
+ * which also carries Go, as "opencode". OpenCode 1 keeps the Go key in auth.json, or inline in
+ * OPENCODE_AUTH_CONTENT, which then replaces the file. OPENCODE_API_KEY comes last.
  */
 async function openCodeKeys(deps: OpenCodeLimitDeps): Promise<Key[]> {
   const keys: Key[] = [];
@@ -122,11 +111,8 @@ async function openCodeKeys(deps: OpenCodeLimitDeps): Promise<Key[]> {
       }
     }
     const auth = inline ?? (await deps.readFile(join(dir, "auth.json")).catch(() => undefined));
-    const stored = record(auth ? parseJson(auth) : undefined);
-    const go = record(stored?.["opencode-go"]);
+    const go = record(record(auth ? parseJson(auth) : undefined)?.["opencode-go"]);
     if (go?.type === "api") add(secret(go.key), true);
-    const zen = record(stored?.opencode);
-    if (zen?.type === "api") add(secret(zen.key), false);
     if (inline) break;
   }
   add(secret(deps.env.OPENCODE_API_KEY), false);

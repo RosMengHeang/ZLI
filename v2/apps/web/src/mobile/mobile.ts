@@ -1,11 +1,12 @@
-import type {
-  MobileAndroidStatus,
-  MobileButton,
-  MobileDevice,
-  MobileDeviceState,
-  MobilePanelInput,
-  MobileSetupPlan,
-  MobileSetupProgress,
+import {
+  METRO_BAND,
+  type MobileAndroidStatus,
+  type MobileButton,
+  type MobileDevice,
+  type MobileDeviceState,
+  type MobilePanelInput,
+  type MobileSetupPlan,
+  type MobileSetupProgress,
 } from "@zli-v2/contracts";
 
 import type { MobileBridge } from "../runtime/bridge.js";
@@ -33,6 +34,30 @@ export function stateLabel(state: MobileDeviceState): string {
   }
 }
 
+/** A phone adb can drive is ready rather than running, since ZLI never started it. */
+export function deviceStateLabel(device: Pick<MobileDevice, "state"> & Partial<Pick<MobileDevice, "kind">>): string {
+  return device.kind === "physical" && device.state === "online" ? "Ready" : stateLabel(device.state);
+}
+
+/** What the person can do about a phone adb lists but cannot use yet, or undefined when it is ready. */
+export function phoneStateHint(device: Pick<MobileDevice, "kind" | "state" | "connection">): string | undefined {
+  if (device.kind !== "physical" || device.state === "online") return undefined;
+  if (device.state === "unauthorized")
+    return device.connection === "wifi"
+      ? "Pair it again with a code from Wireless debugging on the phone."
+      : "Allow USB debugging on the phone, then check the prompt on its screen.";
+  if (device.state !== "offline") return undefined;
+  return device.connection === "wifi"
+    ? "Check that Wireless debugging is still on and the phone is on the same Wi-Fi network, then connect again."
+    : "Unplug the cable and plug it back in, then unlock the phone.";
+}
+
+/** How a phone is connected, for the line under its name. */
+export function connectionLabel(device: Pick<MobileDevice, "connection">): string | undefined {
+  if (device.connection === "wifi") return "Wi-Fi";
+  return device.connection === "usb" ? "USB" : undefined;
+}
+
 export function stateTone(device: Pick<MobileDevice, "state">): BadgeTone {
   switch (device.state) {
     case "online":
@@ -47,9 +72,17 @@ export function stateTone(device: Pick<MobileDevice, "state">): BadgeTone {
       return "warning";
   }
 }
-export function deviceKindLabel(device: Pick<MobileDevice, "platform" | "kind">): string {
+export function deviceKindLabel(
+  device: Pick<MobileDevice, "platform" | "kind"> & Partial<Pick<MobileDevice, "host">>,
+): string {
   if (device.kind === "physical") return device.platform === "ios" ? "iPhone" : "Android phone";
-  return device.platform === "ios" ? "iOS Simulator" : "Android Emulator";
+  if (device.platform !== "ios") return "Android Emulator";
+  return device.host ? `iOS Simulator on ${macName(device.host)}` : "iOS Simulator";
+}
+
+/** The Mac's name from an SSH address, without the user name: you@mac-mini.local is mac-mini.local. */
+export function macName(host: string): string {
+  return host.slice(host.lastIndexOf("@") + 1);
 }
 
 export type DeviceGroup = "Emulators" | "Phones" | "Simulators";
@@ -67,9 +100,14 @@ export function devicesInGroups(devices: readonly MobileDevice[]): MobileDevice[
 }
 
 /** The platform, version, and state under a device's name in the picker, for example "Android 15, running". */
-export function deviceSummary(device: Pick<MobileDevice, "platform" | "osVersion" | "state">): string {
+export function deviceSummary(
+  device: Pick<MobileDevice, "platform" | "osVersion" | "state"> &
+    Partial<Pick<MobileDevice, "kind" | "connection" | "host">>,
+): string {
   const platform = device.platform === "ios" ? "iOS" : "Android";
-  return `${platform}${device.osVersion ? ` ${device.osVersion}` : ""}, ${stateLabel(device.state).toLowerCase()}`;
+  const via = connectionLabel(device);
+  const where = device.host ? ` on ${macName(device.host)}` : via ? ` over ${via}` : "";
+  return `${platform}${device.osVersion ? ` ${device.osVersion}` : ""}${where}, ${deviceStateLabel(device).toLowerCase()}`;
 }
 /** Under this much time left, the agent banner counts down instead of naming the time. */
 const LEASE_COUNTDOWN_MS = 2 * 60_000;
@@ -268,10 +306,17 @@ export function urlToOpen(typed: string): string | undefined {
   return /^[a-z][a-z\d+.-]*:\/\//iu.test(url) || OPAQUE_SCHEMES.test(url) ? url : `http://${url}`;
 }
 
-export function openedNotice(url: string, result: { reversedPort?: number | undefined }): string {
-  return result.reversedPort === undefined
-    ? `Opened ${url}.`
-    : `Opened ${url}. Forwarded localhost:${result.reversedPort} to the device.`;
+export function openedNotice(
+  url: string,
+  result: { reversedPort?: number | undefined; mapped8081To?: number | undefined },
+): string {
+  const opened =
+    result.reversedPort === undefined
+      ? `Opened ${url}.`
+      : `Opened ${url}. Forwarded localhost:${result.reversedPort} to the device.`;
+  return result.mapped8081To === undefined
+    ? opened
+    : `${opened} The device's localhost:8081 now reaches port ${result.mapped8081To} too.`;
 }
 
 /** A dev server the panel can offer to open on a device: its port, address, and the terminal it runs in. */
@@ -281,13 +326,19 @@ export type DevServerHint = { port: number; url: string; name?: string | undefin
 const EXPO_PORTS = [8081, 19000, 19006] as const;
 
 /**
- * The Expo or Metro server among a worktree's dev servers, newest first, or undefined. A server counts when
- * it is on an Expo port or its terminal's name says expo or metro. The web-only port 19006 is a last resort.
+ * The Expo or Metro server among a worktree's dev servers, newest first, or undefined. The worktree's own Metro
+ * port wins. Otherwise a server counts when it is on an Expo port or a worktree Metro port, or its terminal's name
+ * says expo or metro. The web-only port 19006 is a last resort.
  */
-export function expoServer(servers: readonly DevServerHint[]): DevServerHint | undefined {
+export function expoServer(servers: readonly DevServerHint[], metroPort?: number): DevServerHint | undefined {
   const named = (server: DevServerHint) => /expo|metro/iu.test(server.name ?? "");
+  const metroBand = (port: number) => port >= METRO_BAND.first && port < METRO_BAND.first + METRO_BAND.size;
   return (
-    servers.find((server) => named(server) || server.port === EXPO_PORTS[0] || server.port === EXPO_PORTS[1]) ??
+    (metroPort === undefined ? undefined : servers.find((server) => server.port === metroPort)) ??
+    servers.find(
+      (server) =>
+        named(server) || server.port === EXPO_PORTS[0] || server.port === EXPO_PORTS[1] || metroBand(server.port),
+    ) ??
     servers.find((server) => server.port === EXPO_PORTS[2])
   );
 }
@@ -311,6 +362,21 @@ export function systemImageLabel(image: string): string {
   return [level ? `API ${level}` : api.replace(/^android-/u, ""), IMAGE_TAGS[tag] ?? tag.replaceAll("_", " "), abi]
     .filter(Boolean)
     .join(", ");
+}
+
+/** A free simulator name from the model, such as iPhone 16 Pro, numbered as iPhone 16 Pro (2) when taken. */
+export function suggestSimulatorName(modelName: string, taken: readonly string[]): string {
+  const base =
+    modelName
+      .replace(/[^A-Za-z0-9 _.,()'-]+/gu, " ")
+      .replace(/\s+/gu, " ")
+      .trim()
+      .replace(/^[^A-Za-z0-9]+/u, "")
+      .slice(0, 50)
+      .trim() || "iPhone";
+  const used = new Set(taken.map((name) => name.toLowerCase()));
+  if (!used.has(base.toLowerCase())) return base;
+  for (let index = 2; ; index += 1) if (!used.has(`${base} (${index})`.toLowerCase())) return `${base} (${index})`;
 }
 
 /** A free name such as Pixel_7_API_35 for a new virtual device, numbered when the name is taken. */

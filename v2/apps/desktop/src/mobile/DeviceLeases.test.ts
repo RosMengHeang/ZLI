@@ -46,6 +46,8 @@ describe("device leases", () => {
 
   it("reports a lapsed lease when it lapses, without waiting for a read", async () => {
     vi.useFakeTimers();
+    // The renewal below must not move the expiry into another minute, which counts as a change.
+    vi.setSystemTime(new Date("2025-01-01T14:00:00.000Z"));
     let changes = 0;
     const leases = new DeviceLeases({ agentLeaseMs: 1_000, onChange: () => (changes += 1) });
     leases.acquire("d", agentA);

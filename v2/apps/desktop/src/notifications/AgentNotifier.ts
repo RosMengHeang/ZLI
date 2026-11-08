@@ -18,6 +18,8 @@ export type NotifierHost = {
   activate(sessionId: string): void;
   /** Brings the window forward and opens Settings at a connector, a catalog id or a server name. */
   openConnector(connectorId: string): void;
+  /** Brings the window forward. */
+  focusWindow(): void;
 };
 
 const MAX_REMEMBERED_KEYS = 500;
@@ -67,6 +69,19 @@ export class AgentNotifier {
     this.host.show({ title: request.title, body: request.body, silent: !settings.sound }, () =>
       this.host.openConnector(request.connectorId),
     );
+  }
+
+  /**
+   * An agent waits for the person to let it reach another project. The window shows the question, so
+   * this only draws attention while the window is in the background.
+   */
+  reachRequest(request: { title: string; body: string }): void {
+    const settings = this.settings();
+    if (!settings.enabled || this.host.isFocused()) return;
+    this.host.show({ title: request.title, body: request.body, silent: !settings.sound }, () =>
+      this.host.focusWindow(),
+    );
+    this.host.flashFrame(true);
   }
 
   windowFocused(): void {

@@ -15,7 +15,7 @@ import {
   summarizeChecks,
 } from "./PullRequestService.js";
 
-type Call = { command: "git" | "gh"; args: string[]; cwd: string };
+type Call = { command: Parameters<ProcessRunner>[0]; args: string[]; cwd: string };
 type Handler = (call: Call) => ProcessResult | Error | undefined;
 
 const ok = (stdout = ""): ProcessResult => ({ code: 0, stdout, stderr: "" });

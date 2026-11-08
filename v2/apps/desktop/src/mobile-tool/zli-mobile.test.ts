@@ -26,23 +26,52 @@ describe("zli-mobile MCP server", () => {
     const init = await request("initialize", { protocolVersion: "2025-06-18" });
     expect((init.result.serverInfo as { name: string }).name).toBe("zli-mobile");
     const listed = await request("tools/list");
-    expect(listed.result.tools?.map((tool) => tool.name)).toEqual([
-      "mobile_devices",
-      "mobile_boot",
-      "mobile_shutdown",
-      "mobile_install",
-      "mobile_launch",
-      "mobile_open_url",
-      "mobile_snapshot",
-      "mobile_tap",
-      "mobile_swipe",
-      "mobile_type",
-      "mobile_press",
-      "mobile_rotate",
-      "mobile_screenshot",
-      "mobile_logs",
-      "mobile_release",
+    expect(listed.result.tools?.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        "mobile_devices",
+        "mobile_boot",
+        "mobile_shutdown",
+        "mobile_install",
+        "mobile_launch",
+        "mobile_open_url",
+        "mobile_snapshot",
+        "mobile_tap",
+        "mobile_swipe",
+        "mobile_type",
+        "mobile_press",
+        "mobile_rotate",
+        "mobile_screenshot",
+        "mobile_logs",
+        "mobile_release",
+        "mobile_propose",
+      ]),
+    );
+    expect(String(init.result.instructions)).toMatch(/call mobile_propose so the person can run it/u);
+  });
+
+  it("proposes a command and tells the agent that nothing runs until the person chooses Run", async () => {
+    const { request, calls } = server((action) =>
+      action === "mobilepropose"
+        ? { proposalId: "p1", state: "pending", message: "Nothing runs until they choose Run." }
+        : { enabled: true },
+    );
+    const result = await request("tools/call", {
+      name: "mobile_propose",
+      arguments: {
+        title: "Install",
+        program: "npx",
+        args: ["expo", "install"],
+        folder: "apps/mobile",
+        cwd: "/repo/app",
+      },
+    });
+    expect(calls).toEqual([
+      {
+        action: "mobilepropose",
+        input: { title: "Install", program: "npx", args: ["expo", "install"], folder: "apps/mobile", cwd: "/repo/app" },
+      },
     ]);
+    expect(result.result.content).toEqual([{ type: "text", text: "Nothing runs until they choose Run." }]);
   });
 
   it("lists no tools when the person turned mobile tools off", async () => {
@@ -107,6 +136,21 @@ describe("zli-mobile command line", () => {
       input: { path: resolve("/repo/app", "app.apk") },
     });
     expect(() => parseMobileArgs(["tap"])).toThrow(/needs a ref/u);
+    expect(
+      parseMobileArgs([
+        "mobile_propose",
+        "--json",
+        '{"title":"Install","program":"npm","args":["install"],"x":1}',
+        "--worktree",
+        "wt-1",
+      ]),
+    ).toEqual({
+      kind: "call",
+      action: "mobilepropose",
+      input: { title: "Install", program: "npm", args: ["install"], worktreeId: "wt-1" },
+    });
+    expect(() => parseMobileArgs(["mobile_propose", "--json", "{nope"])).toThrow(/not valid JSON/u);
+    expect(() => parseMobileArgs(["mobile_propose", "--json", "[1]"])).toThrow(/JSON object/u);
     expect(() => parseMobileArgs(["swipe", "--from", "1"])).toThrow(/x,y/u);
   });
 

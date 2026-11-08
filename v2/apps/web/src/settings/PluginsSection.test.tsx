@@ -375,7 +375,6 @@ describe("Share my setup", () => {
             { name: "local", enabled: true, transport: "stdio", command: "run", args: [], env: {} },
           ],
           agentAccess: "full",
-          userSettings: { enabled: true, outcomes: [] },
           signIns: [],
           health: [],
         }),

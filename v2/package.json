@@ -6,16 +6,18 @@
   "type": "module",
   "packageManager": "pnpm@10.34.9",
   "engines": {
-    "node": ">=24 <25"
+    "node": ">=24.22.1 <25"
   },
   "scripts": {
     "boundaries": "node scripts/enforce-boundaries.mjs",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "desktop:pack": "pnpm --filter @zli-v2/desktop run pack",
+    "desktop:pack:prebuilt": "pnpm --filter @zli-v2/desktop run pack:prebuilt",
     "desktop:dir": "pnpm --filter @zli-v2/desktop run pack:dir",
+    "desktop:dir:prebuilt": "pnpm --filter @zli-v2/desktop run pack:dir:prebuilt",
     "desktop:release": "pnpm --filter @zli-v2/desktop run release",
-    "desktop:dev": "pnpm run build && pnpm exec electron apps/desktop/dist/main.js",
+    "desktop:dev": "node scripts/build.mjs && node scripts/desktop-dev.mjs",
     "e2e": "playwright test",
     "build": "node scripts/build.mjs && pnpm run web:build",
     "web:build": "pnpm --filter @zli-v2/web exec vite build",
@@ -25,16 +27,26 @@
     "verify": "pnpm run boundaries && pnpm run format:check && pnpm run lint && pnpm run test && pnpm run typecheck"
   },
   "pnpm": {
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-86w9-cpqp-85rv"
+      ]
+    },
     "overrides": {
+      "@expo/cli>zod": "4.6.7",
       "esbuild": "0.28.1",
       "http-cache-semantics": "4.3.0",
+      "node-forge": "1.4.2",
       "source-map-js": "1.2.2"
+    },
+    "patchedDependencies": {
+      "@xterm/addon-webgl@0.18.0": "patches/@xterm__addon-webgl@0.18.0.patch"
     }
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "@playwright/test": "1.60.0",
-    "electron": "44.9.3",
+    "electron": "44.10.0",
     "electron-builder": "26.18.0",
     "esbuild": "0.28.1",
     "playwright-core": "1.60.0",

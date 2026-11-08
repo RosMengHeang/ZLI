@@ -14,7 +14,7 @@ export function releaseUrl(version: string): string {
 }
 
 type ReleaseNotes = string | readonly { version: string; note?: string | null }[] | null | undefined;
-export type UpdateInfoLike = { version: string; releaseNotes?: ReleaseNotes };
+export type UpdateInfoLike = { version: string; releaseNotes?: ReleaseNotes; downloadedFile?: string };
 
 /** The parts of electron-updater's autoUpdater the service uses. */
 export type UpdaterLike = {
@@ -57,12 +57,24 @@ export type UpdateServiceDependencies = {
   isPackaged: boolean;
   env: Readonly<Record<string, string | undefined>>;
   currentVersion: string;
-  /** Squirrel.Mac refuses to install into an unsigned app, so macOS builds say whether they are signed. */
+  /**
+   * True for a Developer ID signed macOS build. Squirrel.Mac can install those updates.
+   * Unsigned builds pass `installUnsignedMac` and replace ZLI.app from the downloaded zip instead.
+   */
   macCanAutoInstall: boolean;
+  /**
+   * Replaces the installed app from electron-updater's sha512-checked zip. Unsigned macOS only.
+   * `reopen` is true for Restart to update, and false when the person is quitting.
+   */
+  installUnsignedMac?(zipPath: string, options: { reopen: boolean }): void;
+  /** Ends this process without quit hooks, so the unsigned macOS helper can move the bundle. */
+  exit?(): void;
   settings: UpdateSettingsHost;
   openExternal(url: string): Promise<unknown>;
   /** Stops the runtime and the terminal daemon, which would otherwise keep the installer from replacing the app. */
   prepareToInstall?: () => Promise<void>;
+  /** Starts ZLI again on the version it has, for an install that failed after prepareToInstall stopped the app. */
+  relaunch?: () => void;
   now?: () => Date;
   timers?: Timers;
   log?: (level: "info" | "warn" | "error", message: string) => void;
@@ -71,18 +83,22 @@ export type UpdateServiceDependencies = {
 /** Why this launch never checks for updates, or undefined when it does. */
 export function updateDisabledReason({
   isPackaged,
-  platform,
   env,
-}: Pick<UpdateServiceDependencies, "isPackaged" | "platform" | "env">): string | undefined {
+}: Pick<UpdateServiceDependencies, "isPackaged" | "env">): string | undefined {
   if (!isPackaged) return "Updates are off in development builds.";
   // Packaged end-to-end runs set these, and must never reach GitHub or replace the app under test.
   if (env.ZLI_DISABLE_UPDATES === "1" || env.ZLI_TEST_PROVIDER || env.ZLI_DATABASE_PATH) {
     return "Updates are off for test and development launches.";
   }
-  if (platform === "linux" && !env.APPIMAGE) {
-    return "Only the AppImage build updates itself. Download the new .deb or .rpm from the releases page.";
-  }
   return undefined;
+}
+
+/**
+ * Installed .deb and .rpm builds update through dpkg, apt, dnf, or rpm, which ask for an administrator
+ * password. The AppImage replaces its own file without one.
+ */
+export function isLinuxPackage({ platform, env }: Pick<UpdateServiceDependencies, "platform" | "env">): boolean {
+  return platform === "linux" && !env.APPIMAGE;
 }
 
 /** electron-updater gives GitHub's notes as one string or, with a full changelog, one entry per version. */
@@ -97,6 +113,13 @@ export function releaseNotesText(notes: ReleaseNotes): string | undefined {
           .join("\n\n");
   const trimmed = text.trim();
   return trimmed ? trimmed.slice(0, MAX_NOTES) : undefined;
+}
+
+/** electron-updater throws this when latest-mac.yml has no zip for the running architecture. */
+function isMissingMacZip(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = "code" in error && typeof error.code === "string" ? error.code : "";
+  return code === "ERR_UPDATER_ZIP_FILE_NOT_FOUND" || error.message.includes("ZIP file not provided");
 }
 
 /** The first line of an updater error, which otherwise can carry whole HTTP responses. */
@@ -117,7 +140,10 @@ export function updateErrorMessage(error: unknown): string {
  */
 export class UpdateService {
   readonly disabledReason: string | undefined;
-  private readonly canAutoInstall: boolean;
+  /** Unsigned macOS replaces ZLI.app. Turned off when the release has no zip for this Mac. */
+  private bundleReplaceEnabled: boolean;
+  /** A password prompt while ZLI quits would be unexpected, so .deb and .rpm installs wait for Restart to update. */
+  private readonly canInstallOnQuit: boolean;
   private readonly timers: Timers;
   private readonly now: () => Date;
   private state: UpdateState = { status: "idle" };
@@ -128,13 +154,22 @@ export class UpdateService {
   private launchTimer: unknown;
   private intervalTimer: unknown;
   private pendingWhatsNew: WhatsNew | undefined;
+  private installing = false;
+  private installFailed = false;
+  private downloadedZip: string | undefined;
+  private bundleInstallStarted = false;
   private readonly listeners = new Set<(status: UpdateStatus) => void>();
 
   constructor(private readonly deps: UpdateServiceDependencies) {
     this.disabledReason = updateDisabledReason(deps);
-    this.canAutoInstall = deps.platform !== "darwin" || deps.macCanAutoInstall;
+    this.bundleReplaceEnabled =
+      deps.platform === "darwin" && !deps.macCanAutoInstall && deps.installUnsignedMac !== undefined;
+    this.canInstallOnQuit = !isLinuxPackage(deps);
     this.timers = deps.timers ?? globalTimers;
     this.now = deps.now ?? (() => new Date());
+    // The process that failed the install has exited. The next launch is what the person sees.
+    const installError = deps.settings.current().installError;
+    if (installError) this.state = { status: "error", message: installError };
   }
 
   status(): UpdateStatus {
@@ -192,15 +227,87 @@ export class UpdateService {
     return this.status();
   }
 
-  /** Restarts into the downloaded update. Returns false when there is nothing to install. */
+  /** Replaces ZLI.app when this quit is allowed to install a downloaded unsigned macOS update. */
+  installDownloadedOnQuit(): void {
+    if (!this.bundleReplaceEnabled || this.bundleInstallStarted) return;
+    if (this.state.status !== "ready" || !this.deps.settings.current().autoInstall) return;
+    const zip = this.downloadedZip;
+    const install = this.deps.installUnsignedMac;
+    if (!zip || !install) return;
+    this.bundleInstallStarted = true;
+    try {
+      this.deps.log?.("info", "replacing ZLI.app on quit");
+      install(zip, { reopen: false });
+    } catch (error) {
+      this.bundleInstallStarted = false;
+      this.deps.log?.("warn", `update failed: ${updateErrorMessage(error)}`);
+    }
+  }
+
+  /** Restarts into the downloaded update. Returns false when there is nothing to install or the install failed. */
   async quitAndInstall(): Promise<boolean> {
     if (this.state.status !== "ready" || !this.updater) return false;
+    if (this.bundleReplaceEnabled) return this.quitAndReplaceMacBundle();
     const updater = await this.updater;
-    this.deps.log?.("info", `restarting to install ZLI ${this.state.version}`);
+    const version = this.state.version;
+    this.deps.log?.("info", `restarting to install ZLI ${version}`);
     // electron-updater starts the installer before the app quits, so stop the app's processes first.
     await this.deps.prepareToInstall?.();
-    updater.quitAndInstall(true, true);
+    // A .deb or .rpm install runs dpkg or dnf before quitAndInstall returns, and reports a closed
+    // password prompt or a failed install as an error event during the call.
+    this.installing = true;
+    this.installFailed = false;
+    try {
+      updater.quitAndInstall(true, true);
+    } catch (error) {
+      this.fail(error);
+    } finally {
+      this.installing = false;
+    }
+    if (!this.installFailed) return true;
+    await this.noteInstallFailed(version);
+    return false;
+  }
+
+  private async quitAndReplaceMacBundle(): Promise<boolean> {
+    const zip = this.downloadedZip;
+    const install = this.deps.installUnsignedMac;
+    const version = this.state.status === "ready" ? this.state.version : "";
+    if (!zip || !install) {
+      // Nothing has been stopped yet, so report the miss without starting the current version again.
+      this.setState({ status: "error", message: "The update download is missing." });
+      return false;
+    }
+    this.deps.log?.("info", `replacing ZLI.app with ZLI ${version}`);
+    await this.deps.prepareToInstall?.();
+    this.installing = true;
+    this.installFailed = false;
+    try {
+      if (!this.bundleInstallStarted) {
+        this.bundleInstallStarted = true;
+        install(zip, { reopen: true });
+      }
+    } catch (error) {
+      this.bundleInstallStarted = false;
+      this.fail(error);
+    } finally {
+      this.installing = false;
+    }
+    if (this.installFailed) {
+      await this.noteInstallFailed(version);
+      return false;
+    }
+    this.deps.exit?.();
     return true;
+  }
+
+  /** Staying on ready would look like the install worked, including when the password prompt was closed. */
+  private async noteInstallFailed(version: string): Promise<void> {
+    const message = `ZLI ${version} was not installed. Check for updates, then try Restart to update again.`;
+    this.deps.log?.("warn", `ZLI ${version} was not installed; starting the current version again`);
+    this.setState({ status: "error", message });
+    await this.saveSettings({ installError: message });
+    this.deps.relaunch?.();
   }
 
   /** Opens the GitHub page of the offered, downloaded, or just-installed release. */
@@ -215,7 +322,7 @@ export class UpdateService {
 
   async setAutoInstall(autoInstall: boolean): Promise<UpdateStatus> {
     await this.deps.settings.update({ autoInstall });
-    if (this.updater) (await this.updater).autoInstallOnAppQuit = autoInstall;
+    if (this.updater) (await this.updater).autoInstallOnAppQuit = this.squirrelOnQuit(autoInstall);
     const state = this.state;
     if (autoInstall && state.status === "available" && state.canAutoInstall) await this.startDownload(state.version);
     else this.emit();
@@ -247,6 +354,7 @@ export class UpdateService {
   }
 
   private async runCheck(): Promise<void> {
+    await this.clearInstallError();
     // An offer already on screen stays there while the next check runs in the background.
     if (this.state.status !== "available") this.setState({ status: "checking" });
     try {
@@ -266,7 +374,8 @@ export class UpdateService {
     const loading = this.deps.loadUpdater().then((updater) => {
       // The service decides when to download, so the setting and the platform both apply.
       updater.autoDownload = false;
-      updater.autoInstallOnAppQuit = this.deps.settings.current().autoInstall;
+      // Unsigned macOS must not hand the zip to Squirrel.Mac, which rejects an unsigned bundle.
+      updater.autoInstallOnAppQuit = this.squirrelOnQuit();
       updater.on("update-available", (info) => this.onAvailable(info));
       updater.on("update-not-available", () => {
         if (this.state.status === "checking" || this.state.status === "available") this.setState({ status: "idle" });
@@ -309,8 +418,26 @@ export class UpdateService {
     try {
       await (await this.loadUpdater()).downloadUpdate();
     } catch (error) {
+      // An Intel Mac build has no zip in an Apple-silicon-only release. The release page is the download.
+      if (this.bundleReplaceEnabled && isMissingMacZip(error)) {
+        this.bundleReplaceEnabled = false;
+        this.deps.log?.("warn", "macOS update zip is not in the release, so ZLI will open the release page");
+        this.showManualDownload(version);
+        return;
+      }
       this.fail(error);
     }
+  }
+
+  private showManualDownload(version: string): void {
+    const notes = this.offered?.version === version ? this.offered.notes : undefined;
+    this.setState({
+      status: "available",
+      version,
+      ...(notes ? { notes } : {}),
+      releaseUrl: releaseUrl(version),
+      canAutoInstall: false,
+    });
   }
 
   private onProgress(percent: number): void {
@@ -323,6 +450,13 @@ export class UpdateService {
 
   private onDownloaded(info: UpdateInfoLike): void {
     if (!VERSION.test(info.version)) return;
+    if (this.bundleReplaceEnabled) {
+      if (!info.downloadedFile) {
+        this.fail(new Error("The update download did not include the zip."));
+        return;
+      }
+      this.downloadedZip = info.downloadedFile;
+    }
     const notes =
       releaseNotesText(info.releaseNotes) ?? (this.offered?.version === info.version ? this.offered.notes : undefined);
     this.deps.log?.("info", `ZLI ${info.version} is ready to install`);
@@ -332,9 +466,16 @@ export class UpdateService {
   private fail(error: unknown): void {
     const message = updateErrorMessage(error);
     this.deps.log?.("warn", `update failed: ${message}`);
+    if (this.installing) this.installFailed = true;
     // A later failed check must not hide an update that is already downloaded.
     if (this.state.status === "ready") return;
     this.setState({ status: "error", message });
+  }
+
+  /** Drops a stored install failure once a check is trying again. An empty string clears it. */
+  private async clearInstallError(): Promise<void> {
+    if (!this.deps.settings.current().installError) return;
+    await this.saveSettings({ installError: "" });
   }
 
   private async saveSettings(patch: Partial<UpdateSettings>): Promise<void> {
@@ -343,6 +484,17 @@ export class UpdateService {
     } catch (error) {
       this.deps.log?.("warn", `update settings could not be saved: ${updateErrorMessage(error)}`);
     }
+  }
+
+  /** False where this copy cannot replace itself, such as a translocated or read-only macOS app. */
+  private get canAutoInstall(): boolean {
+    return this.deps.platform !== "darwin" || this.deps.macCanAutoInstall || this.bundleReplaceEnabled;
+  }
+
+  /** Squirrel.Mac installs on quit only for signed macOS and the other platforms that replace themselves. */
+  private squirrelOnQuit(autoInstall = this.deps.settings.current().autoInstall): boolean {
+    if (this.deps.platform === "darwin" && !this.deps.macCanAutoInstall) return false;
+    return this.canInstallOnQuit && autoInstall;
   }
 
   private setState(state: UpdateState): void {

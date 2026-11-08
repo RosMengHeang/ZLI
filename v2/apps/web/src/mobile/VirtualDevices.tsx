@@ -1,19 +1,18 @@
-import { MobileAvdName, type MobileAvdList, type MobileDevice } from "@zli-v2/contracts";
-import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import type { MobileAvdList, MobileDevice } from "@zli-v2/contracts";
+import { useEffect, useId, useRef, useState } from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button } from "../ui/Button.js";
-import { FormSection } from "../ui/Choice.js";
-import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
-import { errorText, stateLabel, suggestAvdName, systemImageLabel } from "./mobile.js";
+import { errorText, stateLabel, systemImageLabel } from "./mobile.js";
+import { NewDeviceDialog } from "./NewDeviceDialog.js";
 
 const AVD_PREFIX = "android-avd:";
 
-type Busy = { kind: "create" } | { kind: "delete"; name: string };
+type Busy = { kind: "delete"; name: string };
 
 /**
- * The Android virtual devices on this computer, with Boot and Delete for each and a form to create one
+ * The Android virtual devices on this computer, with Boot and Delete for each, and New device to create one
  * from a system image that is already installed.
  */
 export function VirtualDevices({
@@ -26,7 +25,7 @@ export function VirtualDevices({
 }: {
   mobile: Pick<MobileBridge, "listAvds" | "createAvd" | "deleteAvd">;
   devices: readonly MobileDevice[];
-  /** Focus the name field when the section opens, as when the person picked New virtual device. */
+  /** Open New device when the section opens, as when the person picked New virtual device. */
   focusCreate: boolean;
   booting: boolean;
   onBoot(device: MobileDevice): void;
@@ -40,11 +39,8 @@ export function VirtualDevices({
   const [error, setError] = useState<string>();
   const [done, setDone] = useState<string>();
   const [confirming, setConfirming] = useState<string>();
-  const [image, setImage] = useState<string>();
-  const [profile, setProfile] = useState<string>();
-  const [name, setName] = useState("");
-  const [nameEdited, setNameEdited] = useState(false);
-  const nameRef = useRef<HTMLInputElement>(null);
+  const [creating, setCreating] = useState(false);
+  const askedRef = useRef(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const deleteRefs = useRef(new Map<string, HTMLButtonElement>());
 
@@ -63,24 +59,16 @@ export function VirtualDevices({
     };
   }, [mobile]);
 
-  const shownImage = image && list?.systemImages.includes(image) ? image : list?.systemImages.at(-1);
-  const shownProfile = profile ?? list?.defaultDeviceProfile;
-  const profileName = list?.deviceProfiles.find((entry) => entry.id === shownProfile)?.name ?? "Device";
-  const taken = list?.avds.map((avd) => avd.name) ?? [];
-  const shownName = nameEdited ? name : suggestAvdName(profileName, shownImage, taken);
   const canChange = Boolean(list?.avdmanager);
-  const canCreate = canChange && Boolean(shownImage);
+  const canCreate = canChange && (list?.systemImages.length ?? 0) > 0;
 
   useEffect(() => {
-    if (focusCreate && canCreate) nameRef.current?.focus();
+    if (!focusCreate) askedRef.current = false;
+    else if (canCreate && !askedRef.current) {
+      askedRef.current = true;
+      setCreating(true);
+    }
   }, [focusCreate, canCreate]);
-
-  const nameCheck = MobileAvdName.safeParse(shownName);
-  const nameProblem = !nameCheck.success
-    ? nameCheck.error.issues[0]?.message
-    : taken.some((existing) => existing.toLowerCase() === shownName.toLowerCase())
-      ? "A virtual device with this name already exists."
-      : undefined;
 
   const change = async (next: Busy, work: () => Promise<MobileAvdList>, success: string, fallback: string) => {
     setBusy(next);
@@ -96,23 +84,6 @@ export function VirtualDevices({
     } finally {
       setBusy(undefined);
       onChanged();
-    }
-  };
-
-  const create = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!shownImage || nameProblem || busy) return;
-    const created = shownName;
-    const ok = await change(
-      { kind: "create" },
-      () =>
-        mobile.createAvd({ name: created, systemImage: shownImage, ...(shownProfile ? { device: shownProfile } : {}) }),
-      `Created ${created}. Boot it from the list.`,
-      `${created} could not be created.`,
-    );
-    if (ok) {
-      setName("");
-      setNameEdited(false);
     }
   };
 
@@ -154,8 +125,6 @@ export function VirtualDevices({
             <Icon name="check" size={14} />
             <span className="banner-message">{done}</span>
           </div>
-        ) : busy?.kind === "create" ? (
-          <p className="mobile-setup-hint">Creating {shownName}. This can take a minute.</p>
         ) : null}
       </div>
       {!list && !loadError ? <p className="mobile-setup-hint">Looking for virtual devices</p> : null}
@@ -252,64 +221,27 @@ export function VirtualDevices({
             Studio's SDK Manager or sdkmanager, then refresh.
           </p>
         ) : (
-          <form className="mobile-avd-form" aria-labelledby={`${ids}-create`} onSubmit={(event) => void create(event)}>
-            <h4 id={`${ids}-create`} className="mobile-avd-form-title">
-              Create a virtual device
-            </h4>
-            <Field label="Name" {...(nameProblem ? { hint: nameProblem, hintTone: "warning" as const } : {})}>
-              <input
-                ref={nameRef}
-                className="input is-mono"
-                value={shownName}
-                maxLength={60}
-                spellCheck={false}
-                aria-invalid={nameProblem ? true : undefined}
-                onChange={(event) => {
-                  setName(event.target.value);
-                  setNameEdited(true);
-                }}
-              />
-            </Field>
-            <FormSection
-              label="System image"
-              htmlFor={`${ids}-image`}
-              hint="Only system images already on this computer are listed. ZLI does not download new ones here."
-            >
-              <Select<string>
-                id={`${ids}-image`}
-                label="System image"
-                value={shownImage ?? ""}
-                options={list.systemImages.map((entry) => ({
-                  value: entry,
-                  label: systemImageLabel(entry),
-                  description: entry,
-                }))}
-                onChange={setImage}
-              />
-            </FormSection>
-            <FormSection label="Device profile" htmlFor={`${ids}-profile`}>
-              <Select<string>
-                id={`${ids}-profile`}
-                label="Device profile"
-                value={shownProfile ?? ""}
-                options={list.deviceProfiles.map((entry) => ({ value: entry.id, label: entry.name }))}
-                onChange={setProfile}
-              />
-            </FormSection>
-            <div className="mobile-setup-actions">
-              <Button
-                type="submit"
-                variant="primary"
-                size="sm"
-                icon="plus"
-                loading={busy?.kind === "create"}
-                disabled={Boolean(nameProblem) || (busy !== undefined && busy.kind !== "create")}
-              >
-                Create
-              </Button>
-            </div>
-          </form>
+          <div className="mobile-setup-actions">
+            <Button size="sm" icon="plus" disabled={busy !== undefined} onClick={() => setCreating(true)}>
+              New device…
+            </Button>
+          </div>
         )
+      ) : null}
+      {creating ? (
+        <NewDeviceDialog
+          mobile={mobile}
+          platforms={["android"]}
+          devices={devices}
+          onCreated={(created) => {
+            setCreating(false);
+            if (created.platform === "android") setList(created.avds);
+            setError(undefined);
+            setDone(`Created ${created.name}. Boot it from the list.`);
+            onChanged();
+          }}
+          onClose={() => setCreating(false)}
+        />
       ) : null}
     </section>
   );

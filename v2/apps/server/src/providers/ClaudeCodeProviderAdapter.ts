@@ -15,7 +15,7 @@ type ClaudeClient = Pick<ClaudeCodeClient, "sendTurn" | "interruptTurn" | "trans
   Partial<Pick<ClaudeCodeClient, "respondToApproval" | "sessionId">>;
 type ClientStart = Pick<
   ProviderSessionStart,
-  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId"
+  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId" | "trustedProjectPath"
 >;
 
 export class ClaudeCodeProviderAdapter implements ProviderAdapter {
@@ -44,6 +44,7 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       ...(input.worktreeId ? { worktreeId: input.worktreeId } : {}),
       ...(input.account ? { account: input.account } : {}),
       ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
+      ...(input.trustedProjectPath ? { trustedProjectPath: input.trustedProjectPath } : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,

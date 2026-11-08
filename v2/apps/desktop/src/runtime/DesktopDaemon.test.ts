@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TERMINAL_DAEMON_VERSION } from "@zli-v2/contracts";
 import { expect, it } from "vitest";
 import { handshake, shutdownDesktopDaemon } from "./DesktopDaemon.js";
 
@@ -78,7 +79,7 @@ async function fakeDaemon(token: string, onShutdown: "accept" | "refuse") {
       endpointPath,
       JSON.stringify({
         protocolVersion: 1,
-        daemonVersion: "zli-v2-daemon/5",
+        daemonVersion: TERMINAL_DAEMON_VERSION,
         pid: 424242,
         host: "127.0.0.1",
         port: address.port,

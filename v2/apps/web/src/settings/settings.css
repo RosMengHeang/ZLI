@@ -202,7 +202,10 @@
 .mobile-device-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
 .mobile-device-name { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-device-meta { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.mobile-device-action { display: flex; min-width: 88px; flex: 0 0 auto; justify-content: flex-end; }
+.mobile-device-action { display: flex; min-width: 88px; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: var(--zli-space-1); }
+fieldset.mobile-device-confirm { margin: 0; padding: 0; border: 0; gap: var(--zli-space-1-5); }
+.mobile-device-confirm-text { color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.mobile-device-meta.is-warning { color: var(--zli-amber); white-space: normal; }
 .mobile-tool-state { display: inline-flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
 .mobile-tool-version { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 
@@ -216,4 +219,22 @@
   .settings-tab { flex: 0 0 auto; }
   .setting-row { grid-template-columns: minmax(0, 1fr); gap: var(--zli-space-2); }
   .setting-control { justify-content: flex-start; }
+}
+
+/* Phone access: the pairing QR code is black on white with a quiet zone, because phone scanners expect that. */
+.mobile-pairing { display: grid; grid-template-columns: 176px minmax(0, 1fr); align-items: start; gap: var(--zli-space-5); margin: var(--zli-space-1) 0; padding: var(--zli-space-4); border-radius: var(--zli-radius-lg); background: var(--zli-well); }
+.mobile-addresses { display: flex; flex-direction: column; align-items: flex-end; gap: var(--zli-space-0-5); }
+.mobile-qr { display: block; width: 176px; height: 176px; border-radius: var(--zli-radius-md); }
+.mobile-pairing-copy { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-2); }
+.mobile-pairing-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.mobile-steps { display: flex; flex-direction: column; gap: var(--zli-space-1-5); margin: 0; padding: 0; list-style: none; counter-reset: mobile-step; }
+.mobile-steps > li { display: flex; align-items: flex-start; gap: var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); counter-increment: mobile-step; }
+.mobile-steps > li::before { content: counter(mobile-step); display: inline-flex; width: 18px; height: 18px; flex: 0 0 auto; align-items: center; justify-content: center; margin-top: 1px; border-radius: 50%; background: var(--zli-raised); color: var(--zli-text); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; font-weight: 600; }
+.mobile-pairing-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); }
+.mobile-countdown { color: var(--zli-text); font-family: var(--zli-mono); font-variant-numeric: tabular-nums; }
+.mobile-paired-count { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.mobile-security { display: flex; align-items: flex-start; gap: var(--zli-space-2); }
+.mobile-security > svg { flex: 0 0 auto; margin-top: 3px; }
+@media (max-width: 720px) {
+  .mobile-pairing { grid-template-columns: minmax(0, 1fr); justify-items: start; }
 }

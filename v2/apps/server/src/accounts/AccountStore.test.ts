@@ -124,18 +124,6 @@ describe("AccountStore", () => {
     if (process.platform !== "win32") expect((await stat(auth)).mode & 0o777).toBe(0o600);
   });
 
-  it("reads limits for sign-in accounts, and for API keys only where the key reads the plan", async () => {
-    const { store, root } = await makeStore();
-    await store.save({ provider: "kimi", label: "Home", kind: "sign-in" });
-    await store.save({ provider: "droid", label: "Team", kind: "api-key", apiKey: KEY });
-    await store.save({ provider: "claude-code", label: "Billing", kind: "api-key", apiKey: KEY });
-    const targets = store.limitTargets();
-    expect(targets.map((target) => target.provider)).toEqual(["kimi", "droid"]);
-    expect(targets[0]?.configDir).toContain(join(root, "accounts"));
-    expect(targets[1]).toMatchObject({ apiKey: KEY });
-    expect(targets[1]).not.toHaveProperty("configDir");
-  });
-
   it("uses the usual login unless a default is set, and refuses an account that was removed", async () => {
     const { store, root } = await makeStore();
     const [account] = (await store.save({ provider: "claude-code", label: "Work", kind: "sign-in" })).accounts;

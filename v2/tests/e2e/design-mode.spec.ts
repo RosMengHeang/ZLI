@@ -1,20 +1,55 @@
+import { execFile } from "node:child_process";
 import { createServer, type Server } from "node:http";
+import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  openCreateWorktree,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  V2_ROOT,
+} from "./desktop-fixtures.js";
+
+const execFileAsync = promisify(execFile);
 
 const PAGE = [
   "<!doctype html><title>Design fixture</title>",
+  '<body style="margin: 0">',
   '<main style="padding: 24px">',
-  "<h1>Checkout</h1>",
+  '<h1 class="hero-title" style="margin: 0 0 12px">Checkout</h1>',
   '<button id="pay" style="padding: 8px 16px" onclick="document.title = \'clicked\'">Pay now</button>',
+  '<section style="height: 600px"></section>',
   "</main>",
+  "</body>",
 ].join("");
 
-test("picks an element in the browser panel and sends it to a chat agent", async () => {
+test("annotates the page, sends the annotations to a chat agent in one message, then to one in another worktree", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
+  const zli = async (args: string[]): Promise<{ code: number; stdout: string; stderr: string }> => {
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        process.execPath,
+        [join(V2_ROOT, "apps/desktop/dist/zli.js"), ...args],
+        {
+          env: {
+            ...process.env,
+            ZLI_BROWSER_CONTROL_FILE: join(root, "runtime.sqlite.browser-control.json"),
+            ZLI_WORKTREE_ID: undefined,
+          },
+          timeout: 120_000,
+        },
+      );
+      return { code: 0, stdout, stderr };
+    } catch (error) {
+      const failed = error as { code?: number; stdout?: string; stderr?: string };
+      return { code: failed.code ?? 1, stdout: failed.stdout ?? "", stderr: failed.stderr ?? "" };
+    }
+  };
   let fixture: DesktopFixture | undefined;
   const server = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html" });
@@ -22,9 +57,10 @@ test("picks an element in the browser panel and sends it to a chat agent", async
   });
   try {
     const port = await listen(server);
+    const pageUrl = `http://127.0.0.1:${port}/`;
     fixture = await launchDesktop(repo, root);
     const page = fixture.page;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
     await createWorktree.getByLabel("Branch").fill("design");
     await createWorktree.getByRole("button", { name: "Create worktree" }).click();
@@ -41,7 +77,7 @@ test("picks an element in the browser panel and sends it to a chat agent", async
 
     const browserToggle = page.getByRole("button", { name: "Browser", exact: true });
     if (!(await page.getByRole("complementary", { name: "Browser panel" }).isVisible())) await browserToggle.click();
-    await page.getByRole("textbox", { name: "Browser URL" }).fill(`http://127.0.0.1:${port}`);
+    await page.getByRole("textbox", { name: "Browser URL" }).fill(pageUrl);
     await page.getByRole("button", { name: "Open", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Design fixture" })).toBeVisible({ timeout: 20_000 });
     const browserTabId = await page.evaluate(async () => {
@@ -49,55 +85,178 @@ test("picks an element in the browser panel and sends it to a chat agent", async
       return projection?.browserTabs.at(-1)?.browserTabId;
     });
     if (!browserTabId) throw new Error("The browser tab was not projected to the renderer.");
+    // Trusted clicks in the page, the same input a person's mouse produces.
+    const clickInPage = (selector: string) =>
+      page.evaluate(async (input) => window.zli?.browser.click(input), { browserTabId, selector });
+    type GuestInput =
+      | { text: string }
+      | { key: string }
+      | { mouse: "mouseDown" | "mouseUp" | "mouseMove"; x: number; y: number };
+    const inPage = (inputs: GuestInput[]) =>
+      fixture?.app.evaluate(
+        async ({ webContents }, { url, inputs }) => {
+          const guest = webContents.getAllWebContents().find((candidate) => candidate.getURL().startsWith(url));
+          if (!guest) throw new Error("The page's web contents were not found.");
+          guest.focus();
+          for (const input of inputs) {
+            if ("text" in input) await guest.insertText(input.text);
+            else if ("key" in input) {
+              guest.sendInputEvent({ type: "keyDown", keyCode: input.key });
+              guest.sendInputEvent({ type: "keyUp", keyCode: input.key });
+            } else guest.sendInputEvent({ type: input.mouse, x: input.x, y: input.y, button: "left", clickCount: 1 });
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+        },
+        { url: pageUrl, inputs },
+      );
+    // The note card opens next to the pick with its text box focused; Return saves it.
+    const writeNote = (note: string) => inPage([{ text: note }, { key: "Enter" }]);
 
-    const pick = page.getByRole("button", { name: "Pick element" });
-    await pick.click();
-    await expect(pick).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByRole("status").filter({ hasText: "Esc cancels" })).toBeVisible();
-    // A trusted click in the page, the same input a person's mouse produces.
-    await page.evaluate(
-      async (tabId) => window.zli?.browser.click({ browserTabId: tabId, selector: "#pay" }),
-      browserTabId,
-    );
+    const annotate = page.getByRole("button", { name: "Annotate", exact: true });
+    await annotate.click();
+    await expect(annotate).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("status").filter({ hasText: "Click or drag" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Browser URL" })).toHaveCount(0);
 
-    const panel = page.getByRole("region", { name: "Picked elements" });
-    await expect(panel).toContainText("1 element picked", { timeout: 15_000 });
+    // Exact, because the chat that receives the message is a region named after it.
+    const panel = page.getByRole("region", { name: "Annotations", exact: true });
+    await clickInPage("#pay");
+    await expect(panel).toContainText("1 annotation", { timeout: 15_000 });
     await expect(panel).toContainText('<button> "Pay now"');
-    await expect(panel).toContainText("#pay");
-    await expect(panel.getByRole("img", { name: /Screenshot of/u })).toBeVisible();
-    await expect(pick).toHaveAttribute("aria-pressed", "false");
-    // The pick swallowed the click, so the page's own handler never ran.
+    await expect(panel.getByRole("img", { name: /Screenshot of annotation 1/u })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Return to save" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send 1 annotation" })).toBeDisabled();
+    await writeNote("Make the pay button green.");
+    await expect(panel).toContainText("Make the pay button green.");
+    await expect(page.getByRole("button", { name: "Send 1 annotation" })).toBeEnabled();
+    // Annotate stays on after a pick, and the page never saw the click.
+    await expect(annotate).toHaveAttribute("aria-pressed", "true");
+    await clickInPage("h1");
+    await expect(panel).toContainText("2 annotations", { timeout: 15_000 });
+    await writeNote("Bigger, tighter.");
+    await expect(panel).toContainText("Bigger, tighter.");
     const title = await page.evaluate(
       async (tabId) => (await window.zli?.browser.snapshot(tabId)) as { title?: string } | undefined,
       browserTabId,
     );
     expect(title?.title).toBe("Design fixture");
 
-    // Escape ends a pick without adding anything.
-    await panel.getByRole("button", { name: "Pick another" }).click();
-    await expect(pick).toHaveAttribute("aria-pressed", "true");
+    // A drag over empty space marks a region and opens its note.
+    const drag: GuestInput[] = [
+      { mouse: "mouseMove", x: 40, y: 160 },
+      { mouse: "mouseDown", x: 40, y: 160 },
+    ];
+    for (let step = 1; step <= 10; step += 1) drag.push({ mouse: "mouseMove", x: 40 + step * 18, y: 160 + step * 10 });
+    drag.push({ mouse: "mouseUp", x: 220, y: 260 });
+    await inPage(drag);
+    await expect(page.getByRole("status").filter({ hasText: "Draw on the area" })).toBeVisible();
+    await writeNote("Add a signup card here.");
+    await expect(panel).toContainText("3 annotations", { timeout: 15_000 });
+    await expect(panel).toContainText("Region");
+    const send = page.getByRole("button", { name: "Send 3 annotations" });
+    await expect(send).toBeEnabled();
+
+    // The device size preview still works while annotating.
+    await page.getByRole("button", { name: "Device size" }).click();
+    await expect(page.getByRole("button", { name: "Fit panel" })).toBeVisible();
+    await expect(annotate).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Fit panel" }).click();
+
+    // Escape leaves Annotate but keeps the annotations for sending.
     await page.keyboard.press("Escape");
-    await expect(pick).toHaveAttribute("aria-pressed", "false");
-    await expect(panel).toContainText("1 element picked");
-
-    await panel.getByRole("textbox", { name: "What should change?" }).fill("Make the pay button green.");
-    await panel.getByRole("button", { name: "Send to agent" }).click();
-    const send = page.getByRole("dialog", { name: "Send picked elements" });
-    await expect(send.locator(".choice-detail")).toHaveText(/Codex chat/u);
-    const preview = send.getByLabel("Message preview");
-    await expect(preview).toContainText("Make the pay button green.");
+    await expect(annotate).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByRole("textbox", { name: "Browser URL" })).toBeVisible();
+    await expect(panel).toContainText("Turn on Annotate to edit notes on the page.");
+    await expect(panel).toContainText("3 annotations");
+    // Shift+click opens the message to read first; a plain click sends to the only agent.
+    await send.click({ modifiers: ["Shift"] });
+    const dialog = page.getByRole("dialog", { name: "Send annotations" });
+    await expect(dialog.locator(".choice-detail")).toHaveText(/Codex chat/u);
+    const preview = dialog.getByLabel("Message preview");
+    await expect(preview).toContainText(
+      `Please apply these 3 design annotations I made in the ZLI browser panel on ${pageUrl}`,
+    );
     await expect(preview).toContainText("Selector: `#pay`");
-    await expect(preview).toContainText(`http://127.0.0.1:${port}/`);
+    await expect(preview).toContainText("Instruction: Make the pay button green.");
+    await expect(preview).toContainText("Instruction: Bigger, tighter.");
+    await expect(preview).toContainText("### Annotation 3: Region");
+    await expect(preview).toContainText("Instruction: Add a signup card here.");
+    await expect(preview).toContainText("region-3.png (attached)");
     await expect(preview).toContainText('<button id="pay"');
-    await expect(send).toContainText("with 1 image");
-    await send.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(send).toHaveCount(0);
+    await expect(dialog).toContainText("with 3 images");
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(panel).toContainText("3 annotations");
 
-    await expect(page.getByText(/Mock response: Please change this element in the page/u)).toBeVisible({
+    await send.click();
+    await expect(dialog).toHaveCount(0);
+    const sent = page.getByRole("status").filter({ hasText: "Sent to Codex." });
+    await expect(sent).toBeVisible();
+    await expect(sent.getByRole("button", { name: "Show", exact: true })).toBeVisible();
+
+    await expect(page.getByText(/Mock response: Please apply these 3 design annotations/u)).toBeVisible({
       timeout: 20_000,
     });
     await expect(page.locator(".chat-attachments")).toContainText("element-1.png");
+    await expect(page.locator(".chat-attachments")).toContainText("region-3.png");
     await expect(panel).toHaveCount(0);
+
+    // An agent in another worktree of the project can take the next annotations once it is picked.
+    const designPath = await page.evaluate(async () => {
+      const projection = await window.zli?.runtime.getProjection();
+      return projection?.worktrees.find((candidate) => candidate.branch === "design")?.path ?? "";
+    });
+    const started = await zli([
+      "start",
+      "codex",
+      "Wait for the page.",
+      "--name",
+      "Helper",
+      "--branch",
+      "cheap",
+      "--cwd",
+      designPath,
+    ]);
+    expect(started.stderr).toBe("");
+    const helperTile = page.getByRole("region", { name: /^Helper,/u });
+    await expect(helperTile.getByText(/^Mock response/u).first()).toBeVisible({ timeout: 20_000 });
+    await worktree.click();
+    await expect(page.getByRole("heading", { name: "Design fixture" })).toBeVisible();
+
+    await annotate.click();
+    await expect(annotate).toHaveAttribute("aria-pressed", "true");
+    await clickInPage("#pay");
+    await expect(panel).toContainText("1 annotation", { timeout: 15_000 });
+    await writeNote("Make the pay button blue.");
+    await expect(panel).toContainText("Make the pay button blue.");
+    await page.getByRole("button", { name: "Choose agent" }).click();
+    const menu = page.getByRole("menu", { name: "Send to" });
+    await expect(menu.getByRole("group", { name: "design (this worktree)" })).toBeVisible();
+    await expect(menu.getByRole("group", { name: "cheap", exact: true })).toBeVisible();
+    await menu.getByRole("menuitem", { name: "Edit message before sending…" }).click();
+    await expect(dialog).toContainText("to an agent in this project");
+    await dialog.getByRole("group", { name: "cheap", exact: true }).locator(".choice-card").click();
+    await expect(dialog.getByRole("status").filter({ hasText: "Codex works on cheap." })).toContainText(
+      "The page was annotated on design.",
+    );
+    await expect(preview).toContainText(
+      `This annotation was made in the browser of another worktree, design at ${designPath}, on ${pageUrl}.`,
+    );
+    await expect(preview).toContainText("You work on cheap");
+    await dialog.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    const sentElsewhere = page.getByRole("status").filter({ hasText: "Sent to Codex on cheap." });
+    await expect(sentElsewhere).toBeVisible();
+    await expect(panel).toHaveCount(0);
+    await expect(
+      helperTile.getByText(/Mock response: This annotation was made in the browser of another worktree/u),
+    ).toBeVisible({
+      timeout: 20_000,
+    });
+    // The browser stays on design until Show brings the agent forward, which moves the panels to its worktree.
+    await expect(page.getByRole("heading", { name: "Design fixture" })).toBeVisible();
+    await sentElsewhere.getByRole("button", { name: "Show", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Design fixture" })).toHaveCount(0);
   } finally {
     if (fixture) await closeDesktop(fixture);
     server.close();

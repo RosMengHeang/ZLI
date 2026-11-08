@@ -224,7 +224,7 @@ export function SkillsSection({
         {skill.problem ? <span className="skill-row-problem">{skill.problem}</span> : null}
         {skill.conflicts?.length ? (
           <span className="skill-row-problem">
-            Not copied to {skill.conflicts.join(", ")}: a skill you made has the same name there.
+            Not copied to {skill.conflicts.join(", ")}: a skill with the same name is already there.
           </span>
         ) : null}
         {skill.source ? (
@@ -596,8 +596,8 @@ function SyncFootnote({ result }: { result: SkillListResult }) {
       ) : null}
       <p className="settings-footnote">
         {result.sync.enabled
-          ? "ZLI copies your enabled skills into ~/.agents/skills, which most agents read, and into ~/.claude/skills for Claude Code. It removes only the copies it made."
-          : `ZLI is set to leave agent folders alone, so your skills stay in ${result.libraryPath}.`}
+          ? "ZLI gives your enabled skills only to agents it starts. It copies them into each worktree's .agents/skills, which most agents read, and .claude/skills for Claude Code, hides the copies from git, and deletes them when ZLI quits."
+          : `ZLI keeps your skills in ${result.libraryPath} and does not copy them anywhere.`}
       </p>
     </>
   );

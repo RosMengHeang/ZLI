@@ -34,7 +34,7 @@ An invalid `zli.json` never blocks work. ZLI creates the worktree without copyin
 }
 ```
 
-Type `/` at the start of a message to pick one: the list narrows as you type, arrows move, Enter inserts it. The bookmark button next to the message box opens the same list. Prompts you keep for yourself are saved on this computer under **Saved prompts** in the command palette, where you can add, edit, and delete them; the prompts from `zli.json` are shown there read-only.
+Type `/` at the start of a message to pick one: the list narrows as you type, arrows move, Enter inserts it. **Saved prompts** in the message box's **+** menu opens the same list. Prompts you keep for yourself are saved on this computer under **Saved prompts** in the command palette, where you can add, edit, and delete them; the prompts from `zli.json` are shown there read-only.
 
 ## Best of N
 
@@ -51,6 +51,8 @@ Compare shows the runs side by side: agent and model, status, files changed with
 
 The Mobile panel (Mod+Shift+M) shows Android emulators, Android phones over USB, and, on a Mac with Xcode, iOS simulators. You can boot them, watch the screen, and tap, swipe, scroll, and type. Agents drive the same devices through the zli-mobile tool, and the panel shows who holds each device. On Windows and Linux, Android is the only platform; the panel can download and set up the Android emulator for you.
 
+The toolbar's **Project check** reads the current agent's worktree and reports its dev server, toolchain, packages, and what a failed build log means. When an agent wants to run a command there or change AGENTS.md or CLAUDE.md, a card appears above the device, and nothing runs until you click **Run in terminal** or **Write**.
+
 Unit tests use fake drivers. The checks that need real hardware are in [apps/web/src/mobile/MANUAL_TEST.md](apps/web/src/mobile/MANUAL_TEST.md).
 ## Verify locally
 
@@ -63,7 +65,7 @@ pnpm run build
 pnpm run desktop:pack
 ```
 
-The repository currently requires Node 24. The local Electron binary must be installed by pnpm before packaging or running the Electron journeys.
+The repository currently requires Node 24.22.1 or a newer 24.x release. The local Electron binary must be installed by pnpm before packaging or running the Electron journeys.
 
 ## Electron journeys
 

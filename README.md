@@ -26,6 +26,7 @@ ZLI puts your agent CLIs side by side in one window. Each agent works in its own
 - **Best of N.** Send one message to two to four agents at once, compare what each one changed, and keep the best run.
 - **Review and merge.** See every change with line counts, leave notes for the agent, commit, and merge a worktree back into its branch.
 - **Built-in browser.** A Chromium panel scoped to each worktree, which agents can also open and test pages in.
+- **Mobile devices.** Boot Android emulators, plug in a phone, or use iPhone simulators on a Mac, and drive them from the Mobile panel or let agents drive them. A project check reads an agent's worktree for toolchain, package, and build problems, and a command or file change an agent proposes waits for your click.
 - **Integrations.** Connect services such as GitHub, Linear, Vercel, and Supabase, add any MCP server, and install Claude Code or Codex plugins. Every agent ZLI starts can use them.
 - **Skills, prompts, and issues.** Share skills and saved prompts across agents, and start work from GitHub or Linear issues.
 - **Multiple accounts.** Sign in to the same agent CLI with more than one account and choose one per agent.
@@ -49,7 +50,7 @@ ZLI runs the agent CLIs you already have installed. Install and sign in to at le
 ZLI checks GitHub Releases a few seconds after it starts and every four hours after that.
 
 - **Windows and Linux (AppImage):** the new version downloads in the background and **Restart to update** appears in the title bar. Otherwise it installs the next time you quit. If agents are still working when you restart, ZLI asks first. To download updates only when you choose, turn off **Install updates automatically** in **Settings > Updates**.
-- **Linux (.deb and .rpm):** these packages do not update themselves. Download the new `.deb` or `.rpm` from the release page and install it again with `apt` or `dnf`.
+- **Linux (.deb and .rpm):** the new version downloads in the background and **Restart to update** appears in the title bar. When you restart, Linux asks for your password so `dpkg` or `dnf` can install the new package, then ZLI opens again. These packages install only when you choose **Restart to update**, not when you quit. If you cancel the password prompt, ZLI opens again on the version you have.
 - **macOS:** ZLI tells you when a new version is out and opens the release page, because macOS only lets signed apps update themselves.
 
 **Settings > Updates** and **Help and diagnostics** show the running version and let you check for updates by hand. After an update, ZLI shows what changed.
@@ -58,7 +59,7 @@ ZLI checks GitHub Releases a few seconds after it starts and every four hours af
 
 ### Requirements
 
-- Node.js 24
+- Node.js 24.22.1 or a newer 24.x
 - pnpm 10.34.9, through Corepack
 - Git
 
@@ -103,11 +104,11 @@ On Linux without a display, run them under `xvfb-run -a`.
 
 Every merge to `main` publishes a new patch release through the [Release workflow](.github/workflows/release.yml):
 
-1. Runs `pnpm audit --audit-level high` and `pnpm run verify` on Windows, macOS, and Linux, and stops if either fails.
-2. Takes the next version from the highest `vX.Y.Z` tag, tags the merge commit, and creates a draft release with generated notes.
-3. Builds the installers and update files (`latest*.yml`, `.blockmap`) on each platform, including the Linux `.deb` and `.rpm`, uploads them to the draft, and publishes it once every file is there.
+1. Takes the next version from the highest `vX.Y.Z` tag.
+2. Runs the pull request checks from the [ZLI V2 desktop workflow](.github/workflows/v2-desktop.yml): `pnpm audit --audit-level high`, boundaries, format, lint, and typecheck once on Linux, and the unit tests and the Electron journey on Windows, macOS, and Linux. The same jobs build the installers and update files (`latest*.yml`, `.blockmap`) with the release version, including the Linux `.deb` and `.rpm`, and the journey runs against that build. It stops if any of them fail.
+3. Tags the merge commit, creates a draft release with generated notes and the installers from step 2, and publishes it once every file is there. Only this last job can write to the repository.
 
-The `package.json` files on `main` stay at `0.0.0`. The build jobs write the release version into them.
+The `package.json` files on `main` stay at `0.0.0`. The gate's build jobs write the release version into them.
 
 - A push is not released when every changed file is Markdown or under a `docs/` folder, or when the head commit message contains `[skip release]`.
 - For a minor or major release, run the **Release** workflow from the Actions tab and pick the bump.

@@ -1,0 +1,16 @@
+/* The project check's Build group. */
+.mobile-build-log { min-height: 96px; font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+.mobile-build-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); }
+.mobile-build .inline-error { margin: 0; }
+.mobile-build-result { display: flex; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-raised); }
+.mobile-build-result > .btn-ghost { align-self: flex-start; }
+.mobile-build-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2); }
+.mobile-build-dim { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.mobile-build-label { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.mobile-build-well { white-space: pre; }
+.mobile-build-well .is-error { color: var(--zli-red); }
+.mobile-build-subtitle { margin: var(--zli-space-1) 0 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.mobile-build-files, .mobile-build-avoid { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding-left: var(--zli-space-4); color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.mobile-build-files { font-family: var(--zli-mono); }
+.mobile-build-suggestion { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.mobile-build-suggestion code { color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }

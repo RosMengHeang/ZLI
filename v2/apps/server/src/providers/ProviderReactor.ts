@@ -13,6 +13,7 @@ import {
 
 import type { TurnCheckpoints, TurnStart } from "../checkpoints/TurnCheckpoints.js";
 import type { Engine } from "../orchestration/Engine.js";
+import { trustedProject } from "../terminal/agentTrust.js";
 import type {
   ProviderAccount,
   ProviderEvent,
@@ -72,6 +73,13 @@ export class ProviderReactor {
    * reject a stale conversation id on the first turn, so that turn's message is kept to send again.
    */
   private readonly resuming = new Map<string, { retry?: SendIntent }>();
+  /** The send still waiting for the provider's turn id, per thread. */
+  private readonly sending = new Map<string, object>();
+  /**
+   * Sends that were stopped before the provider returned a turn id. Stop has nothing to interrupt yet,
+   * so the turn is interrupted as soon as its id arrives instead of being left running.
+   */
+  private readonly stoppedSends = new Set<object>();
   private readonly unsubscribe: () => void;
   private readonly unsubscribeProvider: () => void;
 
@@ -106,8 +114,14 @@ export class ProviderReactor {
   async reconcileOrphanedThreads(): Promise<void> {
     const projection = await this.engine.projection();
     for (const thread of projection.threads) {
-      if (!LIVE_STATUSES.has(thread.status)) continue;
       if (this.service.hasSession(ThreadId.parse(thread.threadId))) continue;
+      if (!LIVE_STATUSES.has(thread.status)) {
+        // Older runs could end a chat without closing its requests, which left the chat stuck.
+        for (const request of projection.requests ?? []) {
+          if (request.threadId === thread.threadId) await this.dropRequest(thread.threadId, request.requestId);
+        }
+        continue;
+      }
       await this.status(thread.threadId, "stopped", {
         errorMessage: thread.providerSessionId
           ? "The agent stopped when ZLI restarted. Send a message to pick up where it left off."
@@ -153,6 +167,7 @@ export class ProviderReactor {
   private async sessionInput(thread: ThreadProjection, cwd: string): Promise<SessionInput> {
     const provider = ProviderKind.parse(thread.provider);
     const account = await this.options.resolveAccount?.(provider, thread.accountId);
+    const trustedProjectPath = await trustedProject(this.engine, thread.worktreeId);
     return {
       provider,
       threadId: ThreadId.parse(thread.threadId),
@@ -161,6 +176,7 @@ export class ProviderReactor {
       ...(thread.permissionMode ? { permissionMode: thread.permissionMode } : {}),
       ...(thread.model ? { model: thread.model } : {}),
       ...(account ? { account } : {}),
+      ...(trustedProjectPath ? { trustedProjectPath } : {}),
     };
   }
 
@@ -275,11 +291,27 @@ export class ProviderReactor {
   }
 
   private async send(intent: SendIntent, options: { record?: boolean } = {}): Promise<void> {
-    const { threadId, text, model, reasoningEffort, permissionMode } = intent;
+    const { threadId, text } = intent;
     const attachments = intent.attachments ?? [];
     if (options.record !== false) await this.message(threadId, "user", text, undefined, attachments);
     const resuming = this.resuming.get(threadId);
     if (resuming && !resuming.retry) resuming.retry = intent;
+    const sendToken = {};
+    this.sending.set(threadId, sendToken);
+    try {
+      await this.sendTurn(intent, attachments, sendToken);
+    } finally {
+      if (this.sending.get(threadId) === sendToken) this.sending.delete(threadId);
+      this.stoppedSends.delete(sendToken);
+    }
+  }
+
+  private async sendTurn(
+    intent: SendIntent,
+    attachments: readonly ThreadAttachment[],
+    sendToken: object,
+  ): Promise<void> {
+    const { threadId, text, model, reasoningEffort, permissionMode } = intent;
     // Taken before the provider sees the message, so none of the turn's edits can land first.
     const start = await this.checkpoints?.capture(threadId);
     try {
@@ -294,6 +326,8 @@ export class ProviderReactor {
       if (start) this.turnStarts.set(turnKey(threadId, result.turnId), start);
       if (this.turnEnded(threadId, result.turnId)) {
         this.recordCheckpoint(threadId, result.turnId);
+      } else if (this.stoppedSends.has(sendToken)) {
+        await this.interruptStarted(threadId, result.turnId);
       } else {
         this.activeTurns.set(threadId, result.turnId);
         await this.status(threadId, "working", { turnId: result.turnId });
@@ -318,6 +352,8 @@ export class ProviderReactor {
   private async interrupt(threadId: string, projectedTurnId?: string): Promise<void> {
     // The projection keeps a sanitized turn id, so the provider's own id is preferred when known.
     const active = this.activeTurns.get(threadId);
+    const pendingSend = this.sending.get(threadId);
+    if (!active && pendingSend) this.stoppedSends.add(pendingSend);
     const turnId = active ?? projectedTurnId;
     try {
       await this.service.interruptTurn({ threadId: ThreadId.parse(threadId), ...(turnId ? { turnId } : {}) });
@@ -326,6 +362,19 @@ export class ProviderReactor {
         this.endTurn(threadId, active);
         this.recordCheckpoint(threadId, active);
       }
+      await this.status(threadId, "idle");
+    } catch (error) {
+      await this.fail(threadId, error, "Provider interruption failed.");
+    }
+  }
+
+  /** Interrupts a turn whose Stop arrived while the provider was still accepting the message. */
+  private async interruptStarted(threadId: string, turnId: string): Promise<void> {
+    try {
+      await this.service.interruptTurn({ threadId: ThreadId.parse(threadId), turnId });
+      this.flushThreadDeltas(threadId);
+      this.endTurn(threadId, turnId);
+      this.recordCheckpoint(threadId, turnId);
       await this.status(threadId, "idle");
     } catch (error) {
       await this.fail(threadId, error, "Provider interruption failed.");
@@ -425,6 +474,9 @@ export class ProviderReactor {
     }
     if (event.type === "session.closed") {
       this.flushThreadDeltas(event.threadId);
+      // The turn died with the process. Left active, it would be the one a Stop after the next send interrupts.
+      const active = this.activeTurns.get(event.threadId);
+      if (active) this.endTurn(event.threadId, active);
       this.track(this.status(event.threadId, "stopped", { errorMessage: event.reason }));
       return;
     }
@@ -524,7 +576,7 @@ export class ProviderReactor {
       await this.service.respondToRequest({ threadId: ThreadId.parse(threadId), requestId, decision });
       await this.resolveRequest(threadId, requestId);
     } catch (error) {
-      await this.fail(threadId, error, "Approval response failed.");
+      if (await this.requestOpen(requestId)) await this.fail(threadId, error, "Approval response failed.");
     }
   }
 
@@ -533,8 +585,16 @@ export class ProviderReactor {
       await this.service.respondToUserInput({ threadId: ThreadId.parse(threadId), requestId, answers });
       await this.resolveRequest(threadId, requestId);
     } catch (error) {
-      await this.fail(threadId, error, "User input response failed.");
+      if (await this.requestOpen(requestId)) await this.fail(threadId, error, "User input response failed.");
     }
+  }
+
+  /**
+   * An answer can race a Stop or a session end, which close the request. The agent has nothing left to
+   * answer then, so its refusal is not a failure of the chat.
+   */
+  private async requestOpen(requestId: string): Promise<boolean> {
+    return ((await this.engine.projection()).requests ?? []).some((request) => request.requestId === requestId);
   }
 
   private request(
@@ -556,19 +616,25 @@ export class ProviderReactor {
       .then(() => undefined);
   }
 
-  /** Answering a request resumes the same turn, so the thread goes back to working, not idle. */
-  private resolveRequest(threadId: string, requestId: string): Promise<void> {
+  private dropRequest(threadId: string, requestId: string): Promise<boolean> {
     return this.engine
       .dispatchPromise({
         protocolVersion: 1,
         commandId: CommandId.parse(randomUUID()),
         command: { type: "thread.request.resolved", threadId: ThreadId.parse(threadId), requestId },
       })
-      .then(async () => {
-        const projection = await this.engine.projection();
-        const stillWaiting = (projection.requests ?? []).some((request) => request.threadId === threadId);
-        await this.status(threadId, stillWaiting ? "waiting" : "working");
-      });
+      .then((receipt) => receipt.status !== "rejected");
+  }
+
+  /** Answering a request resumes the same turn, so the thread goes back to working, not idle. */
+  private resolveRequest(threadId: string, requestId: string): Promise<void> {
+    return this.dropRequest(threadId, requestId).then(async (resolved) => {
+      // Already closed because the turn ended first, so the thread's status is already right.
+      if (!resolved) return;
+      const projection = await this.engine.projection();
+      const stillWaiting = (projection.requests ?? []).some((request) => request.threadId === threadId);
+      await this.status(threadId, stillWaiting ? "waiting" : "working");
+    });
   }
 
   private activity(event: ActivityEvent): Promise<void> {

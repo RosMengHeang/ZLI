@@ -3,7 +3,14 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, git, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  openCreateWorktree,
+  createGitFixture,
+  type DesktopFixture,
+  git,
+  launchDesktop,
+} from "./desktop-fixtures.js";
 
 test("stages a hunk, commits only it, and stashes the rest", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -12,7 +19,7 @@ test("stages a hunk, commits only it, and stashes the rest", async () => {
   try {
     fixture = await launchDesktop(repo, root);
     const page = fixture.page;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
     await createWorktree.getByLabel("Branch").fill("staging");
     await createWorktree.getByRole("button", { name: "Create worktree" }).click();

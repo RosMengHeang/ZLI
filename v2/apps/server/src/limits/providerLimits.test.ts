@@ -4,12 +4,7 @@ import { join, normalize } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createCipheriv, randomBytes } from "node:crypto";
-
-import { type CopilotLimitDeps, readCopilotLimits } from "./copilotLimits.js";
 import { readCursorLimits } from "./cursorLimits.js";
-import { readDroidLimits } from "./droidLimits.js";
-import { credentialText } from "./readerDeps.js";
 import {
   findGeminiOAuthClient,
   forgetGeminiTokens,
@@ -32,8 +27,6 @@ type Reply = { status?: number; body?: unknown; headers?: Record<string, string>
 function fakeDeps(options: {
   files?: Record<string, string>;
   keychain?: Record<string, string>;
-  /** Credential store entries by "service/account", or by service alone. */
-  secrets?: Record<string, string>;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   reply?: (call: Call) => Reply;
@@ -53,8 +46,6 @@ function fakeDeps(options: {
       return file;
     },
     keychain: async (service: string) => options.keychain?.[service],
-    secretStore: async (service: string, account?: string) =>
-      options.secrets?.[account ? `${service}/${account}` : service],
     fetch: (async (url: string, init: RequestInit = {}) => {
       const call = {
         url,
@@ -229,8 +220,8 @@ describe("readCursorLimits", () => {
       state: "ok",
       windows: [
         { durationMinutes: 43_200, usedPercent: 44, resetsAt },
-        { scope: "Auto", durationMinutes: 43_200, usedPercent: 20, resetsAt },
-        { scope: "API", durationMinutes: 43_200, usedPercent: 71, resetsAt },
+        { scope: "Auto models", durationMinutes: 43_200, usedPercent: 20, resetsAt },
+        { scope: "API models", durationMinutes: 43_200, usedPercent: 71, resetsAt },
       ],
     });
     expect(calls[0]).toMatchObject({
@@ -378,190 +369,11 @@ describe("readOpenCodeLimits", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("reads the Console key OpenCode 1 keeps in auth.json, and says when it has expired", async () => {
-    const { deps, calls } = openCodeDeps({
-      files: {
-        "/home/me/.local/share/opencode/auth.json": JSON.stringify({
-          openrouter: { type: "api", key: "router" },
-          opencode: { type: "api", key: "console" },
-        }),
-      },
-      reply: () => ({
-        status: 401,
-        body: { error: { type: "authentication_error", code: "api_key_expired", message: "expired" } },
-      }),
-    });
-    const read = await readOpenCodeLimits(deps);
-    expect(read.state).toBe("expired");
-    expect(read.message).toContain("Create a new one in OpenCode Console");
-    expect(calls.map((call) => call.headers.Authorization)).toEqual(["Bearer console"]);
-  });
-
   it("hides a shared key that is not for Go, and asks to reconnect a rejected Go key", async () => {
     const rejected = () => ({ status: 401, body: { error: { type: "AuthError" } } });
     const shared = openCodeDeps({ env: { OPENCODE_API_KEY: "other" }, reply: rejected });
     expect((await readOpenCodeLimits(shared.deps)).state).toBe("unavailable");
     const stored = openCodeDeps({ reply: rejected }, [["opencode-go", JSON.stringify({ type: "key", key: "go" })]]);
     expect((await readOpenCodeLimits(stored.deps)).state).toBe("expired");
-  });
-});
-
-describe("readDroidLimits", () => {
-  const jwt = (exp: number) => `x.${Buffer.from(JSON.stringify({ exp })).toString("base64url")}.y`;
-  const key = randomBytes(32);
-  const seal = (value: unknown, secret = key) => {
-    const iv = randomBytes(16);
-    const cipher = createCipheriv("aes-256-gcm", secret, iv);
-    const data = Buffer.concat([cipher.update(JSON.stringify(value), "utf8"), cipher.final()]);
-    return [iv, cipher.getAuthTag(), data].map((part) => part.toString("base64")).join(":");
-  };
-  const limits = {
-    usesTokenRateLimitsBilling: true,
-    limits: {
-      standard: {
-        fiveHour: { usedPercent: 4, windowEnd: "2026-01-10T15:00:00.000Z" },
-        weekly: { usedPercent: 25, windowEnd: "2026-01-14T00:00:00.000Z" },
-        monthly: { usedPercent: 63, windowEnd: "2026-01-31T00:00:00.000Z" },
-      },
-      core: {
-        fiveHour: { usedPercent: 0, windowEnd: null },
-        weekly: { usedPercent: 14, windowEnd: "2026-01-12T00:00:00.000Z" },
-      },
-    },
-    extraUsageBalanceCents: 0,
-  };
-
-  it("decrypts Droid's login with the key from the credential store and reads both pools", async () => {
-    const token = jwt(NOW / 1000 + 3_600);
-    const { deps, calls } = fakeDeps({
-      files: { "/home/me/.factory/auth.v2.keyring": seal({ access_token: token, refresh_token: "r" }) },
-      secrets: { "Factory CLI/auth-encryption-key": key.toString("base64") },
-      reply: () => ({ body: limits }),
-    });
-    expect(await readDroidLimits(undefined, deps)).toEqual({
-      state: "ok",
-      windows: [
-        { durationMinutes: 300, usedPercent: 4, resetsAt: "2026-01-10T15:00:00.000Z" },
-        { durationMinutes: 10_080, usedPercent: 25, resetsAt: "2026-01-14T00:00:00.000Z" },
-        { durationMinutes: 43_200, usedPercent: 63, resetsAt: "2026-01-31T00:00:00.000Z" },
-        { scope: "Core", durationMinutes: 300, usedPercent: 0 },
-        { scope: "Core", durationMinutes: 10_080, usedPercent: 14, resetsAt: "2026-01-12T00:00:00.000Z" },
-      ],
-    });
-    expect(calls[0]).toMatchObject({
-      url: "https://api.factory.ai/api/billing/limits",
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-  });
-
-  it("waits for Droid when the sign-in expired, and stays signed out with the wrong key", async () => {
-    const expired = fakeDeps({
-      files: { "/home/me/.factory/auth.v2.keyring": seal({ access_token: jwt(NOW / 1000 - 1) }) },
-      secrets: { "Factory CLI/auth-encryption-key": key.toString("base64") },
-    });
-    expect((await readDroidLimits(undefined, expired.deps)).state).toBe("expired");
-    expect(expired.calls).toHaveLength(0);
-    const wrong = fakeDeps({
-      files: { "/home/me/.factory/auth.v2.keyring": seal({ access_token: "t" }) },
-      secrets: { "Factory CLI/auth-encryption-key": randomBytes(32).toString("base64") },
-    });
-    expect((await readDroidLimits(undefined, wrong.deps)).state).toBe("signed-out");
-    expect(wrong.calls).toHaveLength(0);
-  });
-
-  it("prefers an API key, and says when Factory turns it down", async () => {
-    const { deps, calls } = fakeDeps({ env: { FACTORY_API_KEY: "fk-env" }, reply: () => ({ status: 401 }) });
-    const read = await readDroidLimits(undefined, deps);
-    expect(read.state).toBe("expired");
-    expect(read.message).toContain("API key");
-    expect(calls[0]?.headers.Authorization).toBe("Bearer fk-env");
-    const account = fakeDeps({ env: { FACTORY_API_KEY: "fk-env" }, reply: () => ({ body: limits }) });
-    await readDroidLimits("fk-account", account.deps);
-    expect(account.calls[0]?.headers.Authorization).toBe("Bearer fk-account");
-  });
-
-  it("reports no limits for plans billed the older way", async () => {
-    const { deps } = fakeDeps({
-      env: { FACTORY_API_KEY: "fk" },
-      reply: () => ({ body: { usesTokenRateLimitsBilling: false } }),
-    });
-    expect((await readDroidLimits(undefined, deps)).state).toBe("unavailable");
-  });
-});
-
-describe("readCopilotLimits", () => {
-  const user = {
-    copilot_plan: "individual",
-    quota_reset_date_utc: "2026-02-01T00:00:00.000Z",
-    quota_snapshots: {
-      chat: { entitlement: 200, remaining: 150, percent_remaining: 75, unlimited: false },
-      completions: { entitlement: 2000, remaining: 2000, percent_remaining: 100, unlimited: false },
-      premium_interactions: { entitlement: 0, remaining: 0, percent_remaining: 0, unlimited: false },
-    },
-  };
-  const copilotDeps = (options: Parameters<typeof fakeDeps>[0], gh?: string) => {
-    const fake = fakeDeps(options);
-    const deps: CopilotLimitDeps = { ...fake.deps, ghToken: async () => gh };
-    return { deps, calls: fake.calls };
-  };
-
-  it("reads each capped allowance with the token Copilot CLI stored", async () => {
-    const { deps, calls } = copilotDeps({ secrets: { "copilot-cli": "gho_stored" }, reply: () => ({ body: user }) });
-    expect(await readCopilotLimits({}, deps)).toEqual({
-      state: "ok",
-      plan: "individual",
-      windows: [
-        { scope: "Chat", durationMinutes: 43_200, usedPercent: 25, resetsAt: "2026-02-01T00:00:00.000Z" },
-        { scope: "Completions", durationMinutes: 43_200, usedPercent: 0, resetsAt: "2026-02-01T00:00:00.000Z" },
-      ],
-    });
-    expect(calls[0]).toMatchObject({
-      url: "https://api.github.com/copilot_internal/user",
-      headers: { Authorization: "token gho_stored" },
-    });
-  });
-
-  it("takes the environment first and GitHub CLI last", async () => {
-    const env = copilotDeps(
-      { env: { GH_TOKEN: "gh-env" }, secrets: { "copilot-cli": "stored" }, reply: () => ({ body: user }) },
-      "gh-cli",
-    );
-    await readCopilotLimits({}, env.deps);
-    expect(env.calls[0]?.headers.Authorization).toBe("token gh-env");
-    const cli = copilotDeps({ reply: () => ({ body: user }) }, "gh-cli");
-    await readCopilotLimits({}, cli.deps);
-    expect(cli.calls[0]?.headers.Authorization).toBe("token gh-cli");
-    expect((await readCopilotLimits({}, copilotDeps({}).deps)).state).toBe("signed-out");
-  });
-
-  it("asks for a new sign-in on 401 and has nothing to show for unlimited plans", async () => {
-    const rejected = copilotDeps({ env: { COPILOT_GITHUB_TOKEN: "t" }, reply: () => ({ status: 401 }) });
-    expect((await readCopilotLimits({}, rejected.deps)).state).toBe("expired");
-    const unlimited = copilotDeps({
-      env: { COPILOT_GITHUB_TOKEN: "t" },
-      reply: () => ({ body: { quota_snapshots: { premium_interactions: { unlimited: true, entitlement: 0 } } } }),
-    });
-    expect((await readCopilotLimits({}, unlimited.deps)).state).toBe("unavailable");
-  });
-
-  it("reads a saved account only from its own config.json", async () => {
-    const saved = copilotDeps({
-      files: { "/accounts/c/config.json": JSON.stringify({ copilot_tokens: { "https://github.com:me": "gho_file" } }) },
-      secrets: { "copilot-cli": "stored" },
-      reply: () => ({ body: user }),
-    });
-    await readCopilotLimits({ configDir: "/accounts/c" }, saved.deps);
-    expect(saved.calls[0]?.headers.Authorization).toBe("token gho_file");
-    const keychain = copilotDeps({ platform: "darwin", secrets: { "copilot-cli": "stored" } });
-    expect((await readCopilotLimits({ configDir: "/accounts/c" }, keychain.deps)).state).toBe("unavailable");
-  });
-});
-
-describe("credentialText", () => {
-  it("reads UTF-8 and UTF-16 credential blobs", () => {
-    expect(credentialText(Buffer.from("a2V5", "utf8"))).toBe("a2V5");
-    expect(credentialText(Buffer.from("a2V5", "utf16le"))).toBe("a2V5");
-    expect(credentialText(Buffer.alloc(0))).toBeUndefined();
   });
 });

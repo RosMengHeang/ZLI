@@ -181,7 +181,6 @@ describe("readClaudeLimits", () => {
         throw new Error("ENOENT");
       },
       keychain: async () => undefined,
-      secretStore: async () => undefined,
       fetch: (async (url: string, init: RequestInit) => {
         calls.push({ url, headers: init.headers as Record<string, string> });
         return new Response(JSON.stringify(overrides.body ?? { five_hour: { utilization: 10 } }), {

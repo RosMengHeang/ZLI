@@ -2,22 +2,27 @@ import type {
   RuntimeProjection,
   TerminalProjection,
   ThreadActivityProjection,
+  ThreadMessageProjection,
   ThreadProjection,
 } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+  agentNameProblem,
   buildTimeline,
   changedFiles,
   deriveSessions,
   gridColumns,
   gridLayout,
   relativeTime,
+  sessionAgentName,
   sessionChats,
+  sessionParents,
+  sessionRenameCommand,
   sessionStopCommands,
   sessionTitle,
 } from "./sessions.js";
-import { forgetSession, parseWorkbenchState } from "./workbench.js";
+import { forgetSession, keepPendingLaunch, parseWorkbenchState } from "./workbench.js";
 
 const worktreeId = "00000000-0000-4000-8000-000000000011";
 const sessionId = "00000000-0000-4000-8000-000000000201";
@@ -203,10 +208,26 @@ describe("helpers", () => {
   });
 
   it("stacks tiles into rows when the grid is too narrow for them side by side", () => {
-    expect(gridLayout(4, 1600)).toEqual({ columns: 2, rows: 2 });
-    expect(gridLayout(2, 700)).toEqual({ columns: 1, rows: 2 });
-    expect(gridLayout(9, 800)).toEqual({ columns: 2, rows: 5 });
-    expect(gridLayout(3, undefined)).toEqual({ columns: 2, rows: 2 });
+    expect(gridLayout(4, 1600)).toEqual({ columns: 2, rows: 2, tall: 0 });
+    expect(gridLayout(2, 700)).toEqual({ columns: 1, rows: 2, tall: 0 });
+    expect(gridLayout(9, 800)).toEqual({ columns: 2, rows: 5, tall: 1 });
+    expect(gridLayout(3, undefined)).toEqual({ columns: 2, rows: 2, tall: 1 });
+  });
+
+  it("makes the first tiles span two rows so the grid has no empty cells", () => {
+    const cells = (count: number) => {
+      const { columns, rows, tall } = gridLayout(count, undefined);
+      return { columns, rows, tall, filled: count + tall };
+    };
+    expect(cells(1)).toEqual({ columns: 1, rows: 1, tall: 0, filled: 1 });
+    expect(cells(2)).toEqual({ columns: 2, rows: 1, tall: 0, filled: 2 });
+    expect(cells(3)).toEqual({ columns: 2, rows: 2, tall: 1, filled: 4 });
+    expect(cells(5)).toEqual({ columns: 3, rows: 2, tall: 1, filled: 6 });
+    expect(cells(7)).toEqual({ columns: 3, rows: 3, tall: 2, filled: 9 });
+    expect(cells(9)).toEqual({ columns: 3, rows: 3, tall: 0, filled: 9 });
+    expect(cells(10)).toEqual({ columns: 4, rows: 3, tall: 2, filled: 12 });
+    expect(cells(11)).toEqual({ columns: 4, rows: 3, tall: 1, filled: 12 });
+    expect(cells(13)).toEqual({ columns: 4, rows: 4, tall: 3, filled: 16 });
   });
 
   it("stops both the agent CLI and the chat of a session", () => {
@@ -239,6 +260,16 @@ describe("helpers", () => {
     expect(next.pending).toEqual([]);
     expect(next.activeSessionId).toBeUndefined();
     expect(next.maximizedSessionId).toBeUndefined();
+  });
+
+  it("keeps a waiting launch until its session exists, and a failed one only while its worktree does", () => {
+    const launch = { sessionId: "a", worktreeId, provider: "codex", mode: "chat" as const, createdAt: "" };
+    const failed = { ...launch, errorMessage: "Not trusted" };
+    const none = new Set<string>();
+    expect(keepPendingLaunch(launch, none, none)).toBe(true);
+    expect(keepPendingLaunch(launch, new Set(["a"]), new Set([worktreeId]))).toBe(false);
+    expect(keepPendingLaunch(failed, none, new Set([worktreeId]))).toBe(true);
+    expect(keepPendingLaunch(failed, none, none)).toBe(false);
   });
 
   it("drops malformed workbench state from storage", () => {
@@ -297,5 +328,101 @@ describe("chat history", () => {
     const state = parseWorkbenchState(JSON.stringify({ chats: { [sessionId]: older.threadId, other: 3 } }));
     expect(state.chats).toEqual({ [sessionId]: older.threadId });
     expect(forgetSession(state, sessionId).chats).toEqual({});
+  });
+});
+
+describe("agent names", () => {
+  const projectId = "00000000-0000-4000-8000-000000000021";
+  const named = {
+    worktrees: [{ worktreeId, projectId }],
+    threads: [{ ...thread, name: "Bob" }],
+    terminals: [{ ...agentTerminal, name: "John" }],
+  } as unknown as Pick<RuntimeProjection, "worktrees" | "threads" | "terminals">;
+
+  it("reads and renames the record the tile shows", () => {
+    const [session] = deriveSessions(named);
+    if (!session) throw new Error("no session");
+    expect(session.mode).toBe("chat");
+    expect(sessionAgentName(session)).toBe("Bob");
+    expect(sessionRenameCommand(session, "Ann")).toEqual({ type: "thread.rename", threadId, name: "Ann" });
+    const asTerminal = { ...session, mode: "terminal" as const };
+    expect(sessionAgentName(asTerminal)).toBe("John");
+    expect(sessionRenameCommand(asTerminal, null)).toEqual({
+      type: "terminal.rename",
+      terminalId: agentTerminal.terminalId,
+      name: null,
+    });
+  });
+
+  it("uses the pending name until the agent starts, and cannot rename it yet", () => {
+    const pending = { sessionId, worktreeId, provider: "codex", mode: "chat" as const, name: "Ann", createdAt: "" };
+    const [session] = deriveSessions({ threads: [], terminals: [] }, [pending]);
+    if (!session) throw new Error("no session");
+    expect(sessionAgentName(session)).toBe("Ann");
+    expect(sessionRenameCommand(session, "Bob")).toBeUndefined();
+  });
+
+  it("explains a bad or taken name, and lets an agent keep its own", () => {
+    const [session] = deriveSessions(named);
+    expect(agentNameProblem(named, projectId, "   ")).toBeUndefined();
+    expect(agentNameProblem(named, projectId, "-bob")).toMatch(/starting with a letter or digit/u);
+    expect(agentNameProblem(named, projectId, "a/b")).toMatch(/^Use letters/u);
+    expect(agentNameProblem(named, projectId, "bob")).toBe("Another agent in this project is already called bob.");
+    expect(agentNameProblem(named, projectId, "BOB", session)).toBeUndefined();
+    expect(agentNameProblem(named, "00000000-0000-4000-8000-000000000099", "Bob")).toBeUndefined();
+  });
+});
+
+describe("sub-agents", () => {
+  it("finds the session of the agent that started each sub-agent, even after it opened a new chat", () => {
+    const child = "00000000-0000-4000-8000-000000000202";
+    const grandchild = "00000000-0000-4000-8000-000000000203";
+    const sessions = deriveSessions({
+      terminals: [
+        {
+          ...agentTerminal,
+          terminalId: "00000000-0000-4000-8000-000000000302",
+          sessionId: grandchild,
+          startedBy: "00000000-0000-4000-8000-000000000402",
+        },
+      ],
+      threads: [
+        thread,
+        { ...thread, threadId: "00000000-0000-4000-8000-000000000409", createdAt: "2026-01-01T11:00:00.000Z" },
+        {
+          ...thread,
+          threadId: "00000000-0000-4000-8000-000000000402",
+          sessionId: child,
+          startedBy: threadId,
+        },
+        {
+          ...thread,
+          threadId: "00000000-0000-4000-8000-000000000403",
+          sessionId: "00000000-0000-4000-8000-000000000204",
+          startedBy: "00000000-0000-4000-8000-000000000499",
+        },
+      ],
+    } as unknown as Pick<RuntimeProjection, "terminals" | "threads">);
+    const parents = sessionParents(sessions);
+    expect(parents.get(child)?.sessionId).toBe(sessionId);
+    expect(parents.get(grandchild)?.sessionId).toBe(child);
+    expect(parents.has(sessionId)).toBe(false);
+    expect(parents.has("00000000-0000-4000-8000-000000000204")).toBe(false);
+  });
+
+  it("titles a sub-agent by its task, not the line that says who started it", () => {
+    const text =
+      "Task from Lead, the agent in ZLI that started you, working on branch main. You are Helper in ZLI. Reply to Lead when you finish or get stuck:\n\nWrite the API docs";
+    const message = { messageId: "m1", threadId, role: "user", text } as ThreadMessageProjection;
+    const sub = { provider: "codex", thread: { ...thread, startedBy: "00000000-0000-4000-8000-000000000499" } };
+    expect(sessionTitle(sub, [message], undefined)).toBe("Write the API docs");
+    expect(sessionTitle({ provider: "codex", thread }, [message], undefined)).toMatch(/^Task from Lead/u);
+  });
+
+  it("titles a chat whose first message came from a huddle by that message", () => {
+    const text =
+      'Huddle "Login plan", message 1: The person running ZLI asks everyone:\n\nHow should we split the work?';
+    const message = { messageId: "m1", threadId, role: "user", text } as ThreadMessageProjection;
+    expect(sessionTitle({ provider: "codex", thread }, [message], undefined)).toBe("How should we split the work?");
   });
 });

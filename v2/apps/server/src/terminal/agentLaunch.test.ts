@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { codexMcpArgs, gooseExtension, mcpServerSpec } from "../browser-tool/browserTool.js";
+import { codexMcpArgs, gooseExtension, mcpServerSpec, opencodeConfigContent } from "../browser-tool/browserTool.js";
+import { PROJECT_MCP_FILES, projectMcpFileContents } from "../browser-tool/mcpSettingsFiles.js";
 import {
   AgentLaunchError,
   agentCliMissingMessage,
+  agentMcpLaunch,
+  agentModeEnv,
   buildAgentArgs,
   mcpConfigFileKind,
   mcpLaunchArgs,
@@ -18,19 +21,23 @@ describe("buildAgentArgs", () => {
     expect(buildAgentArgs({ provider: "opencode" })).toEqual(["--auto"]);
     expect(buildAgentArgs({ provider: "gemini" })).toEqual(["--approval-mode", "yolo"]);
     expect(buildAgentArgs({ provider: "copilot" })).toEqual(["--allow-all"]);
-    expect(buildAgentArgs({ provider: "kimi" })).toEqual(["--yolo"]);
+    expect(buildAgentArgs({ provider: "kimi" })).toEqual(["--auto"]);
     expect(buildAgentArgs({ provider: "qwen" })).toEqual(["--approval-mode", "yolo"]);
     expect(buildAgentArgs({ provider: "goose" })).toEqual(["session"]);
   });
 
   it("drops permission bypass flags in supervised mode", () => {
     expect(buildAgentArgs({ provider: "codex", permissionMode: "supervised" })).toEqual([]);
-    expect(buildAgentArgs({ provider: "claude-code", permissionMode: "supervised" })).toEqual([]);
+    expect(buildAgentArgs({ provider: "claude-code", permissionMode: "supervised" })).toEqual([
+      "--permission-mode",
+      "acceptEdits",
+    ]);
     expect(buildAgentArgs({ provider: "cursor-agent", permissionMode: "supervised" })).toEqual(["--trust"]);
     expect(buildAgentArgs({ provider: "droid", permissionMode: "supervised" })).toEqual([]);
-    for (const provider of ["opencode", "gemini", "copilot", "kimi", "qwen"] as const) {
+    for (const provider of ["opencode", "gemini", "copilot", "kimi"] as const) {
       expect(buildAgentArgs({ provider, permissionMode: "supervised" })).toEqual([]);
     }
+    expect(buildAgentArgs({ provider: "qwen", permissionMode: "supervised" })).toEqual(["--approval-mode", "default"]);
     expect(buildAgentArgs({ provider: "goose", permissionMode: "supervised" })).toEqual(["session"]);
   });
 
@@ -43,8 +50,17 @@ describe("buildAgentArgs", () => {
     expect(readOnly("droid")).toEqual(["--use-spec"]);
     expect(readOnly("opencode")).toEqual(["--agent", "plan"]);
     expect(readOnly("kimi")).toEqual(["--plan"]);
-    for (const provider of ["gemini", "qwen", "copilot"] as const) expect(readOnly(provider)).toEqual([]);
+    expect(readOnly("gemini")).toEqual(["--approval-mode", "plan"]);
+    expect(readOnly("qwen")).toEqual(["--approval-mode", "plan"]);
+    expect(readOnly("copilot")).toEqual([]);
     expect(readOnly("goose")).toEqual(["session"]);
+  });
+
+  it("sets Goose's mode through GOOSE_MODE, since goose session has no flag for it", () => {
+    expect(agentModeEnv({ provider: "goose" })).toEqual({ GOOSE_MODE: "auto" });
+    expect(agentModeEnv({ provider: "goose", permissionMode: "supervised" })).toEqual({ GOOSE_MODE: "smart_approve" });
+    expect(agentModeEnv({ provider: "goose", permissionMode: "read-only" })).toEqual({ GOOSE_MODE: "chat" });
+    expect(agentModeEnv({ provider: "claude-code", permissionMode: "supervised" })).toEqual({});
   });
 
   it("passes the model with each CLI's own flag", () => {
@@ -55,7 +71,7 @@ describe("buildAgentArgs", () => {
     ]);
     expect(
       buildAgentArgs({ provider: "claude-code", model: "claude-sonnet-4-5", permissionMode: "supervised" }),
-    ).toEqual(["--model", "claude-sonnet-4-5"]);
+    ).toEqual(["--permission-mode", "acceptEdits", "--model", "claude-sonnet-4-5"]);
     expect(buildAgentArgs({ provider: "cursor-agent", model: "claude-opus-4-8[context=1m,effort=high]" })).toEqual([
       "--force",
       "--trust",
@@ -78,7 +94,7 @@ describe("buildAgentArgs", () => {
       "claude-sonnet-4.5",
     ]);
     expect(buildAgentArgs({ provider: "kimi", model: "kimi-k2.7-code" })).toEqual([
-      "--yolo",
+      "--auto",
       "--model",
       "kimi-k2.7-code",
     ]);
@@ -139,7 +155,7 @@ describe("mcpLaunchArgs", () => {
       "--additional-mcp-config",
       "@C:\\ZLI\\data\\mcp\\copilot-wt.json",
     ]);
-    expect(mcpLaunchArgs("cursor-agent", { specs })).toEqual(["--approve-mcps"]);
+    expect(mcpLaunchArgs("cursor-agent", { specs, worktreeFile: true })).toEqual(["--approve-mcps"]);
     expect(mcpLaunchArgs("goose", { specs }, "win32")).toEqual(["--with-extension", gooseExtension(spec, "win32")]);
   });
 
@@ -168,13 +184,100 @@ describe("mcpLaunchArgs", () => {
     expect(mcpLaunchArgs("codex", { specs: [linear] })).toEqual(codexMcpArgs(linear));
   });
 
-  it("adds nothing for CLIs that read user settings or the environment, or when the config file is missing", () => {
+  it("adds nothing for CLIs that read a project file or the environment, or when the config file is missing", () => {
     for (const provider of ["droid", "opencode", "gemini", "kimi", "qwen"] as const) {
-      expect(mcpLaunchArgs(provider, { specs })).toEqual([]);
+      expect(mcpLaunchArgs(provider, { specs, worktreeFile: true })).toEqual([]);
     }
     expect(mcpLaunchArgs("claude-code", { specs })).toEqual([]);
     expect(mcpLaunchArgs("copilot", { specs })).toEqual([]);
-    expect(mcpLaunchArgs("cursor-agent", { specs: [] })).toEqual([]);
+    expect(mcpLaunchArgs("cursor-agent", { specs })).toEqual([]);
+    expect(mcpLaunchArgs("cursor-agent", { specs: [], worktreeFile: true })).toEqual([]);
+  });
+
+  it.each(["cursor-agent", "droid", "kimi", "gemini", "qwen"] as const)(
+    "writes %s's servers into its project MCP file in the worktree",
+    async (provider) => {
+      const written: unknown[] = [];
+      const launch = await agentMcpLaunch(provider, specs, {
+        worktreeId: "wt-1",
+        worktreePath: "/repo-worktrees/feature",
+        writeWorktreeFile: async (worktreePath, relPath, contents) => {
+          written.push({ worktreePath, relPath, contents });
+          return true;
+        },
+      });
+      expect(written).toEqual([
+        {
+          worktreePath: "/repo-worktrees/feature",
+          relPath: PROJECT_MCP_FILES[provider],
+          contents: projectMcpFileContents(provider, specs),
+        },
+      ]);
+      expect(launch).toEqual({ args: provider === "cursor-agent" ? ["--approve-mcps"] : [], env: {} });
+    },
+  );
+
+  it("never approves Cursor servers from a project file that is not ZLI's", async () => {
+    const leftAlone = await agentMcpLaunch("cursor-agent", specs, {
+      worktreeId: "wt-1",
+      worktreePath: "/repo",
+      writeWorktreeFile: async () => false,
+    });
+    expect(leftAlone).toEqual({ args: [], env: {} });
+    const failed = await agentMcpLaunch("cursor-agent", specs, {
+      worktreeId: "wt-1",
+      worktreePath: "/repo",
+      writeWorktreeFile: async () => {
+        throw new Error("read-only file system");
+      },
+    });
+    expect(failed).toEqual({ args: [], env: {} });
+  });
+
+  it("removes ZLI's project file when there are no servers, and writes nothing for other CLIs", async () => {
+    const written: unknown[] = [];
+    const writeWorktreeFile = async (_worktreePath: string, relPath: string, contents: string | undefined) => {
+      written.push({ relPath, contents });
+      return contents !== undefined;
+    };
+    await agentMcpLaunch("droid", [], { worktreeId: "wt-1", worktreePath: "/repo", writeWorktreeFile });
+    await agentMcpLaunch("codex", specs, { worktreeId: "wt-1", worktreePath: "/repo", writeWorktreeFile });
+    await agentMcpLaunch("opencode", specs, { worktreeId: "wt-1", worktreePath: "/repo", writeWorktreeFile, env: {} });
+    expect(written).toEqual([{ relPath: ".factory/mcp.json", contents: undefined }]);
+  });
+
+  it("writes the config file and passes it to Claude Code", async () => {
+    const written: unknown[] = [];
+    const launch = await agentMcpLaunch("claude-code", specs, {
+      configDir: "/data/mcp",
+      worktreeId: "wt-1",
+      writeMcpConfig: async (dir, kind, worktreeId, given) => {
+        written.push({ dir, kind, worktreeId, given });
+        return "/data/mcp/claude-wt-1.json";
+      },
+    });
+    expect(written).toEqual([{ dir: "/data/mcp", kind: "claude", worktreeId: "wt-1", given: specs }]);
+    expect(launch).toEqual({ args: ["--mcp-config", "/data/mcp/claude-wt-1.json"], env: {} });
+  });
+
+  it("leaves the config flag out when the file cannot be written", async () => {
+    const launch = await agentMcpLaunch("copilot", specs, {
+      configDir: "/data/mcp",
+      worktreeId: "wt-1",
+      writeMcpConfig: async () => {
+        throw new Error("disk full");
+      },
+    });
+    expect(launch).toEqual({ args: [], env: {} });
+  });
+
+  it("gives OpenCode its servers in OPENCODE_CONFIG_CONTENT, merged with the person's own", async () => {
+    const existing = JSON.stringify({ theme: "dark" });
+    const launch = await agentMcpLaunch("opencode", specs, {
+      worktreeId: "wt-1",
+      env: { OPENCODE_CONFIG_CONTENT: existing },
+    });
+    expect(launch).toEqual({ args: [], env: { OPENCODE_CONFIG_CONTENT: opencodeConfigContent(specs, existing) } });
   });
 
   it("asks for a config file only from Claude Code and Copilot", () => {

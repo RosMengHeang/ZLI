@@ -1,0 +1,208 @@
+$ npx expo start
+Starting project at /home/person/app
+[1mStarting Metro Bundler[22m
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+█ ▄▄▄▄▄ █▀▄█▀ ▄▄█▄ ▀▀█▄ ▀█▀█ ▄▄▄▄▄ █
+█ █   █ █▄   ▄██▀▄▀▀▄ ▀ ▄ █ █   █ █
+█ █▄▄▄█ █ ▀█▀█▄▀ ▄▀█▄▀▀▄▄▄█ █▄▄▄█ █
+█▄▄▄▄▄▄▄█▄█▄█ ▀▄█▄█ ▀ █▄▀▄█▄▄▄▄▄▄▄█
+█ ▄█▀▀▄▄▀ ▄ █▄▀▄██▀▀▄▄█▀ ▀ ▀▄█▄▀▄▄█
+█▀▄█▄ █▄█▄▄ ▀▄▀▄ ▄▀█▀▀▄▄ ▄██▀ ▀▄█▀█
+██▄▀▀ ▄▄ ▀▄▀▀▄▄█▀█▄▀ ▄▀ ▄██▄ ▀▀▀▄▄█
+█▄ ▀█▀ ▄▀▄ ▀▄ █▀ ▄ ▄▄▀▄ ▀█▀ █▄▄▀▄▀█
+█▄█▄▀▄▄▄▄██▄▀ ▄▀▀▀▀▄ ▀▀▄▀▀▄█▀▄▀▀█▄█
+█ ▄ ▀▄ ▄█▀▀ ▄▀█▄ ▄▀ ▄▄▀▄█ ▀▄██▄▀▄ █
+█▄▀█▄█▄▄█▄▄▀▀ ▄▄█▄▄▄ █▀█▄ ▄▄▄ ▀ ▄██
+█ ▄▄▄▄▄ █▄▀ █▀▀ ▀▄ ▄█▀▄▀█ █▄█ ▄▀ ▄█
+█ █   █ █ ▀█▀▄█▄▀█ ▄▀ ▄▄▄  ▄  ▄▀▀ █
+█ █▄▄▄█ █▀▄▄▀▀▄ █ ▄▀▄▀▀▄█▀█▀▄█▀▄███
+█▄▄▄▄▄▄▄█▄▄▄█▄▄██▄▄▄█▄▄█▄▄▄▄██▄▄▄██
+
+› Metro waiting on [4mexp://192.168.1.20:8081[24m
+› Scan the QR code above with Expo Go (Android) or the Camera app (iOS)
+
+› Web is waiting on http://localhost:8081
+
+› Using Expo Go
+› Press s │ switch to development build
+
+› Press a │ open Android
+› Press i │ open iOS simulator
+› Press w │ open web
+
+› Press j │ open debugger
+› Press r │ reload app
+› Press m │ toggle menu
+› shift+m │ more tools
+› Press o │ open project code in your editor
+
+› Press ? │ show all commands
+
+Logs for your project will appear below. Press Ctrl+C to exit.
+› Opening on Android...
+› Opening exp://192.168.1.20:8081 on Pixel_8_API_35
+› Press ? │ show all commands
+Android Bundling 0.9% (11/1203)
+Android Bundling 1.5% (18/1203)
+Android Bundling 1.9% (23/1203)
+Android Bundling 2.6% (31/1203)
+Android Bundling 3.2% (39/1203)
+[32mAndroid Bundling 4.0% (48/1203)[39m
+Android Bundling 4.5% (54/1203)
+Android Bundling 5.3% (64/1203)
+Android Bundling 6.0% (72/1203)
+Android Bundling 7.0% (84/1203)
+Android Bundling 7.4% (89/1203)
+Android Bundling 8.4% (101/1203)
+Android Bundling 9.4% (113/1203)
+Android Bundling 10.1% (122/1203)
+Android Bundling 10.6% (128/1203)
+Android Bundling 11.3% (136/1203)
+Android Bundling 12.1% (146/1203)
+Android Bundling 13.1% (157/1203)
+Android Bundling 13.6% (164/1203)
+Android Bundling 14.0% (169/1203)
+Android Bundling 14.6% (176/1203)
+Android Bundling 15.2% (183/1203)
+Android Bundling 15.8% (190/1203)
+Android Bundling 16.5% (199/1203)
+Android Bundling 17.5% (210/1203)
+Android Bundling 18.4% (221/1203)
+Android Bundling 19.0% (229/1203)
+Android Bundling 20.0% (241/1203)
+Android Bundling 20.5% (247/1203)
+Android Bundling 21.0% (253/1203)
+Android Bundling 21.8% (262/1203)
+Android Bundling 22.2% (267/1203)
+Android Bundling 22.7% (273/1203)
+Android Bundling 23.3% (280/1203)
+Android Bundling 24.1% (290/1203)
+Android Bundling 24.9% (300/1203)
+Android Bundling 25.8% (310/1203)
+Android Bundling 26.3% (316/1203)
+Android Bundling 27.2% (327/1203)
+Android Bundling 27.8% (335/1203)
+[32mAndroid Bundling 28.8% (347/1203)[39m
+Android Bundling 29.8% (358/1203)
+Android Bundling 30.3% (364/1203)
+Android Bundling 30.7% (369/1203)
+Android Bundling 31.6% (380/1203)
+Android Bundling 32.3% (389/1203)
+Android Bundling 32.8% (395/1203)
+Android Bundling 33.7% (405/1203)
+Android Bundling 34.5% (415/1203)
+Android Bundling 35.0% (421/1203)
+Android Bundling 36.0% (433/1203)
+Android Bundling 36.7% (441/1203)
+Android Bundling 37.4% (450/1203)
+Android Bundling 38.1% (458/1203)
+Android Bundling 38.7% (465/1203)
+Android Bundling 39.2% (471/1203)
+Android Bundling 39.6% (476/1203)
+Android Bundling 40.0% (481/1203)
+Android Bundling 40.6% (489/1203)
+Android Bundling 41.3% (497/1203)
+Android Bundling 42.1% (506/1203)
+Android Bundling 43.1% (518/1203)
+Android Bundling 43.6% (525/1203)
+Android Bundling 44.6% (537/1203)
+Android Bundling 45.6% (549/1203)
+Android Bundling 46.6% (560/1203)
+Android Bundling 47.0% (566/1203)
+Android Bundling 47.5% (572/1203)
+Android Bundling 48.5% (584/1203)
+Android Bundling 49.0% (589/1203)
+Android Bundling 49.5% (595/1203)
+Android Bundling 50.3% (605/1203)
+Android Bundling 50.8% (611/1203)
+Android Bundling 51.5% (620/1203)
+Android Bundling 52.0% (626/1203)
+Android Bundling 53.0% (638/1203)
+Android Bundling 53.9% (648/1203)
+Android Bundling 54.6% (657/1203)
+Android Bundling 55.3% (665/1203)
+Android Bundling 55.9% (672/1203)
+Android Bundling 56.6% (681/1203)
+Android Bundling 57.6% (693/1203)
+Android Bundling 58.2% (700/1203)
+Android Bundling 59.2% (712/1203)
+Android Bundling 59.9% (721/1203)
+Android Bundling 60.6% (729/1203)
+Android Bundling 61.0% (734/1203)
+Android Bundling 61.6% (741/1203)
+Android Bundling 62.5% (752/1203)
+Android Bundling 63.0% (758/1203)
+[32mAndroid Bundling 63.7% (766/1203)[39m
+Android Bundling 64.2% (772/1203)
+Android Bundling 65.1% (783/1203)
+Android Bundling 66.1% (795/1203)
+Android Bundling 66.7% (802/1203)
+Android Bundling 67.2% (809/1203)
+Android Bundling 68.1% (819/1203)
+Android Bundling 68.7% (827/1203)
+Android Bundling 69.6% (837/1203)
+Android Bundling 70.5% (848/1203)
+Android Bundling 71.1% (855/1203)
+Android Bundling 71.7% (863/1203)
+Android Bundling 72.3% (870/1203)
+Android Bundling 73.3% (882/1203)
+Android Bundling 73.7% (887/1203)
+Android Bundling 74.6% (897/1203)
+Android Bundling 75.6% (909/1203)
+Android Bundling 76.2% (917/1203)
+Android Bundling 76.8% (924/1203)
+Android Bundling 77.6% (933/1203)
+Android Bundling 78.5% (944/1203)
+Android Bundling 79.1% (952/1203)
+Android Bundling 80.1% (964/1203)
+Android Bundling 80.5% (969/1203)
+Android Bundling 81.2% (977/1203)
+Android Bundling 82.0% (986/1203)
+Android Bundling 82.7% (995/1203)
+Android Bundling 83.4% (1003/1203)
+Android Bundling 84.0% (1010/1203)
+Android Bundling 84.7% (1019/1203)
+Android Bundling 85.4% (1027/1203)
+Android Bundling 85.9% (1033/1203)
+Android Bundling 86.5% (1041/1203)
+Android Bundling 86.9% (1046/1203)
+Android Bundling 87.7% (1055/1203)
+Android Bundling 88.4% (1063/1203)
+Android Bundling 88.8% (1068/1203)
+Android Bundling 89.2% (1073/1203)
+Android Bundling 89.9% (1081/1203)
+Android Bundling 90.6% (1090/1203)
+Android Bundling 91.5% (1101/1203)
+Android Bundling 92.4% (1111/1203)
+Android Bundling 93.3% (1122/1203)
+Android Bundling 94.3% (1134/1203)
+Android Bundling 95.3% (1146/1203)
+Android Bundling 96.1% (1156/1203)
+Android Bundling 97.0% (1167/1203)
+[31mAndroid Bundling failed 2345ms index.js (1203 modules)[39m
+Unable to resolve module react-native-reanimated from /home/person/app/src/screens/Home.tsx: react-native-reanimated could not be found within the project or in these directories:
+  node_modules
+
+  1 | import { View } from 'react-native';
+> 2 | import Animated from 'react-native-reanimated';
+    |                       ^
+  3 |
+  4 | import { useFeed } from '../hooks/useFeed';
+  5 |
+
+Import stack:
+
+ src/screens/Home.tsx
+ | import "react-native-reanimated"
+
+ src/navigation/AppNavigator.tsx
+ | import "../screens/Home"
+
+ App.tsx
+ | import "./src/navigation/AppNavigator"
+
+ index.js
+ | import "./App"
+
+› Reloading apps

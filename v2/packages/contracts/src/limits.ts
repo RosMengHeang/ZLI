@@ -3,18 +3,17 @@ import { z } from "zod";
 import { ListedProviderKind } from "./provider.js";
 
 /**
- * Agents whose subscription plans report usage limits that ZLI can read. Qwen Code and Goose report
- * none, so they are listed without limits.
+ * Agents whose subscription plans report usage limits that ZLI can read. Copilot, Qwen Code, and
+ * Goose report none a sign-in can read, so they never show.
  */
 export const PLAN_LIMIT_PROVIDERS = [
   "claude-code",
   "codex",
   "gemini",
   "cursor-agent",
+  "droid",
   "kimi",
   "opencode",
-  "droid",
-  "copilot",
 ] as const;
 export type PlanLimitProvider = (typeof PLAN_LIMIT_PROVIDERS)[number];
 
@@ -31,7 +30,7 @@ export const PlanLimitWindow = z.object({
    */
   kind: z.enum(["usage", "spend"]).optional(),
   /**
-   * The model or pool a window is limited to, such as "Fable", "2.5 Pro", or Cursor's "API". Missing
+   * The model or pool a window is limited to, such as "Fable", "2.5 Pro", or Cursor's "API models". Missing
    * for the whole plan.
    */
   scope: z.string().min(1).max(60).optional(),

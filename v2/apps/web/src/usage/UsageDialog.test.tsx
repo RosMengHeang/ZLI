@@ -1,19 +1,10 @@
 // @vitest-environment jsdom
 
-import {
-  CommandId,
-  EnvironmentId,
-  type PlanLimitReading,
-  ProjectId,
-  type RuntimeProjection,
-  ThreadId,
-  WorktreeId,
-} from "@zli-v2/contracts";
+import { CommandId, EnvironmentId, ProjectId, type RuntimeProjection, ThreadId, WorktreeId } from "@zli-v2/contracts";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resetPlanLimitsStore } from "../limits/limits.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import { UsageDialog } from "./UsageDialog.js";
@@ -51,14 +42,10 @@ function projectionWith(overrides: Partial<RuntimeProjection> = {}): RuntimeProj
   };
 }
 
-async function render(projection: RuntimeProjection, readings: PlanLimitReading[] = []) {
+async function render(projection: RuntimeProjection) {
   const bridge = {
     runtime: {
-      dispatch: async () => ({
-        commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"),
-        accepted: true,
-        result: { readings },
-      }),
+      dispatch: async () => ({ commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true }),
       getProjection: async () => projection,
       onProjection: () => () => undefined,
       attachTerminal: async () => ({ accepted: true }),
@@ -67,50 +54,19 @@ async function render(projection: RuntimeProjection, readings: PlanLimitReading[
   } as unknown as ZliBridge;
   const container = document.createElement("div");
   document.body.append(container);
-  const root = createRoot(container);
-  roots.push(root);
   await act(async () => {
-    root.render(
+    createRoot(container).render(
       <RuntimeProvider bridge={bridge}>
         <UsageDialog projection={projection} onClose={() => undefined} />
       </RuntimeProvider>,
     );
   });
-  // The dialog reads plan limits once it mounts; let that reply land.
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   return container;
 }
 
-const roots: Root[] = [];
-
-afterEach(() => {
-  act(() => {
-    for (const root of roots.splice(0)) root.unmount();
-  });
-  document.body.replaceChildren();
-  resetPlanLimitsStore();
-});
+afterEach(() => document.body.replaceChildren());
 
 describe("UsageDialog", () => {
-  it("lists plan limits for every installed agent above tokens and cost", async () => {
-    const container = await render(projectionWith(), [
-      {
-        provider: "claude-code",
-        accountId: "usual",
-        state: "ok",
-        windows: [{ durationMinutes: 300, usedPercent: 86 }],
-      },
-      { provider: "codex", accountId: "usual", state: "signed-out", message: "Not signed in to Codex.", windows: [] },
-    ]);
-    const groups = [...container.querySelectorAll(".usage-group-heading")].map((heading) => heading.textContent);
-    expect(groups).toEqual(["Plan limits", "Tokens and cost"]);
-    const rows = [...container.querySelectorAll(".usage-limits > li")].map((row) => row.textContent);
-    expect(rows[0]).toContain("Claude Code");
-    expect(rows[0]).toContain("86%");
-    expect(rows[1]).toContain("Signed out");
-    expect(rows[1]).toContain("Not signed in to Codex.");
-  });
-
   it("explains where numbers come from when nothing is recorded", async () => {
     const container = await render(projectionWith());
     expect(container.textContent).toContain("No usage yet");

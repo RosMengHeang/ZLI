@@ -24,11 +24,13 @@ import { Icon } from "../ui/Icon.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
+import { fileName, splitAttachedFiles } from "./attachedFiles.js";
 import type { BestOfAgentOption } from "./BestOfPopover.js";
 import { ChatImageScope } from "./ChatImage.js";
 import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Composer.js";
 import { ConnectorCard } from "./ConnectorCard.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
+import { FileBadge } from "./FileBadge.js";
 import { Markdown } from "./Markdown.js";
 import { RequestCard } from "./RequestCard.js";
 import { reasoningLevels } from "./reasoning.js";
@@ -45,6 +47,7 @@ export function ChatView({
   onHandoff,
   onOpenConnectors,
   onStartRuns,
+  active,
 }: {
   projection: RuntimeProjection;
   thread: ThreadProjection;
@@ -56,6 +59,7 @@ export function ChatView({
   onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Starts best-of runs from this chat. Absent where runs cannot start, such as a scratch chat. */
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
+  active?: boolean;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
@@ -69,7 +73,7 @@ export function ChatView({
   const [peerTargetId, setPeerTargetId] = useState<string>();
   const logRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
-  const displayName = providerDisplayName(thread.provider, projection.providers);
+  const displayName = thread.name ?? providerDisplayName(thread.provider, projection.providers);
   const discovery = projection.providers?.find((entry) => entry.provider === thread.provider);
   const models = discovery?.status === "found" ? discovery.models : undefined;
   const [chosenReasoning, setChosenReasoning] = useState<string>();
@@ -436,6 +440,7 @@ export function ChatView({
             <Composer
               capture={bridge?.capture}
               displayName={displayName}
+              provider={thread.provider}
               branch={worktree?.branch ?? "this worktree"}
               disabled={thread.status === "starting"}
               queues={busy}
@@ -457,6 +462,7 @@ export function ChatView({
               onSubmit={send}
               onStop={working ? stopTurn : undefined}
               bestOf={bestOf}
+              active={active}
             />
           )}
           {peers.length > 0 && selectedPeerId && !ended ? (
@@ -528,9 +534,11 @@ function QueuedMessages({
       </p>
       <ol className="chat-queue-list">
         {queued.map((message, index) => {
-          const preview = message.text.trim().split(/\r?\n/u)[0] ?? "";
-          const files = message.attachments ?? [];
-          const onlyImages = files.every((file) => file.mimeType !== "text/plain");
+          const typed = splitAttachedFiles(message.text);
+          const preview = typed.text.trim().split(/\r?\n/u)[0] ?? "";
+          const uploads = message.attachments ?? [];
+          const files = [...uploads.map((file) => file.name), ...typed.paths.map(fileName)];
+          const onlyImages = typed.paths.length === 0 && uploads.every((file) => file.mimeType !== "text/plain");
           return (
             <li className="chat-queue-item" key={message.queueId}>
               <span className="chat-queue-index" aria-hidden="true">
@@ -540,7 +548,7 @@ function QueuedMessages({
                 {preview}
               </span>
               {files.length > 0 ? (
-                <span className="chat-queue-meta" title={files.map((file) => file.name).join(", ")}>
+                <span className="chat-queue-meta" title={files.join(", ")}>
                   <Icon name={onlyImages ? "image" : "paperclip"} size={11} />
                   {files.length}
                   <span className="sr-only">{files.length === 1 ? " attachment" : " attachments"}</span>
@@ -679,6 +687,8 @@ const ChatMessage = memo(function ChatMessage({
   onTryWays?: ((message: ThreadMessageProjection, index: number) => void) | undefined;
 }) {
   if (message.role === "user") {
+    const typed = splitAttachedFiles(message.text);
+    const uploads = message.attachments ?? [];
     return (
       <article className="chat-message chat-message-user">
         {onTryWays && message.text.trim() ? (
@@ -694,17 +704,28 @@ const ChatMessage = memo(function ChatMessage({
             </Button>
           </span>
         ) : null}
-        {message.attachments && message.attachments.length > 0 ? (
-          <ul className="chat-attachments">
-            {message.attachments.map((attachment) => (
-              <li key={attachment.path} title={attachment.path}>
-                <Icon name={attachment.mimeType === "text/plain" ? "fileText" : "image"} size={12} />
-                {attachment.name}
+        {uploads.length > 0 || typed.paths.length > 0 ? (
+          <ul className="chat-attachments" aria-label="Attachments">
+            {uploads.map((attachment) => (
+              <li key={attachment.path} title={attachment.name}>
+                <span
+                  className={`file-badge is-sm ${attachment.mimeType === "text/plain" ? "is-doc" : "is-media"}`}
+                  aria-hidden="true"
+                >
+                  <Icon name={attachment.mimeType === "text/plain" ? "fileText" : "image"} size={11} />
+                </span>
+                <span className="chat-attachment-name">{attachment.name}</span>
+              </li>
+            ))}
+            {typed.paths.map((path) => (
+              <li key={path} title={path}>
+                <FileBadge path={path} size="sm" />
+                <span className="chat-attachment-name">{fileName(path)}</span>
               </li>
             ))}
           </ul>
         ) : null}
-        <p>{message.text}</p>
+        {typed.text ? <p>{typed.text}</p> : null}
       </article>
     );
   }

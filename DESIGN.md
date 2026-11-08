@@ -114,16 +114,22 @@ not cover, add it to the primitives instead of styling it locally.
   right edge so the window controls never cover the search trigger.
 - The left sidebar is the home for projects, agents, and worktrees.
   Collapsing it removes it completely so the workbench gets the full width.
-  It is 256px wide, 236px under 1240px, and 216px under 1080px. Add project
-  (folder with a plus) and New agent (pen on a square) are plain rows at the
-  top, in that order; the New agent shortcut appears
-  when the row is hovered or focused. The footer
-  holds the runtime status, Usage, Settings, and Help.
+  It is 256px wide, 236px under 1240px, and 216px under 1080px. The top holds
+  Add project (folder with a plus) as a plain row, then New agent as the one
+  raised button, the window's main action; the New agent shortcut appears
+  when it is hovered or focused. Its icon is an agent tile
+  with a shell prompt and a plus breaking out of the corner, used wherever
+  New agent appears (sidebar, project row and menu, top bar, empty board,
+  command palette), so it never shares the pen on a square that New chat
+  uses. With no projects the Projects heading is gone, New agent is disabled,
+  and the sidebar says what to add. Plan limits sit above the footer on a surface-tone card
+  with no border. The footer holds the runtime status, Usage, Settings, and
+  Help.
 - A project's name folds its agents and worktrees away, with a chevron that
   shows on hover or while folded. A folded project shows its agent count,
   in blue or amber when an agent there is working or waiting. The project
-  row also holds Create worktree (a branch icon) and New agent here (a
-  plus), both shown on hover.
+  row also holds Create worktree (a branch icon) and New agent here (the
+  New agent icon), both shown on hover.
 - Worktrees have no section of their own. An agent in a worktree shows the
   branch on a second line under its title, with commits to push or pull,
   the pull request and its checks, the setup or worktree status when it is
@@ -148,7 +154,8 @@ not cover, add it to the primitives instead of styling it locally.
   tile, or how recently the agent was active. The branch and worktree path
   are also in the row's tooltip and the tile header.
 - The top bar has the breadcrumb (project, then branch in mono) on the left,
-  then icon-only panel toggles with Terminal split from Files, Browser, and
+  then icon-only panel toggles with Terminal (a shell prompt, the same icon
+  as the terminal drawer's header) split from Files, Browser, and
   Changes, then the command palette trigger. Each toggle's name is its
   accessible label and its tooltip says what it will do and shows its
   shortcut.
@@ -178,15 +185,34 @@ not cover, add it to the primitives instead of styling it locally.
 - In chats, user messages are right-aligned bubbles,
   replies are plain text in a centered column, and the log fades out above
   the composer. Tiles under 520px use smaller gutters and 13px text.
-- The composer footer holds attach, window capture, and saved prompts, then
-  the Model and Permissions pickers. Both open a dark popover list instead of
-  a native select, whose option list follows the system's light theme. Each
-  model shows its maker's logo in the list and in the closed chip; the default or an unknown model shows a neutral chip glyph.
+- The composer footer is one row of 28px controls on the 8px radius. On the
+  left a single + button opens a menu with Attach files, Attach a window
+  (only in the desktop app), and Saved prompts, each with an icon and a
+  one-line hint, so the row is not a run of loose icons. Pasting, dropping
+  files, and typing / still work without it. A short rule then separates it
+  from the Model, Reasoning, and Permissions pickers. They are quiet chips
+  (icon, label, small chevron, no border until hovered) and open a dark
+  popover list instead of a native select, whose option list follows the
+  system's light theme. Each model shows its maker's logo in the list and in
+  the closed chip. The default model shows the agent's own mark, since that
+  agent picks it; an unknown model shows a neutral chip glyph (pins on two
+  sides, so it never reads as a gear). Reasoning shows a meter of three
+  rising bars filled up to the level, in the chip and on each option, so the
+  level reads at a glance. Attach a window uses a camera, the usual icon for
+  a screenshot. An unset model or
+  reasoning level is written in the dim text color, so a choice the person
+  made stands out. The tooltip gives the full model name.
+- In a narrow tile the row keeps every control and drops words: the
+  reasoning level under 560px, the permission label under 460px, and the
+  model name, the rule, and the context meter under 360px. Only the model
+  name truncates before that.
 - Permissions have three levels, from least to most an agent may do alone:
-  Read only (eye), Auto (shield with a check), and Full access (shield with an
-  alert). Each option carries a one-line description, and the chip stays
-  neutral because the mode is a choice, not a process state. Agents that keep
-  one mode for the whole chat show it as a static label instead.
+  Read only (a closed lock), Auto (a shield with a check), and Full access (an
+  open lock). Each option carries a one-line description. The chip stays
+  neutral because the mode is a choice, not a process state; only the Full
+  access lock takes a muted amber, wherever it appears, because the agent then
+  acts without asking. Agents that keep one mode for the whole chat show it
+  as a static chip of the same shape without the chevron.
 - Send is a split button: the arrow sends, and a narrow chevron beside it
   opens a one-item menu, Send as Best of N (Mod+Shift+Enter). That opens a
   compact dark popover anchored above the composer, not a dialog: a title
@@ -219,6 +245,9 @@ not cover, add it to the primitives instead of styling it locally.
 - The terminal drawer is its own island under the grid. It starts closed.
   Opened without a shell, it is a single row with Start terminal; once a
   shell runs it takes its remembered height.
+- The agent grid always keeps at least 320 by 160 pixels. When the window
+  is too small for a panel's or the drawer's remembered size, the panel or
+  drawer shrinks to fit, and grows back to that size when the window does.
 - Notices and the attention bar take the island shape above the workbench
   instead of running edge to edge across the window.
 - Dialog forms stack labelled sections: the label sits above its control and
@@ -267,6 +296,21 @@ not cover, add it to the primitives instead of styling it locally.
   like a phone's navigation bar, and Rotate, Save a screenshot, and the
   More menu on the right. Shut down is an icon button in the toolbar, and
   the reason for screenshots mode is a caption under the device.
+- A device popped out of the Mobile panel opens in its own window, so the
+  person can watch the app beside the chat. Its slim title bar holds the
+  device name, the zoom switch, Compact window (hides the bottom bar and
+  shrinks the window by its height), and Keep on top (a pin). The pin, the
+  compact choice, and the window's place and size are remembered per
+  device; a place no longer on any display is dropped and the window opens
+  centered.
+- Agents ask before they act on a mobile project. Their commands and
+  AGENTS.md or CLAUDE.md changes appear as cards above the device, and
+  nothing runs until the person clicks Run in terminal or Write. Those
+  buttons arm only once a card has been still for a moment, and a long
+  command sits collapsed behind Show all, button off, until the person
+  has read it in full. The toolbar's Project check opens one view per
+  worktree, named for its branch: its dev server, toolchain, packages,
+  and what a failed build log means.
 - Integrations Browse shows connectors and plugins as cards one step above
   the island: logo, name, publisher, a two-line description, then a footer
   with the action. Card buttons stay neutral; the accent is kept for the

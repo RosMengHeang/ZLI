@@ -4,9 +4,9 @@ const STORAGE_KEY = "zli.sidebar.collapsed";
 
 /**
  * Project ids whose folder the person closed, and ids whose "worktrees without agents" row they opened.
- * That row starts folded, so only the open ones are stored.
+ * That row starts folded, so only the open ones are stored. Pinned project ids list first in the sidebar.
  */
-export type SidebarCollapsed = { projects: string[]; idle: string[] };
+export type SidebarCollapsed = { projects: string[]; idle: string[]; pinned: string[] };
 
 const ids = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
@@ -14,11 +14,11 @@ const ids = (value: unknown): string[] =>
 export function parseSidebarCollapsed(raw: string | null): SidebarCollapsed {
   try {
     const value: unknown = JSON.parse(raw ?? "{}");
-    if (typeof value !== "object" || value === null) return { projects: [], idle: [] };
+    if (typeof value !== "object" || value === null) return { projects: [], idle: [], pinned: [] };
     const record = value as Record<string, unknown>;
-    return { projects: ids(record.projects), idle: ids(record.idle) };
+    return { projects: ids(record.projects), idle: ids(record.idle), pinned: ids(record.pinned) };
   } catch {
-    return { projects: [], idle: [] };
+    return { projects: [], idle: [], pinned: [] };
   }
 }
 
@@ -26,7 +26,7 @@ function read(): SidebarCollapsed {
   try {
     return parseSidebarCollapsed(window.localStorage.getItem(STORAGE_KEY));
   } catch {
-    return { projects: [], idle: [] };
+    return { projects: [], idle: [], pinned: [] };
   }
 }
 
@@ -52,10 +52,21 @@ export function useSidebarCollapsed() {
       return next;
     });
   }, []);
+  const expandProject = useCallback((projectId: string) => {
+    setCollapsed((current) => {
+      if (!current.projects.includes(projectId)) return current;
+      const next = { ...current, projects: current.projects.filter((entry) => entry !== projectId) };
+      write(next);
+      return next;
+    });
+  }, []);
   return {
+    expandProject,
     projectOpen: (projectId: string) => !collapsed.projects.includes(projectId),
     idleOpen: (projectId: string) => collapsed.idle.includes(projectId),
+    pinned: (projectId: string) => collapsed.pinned.includes(projectId),
     toggleProject: (projectId: string) => toggle("projects", projectId),
     toggleIdle: (projectId: string) => toggle("idle", projectId),
+    togglePinned: (projectId: string) => toggle("pinned", projectId),
   };
 }

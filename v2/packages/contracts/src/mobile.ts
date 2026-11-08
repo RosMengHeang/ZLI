@@ -34,6 +34,10 @@ export const MobileDevice = z.object({
   osVersion: z.string().max(100).optional(),
   /** adb serial while an Android device is connected. */
   serial: z.string().max(200).optional(),
+  /** How a physical Android phone reaches adb. A Wi-Fi phone can be disconnected; neither can be booted. */
+  connection: z.enum(["usb", "wifi"]).optional(),
+  /** The SSH address of the Mac a simulator runs on, when it is not this computer. */
+  host: z.string().max(253).optional(),
   lease: MobileLease.nullable(),
 });
 export type MobileDevice = z.infer<typeof MobileDevice>;
@@ -76,6 +80,8 @@ export const MobileIosStatus = z.object({
   /** idb drives taps, swipes, typing, and the accessibility tree. Without it only boot, install, launch, and screenshots work. */
   idb: MobileToolProbe,
   missing: z.array(z.string()),
+  /** The SSH address of the Mac the simulators run on, when one is set in Settings instead of this computer. */
+  host: z.string().max(253).optional(),
 });
 export type MobileIosStatus = z.infer<typeof MobileIosStatus>;
 
@@ -179,10 +185,116 @@ export type MobileAvdCreateInput = z.infer<typeof MobileAvdCreateInput>;
 export const MobileAvdDeleteInput = z.object({ name: MobileAvdName });
 export type MobileAvdDeleteInput = z.infer<typeof MobileAvdDeleteInput>;
 
-/** Settings the person controls. agentTools off hides the zli-mobile tools from agents and refuses their calls. */
-export const MobileSettings = z.object({ agentTools: z.boolean() });
+/**
+ * A name for simctl create. It reaches simctl as one argument and never passes through a shell, so spaces are
+ * fine; the charset keeps it readable in window titles, where the Simulator app shows it.
+ */
+export const MobileSimulatorName = z
+  .string()
+  .min(1, "Give the simulator a name.")
+  .max(60, "Use at most 60 characters.")
+  .regex(
+    /^[A-Za-z0-9](?:[A-Za-z0-9 _.,()'-]*[A-Za-z0-9_.,()'-])?$/u,
+    "Use letters, digits, spaces, and _ . , ( ) ' - only. Start with a letter or digit, and do not end with a space.",
+  );
+export type MobileSimulatorName = z.infer<typeof MobileSimulatorName>;
+
+/** A device type identifier from simctl, such as com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro. */
+export const MobileSimDeviceTypeId = z
+  .string()
+  .max(200)
+  .regex(/^com\.apple\.CoreSimulator\.SimDeviceType\.[A-Za-z0-9._-]+$/u, "That is not a simulator device type.");
+
+/** A runtime identifier from simctl, such as com.apple.CoreSimulator.SimRuntime.iOS-18-2. */
+export const MobileSimRuntimeId = z
+  .string()
+  .max(200)
+  .regex(/^com\.apple\.CoreSimulator\.SimRuntime\.[A-Za-z0-9._-]+$/u, "That is not a simulator runtime.");
+
+export const MobileSimUdid = z
+  .string()
+  .regex(
+    /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/u,
+    "That is not a simulator id.",
+  );
+
+export const MobileSimDeviceType = z.object({
+  id: MobileSimDeviceTypeId,
+  name: z.string().min(1).max(200),
+  family: z.enum(["iPhone", "iPad"]),
+});
+export type MobileSimDeviceType = z.infer<typeof MobileSimDeviceType>;
+
+export const MobileSimRuntime = z.object({
+  id: MobileSimRuntimeId,
+  /** Such as iOS 18.2. */
+  name: z.string().min(1).max(200),
+  version: z.string().max(50),
+  /** The device types this runtime can run, in the order of deviceTypes. */
+  deviceTypeIds: z.array(MobileSimDeviceTypeId).max(500),
+});
+export type MobileSimRuntime = z.infer<typeof MobileSimRuntime>;
+
+/** What a new iPhone or iPad simulator can be made of: the models, and the iOS runtimes installed and usable. */
+export const MobileSimulatorCatalog = z.object({
+  /** Without simctl nothing can be listed or created. */
+  simctl: z.boolean(),
+  deviceTypes: z.array(MobileSimDeviceType).max(500),
+  /** Oldest first. */
+  runtimes: z.array(MobileSimRuntime).max(100),
+});
+export type MobileSimulatorCatalog = z.infer<typeof MobileSimulatorCatalog>;
+
+export const MobileSimulatorCreateInput = z.object({
+  name: MobileSimulatorName,
+  deviceTypeId: MobileSimDeviceTypeId,
+  runtimeId: MobileSimRuntimeId,
+});
+export type MobileSimulatorCreateInput = z.infer<typeof MobileSimulatorCreateInput>;
+
+export const MobileSimulatorCreated = z.object({ deviceId: z.string().min(1).max(300), name: z.string().max(200) });
+export type MobileSimulatorCreated = z.infer<typeof MobileSimulatorCreated>;
+
+export const MobileSimulatorDeleteInput = z.object({ udid: MobileSimUdid });
+export type MobileSimulatorDeleteInput = z.infer<typeof MobileSimulatorDeleteInput>;
+
+/**
+ * The SSH address of a Mac that runs iPhone simulators: user@host, or a host name from ~/.ssh/config. It goes
+ * on ssh's command line, so it cannot start with a dash or hold spaces or shell characters.
+ */
+export const MobileSshHost = z
+  .string()
+  .trim()
+  .min(1, "Enter the Mac's SSH address, such as you@mac-mini.local.")
+  .max(253, "Use at most 253 characters.")
+  .regex(
+    /^(?:[A-Za-z0-9_][A-Za-z0-9._-]*@)?[A-Za-z0-9_][A-Za-z0-9._-]*$/u,
+    "Use user@host or a host name from your SSH config, such as you@mac-mini.local.",
+  );
+
+/**
+ * Settings the person controls. agentTools off hides the zli-mobile tools from agents and refuses their calls.
+ * crashWatch reads the log of a running device for crashes. iosRemoteHost runs iPhone simulators on that Mac
+ * over SSH instead of this computer; empty or absent means this computer.
+ */
+export const MobileSettings = z.object({
+  agentTools: z.boolean(),
+  crashWatch: z.boolean(),
+  iosRemoteHost: z.union([MobileSshHost, z.literal("")]).optional(),
+});
 export type MobileSettings = z.infer<typeof MobileSettings>;
-export const DEFAULT_MOBILE_SETTINGS: MobileSettings = { agentTools: true };
+export const DEFAULT_MOBILE_SETTINGS: MobileSettings = { agentTools: true, crashWatch: true };
+
+export const MobileIosHostTestInput = z.object({ host: MobileSshHost });
+export type MobileIosHostTestInput = z.infer<typeof MobileIosHostTestInput>;
+
+/** What Test connection found, in words for the person: the simulator count, or what failed and what to do. */
+export const MobileIosHostTestResult = z.object({
+  ok: z.boolean(),
+  message: z.string().max(2_000),
+  simulators: z.number().int().nonnegative().optional(),
+});
+export type MobileIosHostTestResult = z.infer<typeof MobileIosHostTestResult>;
 
 export const MobileDeviceIdInput = z.object({ deviceId: z.string().min(1).max(300) });
 export type MobileDeviceIdInput = z.infer<typeof MobileDeviceIdInput>;
@@ -279,6 +391,22 @@ export const MobilePopOutList = z.array(MobilePopOut).max(64);
 export const MobilePopOutPinInput = MobileDeviceIdInput.extend({ pinned: z.boolean() });
 export type MobilePopOutPinInput = z.infer<typeof MobilePopOutPinInput>;
 
+/** A pop-out window's position and size on the desktop, in screen points. */
+export const MobilePopOutBounds = z.object({
+  x: z.number().min(-100_000).max(100_000),
+  y: z.number().min(-100_000).max(100_000),
+  width: z.number().min(1).max(100_000),
+  height: z.number().min(1).max(100_000),
+});
+export type MobilePopOutBounds = z.infer<typeof MobilePopOutBounds>;
+
+/** What ZLI remembers about one device's window between runs. Broken bounds are dropped, the pin is kept. */
+export const MobilePopOutSaved = z.object({
+  pinned: z.boolean().catch(false),
+  bounds: MobilePopOutBounds.optional().catch(undefined),
+});
+export type MobilePopOutSaved = z.infer<typeof MobilePopOutSaved>;
+
 /**
  * The device body's width over its height, and the room the window's bars and padding take around it, so the
  * window keeps the device's shape while it is resized.
@@ -308,6 +436,13 @@ export const MOBILE_CONTROL_ACTIONS = [
   "mobilescreenshot",
   "mobilelogs",
   "mobilerelease",
+  "mobilepropose",
+  "mobileworkspace",
+  "mobiledoctor",
+  "mobilecheckpackage",
+  "mobilecrashes",
+  "mobilebuildbrief",
+  "mobiledevicesettings",
 ] as const;
 export const MobileControlAction = z.enum(MOBILE_CONTROL_ACTIONS);
 export type MobileControlAction = z.infer<typeof MobileControlAction>;

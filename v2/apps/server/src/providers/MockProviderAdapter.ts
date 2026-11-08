@@ -34,12 +34,18 @@ export class MockProviderAdapter implements ProviderAdapter {
   /** Names of the variables each session's account set, so the harness can see which account a chat used. */
   private readonly accountEnv = new Map<string, string[]>();
 
-  async startSession(input: { threadId: ThreadId; cwd: string; account?: ProviderAccount }): Promise<ProviderSession> {
+  async startSession(input: {
+    threadId: ThreadId;
+    cwd: string;
+    account?: ProviderAccount;
+    resumeSessionId?: string;
+  }): Promise<ProviderSession> {
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
       cwd: input.cwd,
       status: "idle",
+      providerSessionId: input.resumeSessionId ?? `mock-${randomUUID()}`,
     };
     this.sessions.set(input.threadId, session);
     this.turns.set(input.threadId, []);
@@ -80,6 +86,13 @@ export class MockProviderAdapter implements ProviderAdapter {
         return;
       }
       this.emit({ type: "turn.started", threadId: input.threadId, turnId });
+      // "[crash]" stands in for the agent's process dying mid-turn.
+      if (input.text.includes("[crash]")) {
+        this.sessions.delete(input.threadId);
+        this.accountEnv.delete(input.threadId);
+        this.emit({ type: "session.closed", threadId: input.threadId, reason: "The mock agent exited unexpectedly." });
+        return;
+      }
       // "[steps]" plays a short turn with text between reads, an edit, and a command, each running for a moment.
       if (input.text.includes("[steps]")) {
         this.playSteps(input.threadId, turnId, input.text.includes("[slow]") ? 1_500 : 150);

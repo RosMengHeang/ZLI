@@ -27,6 +27,28 @@ describe("MockProviderAdapter", () => {
     }
   });
 
+  it("forgets the session before reporting a crash, and resumes the same conversation", async () => {
+    vi.useFakeTimers();
+    try {
+      const adapter = new MockProviderAdapter();
+      const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000003");
+      const closed: boolean[] = [];
+      adapter.subscribe((event) => {
+        if (event.type === "session.closed") closed.push(adapter.hasSession({ threadId }));
+      });
+      const conversation = (await adapter.startSession({ threadId, cwd: "C:/repo" })).providerSessionId ?? "";
+      expect(conversation).toMatch(/^mock-/u);
+      await adapter.sendTurn({ threadId, text: "[crash] go" });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(closed).toEqual([false]);
+
+      const resumed = await adapter.startSession({ threadId, cwd: "C:/repo", resumeSessionId: conversation });
+      expect(resumed.providerSessionId).toBe(conversation);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("finishes a turn paused on an approval once it is answered", async () => {
     vi.useFakeTimers();
     try {

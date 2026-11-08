@@ -1,0 +1,7 @@
+[versions]
+agp = "9.0.1"
+kotlin = "2.2.20"
+coreKtx = "1.17.0"
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }

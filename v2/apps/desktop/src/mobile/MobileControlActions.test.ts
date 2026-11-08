@@ -1,10 +1,18 @@
-import type { MobileSettings, MobileSetupStatus } from "@zli-v2/contracts";
+import { emulatorPortFor, type MobileSettings, type MobileSetupStatus, metroPortFor } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { AndroidDriver } from "./AndroidDriver.js";
 import { DeviceManager } from "./DeviceManager.js";
+import { createMobileDev } from "./dev/index.js";
+import { createTestDevHost } from "./dev/testHost.js";
 import { FakeDriver } from "./FakeDriver.js";
-import { createMobileControlActions, isMobileControlAction, swipeForDirection } from "./MobileControlActions.js";
+import {
+  createMobileControlActions,
+  isMobileControlAction,
+  type MobileDevExtension,
+  swipeForDirection,
+} from "./MobileControlActions.js";
+import type { BootOptions, DriverDevice } from "./MobileDriver.js";
 
 const pixel = {
   deviceId: "android-avd:Pixel_7",
@@ -33,7 +41,7 @@ const status = {
   ios: { supported: false, missing: ["Xcode"] },
 } as unknown as MobileSetupStatus;
 
-function setup() {
+function setup(dev?: MobileDevExtension) {
   const android = new FakeDriver("android", [pixel, tablet]);
   const ios = new FakeDriver("ios", []);
   const devices = new DeviceManager({
@@ -41,7 +49,7 @@ function setup() {
     ios,
     scrcpyServer: async () => "/zli/scrcpy-server",
   });
-  const settings: MobileSettings = { agentTools: true };
+  const settings: MobileSettings = { agentTools: true, crashWatch: true };
   const reveals: string[] = [];
   const dispatch = createMobileControlActions({
     manager: () => devices,
@@ -51,6 +59,7 @@ function setup() {
     reveal: (event) => reveals.push(event.deviceId),
     platform: "linux",
     bootWaitMs: 20,
+    ...(dev ? { dev } : {}),
   });
   return { android, devices, settings, reveals, dispatch };
 }
@@ -134,6 +143,36 @@ describe("mobile control actions", () => {
     expect(slow.booting).toBe(true);
   });
 
+  it("boots an agent's emulator on its worktree's console port, and maps 8081 to its Metro port on open", async () => {
+    const { dispatch, android } = setup();
+    const boots: unknown[] = [];
+    Object.assign(android, {
+      boot: async (device: DriverDevice, options: BootOptions) => {
+        boots.push(options);
+        android.devices = android.devices.map((entry) =>
+          entry.deviceId === device.deviceId ? { ...entry, state: "online", serial: "emulator-5560" } : entry,
+        );
+        return { ...device, state: "online" };
+      },
+    });
+    const reversed: number[] = [];
+    Object.assign(android, {
+      reverse: async (_device: unknown, from: number, to: number) => {
+        reversed.push(from, to);
+      },
+    });
+    await dispatch("mobileboot", { ...inApp, deviceId: tablet.deviceId });
+    expect(boots).toEqual([{ preferredPort: emulatorPortFor("wt-1", worktrees) }]);
+
+    const port = metroPortFor("wt-1", worktrees);
+    const opened = await dispatch("mobileopenurl", { ...inApp, url: `exp://localhost:${port}` });
+    expect(opened).toMatchObject({ opened: `exp://localhost:${port}`, mapped8081To: port });
+    expect(reversed).toEqual([8081, port]);
+    expect(await dispatch("mobileopenurl", { ...inApp, url: "https://example.com" })).not.toHaveProperty(
+      "mapped8081To",
+    );
+  });
+
   it("answers access checks when off and refuses every other action", async () => {
     const { dispatch, settings } = setup();
     settings.agentTools = false;
@@ -152,6 +191,49 @@ describe("mobile control actions", () => {
       height: 2400,
       data: Buffer.from("png").toString("base64"),
     });
+  });
+
+  it("turns mobile_propose into a proposal the person must run, and refuses it when agent tools are off", async () => {
+    const host = createTestDevHost({ worktrees });
+    const { dispatch, settings } = setup(createMobileDev(host));
+    const answer = (await dispatch("mobilepropose", {
+      ...inApp,
+      title: "Install expo-camera",
+      reason: "The camera screen imports it.",
+      program: "npx",
+      args: ["expo", "install", "expo-camera"],
+      folder: "apps/mobile",
+    })) as { proposalId: string; state: string; message: string };
+    expect(answer).toMatchObject({ state: "pending", message: expect.stringMatching(/Nothing runs until/u) });
+    expect(host.proposals.list()).toEqual([
+      expect.objectContaining({
+        proposalId: answer.proposalId,
+        worktreeId: "wt-1",
+        source: "agent",
+        sourceLabel: "Proposed by the agent in app",
+        title: "Install expo-camera",
+        action: { kind: "command", program: "npx", args: ["expo", "install", "expo-camera"], cwd: "apps/mobile" },
+      }),
+    ]);
+    expect(host.commands).toEqual([]);
+    await expect(
+      dispatch("mobilepropose", { ...inApp, title: "Escape", program: "npm", args: ["x"], folder: "../.." }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(dispatch("mobilepropose", { ...inApp, title: "Bad", program: "sh", args: [] })).rejects.toThrow();
+    settings.agentTools = false;
+    await expect(
+      dispatch("mobilepropose", { ...inApp, title: "Install", program: "npm", args: ["install"] }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(host.proposals.list()).toHaveLength(1);
+  });
+
+  it("answers 404 for a feature action this build does not have, and lets features add to results", async () => {
+    const { dispatch } = setup({
+      actions: {},
+      decorate: (owner, action, result) => ({ ...(result as object), note: `${owner.ownerLabel} ${action}` }),
+    });
+    await expect(dispatch("mobiledoctor", inApp)).rejects.toMatchObject({ status: 404 });
+    expect(await dispatch("mobilerelease", inApp)).toEqual({ released: [], note: "The agent in app mobilerelease" });
   });
 
   it("swipes across the middle half of the screen", () => {

@@ -19,7 +19,6 @@ import {
   pluginSignIns,
   serverStatus,
   serverSummary,
-  settingsProblems,
   withDisabledTools,
   withProjects,
 } from "./mcpServers.js";
@@ -118,21 +117,10 @@ describe("MCP server drafts", () => {
     expect(summary).not.toContain("secret-token");
     expect(serverSummary(github)).toBe("npx -y gh-mcp");
   });
-  it("summarizes the command and the settings files ZLI could not change", () => {
+  it("summarizes the command", () => {
     expect(commandLine({ command: "C:\\Program Files\\node.exe", args: ["server.js"] })).toBe(
       '"C:\\Program Files\\node.exe" server.js',
     );
-    expect(
-      settingsProblems([
-        {
-          provider: "gemini",
-          path: "C:\\home\\.gemini\\settings.json",
-          status: "skipped-invalid",
-          message: "The file is not plain JSON.",
-        },
-        { provider: "droid", path: "C:\\home\\.factory\\mcp.json", status: "updated" },
-      ]),
-    ).toEqual(["Gemini: C:\\home\\.gemini\\settings.json. The file is not plain JSON. ZLI left it unchanged."]);
   });
 });
 
@@ -153,23 +141,20 @@ function button(container: HTMLElement, text: string): HTMLButtonElement {
 describe("McpServersSection", () => {
   it("adds, turns off, and removes servers through the runtime", async () => {
     let servers: McpServerConfig[] = [];
-    let agentAccess = "full";
+    const agentAccess = "full";
     const saves: McpServerConfig[][] = [];
+    let openedAgentMessages = false;
     const bridge = {
       runtime: {
-        dispatch: async (request: {
-          commandId: string;
-          command: { type: string; servers?: McpServerConfig[]; access?: string };
-        }) => {
+        dispatch: async (request: { commandId: string; command: { type: string; servers?: McpServerConfig[] } }) => {
           if (request.command.type === "mcp.save") {
             servers = request.command.servers ?? [];
             saves.push(servers);
           }
-          if (request.command.type === "mcp.agentAccess") agentAccess = request.command.access ?? agentAccess;
           return {
             commandId: CommandId.parse(request.commandId),
             accepted: true as const,
-            result: { servers, agentAccess, userSettings: { enabled: true, outcomes: [] } },
+            result: { servers, agentAccess },
           };
         },
         getProjection: async () => undefined,
@@ -183,22 +168,17 @@ describe("McpServersSection", () => {
       act(async () => {
         root.render(
           <RuntimeProvider bridge={bridge}>
-            <McpServersSection view={view} />
+            <McpServersSection view={view} onAgentMessages={() => (openedAgentMessages = true)} />
           </RuntimeProvider>,
         );
       });
     await show("installed");
     expect(container.textContent).toContain("No servers yet.");
-    const access = container.querySelector<HTMLButtonElement>(
-      'button[aria-label^="What agents may do with other agents"]',
-    ) as HTMLButtonElement;
-    expect(access.getAttribute("aria-label")).toBe("What agents may do with other agents: Start and message agents");
-    await act(async () => access.click());
-    await act(async () =>
-      document.querySelector<HTMLButtonElement>('[role="option"][data-label="List and read agents"]')?.click(),
-    );
-    expect(agentAccess).toBe("read");
-    expect(access.getAttribute("aria-label")).toBe("What agents may do with other agents: List and read agents");
+    // The zli tool's settings live in Agent messages; Integrations only says how they are set.
+    expect(container.querySelector('button[aria-label^="What agents may do with other agents"]')).toBeNull();
+    expect(container.textContent).toContain("Start and message agents, in their own project.");
+    await act(async () => button(container, "Agent messages").click());
+    expect(openedAgentMessages).toBe(true);
 
     await show("custom");
     await act(async () => button(container, "Add server").click());
@@ -237,7 +217,6 @@ describe("McpServersSection", () => {
     const list = () => ({
       servers,
       agentAccess: "full",
-      userSettings: { enabled: true, outcomes: [] },
       signIns: servers
         .filter((server) => server.transport === "http" && server.oauth)
         .map((server) => ({
@@ -358,7 +337,7 @@ describe("McpServersSection", () => {
             : {
                 commandId: CommandId.parse(request.commandId),
                 accepted: true as const,
-                result: { servers: [github], agentAccess: "full", userSettings: { enabled: false, outcomes: [] } },
+                result: { servers: [github], agentAccess: "full" },
               };
         },
         getProjection: async () => undefined,
@@ -381,7 +360,7 @@ describe("McpServersSection", () => {
       "zli-browser",
       "github",
     ]);
-    expect(container.textContent).toContain("ZLI is set to leave those files alone");
+    expect(container.textContent).toContain("ZLI gives these servers only to agents it starts.");
   });
 });
 
@@ -407,7 +386,6 @@ describe("MCP status, tools, and projects helpers", () => {
     McpListResult.parse({
       servers: [github, linear],
       agentAccess: "full",
-      userSettings: { enabled: true, outcomes: [] },
       ...patch,
     });
 
@@ -531,7 +509,6 @@ describe("McpServersSection tests, tools, projects, and import", () => {
       McpListResult.parse({
         servers,
         agentAccess: "full",
-        userSettings: { enabled: true, outcomes: [] },
         health,
         signIns: [{ name: "plugin-docs", url: "https://docs.example.com/mcp", signedIn: true, account: "ada" }],
       });
@@ -585,7 +562,7 @@ describe("McpServersSection tests, tools, projects, and import", () => {
       fakeBridge(
         (command) => {
           if (command.type === "mcp.save") servers = command.servers ?? [];
-          return McpListResult.parse({ servers, agentAccess: "full", userSettings: { enabled: true, outcomes: [] } });
+          return McpListResult.parse({ servers, agentAccess: "full" });
         },
         [
           { projectId: "00000000-0000-4000-8000-000000000001", path: "/work/repo", name: "repo" },
@@ -651,7 +628,7 @@ describe("McpServersSection tests, tools, projects, and import", () => {
           };
         }
         if (command.type === "mcp.save") servers = command.servers ?? [];
-        return McpListResult.parse({ servers, agentAccess: "full", userSettings: { enabled: true, outcomes: [] } });
+        return McpListResult.parse({ servers, agentAccess: "full" });
       }),
       "custom",
     );
@@ -678,7 +655,7 @@ describe("McpServersSection tests, tools, projects, and import", () => {
       fakeBridge((command) =>
         command.type === "mcp.import.scan"
           ? { found: [], problems: [] }
-          : McpListResult.parse({ servers: [], agentAccess: "full", userSettings: { enabled: true, outcomes: [] } }),
+          : McpListResult.parse({ servers: [], agentAccess: "full" }),
       ),
       "custom",
     );
@@ -699,7 +676,6 @@ describe("McpServersSection tests, tools, projects, and import", () => {
         const result = McpListResult.parse({
           servers: [],
           agentAccess: "full",
-          userSettings: { enabled: true, outcomes: [] },
           signIns: [
             signedIn
               ? { name: "team-linear", url: "https://mcp.linear.app/mcp", signedIn: true, account: "ada" }
@@ -743,7 +719,6 @@ describe("McpServersSection tests, tools, projects, and import", () => {
       McpListResult.parse({
         servers: [linear, context7],
         agentAccess: "full",
-        userSettings: { enabled: true, outcomes: [] },
         signIns: [
           signedIn
             ? { name: "linear", url: linear.url, signedIn: true, via: "browser", account: "ada" }

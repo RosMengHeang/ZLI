@@ -16,6 +16,8 @@ export const shortcutActions: readonly ShortcutAction[] = [
   { id: "toggleBrowser", label: "Show or hide the browser", shortcut: "Mod+Shift+B" },
   { id: "toggleMobile", label: "Show or hide the mobile panel", shortcut: "Mod+Shift+M" },
   { id: "toggleChanges", label: "Show or hide changes", shortcut: "Mod+Shift+G" },
+  { id: "toggleHuddle", label: "Show or hide the huddle panel", shortcut: "Mod+Shift+H" },
+  { id: "focusProject", label: "Show only the current project's agents", shortcut: "Mod+Shift+P" },
   { id: "settings", label: "Settings", shortcut: "Mod+," },
 ];
 
@@ -32,6 +34,9 @@ const reserved = new Map<string, string>([
   ["Mod+L", "asking an agent about code"],
   ["Mod+F", "find"],
   ["Mod+Enter", "sending"],
+  ["Mod+=", "zooming in"],
+  ["Mod+-", "zooming out"],
+  ["Mod+0", "resetting zoom"],
 ]);
 
 const codeKeys: Record<string, string> = {

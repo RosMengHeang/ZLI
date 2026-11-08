@@ -26,6 +26,7 @@ import { PullRequestSection } from "./PullRequestSection.js";
 import { applyHunk, discardFile, pullBranch, pushBranch, stageFiles, unstageFiles } from "./pullRequestClient.js";
 import { refreshPullRequest } from "./pullRequestStore.js";
 import { ReviewCommentList } from "./ReviewCommentList.js";
+import type { SentNotice } from "./SendToAgentButton.js";
 import { StashSection } from "./StashSection.js";
 import "./review.css";
 
@@ -73,12 +74,15 @@ export function ReviewPane({
   worktree,
   focus,
   onShowAgent,
+  onNotice,
 }: {
   worktree: WorktreeProjection | undefined;
   /** A file to open, for example from a changed-files card. The nonce reopens the same path. */
   focus?: ReviewFocus | undefined;
   /** Brings an agent's tile forward in the given view, after review comments are sent to it. */
   onShowAgent?(sessionId: string, mode: SessionMode): void;
+  /** Confirms review comments that went to an agent without the send dialog. */
+  onNotice?: ((notice: SentNotice) => void) | undefined;
 }) {
   const { dispatch } = useRuntime();
   const reviews = useRuntimeSelector(selectReviews);
@@ -567,7 +571,12 @@ export function ReviewPane({
         </div>
       )}
       {worktree && review ? (
-        <ReviewCommentList worktree={worktree} onOpenFile={(path) => void loadDiff(path)} onShowAgent={onShowAgent} />
+        <ReviewCommentList
+          worktree={worktree}
+          onOpenFile={(path) => void loadDiff(path)}
+          onShowAgent={onShowAgent}
+          onNotice={onNotice}
+        />
       ) : null}
       {review?.errorMessage && (
         <p className="inline-error" role="alert">

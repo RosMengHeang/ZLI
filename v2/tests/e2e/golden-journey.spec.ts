@@ -7,8 +7,10 @@ import { expect, test } from "@playwright/test";
 import {
   closeApp,
   closeDesktop,
+  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
+  freePort,
   git,
   launchDesktop,
 } from "./desktop-fixtures.js";
@@ -24,7 +26,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const dialog = page.getByRole("dialog", { name: "Create worktree" });
     await dialog.getByLabel("Branch").fill("e2e");
     await dialog.getByRole("button", { name: "Create worktree" }).click();
@@ -38,7 +40,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     });
     if (!worktreeId) throw new Error("The created worktree was not present in the runtime projection.");
 
-    const terminalPort = 43100 + Math.floor(Math.random() * 500);
+    const terminalPort = await freePort();
     const worktreePath = join(`${repo}-worktrees`, "e2e");
     browserServer = createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html" });

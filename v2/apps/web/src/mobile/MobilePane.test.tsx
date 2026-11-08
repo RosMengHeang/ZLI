@@ -19,8 +19,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { MobileBridge, ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
-import type { DevServerHint } from "./mobile.js";
 import { MobilePane, type MobileReveal } from "./MobilePane.js";
+import type { DevServerHint } from "./mobile.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -110,7 +110,7 @@ function avdListFor(status: MobileSetupStatus): MobileAvdList {
 function createMobile(options: { devices: MobileDevice[]; status?: MobileSetupStatus }) {
   let devices = options.devices;
   let avdList = avdListFor(options.status ?? readyStatus());
-  let settings: MobileSettings = { agentTools: true };
+  let settings: MobileSettings = { agentTools: true, crashWatch: true };
   const deviceListeners = new Set<(next: MobileDevice[]) => void>();
   const streamListeners = new Set<(event: MobileStreamEvent) => void>();
   const setupListeners = new Set<(progress: MobileSetupProgress) => void>();
@@ -226,10 +226,15 @@ async function render(bridge: ZliBridge, reveal?: MobileReveal, devServers?: rea
   return container;
 }
 
-function nameField(container: HTMLElement): HTMLInputElement {
-  const field = [...container.querySelectorAll<HTMLInputElement>(".mobile-avd-form input")][0];
+/** The New device dialog renders over the window, outside the panel. */
+function nameField(): HTMLInputElement {
+  const field = document.querySelector<HTMLInputElement>(".new-device-form .field input");
   if (!field) throw new Error("No name field");
   return field;
+}
+
+function newDeviceDialog(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[role="dialog"][aria-label="New device"]');
 }
 
 function expoBanner(container: HTMLElement): HTMLElement | undefined {
@@ -333,6 +338,41 @@ function touches(fake: ReturnType<typeof createMobile>) {
 }
 
 describe("MobilePane", () => {
+  it("opens the project check from the header and goes back to the device", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    const check = button(container, "Project check");
+    expect(check.getAttribute("aria-pressed")).toBe("false");
+    await click(check);
+    expect(check.getAttribute("aria-pressed")).toBe("true");
+    expect(container.textContent).toContain("Open an agent or worktree first");
+    await click(check);
+    expect(container.textContent).not.toContain("Open an agent or worktree first");
+  });
+
+  it("offers a way back from the empty project check, and names the worktree it checks", async () => {
+    const fake = createMobile({ devices: [emulator] });
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    const show = (pane?: { worktreeId?: string; worktreeName?: string }) =>
+      act(async () => {
+        root?.render(
+          <RuntimeProvider bridge={bridgeWith(fake.mobile)}>
+            <MobilePane worktreeId={pane?.worktreeId} worktreeName={pane?.worktreeName} />
+          </RuntimeProvider>,
+        );
+      });
+    await show();
+    await click(button(container, "Project check"));
+    expect(container.textContent).toContain("Open an agent or worktree first");
+    await click(button(container, "Back to the device"));
+    expect(container.textContent).not.toContain("Open an agent or worktree first");
+    await show({ worktreeId: "wt-1", worktreeName: "feat-login" });
+    await click(button(container, "Project check"));
+    expect(container.textContent).toContain("Checking feat-login");
+  });
+
   it("explains that devices need the desktop app when the bridge has no mobile service", async () => {
     const container = await render(bridgeWith(undefined));
     expect(container.textContent).toContain("Devices need the desktop app");
@@ -607,6 +647,26 @@ describe("MobilePane", () => {
     const container = await render(bridgeWith(fake.mobile));
     expect(() => button(container, "Rotate")).toThrow("No button Rotate");
     expect(() => button(container, "Home")).not.toThrow();
+  });
+
+  it("shows Rotate as unavailable, with the reason, for a simulator on another Mac", async () => {
+    const simulator: MobileDevice = {
+      deviceId: "ios:UDID-1",
+      platform: "ios",
+      kind: "simulator",
+      name: "iPhone 16",
+      state: "online",
+      host: "dev@studio.local",
+      lease: null,
+    };
+    const fake = createMobile({ devices: [simulator] });
+    const container = await render(bridgeWith(fake.mobile));
+    const rotate = button(container, "Rotate");
+    expect(rotate.disabled).toBe(true);
+    expect(rotate.dataset.tooltip).toBe(
+      "Rotate it in the Simulator app on studio.local. ZLI cannot rotate a simulator on another Mac yet.",
+    );
+    expect(container.textContent).toContain("iOS Simulator on studio.local");
   });
 
   it("sends the person to Take over when they press Power while an agent holds the device", async () => {
@@ -1329,12 +1389,66 @@ describe("MobilePane", () => {
     expect(button(container, "Setup").getAttribute("aria-pressed")).toBe("true");
     expect(container.textContent).toContain("Ready, with the virtual device Pixel_8.");
     expect(container.querySelector(".mobile-toolbar")).toBeNull();
-    expect(document.activeElement).toBe(nameField(container));
+    expect(newDeviceDialog()).not.toBeNull();
+    expect(document.activeElement).toBe(nameField());
+
+    await act(async () => {
+      nameField().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(newDeviceDialog()).toBeNull();
+    expect(button(container, "Setup").getAttribute("aria-pressed")).toBe("true");
 
     await click(button(container, "Setup"));
     await click(button(container, "Setup"));
     expect(container.textContent).toContain("Virtual devices");
-    expect(document.activeElement).not.toBe(nameField(container));
+    expect(newDeviceDialog()).toBeNull();
+  });
+
+  it("connects a phone over Wi-Fi from the device picker, shows it, and disconnects it from the toolbar", async () => {
+    const phone: MobileDevice = {
+      deviceId: "android:192.168.1.20:39457",
+      platform: "android",
+      kind: "physical",
+      name: "Pixel 8 Pro",
+      state: "online",
+      osVersion: "15",
+      serial: "192.168.1.20:39457",
+      connection: "wifi",
+      lease: null,
+    };
+    const fake = createMobile({ devices: [emulator] });
+    const mobile = {
+      ...fake.mobile,
+      connectWifi: vi.fn(async () => {
+        fake.publishDevices([emulator, phone]);
+        return { connected: true, deviceId: phone.deviceId, message: "Connected to Pixel 8 Pro." };
+      }),
+      pairWifi: vi.fn(async () => ({ connected: false, message: "" })),
+      disconnectWifi: vi.fn(async () => {
+        fake.publishDevices([emulator]);
+      }),
+    };
+    const container = await render(bridgeWith(mobile));
+    await click(button(container, "Device: Pixel 8"));
+    await click(pickerOption("Connect a phone"));
+    expect(button(container, "Setup").getAttribute("aria-pressed")).toBe("true");
+    expect(container.textContent).toContain("Connect over Wi-Fi");
+
+    await click(button(container, "Connect to an address"));
+    const address = [...container.querySelectorAll<HTMLInputElement>(".mobile-avd-form input")].find(
+      (input) => input.placeholder === "192.168.1.20:39457",
+    );
+    if (!address) throw new Error("No address field");
+    await act(async () => typeInto(address, "192.168.1.20:39457"));
+    await click(button(container, "Connect"));
+    expect(mobile.connectWifi).toHaveBeenCalledWith({ host: "192.168.1.20", port: 39_457 });
+    expect(container.querySelector(".mobile-toolbar")).not.toBeNull();
+    expect(button(container, "Device: Pixel 8 Pro")).toBeTruthy();
+    expect(container.textContent).toContain("Connected to Pixel 8 Pro.");
+    expect(container.textContent).not.toContain("Shut down Pixel 8 Pro");
+
+    await click(button(container, "Disconnect"));
+    expect(mobile.disconnectWifi).toHaveBeenCalledWith(phone.deviceId);
   });
 
   it("lists virtual devices with Boot and Delete, and deletes one only after a confirm step", async () => {
@@ -1371,41 +1485,46 @@ describe("MobilePane", () => {
     expect(fake.mobile.status).toHaveBeenCalled();
   });
 
-  it("creates a virtual device from an installed image and a device profile", async () => {
+  it("creates a virtual device from an installed image and a device profile in the New device dialog", async () => {
     const fake = createMobile({ devices: [emulator] });
     const container = await render(bridgeWith(fake.mobile));
     await click(button(container, "Setup"));
-    expect(nameField(container).value).toBe("Pixel_7_API_35");
-    expect(container.textContent).toContain("Only system images already on this computer are listed.");
-    await click(button(container, "Device profile: Pixel 7"));
+    expect(newDeviceDialog()).toBeNull();
+    await click(button(container, "New device…"));
+    const dialog = newDeviceDialog() as HTMLElement;
+    expect(nameField().value).toBe("Pixel_7_API_35");
+    expect(dialog.textContent).toContain("Only system images already on this computer are listed.");
+    await click(button(dialog, "Device profile: Pixel 7"));
     await click(pickerOption("Pixel 8"));
-    expect(nameField(container).value).toBe("Pixel_8_API_35");
+    expect(nameField().value).toBe("Pixel_8_API_35");
 
-    await act(async () => typeInto(nameField(container), "Pixel 9"));
-    expect(container.textContent).toContain("Use letters, digits, and _ . - only, starting with a letter or digit.");
-    expect(button(container, "Create").disabled).toBe(true);
-    await act(async () => typeInto(nameField(container), "pixel_8"));
-    expect(container.textContent).toContain("A virtual device with this name already exists.");
+    await act(async () => typeInto(nameField(), "Pixel 9"));
+    expect(dialog.textContent).toContain("Use letters, digits, and _ . - only, starting with a letter or digit.");
+    expect(button(dialog, "Create").disabled).toBe(true);
+    await act(async () => typeInto(nameField(), "pixel_8"));
+    expect(dialog.textContent).toContain("A virtual device with this name already exists.");
 
-    await act(async () => typeInto(nameField(container), "Pixel_9"));
-    await click(button(container, "Create"));
+    await act(async () => typeInto(nameField(), "Pixel_9"));
+    await click(button(dialog, "Create"));
     expect(fake.mobile.createAvd).toHaveBeenCalledWith({
       name: "Pixel_9",
       systemImage: "system-images;android-35;google_apis;x86_64",
       device: "pixel_8",
     });
+    expect(newDeviceDialog()).toBeNull();
     expect(container.textContent).toContain("Created Pixel_9. Boot it from the list.");
     expect([...container.querySelectorAll(".mobile-avd-name")].map((name) => name.textContent)).toEqual([
       "Pixel 8",
       "Pixel 9",
     ]);
-    expect(nameField(container).value).toBe("Pixel_8_API_35");
 
+    await click(button(container, "New device…"));
+    expect(nameField().value).toBe("Pixel_7_API_35");
     fake.mobile.createAvd.mockRejectedValueOnce(
       new Error("Error invoking remote method 'zli:mobile:avd-create': Error: avdmanager create failed: no space"),
     );
-    await click(button(container, "Create"));
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe("avdmanager create failed: no space");
+    await click(button(newDeviceDialog() as HTMLElement, "Create"));
+    expect(newDeviceDialog()?.querySelector('[role="alert"]')?.textContent).toBe("avdmanager create failed: no space");
   });
 
   it("boots a virtual device from the list and goes back to the device view", async () => {
@@ -1428,7 +1547,7 @@ describe("MobilePane", () => {
     const container = await render(bridgeWith(fake.mobile));
     await click(button(container, "Setup"));
     expect(container.textContent).toContain("Creating and deleting virtual devices needs avdmanager");
-    expect(container.querySelector(".mobile-avd-form")).toBeNull();
+    expect(() => button(container, "New device…")).toThrow();
     expect(button(container, "Delete Pixel 8").disabled).toBe(true);
     expect(button(container, "Delete Pixel 8").dataset.tooltip).toBe("Needs avdmanager");
   });
@@ -1509,7 +1628,7 @@ describe("MobilePane", () => {
     expect(container.querySelector(".mobile-setup-card")?.textContent).toContain("Android Emulator");
     expect(container.textContent).toContain("Or connect an Android phone with USB debugging turned on.");
     expect(container.querySelector(".mobile-setup-ios-note")?.textContent).toBe(
-      "iPhone simulators need a Mac with Xcode.",
+      "iPhone simulators need a Mac with Xcode. To use one on your network, add it in Settings > Mobile.",
     );
 
     const primary = [...container.querySelectorAll<HTMLButtonElement>(".mobile-setup-card .btn-primary")];

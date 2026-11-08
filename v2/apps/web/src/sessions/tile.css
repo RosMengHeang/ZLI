@@ -1,14 +1,18 @@
 /* ---------- Agent grid ---------- */
-.agent-grid-region { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.agent-grid-region { display: flex; min-height: min(160px, 50%); flex: 1; flex-direction: column; }
 /* An empty board is still a work surface, so it keeps the island shape the tiles would have. */
 .agent-grid-region:has(> .empty-state) { border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
 .agent-grid { display: grid; height: 100%; min-height: 0; gap: var(--zli-gutter); overflow-y: auto; }
+/* Drawn like the notices above the workspace; the grid below takes the space that is left. */
+.board-project-notice { margin-bottom: var(--zli-gutter); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); }
+.board-project-notice + .agent-grid { height: auto; flex: 1; }
 .agent-tile {
   display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden;
   border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface);
   container-type: inline-size; container-name: tile;
   transition: border-color var(--zli-duration-base) var(--zli-ease);
 }
+.agent-tile.is-tall { grid-row: span 2; }
 /* The selected agent is the one place a tile carries the accent: it is where typing goes. */
 .agent-tile.is-active { border-color: var(--zli-accent-edge); }
 .tile-header {
@@ -21,6 +25,15 @@
 .tile-branch { display: inline-flex; min-width: 0; flex: 0 100 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); white-space: nowrap; }
 .tile-run { flex: 0 0 auto; padding: 1px var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); font-size: var(--zli-text-2xs); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tile-branch span { overflow: hidden; text-overflow: ellipsis; }
+/* The name chip already says who this is, so the title may give up its space before the actions do. */
+.tile-name ~ .tile-title { min-width: 0; flex-shrink: 1000; }
+.tile-name { min-width: 32px; max-width: 120px; flex: 0 1 auto; overflow: hidden; padding: 1px var(--zli-space-1-5); border: 0; border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-text); font: inherit; font-size: var(--zli-text-2xs); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+button.tile-name { cursor: pointer; }
+button.tile-name:hover { background: var(--zli-hover); }
+button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.tile-parent { min-width: 0; max-width: 160px; flex: 0 1000 auto; overflow: hidden; padding: 1px var(--zli-space-1-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.tile-parent:hover { background: var(--zli-hover); color: var(--zli-text); }
+.tile-parent:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 .tile-account { display: inline-flex; min-width: 0; max-width: 140px; flex: 0 50 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); white-space: nowrap; }
 .tile-account span { overflow: hidden; text-overflow: ellipsis; }
 .tile-spacer { flex: 1; }
@@ -41,8 +54,14 @@
 @container tile (max-width: 560px) {
   .tile-branch { display: none; }
 }
+@container tile (max-width: 440px) {
+  /* The sidebar nests sub-agents under their starter, so a narrow tile drops the chip and keeps its actions. */
+  .tile-parent { display: none; }
+}
 @container tile (max-width: 400px) {
   .tile-status .badge-label { display: none; }
+  /* The sidebar row repeats the title, and a few letters of it would read as a glitch. */
+  .tile-name ~ .tile-title { display: none; }
 }
 @media (max-width: 1240px) {
   .tile-branch { display: none; }

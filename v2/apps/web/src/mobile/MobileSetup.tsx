@@ -1,4 +1,10 @@
-import type { MobileAndroidStatus, MobileSetupPlan, MobileSetupProgress, MobileSetupStatus } from "@zli-v2/contracts";
+import type {
+  MobileAndroidStatus,
+  MobileDevice,
+  MobileSetupPlan,
+  MobileSetupProgress,
+  MobileSetupStatus,
+} from "@zli-v2/contracts";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
@@ -10,29 +16,38 @@ import {
   androidSituation,
   errorText,
   formatBytes,
+  macName,
   planDownload,
   progressPercent,
 } from "./mobile.js";
+import { NewDeviceDialog } from "./NewDeviceDialog.js";
 
 const ACCELERATION_ITEM = "Hardware acceleration for the emulator";
 
 /**
  * What this computer has for Android and iOS, and the guided Android install when something is missing.
- * iOS Simulator needs a Mac, so other hosts get one line about it instead of a section.
+ * iOS Simulator needs a Mac, so other hosts get one line about it instead of a section, unless a Mac on the
+ * network is set for it.
  */
 export function MobileSetup({
   mobile,
   status,
   noDevices = false,
+  devices = [],
   virtualDevices,
+  phones,
   onRecheck,
 }: {
   mobile: MobileBridge;
   status: MobileSetupStatus;
   /** No device is listed at all, so a USB phone is worth suggesting as the other way in. */
   noDevices?: boolean;
+  /** The devices already listed, so a new simulator's name does not repeat one. */
+  devices?: readonly MobileDevice[];
   /** The virtual device manager, shown under the Android section. */
   virtualDevices?: ReactNode;
+  /** USB and Wi-Fi phones, shown after the virtual devices. */
+  phones?: ReactNode;
   /** Reads the status again. recheckAcceleration also reruns the emulator's acceleration check. */
   onRecheck(options?: { recheckAcceleration?: boolean }): Promise<void>;
 }) {
@@ -91,25 +106,41 @@ export function MobileSetup({
         )}
       </section>
       {virtualDevices}
-      {status.host.os === "macos" ? (
-        <IosSection status={status} rechecking={rechecking} onRecheck={() => void recheck()} />
+      {phones}
+      {status.host.os === "macos" || status.ios.host ? (
+        <IosSection
+          mobile={mobile}
+          devices={devices}
+          status={status}
+          rechecking={rechecking}
+          onRecheck={() => void recheck()}
+        />
       ) : (
-        <p className="mobile-setup-ios-note">iPhone simulators need a Mac with Xcode.</p>
+        <p className="mobile-setup-ios-note">
+          iPhone simulators need a Mac with Xcode. To use one on your network, add it in Settings &gt; Mobile.
+        </p>
       )}
     </div>
   );
 }
 
-/** Only shown on macOS, the one host where the iOS Simulator runs. */
+/** Shown on macOS, the one host where the iOS Simulator runs, and wherever a Mac is set for it over SSH. */
 function IosSection({
+  mobile,
+  devices,
   status,
   rechecking,
   onRecheck,
 }: {
+  mobile: MobileBridge;
+  devices: readonly MobileDevice[];
   status: MobileSetupStatus;
   rechecking: boolean;
   onRecheck(): void;
 }) {
+  const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState<string>();
+  const canCreate = status.ios.simctl.found && Boolean(mobile.createSimulator);
   return (
     <section className="mobile-setup-section" aria-labelledby="mobile-setup-ios">
       <h3 id="mobile-setup-ios" className="mobile-setup-title">
@@ -130,9 +161,38 @@ function IosSection({
       ) : (
         <p className="mobile-setup-ready">
           <Icon name="check" size={13} />
-          Ready. Simulators from Xcode appear in the device list.
+          {status.ios.host
+            ? `Ready. Simulators from Xcode on ${macName(status.ios.host)} appear in the device list.`
+            : "Ready. Simulators from Xcode appear in the device list."}
         </p>
       )}
+      <div role="status">
+        {created ? (
+          <div className="banner banner-info">
+            <Icon name="check" size={14} />
+            <span className="banner-message">Created {created}. Pick it in the device list to boot it.</span>
+          </div>
+        ) : null}
+      </div>
+      {canCreate ? (
+        <div className="mobile-setup-actions">
+          <Button size="sm" icon="plus" onClick={() => setCreating(true)}>
+            New simulator…
+          </Button>
+        </div>
+      ) : null}
+      {creating ? (
+        <NewDeviceDialog
+          mobile={mobile}
+          platforms={["ios"]}
+          devices={devices}
+          onCreated={(device) => {
+            setCreating(false);
+            setCreated(device.name);
+          }}
+          onClose={() => setCreating(false)}
+        />
+      ) : null}
     </section>
   );
 }

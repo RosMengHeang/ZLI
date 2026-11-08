@@ -33,7 +33,7 @@ const vercel: McpServerConfig = {
 const listOf = (servers: McpServerConfig[], signedIn: string[] = []): McpListResult => ({
   servers,
   agentAccess: "full",
-  userSettings: { enabled: true, outcomes: [] },
+  agentScope: "project",
   health: [],
   signIns: servers
     .filter((server) => server.transport === "http" && server.oauth)

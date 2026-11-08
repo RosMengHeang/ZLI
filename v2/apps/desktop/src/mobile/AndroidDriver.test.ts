@@ -67,11 +67,89 @@ describe("Android driver", () => {
         name: "R58M",
         state: "unauthorized",
         serial: "R58M",
+        connection: "usb",
       },
       { deviceId: "android-avd:Tablet", platform: "android", kind: "emulator", name: "Tablet", state: "shutdown" },
     ]);
   });
 
+  it("lists Wi-Fi and USB phones with their Android version, and drives them through the same adb serial", async () => {
+    const { android, runner } = driver((_command, args) => {
+      if (args[0] === "devices")
+        return {
+          stdout: [
+            "List of devices attached",
+            "192.168.1.20:39457 device product:husky model:Pixel_8_Pro device:husky transport_id:4",
+            "R58M device usb:1-1 product:dm3q model:SM_S918B device:dm3q transport_id:2",
+            "10.0.0.7:5555 offline transport_id:6",
+          ].join("\n"),
+        };
+      if (args.join(" ") === "-s 192.168.1.20:39457 shell getprop ro.build.version.release") return { stdout: "15\n" };
+      if (args.join(" ") === "-s R58M shell getprop ro.build.version.release") return { stdout: "14\n" };
+      return undefined;
+    });
+    const devices = await android.list();
+    expect(devices.filter((device) => device.kind === "physical")).toEqual([
+      {
+        deviceId: "android:192.168.1.20:39457",
+        platform: "android",
+        kind: "physical",
+        name: "Pixel 8 Pro",
+        state: "online",
+        osVersion: "15",
+        serial: "192.168.1.20:39457",
+        connection: "wifi",
+      },
+      {
+        deviceId: "android:R58M",
+        platform: "android",
+        kind: "physical",
+        name: "SM S918B",
+        state: "online",
+        osVersion: "14",
+        serial: "R58M",
+        connection: "usb",
+      },
+      {
+        deviceId: "android:10.0.0.7:5555",
+        platform: "android",
+        kind: "physical",
+        name: "10.0.0.7:5555",
+        state: "offline",
+        serial: "10.0.0.7:5555",
+        connection: "wifi",
+      },
+    ]);
+    await android.list();
+    expect(runner.argsOf("adb").filter((args) => args.includes("ro.build.version.release"))).toHaveLength(2);
+
+    const wifi = devices[0] as DriverDevice;
+    await android.press(wifi, "home");
+    expect(runner.argsOf("adb").at(-1)).toEqual(["-s", "192.168.1.20:39457", "shell", "input keyevent 3"]);
+    expect(await android.connection(wifi)).toMatchObject({ serial: "192.168.1.20:39457" });
+  });
+
+  it("never boots or shuts down a phone, and says what to do when one is not ready", async () => {
+    const { android, runner } = driver(() => undefined);
+    const phone: DriverDevice = {
+      deviceId: "android:R58M",
+      platform: "android",
+      kind: "physical",
+      name: "Galaxy",
+      state: "unauthorized",
+      serial: "R58M",
+      connection: "usb",
+    };
+    await expect(android.boot(phone, {})).rejects.toThrow("ZLI cannot boot it");
+    await expect(android.shutdown(phone)).rejects.toThrow("ZLI does not turn off physical phones.");
+    await expect(android.tap(phone, 1, 1, false)).rejects.toThrow(
+      "Galaxy is not connected and ready. Allow USB debugging on the phone, then check the prompt on its screen.",
+    );
+    await expect(
+      android.screenshot({ ...phone, deviceId: "android:10.0.0.7:5555", state: "offline", connection: "wifi" }),
+    ).rejects.toThrow("Check that Wireless debugging is still on");
+    expect(runner.calls).toEqual([]);
+  });
   it("boots an AVD on a free port and waits for sys.boot_completed", async () => {
     let polls = 0;
     const { android, runner } = driver((_command, args) => {
@@ -91,6 +169,29 @@ describe("Android driver", () => {
     expect(runner.spawned[0]?.command).toBe("/sdk/emulator/emulator");
     expect(runner.spawned[0]?.args.slice(0, 4)).toEqual(["-avd", "Tablet", "-port", "5556"]);
     expect(polls).toBe(3);
+  });
+
+  it("boots on the worktree's preferred console port, and falls back to a free one when it is taken", async () => {
+    const answer = (running: string) => (_command: string, args: readonly string[]) => {
+      if (args[0] === "devices") return { stdout: `List of devices attached\n${running}` };
+      if (args.at(-1)?.endsWith("sys.boot_completed")) return { stdout: "1\n" };
+      if (args.join(" ").endsWith("emu avd name")) return { stdout: "Pixel_7\r\nOK\r\n" };
+      return undefined;
+    };
+    const tablet: DriverDevice = {
+      deviceId: "android-avd:Tablet",
+      platform: "android",
+      kind: "emulator",
+      name: "Tablet",
+      state: "shutdown",
+    };
+    const free = driver(answer("emulator-5554 device\n"));
+    expect(await free.android.boot(tablet, { preferredPort: 5560 })).toMatchObject({ serial: "emulator-5560" });
+    expect(free.runner.spawned[0]?.args.slice(0, 4)).toEqual(["-avd", "Tablet", "-port", "5560"]);
+
+    const taken = driver(answer("emulator-5554 device\nemulator-5560 device\n"));
+    expect(await taken.android.boot(tablet, { preferredPort: 5560 })).toMatchObject({ serial: "emulator-5556" });
+    expect(taken.runner.spawned[0]?.args.slice(0, 4)).toEqual(["-avd", "Tablet", "-port", "5556"]);
   });
 
   it("reports why an emulator stopped while booting", async () => {
@@ -197,6 +298,16 @@ describe("Android driver", () => {
         "shell",
         "am start -W -a android.intent.action.VIEW -d 'http://localhost:8081/?platform=android'",
       ],
+    ]);
+  });
+
+  it("maps one device port to another host port, and removes the mapping", async () => {
+    const { android, runner } = driver(() => undefined);
+    await android.reverse(online, 8081, 8142);
+    await android.removeReverse(online, 8081);
+    expect(runner.argsOf("adb")).toEqual([
+      ["-s", "emulator-5554", "reverse", "tcp:8081", "tcp:8142"],
+      ["-s", "emulator-5554", "reverse", "--remove", "tcp:8081"],
     ]);
   });
 

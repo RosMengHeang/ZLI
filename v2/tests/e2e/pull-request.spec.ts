@@ -3,7 +3,14 @@ import { delimiter, join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, git, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  openCreateWorktree,
+  createGitFixture,
+  type DesktopFixture,
+  git,
+  launchDesktop,
+} from "./desktop-fixtures.js";
 
 const PR_URL = "https://github.com/zli/fixture/pull/7";
 
@@ -85,7 +92,7 @@ test("creates a draft pull request from the Changes panel and opens it", async (
       env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
     });
     const page = fixture.page;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
     await createWorktree.getByLabel("Branch").fill("feature");
     await createWorktree.getByRole("button", { name: "Create worktree" }).click();
@@ -193,7 +200,7 @@ test("shows a pull request's checks and sends a failed check's log to an agent",
       env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
     });
     const page = fixture.page;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
     await createWorktree.getByLabel("Branch").fill("checks");
     await createWorktree.getByRole("button", { name: "Create worktree" }).click();
@@ -305,7 +312,7 @@ test("reads a pull request's review comments and sends the picked ones to an age
       env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
     });
     const page = fixture.page;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
     await createWorktree.getByLabel("Branch").fill("reviewed");
     await createWorktree.getByRole("button", { name: "Create worktree" }).click();
@@ -416,7 +423,7 @@ test("replies to and resolves a review thread, approves, and turns auto-merge on
       env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
     });
     const page = fixture.page;
-    await page.getByRole("button", { name: "Create worktree", exact: true }).click();
+    await openCreateWorktree(page);
     const createWorktree = page.getByRole("dialog", { name: "Create worktree" });
     await createWorktree.getByLabel("Branch").fill("reviewing");
     await createWorktree.getByRole("button", { name: "Create worktree" }).click();

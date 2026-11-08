@@ -1,0 +1,103 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BackHandler, View } from "react-native";
+
+import { useLink, useLinkSnapshot } from "./LinkContext.js";
+import { type Navigation, NavigationContext, type Route } from "./navigation.js";
+import { askForNotificationsOnce, useAgentAlerts, useNotificationTaps } from "./notifications.js";
+import { AgentScreen } from "./screens/AgentScreen.js";
+import { ChangesScreen } from "./screens/ChangesScreen.js";
+import { DiffScreen } from "./screens/DiffScreen.js";
+import { HomeScreen } from "./screens/HomeScreen.js";
+import { SettingsScreen } from "./screens/SettingsScreen.js";
+import { StartAgentScreen } from "./screens/StartAgentScreen.js";
+import { TerminalScreen } from "./screens/TerminalScreen.js";
+import { usePalette } from "./theme.js";
+import { EmptyState, Header } from "./ui/components.js";
+import { useLiveStatus } from "./useLiveStatus.js";
+
+/** A screen stack. The app has seven screens, which does not justify a navigation library. */
+export function Navigator({ onForget }: { onForget: (notice?: string) => Promise<void> }) {
+  const [stack, setStack] = useState<Route[]>([{ name: "home" }]);
+  const link = useLink();
+  const snapshot = useLinkSnapshot();
+  const palette = usePalette();
+
+  const navigation = useMemo<Navigation>(
+    () => ({
+      push: (route) => setStack((current) => [...current, route]),
+      replace: (route) => setStack((current) => [...current.slice(0, -1), route]),
+      back: () => setStack((current) => (current.length > 1 ? current.slice(0, -1) : current)),
+    }),
+    [],
+  );
+
+  const top = stack[stack.length - 1];
+  useAgentAlerts(top?.name === "agent" ? top.threadId : undefined);
+  const openAgent = useCallback(
+    (threadId: string) =>
+      setStack((current) => {
+        const shown = current[current.length - 1];
+        return shown?.name === "agent" && shown.threadId === threadId
+          ? current
+          : [...current, { name: "agent", threadId }];
+      }),
+    [],
+  );
+  useNotificationTaps(openAgent);
+  useLiveStatus(openAgent);
+  useEffect(() => {
+    void askForNotificationsOnce()
+      .catch(() => {})
+      .then(() => link.refreshPush());
+  }, [link]);
+
+  const depth = stack.length;
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (depth <= 1) return false;
+      navigation.back();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [depth, navigation]);
+
+  if (snapshot.state.kind === "blocked") {
+    const message = snapshot.state.message;
+    return (
+      <View style={{ flex: 1, backgroundColor: palette.canvas }}>
+        <Header title={snapshot.pairing.desktopName} subtitle="Not paired" />
+        <EmptyState
+          title="Pair this phone again"
+          message={message}
+          action={{ label: "Pair again", variant: "primary", onPress: () => void onForget(message) }}
+        />
+      </View>
+    );
+  }
+
+  const route = stack[stack.length - 1] ?? { name: "home" };
+  return (
+    <NavigationContext.Provider value={navigation}>
+      <Screen route={route} onForget={onForget} />
+    </NavigationContext.Provider>
+  );
+}
+
+function Screen({ route, onForget }: { route: Route; onForget: () => Promise<void> }) {
+  switch (route.name) {
+    case "home":
+      return <HomeScreen />;
+    case "agent":
+      return <AgentScreen key={route.threadId} threadId={route.threadId} />;
+    case "start":
+      return <StartAgentScreen {...(route.projectId ? { projectId: route.projectId } : {})} />;
+    case "terminal":
+      return <TerminalScreen key={route.terminalId} terminalId={route.terminalId} />;
+    case "changes":
+      return <ChangesScreen key={route.worktreeId} worktreeId={route.worktreeId} />;
+    case "diff":
+      return <DiffScreen key={`${route.worktreeId}:${route.path}`} worktreeId={route.worktreeId} path={route.path} />;
+    case "settings":
+      return <SettingsScreen onForget={onForget} />;
+  }
+}

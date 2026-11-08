@@ -1,0 +1,7 @@
+/* The crash banner. The crash marks in the logs drawer live in mobile.css with the drawer's rules. */
+.mobile-crash { border-bottom-color: var(--zli-red-line); }
+.mobile-crash-count { color: var(--zli-red); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mobile-crash .banner-actions { align-items: center; }
+.mobile-crash .btn { color: inherit; }
+.mobile-crash-well { flex: 1 0 100%; max-height: 200px; margin: 0 0 var(--zli-space-1); padding: var(--zli-space-2) var(--zli-space-2-5); overflow: auto; border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); white-space: pre; }
+.mobile-crash-well:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -1px; }

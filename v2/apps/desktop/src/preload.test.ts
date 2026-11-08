@@ -221,6 +221,42 @@ describe("preload API", () => {
     expect(connectors).toEqual([{ connectorId: "github" }]);
   });
 
+  it("passes only valid reach questions and answers", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const request = {
+      requestId: "00000000-0000-4000-8000-000000000001",
+      agent: "Bob",
+      project: "collect",
+      target: { agent: "Kim", project: "web" },
+    };
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return channel === "zli:agents:reach-current" ? request : undefined;
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+
+    expect(await api.agentReach.current()).toEqual(request);
+    await api.agentReach.answer({ requestId: request.requestId, allow: true, extra: 1 } as never);
+    await expect(api.agentReach.answer({ requestId: "nope", allow: true })).rejects.toThrow();
+    expect(calls.at(-1)).toEqual({
+      channel: "zli:agents:reach-answer",
+      payload: { requestId: request.requestId, allow: true },
+    });
+
+    const seen: unknown[] = [];
+    api.agentReach.onRequest((value) => seen.push(value));
+    listeners.get("zli:agents:reach-request")?.({}, request);
+    listeners.get("zli:agents:reach-request")?.({}, { requestId: "bad" });
+    listeners.get("zli:agents:reach-request")?.({}, null);
+    expect(seen).toEqual([request, undefined]);
+  });
+
   it("validates update status from main and sends only a boolean auto-install setting", async () => {
     const calls: Array<{ channel: string; payload: unknown }> = [];
     const listeners = new Map<string, (event: unknown, value: unknown) => void>();
@@ -265,6 +301,49 @@ describe("preload API", () => {
     expect(received).toHaveLength(1);
     unsubscribe();
     expect(listeners.has("zli:updates:status")).toBe(false);
+  });
+
+  it("validates phone access status from main and sends only checked input", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const status = {
+      enabled: true,
+      state: "listening",
+      hosts: ["192.168.1.20"],
+      port: 47321,
+      devices: [
+        { deviceId: "d1", name: "Pixel 9", pairedAt: "2026-01-02T03:04:05.000Z", connected: true, push: false },
+      ],
+    };
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        return status;
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+
+    expect(await api.mobileAccess.getStatus()).toEqual(status);
+    await api.mobileAccess.setEnabled("yes" as never);
+    await api.mobileAccess.startPairing();
+    await api.mobileAccess.revoke("d1");
+    expect(calls).toEqual([
+      { channel: "zli:remote:get-status", payload: undefined },
+      { channel: "zli:remote:set-enabled", payload: { enabled: false } },
+      { channel: "zli:remote:start-pairing", payload: undefined },
+      { channel: "zli:remote:revoke", payload: { deviceId: "d1" } },
+    ]);
+
+    const received: unknown[] = [];
+    const unsubscribe = api.mobileAccess.onStatus((next) => received.push(next));
+    listeners.get("zli:remote:status")?.({}, { ...status, enabled: false, state: "off" });
+    listeners.get("zli:remote:status")?.({}, { enabled: "maybe" });
+    expect(received).toHaveLength(1);
+    unsubscribe();
+    expect(listeners.has("zli:remote:status")).toBe(false);
   });
 
   it("hides native browser views through a dedicated channel", async () => {
@@ -386,6 +465,33 @@ describe("preload mobile API", () => {
     expect(calls).toHaveLength(3);
   });
 
+  it("validates Wi-Fi pairing and connect requests before invoking main and parses their answers", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:mobile:wifi-disconnect") return { accepted: true };
+        return { connected: true, deviceId: "android:192.168.1.20:39457", message: "Connected to Pixel 8." };
+      },
+      on: () => () => undefined,
+    });
+    const pair = { host: "192.168.1.20", pairPort: 37_123, code: "123456" };
+    expect(await api.mobile.pairWifi(pair)).toMatchObject({ connected: true });
+    await api.mobile.connectWifi({ host: "192.168.1.20", port: 39_457 });
+    await api.mobile.disconnectWifi("android:192.168.1.20:39457");
+    expect(calls).toEqual([
+      { channel: "zli:mobile:wifi-pair", payload: pair },
+      { channel: "zli:mobile:wifi-connect", payload: { host: "192.168.1.20", port: 39_457 } },
+      { channel: "zli:mobile:wifi-disconnect", payload: { deviceId: "android:192.168.1.20:39457" } },
+    ]);
+
+    await expect(api.mobile.pairWifi({ ...pair, code: "12345" })).rejects.toThrow();
+    await expect(api.mobile.pairWifi({ ...pair, host: "-s" })).rejects.toThrow();
+    await expect(api.mobile.connectWifi({ host: "192.168.1.20", port: 70_000 })).rejects.toThrow();
+    await expect(api.mobile.disconnectWifi("")).rejects.toThrow();
+    expect(calls).toHaveLength(3);
+  });
+
   it("validates virtual device names and images before invoking main and parses the device list", async () => {
     const calls: Array<{ channel: string; payload: unknown }> = [];
     const list = {
@@ -415,6 +521,48 @@ describe("preload mobile API", () => {
     await expect(api.mobile.createAvd({ name: "Pixel 9", systemImage: image })).rejects.toThrow();
     await expect(api.mobile.createAvd({ name: "Pixel_9", systemImage: "android-35" })).rejects.toThrow();
     await expect(api.mobile.deleteAvd("../Pixel_9")).rejects.toThrow();
+    expect(calls).toHaveLength(3);
+  });
+
+  it("validates simulator requests before invoking main and parses the catalog", async () => {
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const catalog = {
+      simctl: true,
+      deviceTypes: [{ id: "com.apple.CoreSimulator.SimDeviceType.iPhone-16", name: "iPhone 16", family: "iPhone" }],
+      runtimes: [
+        {
+          id: "com.apple.CoreSimulator.SimRuntime.iOS-18-2",
+          name: "iOS 18.2",
+          version: "18.2",
+          deviceTypeIds: ["com.apple.CoreSimulator.SimDeviceType.iPhone-16"],
+        },
+      ],
+    };
+    const udid = "5A3F2C1D-1111-4222-8333-944455556666";
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:mobile:sim-create") return { deviceId: `ios:${udid}`, name: "iPhone 16" };
+        return channel === "zli:mobile:sim-list" ? catalog : { accepted: true };
+      },
+      on: () => () => undefined,
+    });
+    const input = {
+      name: "iPhone 16",
+      deviceTypeId: "com.apple.CoreSimulator.SimDeviceType.iPhone-16",
+      runtimeId: "com.apple.CoreSimulator.SimRuntime.iOS-18-2",
+    };
+    expect(await api.mobile.listSimulators()).toEqual(catalog);
+    expect(await api.mobile.createSimulator(input)).toEqual({ deviceId: `ios:${udid}`, name: "iPhone 16" });
+    await api.mobile.deleteSimulator(udid);
+    expect(calls).toEqual([
+      { channel: "zli:mobile:sim-list", payload: undefined },
+      { channel: "zli:mobile:sim-create", payload: input },
+      { channel: "zli:mobile:sim-delete", payload: { udid } },
+    ]);
+    await expect(api.mobile.createSimulator({ ...input, name: "iPhone 16 " })).rejects.toThrow();
+    await expect(api.mobile.createSimulator({ ...input, deviceTypeId: "iPhone-16" })).rejects.toThrow();
+    await expect(api.mobile.deleteSimulator("../all")).rejects.toThrow();
     expect(calls).toHaveLength(3);
   });
 
@@ -462,5 +610,51 @@ describe("preload mobile API", () => {
     emit?.(undefined, [{ deviceId: pixel, pinned: true }]);
     emit?.(undefined, [{ deviceId: pixel }]);
     expect(changes).toEqual([[{ deviceId: pixel, pinned: true }]]);
+  });
+});
+
+describe("preload mobile dev API", () => {
+  it("sends only a proposal id, and parses proposals from main and its events", async () => {
+    const proposal = {
+      proposalId: "00000000-0000-4000-8000-000000000001",
+      worktreeId: "wt-1",
+      source: "agent",
+      sourceLabel: "Proposed by the agent in app",
+      title: "Install packages",
+      reason: "",
+      action: { kind: "command", program: "npm", args: ["install"], cwd: "." },
+      state: "pending",
+      createdAt: "2026-01-02T03:04:05.000Z",
+    };
+    const calls: Array<{ channel: string; payload: unknown }> = [];
+    const listeners = new Map<string, (event: unknown, value: unknown) => void>();
+    const api = createPreloadApi({
+      invoke: async (channel, payload) => {
+        calls.push({ channel, payload });
+        if (channel === "zli:mobile:proposals:list") return [proposal];
+        if (channel === "zli:mobile:proposals:accept") return { ...proposal, state: "started", terminalId: "t-1" };
+        return { ...proposal, state: "bogus" };
+      },
+      on: (channel, listener) => {
+        listeners.set(channel, listener);
+        return () => listeners.delete(channel);
+      },
+    });
+    expect(await api.mobile.dev.proposals.list("wt-1")).toEqual([proposal]);
+    expect((await api.mobile.dev.proposals.accept(proposal.proposalId)).state).toBe("started");
+    await expect(api.mobile.dev.proposals.dismiss(proposal.proposalId)).rejects.toThrow();
+    await expect(api.mobile.dev.proposals.accept("not-an-id")).rejects.toThrow();
+    expect(calls).toEqual([
+      { channel: "zli:mobile:proposals:list", payload: { worktreeId: "wt-1" } },
+      { channel: "zli:mobile:proposals:accept", payload: { proposalId: proposal.proposalId } },
+      { channel: "zli:mobile:proposals:dismiss", payload: { proposalId: proposal.proposalId } },
+    ]);
+    const seen: unknown[] = [];
+    api.mobile.dev.proposals.onChange((list) => seen.push(list));
+    listeners.get("zli:mobile:proposals")?.({}, [proposal]);
+    listeners.get("zli:mobile:proposals")?.({}, [
+      { ...proposal, action: { kind: "command", program: "rm", args: [] } },
+    ]);
+    expect(seen).toEqual([[proposal]]);
   });
 });

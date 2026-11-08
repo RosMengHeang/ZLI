@@ -85,7 +85,7 @@ export function browserToolConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
   };
 }
 
-/** Global registrations omit the worktree id; the tool then resolves the worktree from its cwd. */
+/** Without a worktree id, as in a sign-in account's settings, the tool resolves the worktree from its cwd. */
 export function mcpServerSpec(config: BrowserToolConfig, worktreeId?: string): McpStdioServerSpec {
   return {
     name: BROWSER_MCP_SERVER,

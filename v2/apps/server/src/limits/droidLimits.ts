@@ -3,32 +3,59 @@ import { join } from "node:path";
 
 import { FIVE_HOUR_WINDOW, MONTHLY_WINDOW, type PlanLimitWindow, WEEKLY_WINDOW } from "@zli-v2/contracts";
 
-import { clamp, isoTime, jwtExpiry, number, parseJson, record, retryAfterMs, secret } from "./answerFields.js";
+import { clamp, isoTime, number, parseJson, record, retryAfterMs, secret } from "./answerFields.js";
+import { jwtExpiry } from "./cursorLimits.js";
 import type { LimitRead } from "./PlanLimits.js";
 import { jsonBody, type LimitReaderDeps, send } from "./readerDeps.js";
 
-/** What Droid's own /limits command calls. It is not documented. */
-export const FACTORY_LIMITS_URL = "https://api.factory.ai/api/billing/limits";
-/** Droid encrypts its login with a key it keeps in the system credential store under these names. */
+const DEFAULT_API_BASE_URL = "https://api.factory.ai";
+/** The endpoint behind Droid's own "you have used N% of your limit" messages. It is not documented. */
+const LIMITS_PATH = "/api/billing/limits";
+/** Droid renews its token a minute before it expires, so ZLI treats it as expired from then on. */
+const EXPIRY_SKEW_MS = 60_000;
 const KEY_SERVICE = "Factory CLI";
-const KEY_ACCOUNT = "auth-encryption-key";
+const KEY_BYTES = 32;
+const IV_BYTES = 16;
+const TAG_BYTES = 16;
+
+export type DroidLimitDeps = LimitReaderDeps & {
+  /** A password from the OS keyring, as keytar stores it, or undefined when there is none. */
+  secretStore(service: string, account: string): Promise<string | undefined>;
+  /** Has Droid renew its own sign-in. Undefined when Droid is not installed. */
+  refreshLogin?(): Promise<void>;
+};
+
+type Login = { token: string; fromLogin: boolean };
+/** `locked` when Droid saved a login whose key ZLI cannot reach, such as one in the Windows Credential Manager. */
+type Saved = { token: string } | { locked: true } | undefined;
 
 /**
- * Reads Droid's Standard and Droid Core windows (5 hours, a week, a month). An API key, given or in
- * FACTORY_API_KEY, wins over the sign-in, as it does for Droid. The sign-in token is only read:
- * Droid renews it the next time it runs.
+ * Reads the 5-hour, weekly, and monthly windows of the Droid login. Droid rotates its refresh token,
+ * so ZLI never refreshes it: when the saved token has expired, Droid renews it, then ZLI reads again.
  */
-export async function readDroidLimits(apiKey: string | undefined, deps: LimitReaderDeps): Promise<LimitRead> {
-  const key = apiKey ?? secret(deps.env.FACTORY_API_KEY);
-  const token = key ?? (await droidLoginToken(deps));
-  if (!token) return { state: "signed-out", message: "Not signed in to Droid.", windows: [] };
-  const expiresAt = key ? undefined : jwtExpiry(token);
-  if (expiresAt !== undefined && expiresAt <= deps.now()) return expired(false);
-  const response = await send(deps, FACTORY_LIMITS_URL, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-  });
+export async function readDroidLimits(deps: DroidLimitDeps): Promise<LimitRead> {
+  let login = await droidLogin(deps);
+  if (login === "locked") {
+    return { state: "unavailable", message: "ZLI cannot open the Droid sign-in on this computer.", windows: [] };
+  }
+  if (!login) return { state: "signed-out", message: "Not signed in to Droid.", windows: [] };
+  let refreshed = false;
+  if (login.fromLogin && isExpired(login.token, deps.now())) {
+    login = await renewedLogin(deps, login);
+    refreshed = true;
+    if (isExpired(login.token, deps.now())) return expired();
+  }
+
+  const url = `${apiBaseUrl(deps.env)}${LIMITS_PATH}`;
+  const get = (token: string) =>
+    send(deps, url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+  let response = await get(login.token);
+  if ((response?.status === 401 || response?.status === 403) && login.fromLogin && !refreshed) {
+    login = await renewedLogin(deps, login);
+    response = await get(login.token);
+  }
   if (!response) return { state: "error", message: "Could not reach Factory. ZLI will try again.", windows: [] };
-  if (response.status === 401 || response.status === 403) return expired(Boolean(key));
+  if (response.status === 401 || response.status === 403) return expired();
   if (response.status === 429) {
     return {
       state: "error",
@@ -42,100 +69,95 @@ export async function readDroidLimits(apiKey: string | undefined, deps: LimitRea
   return droidLimitRead(await jsonBody(response));
 }
 
-function expired(apiKey: boolean): LimitRead {
-  return {
-    state: "expired",
-    message: apiKey
-      ? "Factory turned down this API key. Check the key in Settings, Accounts."
-      : "The Droid sign-in needs a refresh. Open Droid once.",
-    windows: [],
-  };
+async function renewedLogin(deps: DroidLimitDeps, current: Login): Promise<Login> {
+  await deps.refreshLogin?.().catch(() => undefined);
+  const next = await droidLogin(deps);
+  return next && next !== "locked" ? next : current;
 }
 
-/**
- * Standard windows are the whole plan; Droid Core, Factory's pool of open models, has its own. A
- * window with no end has not started yet. Plans billed the older way report no windows here.
- */
+function expired(): LimitRead {
+  return { state: "expired", message: "The Droid sign-in needs a refresh. Open Droid once.", windows: [] };
+}
+
+/** Only the standard pool, the one every Droid model draws from by default. */
 export function droidLimitRead(body: unknown): LimitRead {
-  const answer = record(body);
-  const limits = record(answer?.limits);
-  const standard = record(limits?.standard);
-  if (answer?.usesTokenRateLimitsBilling !== true || !standard) {
-    return { state: "unavailable", message: "This Factory plan reports no usage limits.", windows: [] };
+  const standard = record(record(record(body)?.limits)?.standard);
+  const windows: PlanLimitWindow[] = [];
+  for (const [key, durationMinutes] of [
+    ["fiveHour", FIVE_HOUR_WINDOW],
+    ["weekly", WEEKLY_WINDOW],
+    ["monthly", MONTHLY_WINDOW],
+  ] as const) {
+    const window = record(standard?.[key]);
+    const used = number(window?.usedPercent);
+    if (used === undefined) continue;
+    const resetsAt = isoTime(window?.windowEnd);
+    windows.push({ durationMinutes, usedPercent: clamp(used), ...(resetsAt ? { resetsAt } : {}) });
   }
-  const windows = [...droidPool(standard), ...droidPool(record(limits?.core), "Core")];
   if (windows.length === 0) {
     return { state: "unavailable", message: "This Factory plan reports no usage limits.", windows: [] };
   }
   return { state: "ok", windows };
 }
 
-function droidPool(pool: Record<string, unknown> | undefined, scope?: string): PlanLimitWindow[] {
-  return (
-    [
-      ["fiveHour", FIVE_HOUR_WINDOW],
-      ["weekly", WEEKLY_WINDOW],
-      ["monthly", MONTHLY_WINDOW],
-    ] as const
-  ).flatMap(([key, durationMinutes]): PlanLimitWindow[] => {
-    const window = record(pool?.[key]);
-    const used = number(window?.usedPercent);
-    if (used === undefined) return [];
-    const resetsAt = isoTime(window?.windowEnd);
-    return [
-      { ...(scope ? { scope } : {}), durationMinutes, usedPercent: clamp(used), ...(resetsAt ? { resetsAt } : {}) },
-    ];
-  });
+/**
+ * The token Droid itself would use: FACTORY_API_KEY when set, since it overrides the saved login,
+ * then the saved login in ~/.factory.
+ */
+async function droidLogin(deps: DroidLimitDeps): Promise<Login | "locked" | undefined> {
+  const apiKey = secret(deps.env.FACTORY_API_KEY);
+  if (apiKey) return { token: apiKey, fromLogin: false };
+  const saved = await savedLogin(deps);
+  if (!saved) return undefined;
+  return "locked" in saved ? "locked" : { token: saved.token, fromLogin: true };
 }
 
 /**
- * Droid keeps its login in ~/.factory/auth.v2.keyring as "iv:tag:ciphertext" in base64, AES-256-GCM,
- * with the key in the credential store. Without a store it falls back to auth.v2.file, and to
- * auth.v2.key for the key.
+ * Droid encrypts its login with AES-256-GCM and keeps the key apart from it: in the OS keyring for
+ * auth.v2.keyring, in the macOS login Keychain for auth.v2.loginkeychain, or in auth.v2.key next to
+ * auth.v2.file. Droid tries them in this order.
  */
-async function droidLoginToken(deps: LimitReaderDeps): Promise<string | undefined> {
+async function savedLogin(deps: DroidLimitDeps): Promise<Saved> {
   const dir = join(deps.home, ".factory");
-  const envelopes = (
-    await Promise.all(
-      ["auth.v2.keyring", "auth.v2.file"].map((name) => deps.readFile(join(dir, name)).catch(() => undefined)),
-    )
-  ).filter((value): value is string => Boolean(value?.trim()));
-  if (envelopes.length === 0) return undefined;
-  const keys = [
-    await deps.secretStore(KEY_SERVICE, KEY_ACCOUNT).catch(() => undefined),
-    await deps.readFile(join(dir, "auth.v2.key")).catch(() => undefined),
-  ].flatMap((value) => {
-    const key = value ? encryptionKey(value) : undefined;
-    return key ? [key] : [];
-  });
-  for (const envelope of envelopes) {
-    const plain = record(parseJson(envelope.trim()));
-    const direct = secret(plain?.access_token);
-    if (direct) return direct;
-    for (const key of keys) {
-      const token = secret(record(parseJson(decrypt(envelope, key) ?? ""))?.access_token);
-      if (token) return token;
-    }
+  const stores: Array<{ file: string; key: () => Promise<string | undefined> }> = [
+    { file: "auth.v2.keyring", key: () => deps.secretStore(KEY_SERVICE, "auth-encryption-key") },
+    { file: "auth.v2.loginkeychain", key: () => deps.secretStore(KEY_SERVICE, "auth-encryption-key-security-cli") },
+    { file: "auth.v2.file", key: () => deps.readFile(join(dir, "auth.v2.key")).catch(() => undefined) },
+  ];
+  let locked = false;
+  for (const store of stores) {
+    const sealed = await deps.readFile(join(dir, store.file)).catch(() => undefined);
+    if (!sealed) continue;
+    const key = await store.key().catch(() => undefined);
+    const token = key ? accessToken(sealed, key) : undefined;
+    if (token) return { token };
+    locked = true;
   }
-  return undefined;
+  return locked ? { locked: true } : undefined;
 }
 
-function encryptionKey(value: string): Buffer | undefined {
-  const text = value.trim();
-  const key = /^[0-9a-f]{64}$/iu.test(text) ? Buffer.from(text, "hex") : Buffer.from(text, "base64");
-  return key.length === 32 ? key : undefined;
-}
-
-export function decrypt(envelope: string, key: Buffer): string | undefined {
-  const parts = envelope.trim().split(":");
-  if (parts.length !== 3) return undefined;
+/** The access token in one of Droid's sealed login files, or undefined when it cannot be opened. */
+export function accessToken(sealed: string, base64Key: string): string | undefined {
+  const key = Buffer.from(base64Key.trim(), "base64");
+  const parts = sealed.trim().split(":");
+  if (key.length !== KEY_BYTES || parts.length !== 3) return undefined;
   const [iv, tag, data] = parts.map((part) => Buffer.from(part, "base64"));
-  if (!iv || !tag || !data || iv.length === 0 || tag.length !== 16) return undefined;
+  if (!iv || !tag || !data || iv.length !== IV_BYTES || tag.length !== TAG_BYTES) return undefined;
   try {
     const decipher = createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+    const json = Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+    return secret(record(parseJson(json))?.access_token);
   } catch {
     return undefined;
   }
+}
+
+function isExpired(token: string, now: number): boolean {
+  const expiresAt = jwtExpiry(token);
+  return expiresAt !== undefined && expiresAt - EXPIRY_SKEW_MS <= now;
+}
+
+function apiBaseUrl(env: NodeJS.ProcessEnv): string {
+  return (secret(env.FACTORY_API_BASE_URL) ?? DEFAULT_API_BASE_URL).replace(/\/+$/u, "");
 }

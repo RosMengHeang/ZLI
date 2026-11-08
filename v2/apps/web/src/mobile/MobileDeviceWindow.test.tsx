@@ -127,6 +127,55 @@ describe("MobileDeviceWindow", () => {
     expect(pin.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("hides the bottom bar in compact mode, remembers it for the device, and gives the room back", async () => {
+    const fake = createMobile([emulator]);
+    const container = await render(fake.bridge);
+    const measure = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (!this.classList.contains("mobile-zoom")) return measure.call(this);
+      // The bottom bar takes 44 pixels while it shows.
+      const height = this.closest(".mobile-window")?.querySelector(".mobile-controls") ? 700 : 744;
+      return { left: 12, top: 48, width: 376, height } as DOMRect;
+    });
+    await fake.still();
+    const compact = button(container, "Compact window");
+    expect(compact.getAttribute("aria-pressed")).toBe("false");
+    expect(compact.getAttribute("data-tooltip")).toBe("Hide the bottom bar so the window takes less room");
+    expect(container.querySelector(".mobile-controls")).not.toBeNull();
+    await act(async () => compact.click());
+    expect(compact.getAttribute("aria-pressed")).toBe("true");
+    expect(compact.getAttribute("data-tooltip")).toBe("Show the bottom bar");
+    expect(container.querySelector(".mobile-controls")).toBeNull();
+    expect(fake.mobile.setPopOutAspect).toHaveBeenLastCalledWith(
+      expect.objectContaining({ deviceId: emulator.deviceId, extraHeight: window.innerHeight - 744 }),
+    );
+
+    act(() => root?.unmount());
+    document.body.replaceChildren();
+    const reopened = await render(createMobile([emulator]).bridge);
+    expect(button(reopened, "Compact window").getAttribute("aria-pressed")).toBe("true");
+    expect(reopened.querySelector(".mobile-controls")).toBeNull();
+    act(() => root?.unmount());
+    document.body.replaceChildren();
+    const other = { ...emulator, deviceId: "android-avd:Pixel_9", name: "Pixel_9" };
+    const otherContainer = await render(
+      createMobile([other]).bridge,
+      `?view=mobile-device&deviceId=${encodeURIComponent(other.deviceId)}`,
+    );
+    expect(button(otherContainer, "Compact window").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("shows the saved pin when the window opens", async () => {
+    const fake = createMobile([emulator]);
+    fake.mobile.popOuts.mockResolvedValue([{ deviceId: emulator.deviceId, pinned: true }]);
+    const container = await render(fake.bridge);
+    const pin = button(container, "Keep on top");
+    expect(pin.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => pin.click());
+    expect(fake.mobile.pinPopOut).toHaveBeenCalledWith(emulator.deviceId, false);
+    expect(pin.getAttribute("aria-pressed")).toBe("false");
+    expect(pin.getAttribute("data-tooltip")).toBe("Keep this window on top of other windows");
+  });
   it("tells the window the framed device's shape and the room its bars take", async () => {
     const fake = createMobile([emulator]);
     const container = await render(fake.bridge);

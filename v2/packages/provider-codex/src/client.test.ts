@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { CodexAppServerClient, type CodexPeer, type CodexProviderEvent } from "./client.js";
+import { decodeJsonRpc } from "./protocol.js";
 
 class FakePeer implements CodexPeer {
   readonly requests: Array<{ method: string; params: unknown }> = [];
   readonly responses: Array<{ requestId: string | number; result: unknown }> = [];
+  readonly errors: Array<{ requestId: string | number; error: { code: number; message: string } }> = [];
   private readonly listeners = new Set<(message: unknown) => void>();
   private readonly closeListeners = new Set<(error?: Error) => void>();
   /** Messages the server sends while a request is still being answered. */
@@ -33,6 +35,11 @@ class FakePeer implements CodexPeer {
 
   respond(requestId: string | number, result: unknown): Promise<void> {
     this.responses.push({ requestId, result });
+    return Promise.resolve();
+  }
+
+  respondError(requestId: string | number, error: { code: number; message: string }): Promise<void> {
+    this.errors.push({ requestId, error });
     return Promise.resolve();
   }
 
@@ -161,6 +168,125 @@ describe("CodexAppServerClient", () => {
       },
       { type: "session.closed", reason: "Codex process lost" },
     ]);
+  });
+
+  it("asks before an MCP tool runs and answers the elicitation in its own shape", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    const events: CodexProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    const ask = (id: number) =>
+      peer.emit({
+        jsonrpc: "2.0",
+        id,
+        method: "mcpServer/elicitation/request",
+        params: {
+          threadId: "provider-thread-1",
+          turnId: "provider-turn-1",
+          serverName: "zli-browser",
+          mode: "form",
+          _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"] },
+          message: 'Allow the zli-browser MCP server to run tool "open"?',
+          requestedSchema: { type: "object", properties: {} },
+        },
+      });
+
+    ask(0);
+    ask(1);
+    ask(2);
+    await client.respondToRequest("0", { decision: "accept" });
+    await client.respondToRequest("1", { decision: "acceptForSession" });
+    await client.respondToRequest("2", { decision: "decline" });
+
+    expect(events[0]).toMatchObject({
+      type: "approval.requested",
+      requestId: "0",
+      providerThreadId: "provider-thread-1",
+      providerTurnId: "provider-turn-1",
+      payload: { serverName: "zli-browser", availableDecisions: ["accept", "acceptForSession", "decline"] },
+    });
+    expect(peer.responses).toEqual([
+      { requestId: 0, result: { action: "accept", content: {}, _meta: null } },
+      { requestId: 1, result: { action: "accept", content: {}, _meta: { persist: "session" } } },
+      { requestId: 2, result: { action: "decline", content: null, _meta: null } },
+    ]);
+  });
+
+  it("only offers to decline an MCP form it cannot fill", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    const events: CodexProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    peer.emit({
+      jsonrpc: "2.0",
+      id: 5,
+      method: "mcpServer/elicitation/request",
+      params: {
+        threadId: "provider-thread-1",
+        turnId: null,
+        serverName: "deploy",
+        mode: "form",
+        _meta: null,
+        message: "Which region?",
+        requestedSchema: { type: "object", properties: { region: { type: "string" } }, required: ["region"] },
+      },
+    });
+    await client.respondToRequest("5", { decision: "accept" });
+    expect(events[0]).toMatchObject({ payload: { availableDecisions: ["decline"] } });
+    expect(peer.responses).toEqual([{ requestId: 5, result: { action: "decline", content: null, _meta: null } }]);
+  });
+
+  it("grants the permissions Codex asked for, for the turn or the session", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    const permissions = { network: { enabled: true }, fileSystem: null };
+    for (const id of [7, 8, 9]) {
+      peer.emit({
+        jsonrpc: "2.0",
+        id,
+        method: "item/permissions/requestApproval",
+        params: { threadId: "provider-thread-1", turnId: "provider-turn-1", itemId: "i", reason: "fetch", permissions },
+      });
+    }
+    await client.respondToRequest("7", { decision: "accept" });
+    await client.respondToRequest("8", { decision: "acceptForSession" });
+    await client.respondToRequest("9", { decision: "decline" });
+    expect(peer.responses).toEqual([
+      { requestId: 7, result: { permissions: { network: { enabled: true } }, scope: "turn" } },
+      { requestId: 8, result: { permissions: { network: { enabled: true } }, scope: "session" } },
+      { requestId: 9, result: { permissions: {}, scope: "turn" } },
+    ]);
+  });
+
+  it("rejects server requests it cannot answer so the turn does not wait forever", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    const events: CodexProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    peer.emit({ jsonrpc: "2.0", id: 3, method: "item/tool/call", params: { threadId: "provider-thread-1" } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(peer.errors).toEqual([
+      { requestId: 3, error: { code: -32601, message: "Method not found: item/tool/call" } },
+    ]);
+    expect(events).toEqual([]);
+  });
+
+  it("decodes app-server lines, which carry no jsonrpc field", () => {
+    expect(decodeJsonRpc('{"id":1,"result":{"codexHome":"/home/me/.codex"}}')).toEqual({
+      id: 1,
+      result: { codexHome: "/home/me/.codex" },
+    });
+    expect(decodeJsonRpc('{"method":"turn/completed","params":{"threadId":"t","turn":{"id":"u"}}}')).toEqual({
+      method: "turn/completed",
+      params: { threadId: "t", turn: { id: "u" } },
+    });
+    expect(decodeJsonRpc('{"method":"mcpServer/elicitation/request","id":0,"params":{}}')).toEqual({
+      method: "mcpServer/elicitation/request",
+      id: 0,
+      params: {},
+    });
+    expect(decodeJsonRpc('{"jsonrpc":"1.0","id":1,"result":{}}')).toBeUndefined();
   });
 
   it("does not crash on malformed protocol messages", async () => {

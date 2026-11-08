@@ -1,0 +1,5 @@
+/* The per-worktree Metro port views: the project view's "This worktree" group and Settings > Mobile. */
+.mobile-workspace-value { display: inline-flex; align-items: center; gap: var(--zli-space-2); min-width: 0; max-width: 100%; }
+.mobile-workspace-url { max-width: 320px; }
+.mobile-worktrees .setting-label { font-family: var(--zli-mono); font-size: var(--zli-text-sm); overflow-wrap: anywhere; }
+.mobile-worktrees .setting-description { color: var(--zli-dim); }

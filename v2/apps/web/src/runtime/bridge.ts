@@ -1,9 +1,13 @@
 import type {
+  AgentReachAnswer,
+  AgentReachRequest,
   BrowserTabProjection,
   BrowserViewport,
+  MobileAccessStatus,
   MobileAvdCreateInput,
   MobileAvdList,
   MobileDevice,
+  MobileIosHostTestResult,
   MobileOpenUrlResult,
   MobilePanelInput,
   MobilePopOut,
@@ -14,8 +18,14 @@ import type {
   MobileSetupPlan,
   MobileSetupProgress,
   MobileSetupStatus,
+  MobileSimulatorCatalog,
+  MobileSimulatorCreated,
+  MobileSimulatorCreateInput,
   MobileStreamEvent,
   MobileStreamInfo,
+  MobileWifiConnectInput,
+  MobileWifiPairInput,
+  MobileWifiResult,
   OpenInApp,
   RpcResponse,
   RuntimeProjection,
@@ -24,6 +34,8 @@ import type {
   UpdateStatus,
   WhatsNew,
 } from "@zli-v2/contracts";
+
+import type { MobileDevBridge } from "../mobile/dev/bridge.js";
 
 export type ZliBridge = {
   runtime: {
@@ -61,9 +73,17 @@ export type ZliBridge = {
     screenshot(input: unknown): Promise<unknown>;
     inspectElement(input: unknown): Promise<unknown>;
     designInspect(input: unknown): Promise<unknown>;
-    /** Resolves with the selector of the element the person clicks, or null when the pick is cancelled. */
+    /**
+     * Resolves with the next thing done in the page's annotate session (a pick, a saved note, a
+     * removal, or a change of step), starting the session if needed, or null when it ends.
+     */
     designPick?(browserTabId: string): Promise<unknown>;
+    /** Ends the annotate session and removes its overlay from the page. */
     designCancel?(browserTabId: string): Promise<unknown>;
+    /** Draws numbered pins for the annotations on the page; `drop` closes notes the panel turned down. */
+    designMark?(input: { browserTabId: string; marks: unknown; drop?: unknown }): Promise<unknown>;
+    /** A screenshot of a drawn region with its sketch on top. */
+    designCapture?(input: { browserTabId: string; bounds: unknown; strokes: unknown }): Promise<unknown>;
     consoleEntries(browserTabId: string): Promise<readonly unknown[]>;
     networkEntries(browserTabId: string): Promise<readonly unknown[]>;
   };
@@ -75,6 +95,8 @@ export type ZliBridge = {
     openLegacySnapshot(): Promise<string | undefined>;
   };
   scratch?: { folder(): Promise<string | undefined> };
+  /** Present in the desktop app. The path on disk of a dropped or picked file, or "" when it has none. */
+  pathForFile?(file: File): string;
   /** Present in the desktop app, which can start other apps on a worktree folder. */
   openIn?: { apps(): Promise<OpenInApp[]>; open(worktreeId: string, appId: string): Promise<void> };
   capture?: {
@@ -88,12 +110,15 @@ export type ZliBridge = {
     openExternal?(url: string): Promise<unknown>;
     /** Present in the desktop app: recolors the window background and its native title bar controls. */
     setChrome?(colors: { background: string; symbols: string }): Promise<unknown>;
+    zoom?(zoom: "in" | "out" | "reset"): Promise<unknown>;
   };
   test?: {
     restartRuntime(): Promise<unknown>;
     crashMain(): Promise<unknown>;
     takeExternalUrl?(): Promise<unknown>;
     takeOpenIn?(): Promise<unknown>;
+    /** Only with ZLI_TEST_MOBILE=fake: drives the fake mobile service, such as op "propose". */
+    mobile?(op: string, input?: unknown): Promise<unknown>;
   };
   notifications?: {
     getSettings(): Promise<NotificationSettings>;
@@ -102,6 +127,21 @@ export type ZliBridge = {
     onActivate(listener: (event: { sessionId: string }) => void): () => void;
     /** Fires when the person clicks an agent's request to connect a service. */
     onOpenConnector?(listener: (event: { connectorId: string }) => void): () => void;
+  };
+  mobileAccess?: {
+    getStatus(): Promise<MobileAccessStatus>;
+    setEnabled(enabled: boolean): Promise<MobileAccessStatus>;
+    startPairing(): Promise<MobileAccessStatus>;
+    cancelPairing(): Promise<MobileAccessStatus>;
+    revoke(deviceId: string): Promise<MobileAccessStatus>;
+    onStatus(listener: (status: MobileAccessStatus) => void): () => void;
+  };
+  /** Present in the desktop app. Questions from agents that want to reach other projects. */
+  agentReach?: {
+    current(): Promise<AgentReachRequest | undefined>;
+    answer(answer: AgentReachAnswer): Promise<void>;
+    /** Fires with a new question, and with undefined once it is answered. */
+    onRequest(listener: (request: AgentReachRequest | undefined) => void): () => void;
   };
   updates?: {
     getStatus(): Promise<UpdateStatus>;
@@ -128,10 +168,20 @@ export type MobileBridge = {
   createAvd(input: MobileAvdCreateInput): Promise<MobileAvdList>;
   /** Refused while the device is booting or running. */
   deleteAvd(name: string): Promise<MobileAvdList>;
+  /** iPhone and iPad models and the iOS versions installed for them. Absent where the bridge predates them. */
+  listSimulators?(): Promise<MobileSimulatorCatalog>;
+  createSimulator?(input: MobileSimulatorCreateInput): Promise<MobileSimulatorCreated>;
+  /** Refused while the simulator is booting or running. */
+  deleteSimulator?(udid: string): Promise<void>;
   devices(): Promise<MobileDevice[]>;
   onDevices(listener: (devices: MobileDevice[]) => void): () => void;
   boot(deviceId: string): Promise<MobileDevice>;
   shutdown(deviceId: string): Promise<void>;
+  /** Wireless debugging for Android 11 and newer phones. Absent in test bridges without it. */
+  pairWifi?(input: MobileWifiPairInput): Promise<MobileWifiResult>;
+  connectWifi?(input: MobileWifiConnectInput): Promise<MobileWifiResult>;
+  /** Only for a phone connected over Wi-Fi. */
+  disconnectWifi?(deviceId: string): Promise<void>;
   startStream(deviceId: string): Promise<MobileStreamInfo>;
   stopStream(deviceId: string): Promise<void>;
   onStream(listener: (event: MobileStreamEvent) => void): () => void;
@@ -145,6 +195,8 @@ export type MobileBridge = {
   screenshot(deviceId: string): Promise<MobileScreenshot>;
   getSettings(): Promise<MobileSettings>;
   setSettings(patch: Partial<MobileSettings>): Promise<MobileSettings>;
+  /** Signs in to a Mac over SSH and lists its simulators. Absent in bridges without the desktop app's ssh. */
+  testIosHost?(host: string): Promise<MobileIosHostTestResult>;
   onReveal(listener: (event: MobileRevealEvent) => void): () => void;
   /** Pop-out windows exist only in the desktop app; without them the panel offers no Pop out. */
   popOuts?(): Promise<MobilePopOut[]>;
@@ -156,6 +208,8 @@ export type MobileBridge = {
   pinPopOut?(deviceId: string, pinned: boolean): Promise<MobilePopOut[]>;
   /** Tells the window the device's shape, so resizing keeps it. */
   setPopOutAspect?(input: MobilePopOutAspectInput): Promise<void>;
+  /** Proposals and the mobile dev features. Absent in builds and test bridges without them. */
+  dev?: MobileDevBridge;
 };
 
 export type NotificationSettings = { enabled: boolean; sound: boolean };

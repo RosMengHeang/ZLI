@@ -1,5 +1,6 @@
 import {
   type AgentToolAccess,
+  type AgentToolScope,
   isHttpServer,
   MCP_CATALOG,
   MCP_HEADER_NAME_PATTERN,
@@ -8,7 +9,6 @@ import {
   type McpServerConfig,
   type McpServerHealth,
   McpServerList,
-  type McpSettingsOutcome,
   McpSignInStart,
   type McpSignInState,
   McpTestResult,
@@ -241,6 +241,15 @@ export const AGENT_ACCESS_LABELS: Record<AgentToolAccess, string> = {
   off: "Off",
 };
 
+export function setAgentToolScope(dispatch: Dispatch, scope: AgentToolScope): Promise<McpListResult> {
+  return request(dispatch, { type: "mcp.agentScope", scope });
+}
+
+export const AGENT_SCOPE_LABELS: Record<AgentToolScope, string> = {
+  project: "In their own project",
+  all: "In every project",
+};
+
 export function draftFromServer(server: McpServerConfig): McpDraft {
   if (isHttpServer(server)) {
     return {
@@ -409,28 +418,6 @@ export function isWindows(): boolean {
   return /^win/iu.test(navigator.platform || "") || /windows/iu.test(navigator.userAgent || "");
 }
 
-const SETTINGS_NAMES: Record<string, string> = {
-  "cursor-agent": "Cursor",
-  droid: "Droid",
-  kimi: "Kimi Code",
-  gemini: "Gemini",
-  qwen: "Qwen Code",
-};
-
-/** Settings files ZLI could not update, phrased for the person who owns them. */
-export function settingsProblems(outcomes: readonly McpSettingsOutcome[]): string[] {
-  return outcomes
-    .filter((outcome) => outcome.status === "skipped-invalid" || outcome.status === "failed")
-    .map((outcome) => {
-      const name = SETTINGS_NAMES[outcome.provider] ?? outcome.provider;
-      const reason =
-        outcome.status === "skipped-invalid"
-          ? `${outcome.message ?? "It could not be read."} ZLI left it unchanged.`
-          : `It could not be written${outcome.message ? ` (${outcome.message})` : ""}.`;
-      return `${name}: ${outcome.path}. ${reason}`;
-    });
-}
-
 export type McpServersState =
   | { status: "loading" }
   | { status: "error"; message: string }
@@ -446,6 +433,7 @@ export function useMcpServers(): {
   reload(): void;
   save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
   setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
+  setAgentScope(scope: AgentToolScope): Promise<McpListResult>;
   /** Signs in and resolves once it is saved. Rejects with the problem, or SIGN_IN_CANCELED. */
   signIn(name: string): Promise<void>;
   cancelSignIn(name: string): void;
@@ -569,6 +557,15 @@ export function useMcpServers(): {
     [dispatch],
   );
 
+  const setAgentScope = useCallback(
+    async (scope: AgentToolScope) => {
+      const result = await setAgentToolScope(dispatch, scope);
+      setState({ status: "ready", result });
+      return result;
+    },
+    [dispatch],
+  );
+
   const test = useCallback(
     async (name: string) => {
       setTesting((current) => ({ ...current, [name]: true }));
@@ -601,6 +598,7 @@ export function useMcpServers(): {
     reload: () => setAttempt((value) => value + 1),
     save,
     setAgentAccess,
+    setAgentScope,
     signIn,
     cancelSignIn,
     reopenSignIn,

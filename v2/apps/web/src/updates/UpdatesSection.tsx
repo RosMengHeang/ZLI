@@ -42,9 +42,6 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
               {updateStatusText(status)}
             </p>
             <p className="update-checked">{lastCheckedText(status.lastCheckedAt)}</p>
-            {state.status === "downloading" ? (
-              <progress className="update-progress" max={100} value={state.percent} aria-label="Download progress" />
-            ) : null}
           </div>
           <div className="update-actions">
             {state.status === "available" && state.canAutoInstall ? (
@@ -72,6 +69,9 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
               Check for updates
             </Button>
           </div>
+          {state.status === "downloading" ? (
+            <progress className="update-progress" max={100} value={state.percent} aria-label="Download progress" />
+          ) : null}
         </div>
       </div>
       <div className="setting-list">
@@ -90,7 +90,7 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
         </SettingRow>
         <Switch
           label="Install updates automatically"
-          hint="Downloads new versions in the background and installs them when ZLI restarts. On macOS, ZLI links to the download instead for now."
+          hint="Downloads new versions in the background and installs them when ZLI restarts."
           checked={status.autoInstall}
           disabled={disabled}
           onChange={(autoInstall) => void updates.setAutoInstall(autoInstall)}

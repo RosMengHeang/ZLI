@@ -9,13 +9,14 @@ import { Kbd } from "../ui/Kbd.js";
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { useShortcuts } from "./keybindings.js";
 
-export type SidePane = "files" | "browser" | "mobile" | "review";
+export type SidePane = "files" | "browser" | "mobile" | "review" | "huddle";
 
 export const sidePaneLabel: Record<SidePane, string> = {
   files: "Files",
   browser: "Browser",
   mobile: "Mobile",
   review: "Changes",
+  huddle: "Huddle",
 };
 
 const sidePaneIcon: Record<SidePane, IconName> = {
@@ -23,6 +24,7 @@ const sidePaneIcon: Record<SidePane, IconName> = {
   browser: "globe",
   mobile: "smartphone",
   review: "diff",
+  huddle: "users",
 };
 
 export const sidePaneShortcut = {
@@ -30,6 +32,7 @@ export const sidePaneShortcut = {
   browser: "toggleBrowser",
   mobile: "toggleMobile",
   review: "toggleChanges",
+  huddle: "toggleHuddle",
 } as const satisfies Record<SidePane, ShortcutId>;
 
 export function Topbar({
@@ -72,8 +75,8 @@ export function Topbar({
   mobileAvailable?: boolean;
 }) {
   const panes: readonly SidePane[] = mobileAvailable
-    ? ["files", "browser", "mobile", "review"]
-    : ["files", "browser", "review"];
+    ? ["files", "browser", "mobile", "review", "huddle"]
+    : ["files", "browser", "review", "huddle"];
   const shortcuts = useShortcuts();
   return (
     <header className="topbar">
@@ -102,8 +105,8 @@ export function Topbar({
       <span className="topbar-spacer" />
       {updateNotice}
       {sidebarOpen || !hasProjects ? null : (
-        <Button variant="ghost" size="sm" icon="plus" shortcut={shortcuts.newAgent} onClick={onNewAgent}>
-          New agent
+        <Button variant="ghost" size="sm" icon="agentNew" shortcut={shortcuts.newAgent} onClick={onNewAgent}>
+          <span className="topbar-new-agent-label">New agent</span>
         </Button>
       )}
       {hasProjects && onOpenIssues ? (
@@ -112,7 +115,7 @@ export function Topbar({
       <fieldset className="topbar-tools" aria-label="Panels">
         <ToolToggle
           label="Terminal"
-          icon="panelBottom"
+          icon="terminal"
           shortcut={shortcuts.toggleDrawer}
           active={drawerOpen}
           onClick={onToggleDrawer}

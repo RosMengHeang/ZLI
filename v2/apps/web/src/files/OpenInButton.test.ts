@@ -24,7 +24,7 @@ describe("Open in", () => {
 
   it("groups the menu by kind", () => {
     const items = openInMenuItems(apps, () => undefined);
-    expect(items.map((item) => ("separator" in item ? "-" : item.label))).toEqual([
+    expect(items.map((item) => ("label" in item ? item.label : "-"))).toEqual([
       "Cursor",
       "-",
       "Codex",
