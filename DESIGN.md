@@ -46,11 +46,11 @@ not cover, add it to the primitives instead of styling it locally.
   palette switch themes.
 - The canvas `#000000` is the window itself: the sidebar, the top bar, and the
   gutters between work regions all share it, with no border between them.
-- Work regions are islands of surface `#0a0a0a`: agent tiles, the terminal
+- Work regions are islands of surface `#000000`, set apart by a hairline border: agent tiles, the terminal
   drawer, the side panel, and the empty board. Terminals use the same color
   so output sits on its tile without a seam.
-- Raised `#141414` is for controls, the composer, and dialogs; overlay
-  `#1a1a1a` is for tooltips, menus, and selected segments. Fields, code, and
+- Raised `#121212` is for controls, the composer, and dialogs; overlay
+  `#181818` is for tooltips, menus, and selected segments. Fields, code, and
   logs sit in a translucent black well so they read as sunken on any surface.
 - Islands sit flat. Only popovers, dialogs, and the chat composer cast a
   shadow, and raised surfaces catch a faint top highlight.

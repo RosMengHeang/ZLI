@@ -17,11 +17,11 @@
    */
   --zli-canvas: #000000;
   --zli-sidebar: #000000;
-  --zli-surface: #0a0a0a;
-  --zli-raised: #141414;
-  --zli-overlay: #1a1a1a;
+  --zli-surface: #000000;
+  --zli-raised: #121212;
+  --zli-overlay: #181818;
   /* Equals the terminal theme's background so a terminal blends into its tile. */
-  --zli-terminal: #0a0a0a;
+  --zli-terminal: #000000;
   /* Sunken wells for fields, code, and logs, on any surface. */
   --zli-well: rgba(0, 0, 0, .22);
 

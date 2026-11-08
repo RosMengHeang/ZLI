@@ -9,7 +9,7 @@ export const themeColors = {
   /** --zli-muted */
   muted: "#a3a3a3",
   /** --zli-terminal */
-  terminal: "#0a0a0a",
+  terminal: "#000000",
 } as const;
 
 export const themeColorTokens: Record<keyof typeof themeColors, string> = {
