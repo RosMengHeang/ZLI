@@ -52,8 +52,11 @@ not cover, add it to the primitives instead of styling it locally.
   everything else is derived and checked for contrast. Advanced lists every
   color by area (backgrounds, text, buttons, menus, status) with a filter.
   A swatch opens a picker card beside the editor: one-click swatches, the
-  saturation and hue picker, and HEX and RGB fields. Inspect in the header
-  lets the person click any part of the app to open the color it uses. "Pick a color from the app" lets the person click any part of the app
+  saturation and hue picker, and HEX and RGB fields. The inspect button in
+  the header (Ctrl+Shift+C) works like the element picker in browser
+  developer tools: the element under the pointer shows its margin, border,
+  padding, and content, with a label naming it, its size, and its theme
+  colors, and a click opens the color it uses. "Pick a color from the app" lets the person click any part of the app
   to jump to the colors it uses. The editor warns while text falls below
   4.5:1.
 - The canvas `#000000` is the window itself: the sidebar, the top bar, and the

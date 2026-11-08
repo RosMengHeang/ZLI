@@ -20,7 +20,8 @@
 .theme-editor-title { flex: 0 0 auto; margin: 0; color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 600; white-space: nowrap; }
 .theme-editor-subtitle { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .theme-editor-header-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; margin-left: auto; }
-.theme-editor-header-actions .btn.is-active { background: var(--zli-active); color: var(--zli-text); }
+/* Lit while picking, like the element picker in browser developer tools. */
+.theme-inspect-button[aria-pressed="true"] { background: var(--zli-accent-soft); color: var(--zli-accent); }
 
 .theme-editor-body { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: var(--zli-space-3); overflow-y: auto; padding: var(--zli-space-4); }
 .theme-editor-footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--zli-space-2); padding: var(--zli-space-3) var(--zli-space-4); border-top: 1px solid var(--zli-border); }
@@ -112,10 +113,28 @@
 .color-picker-dot { position: absolute; top: 50%; left: 9px; width: 11px; height: 11px; margin-top: -5.5px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--zli-border-hover); pointer-events: none; }
 .color-picker-dropper { margin-bottom: 2px; }
 
-/* Picking a color from the app: a crosshair layer with a box around what is under the pointer. */
-.inspect-layer { position: fixed; z-index: var(--zli-z-inspect); inset: 0; cursor: crosshair; }
-.inspect-box { position: fixed; border: 1.5px solid var(--zli-accent); border-radius: 3px; background: var(--zli-accent-soft); pointer-events: none; }
+/*
+ * Inspect: the element picker of browser developer tools. The element under the pointer shows its box
+ * model in the colors people know from those tools (margin orange, border yellow, padding green,
+ * content blue), so these few raw colors are on purpose.
+ */
+.inspect-layer { position: fixed; z-index: var(--zli-z-inspect); inset: 0; cursor: default; }
+.inspect-margin, .inspect-border, .inspect-padding, .inspect-content { display: flex; min-width: 0; min-height: 0; flex: 1; border-style: solid; pointer-events: none; }
+.inspect-margin { position: fixed; border-color: rgba(246, 178, 107, .55); }
+.inspect-border { border-color: rgba(255, 229, 153, .55); }
+.inspect-padding { border-color: rgba(147, 196, 125, .55); }
+.inspect-content { border: 0; background: rgba(111, 168, 220, .55); }
 .inspect-label {
-  position: fixed; padding: 3px var(--zli-space-2); border-radius: var(--zli-radius-sm); background: var(--zli-overlay);
-  box-shadow: var(--zli-shadow-pop); color: var(--zli-text); font-size: var(--zli-text-xs); white-space: nowrap; pointer-events: none;
+  position: fixed; width: 240px; padding: var(--zli-space-2) var(--zli-space-2-5); border: 1px solid var(--zli-border-strong);
+  border-radius: var(--zli-radius-md); background: var(--zli-overlay); box-shadow: var(--zli-shadow-pop);
+  color: var(--zli-text); font-size: var(--zli-text-xs); pointer-events: none;
 }
+.inspect-label-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--zli-space-2); font-family: var(--zli-mono); }
+.inspect-label-tag { min-width: 0; overflow: hidden; color: var(--zli-syntax-keyword); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.inspect-label-size { flex: 0 0 auto; color: var(--zli-dim); }
+.inspect-label-colors { display: flex; flex-direction: column; gap: 3px; margin: var(--zli-space-1-5) 0 0; padding: var(--zli-space-1-5) 0 0; border-top: 1px solid var(--zli-border); list-style: none; }
+.inspect-label-colors li { display: flex; align-items: center; gap: var(--zli-space-1-5); }
+.inspect-label-swatch { width: 11px; height: 11px; flex: 0 0 auto; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--zli-border-hover); }
+.inspect-label-name { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-muted); text-overflow: ellipsis; white-space: nowrap; }
+.inspect-label-hex { flex: 0 0 auto; color: var(--zli-text); font-family: var(--zli-mono); }
+.inspect-label-empty { margin: var(--zli-space-1) 0 0; color: var(--zli-dim); }

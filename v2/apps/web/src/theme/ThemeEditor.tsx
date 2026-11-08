@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -339,9 +339,24 @@ export function ThemeEditor() {
   const [selected, setSelected] = useState<string>();
   const titleId = useId();
   const endInspect = useCallback(() => setInspecting(false), []);
+  const canInspect = session !== undefined && !minimized;
+
+  // The same keys as the element picker in browser developer tools.
+  useEffect(() => {
+    if (!canInspect) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey || event.key.toLowerCase() !== "c")
+        return;
+      event.preventDefault();
+      setInspecting((value) => !value);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canInspect]);
+
   if (!session) return null;
   const title = session.isNew ? "Create theme" : "Edit theme";
-  const subtitle = inspecting ? "Click any part of the app · Esc to cancel" : selected;
+  const subtitle = inspecting ? "Select an element · Esc to cancel" : selected;
   return (
     <aside className={`theme-editor${minimized ? " is-minimized" : ""}`} aria-labelledby={titleId}>
       <header className="theme-editor-header">
@@ -351,16 +366,16 @@ export function ThemeEditor() {
         {subtitle && !minimized ? <span className="theme-editor-subtitle">{subtitle}</span> : null}
         <span className="theme-editor-header-actions">
           {minimized ? null : (
-            <Button
-              variant="ghost"
+            <IconButton
+              label="Select an element in the app to edit its color"
+              tooltip={inspecting ? "Stop inspecting" : "Select an element to edit its color"}
+              icon="inspect"
               size="sm"
-              icon={inspecting ? "x" : "crosshair"}
-              className={inspecting ? "is-active" : undefined}
-              tooltip={inspecting ? undefined : "Click any part of the app to edit its color"}
+              shortcut="Mod+Shift+C"
+              pressed={inspecting}
+              className="theme-inspect-button"
               onClick={() => setInspecting((value) => !value)}
-            >
-              {inspecting ? "Cancel" : "Inspect"}
-            </Button>
+            />
           )}
           <IconButton
             label={minimized ? "Expand the theme editor" : "Minimize the theme editor"}

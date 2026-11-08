@@ -26,30 +26,72 @@ function colorFields(): Map<string, EditableField[]> {
 
 const TRANSPARENT = new Set(["transparent", "rgba(0, 0, 0, 0)"]);
 
+/** A theme color found on an element, with the value it shows there. */
+export type FoundColor = { field: EditableField; color: string };
+
 /** The colors an element shows: what it sits on first, then its text and its edge. */
-export function fieldsAt(element: Element | null, colors: Map<string, EditableField[]>): EditableField[] {
-  const found: EditableField[] = [];
-  const add = (fields: EditableField[] | undefined) => {
-    for (const field of fields ?? []) if (!found.includes(field)) found.push(field);
+export function colorsAt(element: Element | null, colors: Map<string, EditableField[]>): FoundColor[] {
+  const found: FoundColor[] = [];
+  const add = (color: string) => {
+    for (const field of colors.get(color) ?? []) {
+      if (!found.some((entry) => entry.field === field)) found.push({ field, color });
+    }
   };
   if (!element) return found;
   // The nearest painted background, which may belong to a parent.
   for (let node: Element | null = element; node; node = node.parentElement) {
     const background = getComputedStyle(node).backgroundColor;
     if (TRANSPARENT.has(background)) continue;
-    add(colors.get(background));
+    add(background);
     break;
   }
   const style = getComputedStyle(element);
-  add(colors.get(style.color));
-  if (style.borderTopWidth !== "0px") add(colors.get(style.borderTopColor));
+  add(style.color);
+  if (style.borderTopWidth !== "0px") add(style.borderTopColor);
   return found;
 }
 
-type Target = { rect: DOMRect; fields: EditableField[] };
+/** `rgb(…)` or `rgba(…)` as `#rrggbb`, ignoring alpha. */
+function toHex(color: string): string {
+  const parts =
+    color
+      .match(/\d+(\.\d+)?/gu)
+      ?.slice(0, 3)
+      .map(Number) ?? [];
+  return `#${parts.map((part) => Math.round(part).toString(16).padStart(2, "0")).join("")}`;
+}
+
+type Edges = { top: number; right: number; bottom: number; left: number };
+
+function edges(style: CSSStyleDeclaration, prefix: "margin" | "padding" | "border", suffix = ""): Edges {
+  // Negative margins pull neighbours in; the overlay draws them as none.
+  const read = (side: string) =>
+    Math.max(0, Number.parseFloat(style.getPropertyValue(`${prefix}-${side}${suffix}`)) || 0);
+  return { top: read("top"), right: read("right"), bottom: read("bottom"), left: read("left") };
+}
+
+type Target = {
+  rect: DOMRect;
+  margin: Edges;
+  border: Edges;
+  padding: Edges;
+  /** Like `button.theme-row-name`, as developer tools label an element. */
+  tag: string;
+  colors: FoundColor[];
+};
+
+function describe(element: Element): string {
+  const first = [...element.classList].find(Boolean);
+  return `${element.tagName.toLowerCase()}${first ? `.${first}` : ""}`;
+}
+
+const px = (value: number) => `${Math.max(0, value)}px`;
+const borderWidths = (box: Edges) => `${px(box.top)} ${px(box.right)} ${px(box.bottom)} ${px(box.left)}`;
 
 /**
- * Covers the window while the person points at the part of the app they want to recolor. Clicks never
+ * Covers the window while the person points at the part of the app they want to recolor, the way the
+ * element picker of browser developer tools does: the element under the pointer shows its margin,
+ * border, padding, and content, with a label naming it, its size, and its theme colors. Clicks never
  * reach the app underneath. Escape or right-click leaves without picking.
  */
 export function InspectOverlay({ onPick, onCancel }: { onPick(fields: EditableField[]): void; onCancel(): void }) {
@@ -75,9 +117,19 @@ export function InspectOverlay({ onPick, onCancel }: { onPick(fields: EditableFi
     layer.style.pointerEvents = "none";
     const element = document.elementFromPoint(x, y);
     layer.style.pointerEvents = "";
-    if (!element || element.closest(".theme-editor")) return undefined;
-    return { rect: element.getBoundingClientRect(), fields: fieldsAt(element, colors) };
+    if (!element || element.closest(".theme-editor, .color-popover")) return undefined;
+    const style = getComputedStyle(element);
+    return {
+      rect: element.getBoundingClientRect(),
+      margin: edges(style, "margin"),
+      border: edges(style, "border", "-width"),
+      padding: edges(style, "padding"),
+      tag: describe(element),
+      colors: colorsAt(element, colors),
+    };
   };
+
+  const label = target ? labelPosition(target.rect) : undefined;
 
   return createPortal(
     // biome-ignore lint/a11y/noStaticElementInteractions: a pointer-only aiming layer; Escape leaves it from the keyboard.
@@ -89,7 +141,7 @@ export function InspectOverlay({ onPick, onCancel }: { onPick(fields: EditableFi
       onPointerLeave={() => setTarget(undefined)}
       onClick={(event) => {
         const picked = read(event.clientX, event.clientY);
-        if (picked && picked.fields.length > 0) onPick(picked.fields);
+        if (picked && picked.colors.length > 0) onPick(picked.colors.map((entry) => entry.field));
       }}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -99,31 +151,58 @@ export function InspectOverlay({ onPick, onCancel }: { onPick(fields: EditableFi
       {target ? (
         <>
           <div
-            className="inspect-box"
+            className="inspect-margin"
             style={{
-              left: target.rect.left,
-              top: target.rect.top,
-              width: target.rect.width,
-              height: target.rect.height,
-            }}
-          />
-          <div
-            className="inspect-label"
-            style={{
-              left: Math.max(4, Math.min(target.rect.left, window.innerWidth - 220)),
-              top:
-                target.rect.bottom + 6 > window.innerHeight - 28
-                  ? Math.max(4, target.rect.top - 28)
-                  : target.rect.bottom + 6,
+              left: target.rect.left - target.margin.left,
+              top: target.rect.top - target.margin.top,
+              width: target.rect.width + target.margin.left + target.margin.right,
+              height: target.rect.height + target.margin.top + target.margin.bottom,
+              borderWidth: borderWidths(target.margin),
             }}
           >
-            {target.fields.length > 0
-              ? target.fields.map((field) => FIELD_LABELS[field]).join(" · ")
-              : "No theme color here"}
+            <div className="inspect-border" style={{ borderWidth: borderWidths(target.border) }}>
+              <div className="inspect-padding" style={{ borderWidth: borderWidths(target.padding) }}>
+                <div className="inspect-content" />
+              </div>
+            </div>
           </div>
+          {label ? (
+            <div className="inspect-label" style={label}>
+              <div className="inspect-label-head">
+                <span className="inspect-label-tag">{target.tag}</span>
+                <span className="inspect-label-size">
+                  {Math.round(target.rect.width)} × {Math.round(target.rect.height)}
+                </span>
+              </div>
+              {target.colors.length > 0 ? (
+                <ul className="inspect-label-colors">
+                  {target.colors.map((entry) => (
+                    <li key={entry.field}>
+                      <span className="inspect-label-swatch" style={{ background: entry.color }} />
+                      <span className="inspect-label-name">{FIELD_LABELS[entry.field]}</span>
+                      <span className="inspect-label-hex">{toHex(entry.color)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="inspect-label-empty">No theme color here</p>
+              )}
+            </div>
+          ) : null}
         </>
       ) : null}
     </div>,
     document.body,
   );
+}
+
+const LABEL_WIDTH = 240;
+const LABEL_GAP = 8;
+
+/** Under the element when there is room, above it otherwise, kept inside the window. */
+function labelPosition(rect: DOMRect): { left: number; top?: number; bottom?: number } {
+  const left = Math.max(LABEL_GAP, Math.min(rect.left, window.innerWidth - LABEL_WIDTH - LABEL_GAP));
+  const below = rect.bottom + LABEL_GAP;
+  if (below < window.innerHeight - 140) return { left, top: below };
+  return { left, bottom: Math.max(LABEL_GAP, window.innerHeight - rect.top + LABEL_GAP) };
 }
