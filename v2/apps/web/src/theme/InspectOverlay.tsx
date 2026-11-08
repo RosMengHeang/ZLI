@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { type EditableField, FIELD_LABELS, TOKEN_FIELDS } from "./customThemes.js";
@@ -129,7 +129,13 @@ export function InspectOverlay({ onPick, onCancel }: { onPick(fields: EditableFi
     };
   };
 
-  const label = target ? labelPosition(target.rect) : undefined;
+  // The label is placed once its real size is known, so it never runs off the window.
+  const labelRef = useRef<HTMLDivElement>(null);
+  const [label, setLabel] = useState<{ left: number; top: number }>();
+  useLayoutEffect(() => {
+    const card = labelRef.current;
+    setLabel(target && card ? labelPosition(target.rect, card.offsetWidth, card.offsetHeight) : undefined);
+  }, [target]);
 
   return createPortal(
     // biome-ignore lint/a11y/noStaticElementInteractions: a pointer-only aiming layer; Escape leaves it from the keyboard.
@@ -166,29 +172,31 @@ export function InspectOverlay({ onPick, onCancel }: { onPick(fields: EditableFi
               </div>
             </div>
           </div>
-          {label ? (
-            <div className="inspect-label" style={label}>
-              <div className="inspect-label-head">
-                <span className="inspect-label-tag">{target.tag}</span>
-                <span className="inspect-label-size">
-                  {Math.round(target.rect.width)} × {Math.round(target.rect.height)}
-                </span>
-              </div>
-              {target.colors.length > 0 ? (
-                <ul className="inspect-label-colors">
-                  {target.colors.map((entry) => (
-                    <li key={entry.field}>
-                      <span className="inspect-label-swatch" style={{ background: entry.color }} />
-                      <span className="inspect-label-name">{FIELD_LABELS[entry.field]}</span>
-                      <span className="inspect-label-hex">{toHex(entry.color)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="inspect-label-empty">No theme color here</p>
-              )}
+          <div
+            ref={labelRef}
+            className="inspect-label"
+            style={label ? { left: label.left, top: label.top } : { left: 0, top: 0, visibility: "hidden" }}
+          >
+            <div className="inspect-label-head">
+              <span className="inspect-label-tag">{target.tag}</span>
+              <span className="inspect-label-size">
+                {Math.round(target.rect.width)} × {Math.round(target.rect.height)}
+              </span>
             </div>
-          ) : null}
+            {target.colors.length > 0 ? (
+              <ul className="inspect-label-colors">
+                {target.colors.map((entry) => (
+                  <li key={entry.field}>
+                    <span className="inspect-label-swatch" style={{ background: entry.color }} />
+                    <span className="inspect-label-name">{FIELD_LABELS[entry.field]}</span>
+                    <span className="inspect-label-hex">{toHex(entry.color)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="inspect-label-empty">No theme color here</p>
+            )}
+          </div>
         </>
       ) : null}
     </div>,
@@ -196,13 +204,22 @@ export function InspectOverlay({ onPick, onCancel }: { onPick(fields: EditableFi
   );
 }
 
-const LABEL_WIDTH = 240;
 const LABEL_GAP = 8;
 
-/** Under the element when there is room, above it otherwise, kept inside the window. */
-function labelPosition(rect: DOMRect): { left: number; top?: number; bottom?: number } {
-  const left = Math.max(LABEL_GAP, Math.min(rect.left, window.innerWidth - LABEL_WIDTH - LABEL_GAP));
-  const below = rect.bottom + LABEL_GAP;
-  if (below < window.innerHeight - 140) return { left, top: below };
-  return { left, bottom: Math.max(LABEL_GAP, window.innerHeight - rect.top + LABEL_GAP) };
+/**
+ * Under the element when the label fits there, above it when it fits there, and otherwise inside the
+ * element's top corner, as developer tools do for an element that fills the window. Always on screen.
+ */
+export function labelPosition(
+  rect: { left: number; top: number; bottom: number },
+  width: number,
+  height: number,
+  viewport = { width: window.innerWidth, height: window.innerHeight },
+): { left: number; top: number } {
+  const clampLeft = (x: number) => Math.max(LABEL_GAP, Math.min(x, viewport.width - width - LABEL_GAP));
+  const clampTop = (y: number) => Math.max(LABEL_GAP, Math.min(y, viewport.height - height - LABEL_GAP));
+  const left = clampLeft(rect.left);
+  if (rect.bottom + LABEL_GAP + height <= viewport.height - LABEL_GAP) return { left, top: rect.bottom + LABEL_GAP };
+  if (rect.top - LABEL_GAP - height >= LABEL_GAP) return { left, top: rect.top - LABEL_GAP - height };
+  return { left: clampLeft(rect.left + LABEL_GAP), top: clampTop(rect.top + LABEL_GAP) };
 }

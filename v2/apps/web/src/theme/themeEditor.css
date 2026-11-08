@@ -123,7 +123,8 @@
 .inspect-margin { position: fixed; border-color: rgba(246, 178, 107, .55); }
 .inspect-border { border-color: rgba(255, 229, 153, .55); }
 .inspect-padding { border-color: rgba(147, 196, 125, .55); }
-.inspect-content { border: 0; background: rgba(111, 168, 220, .55); }
+/* Light enough that a large element, such as a terminal, stays readable underneath. */
+.inspect-content { border: 0; background: rgba(111, 168, 220, .32); }
 .inspect-label {
   position: fixed; width: 240px; padding: var(--zli-space-2) var(--zli-space-2-5); border: 1px solid var(--zli-border-strong);
   border-radius: var(--zli-radius-md); background: var(--zli-overlay); box-shadow: var(--zli-shadow-pop);

@@ -356,7 +356,7 @@ export function ThemeEditor() {
 
   if (!session) return null;
   const title = session.isNew ? "Create theme" : "Edit theme";
-  const subtitle = inspecting ? "Select an element · Esc to cancel" : selected;
+  const subtitle = inspecting ? "Pick an element · Esc" : selected;
   return (
     <aside className={`theme-editor${minimized ? " is-minimized" : ""}`} aria-labelledby={titleId}>
       <header className="theme-editor-header">
