@@ -37,13 +37,20 @@ not cover, add it to the primitives instead of styling it locally.
 
 ## Palette
 
-- The canvas `#0a0a0b` is the window itself: the sidebar, the top bar, and the
+- Colors come from themes. `v2/packages/ui/src/themes.ts` defines Midnight
+  (the default), Graphite, Sakura, Frost, Ember, Matrix, and Daylight, and the
+  chosen one is applied to the root element before the first render. Each
+  theme sets every color token, the terminal palette, and the syntax colors,
+  and a test holds every theme to the text contrast rule below. The values
+  in this section are Midnight's. Settings > Appearance and the command
+  palette switch themes.
+- The canvas `#050505` is the window itself: the sidebar, the top bar, and the
   gutters between work regions all share it, with no border between them.
-- Work regions are islands of surface `#141416`: agent tiles, the terminal
+- Work regions are islands of surface `#0f0f0f`: agent tiles, the terminal
   drawer, the side panel, and the empty board. Terminals use the same color
   so output sits on its tile without a seam.
-- Raised `#1b1b1e` is for controls, the composer, and dialogs; overlay
-  `#1f1f23` is for tooltips, menus, and selected segments. Fields, code, and
+- Raised `#171717` is for controls, the composer, and dialogs; overlay
+  `#1d1d1d` is for tooltips, menus, and selected segments. Fields, code, and
   logs sit in a translucent black well so they read as sunken on any surface.
 - Islands sit flat. Only popovers, dialogs, and the chat composer cast a
   shadow, and raised surfaces catch a faint top highlight.
@@ -52,7 +59,7 @@ not cover, add it to the primitives instead of styling it locally.
 - Text has three readable steps (text, muted, dim). Each one passes WCAG AA
   (4.5:1) on every surface, including the overlay. The disabled color is only
   for disabled controls and decorative glyphs.
-- There is one accent, blue `oklch(.571 .21 264)`. It marks primary actions,
+- There is one accent per theme (Midnight's is blue `#3d63dd`). It marks primary actions,
   keyboard focus, and the selected agent, and nothing else. Selected
   segments use a neutral raised fill, and selected choice cards get an accent
   edge, not a blue panel.
