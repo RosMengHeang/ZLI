@@ -1,0 +1,91 @@
+/*
+ * Theme editor: a panel that floats over the top right of the app, so every change shows on the real
+ * interface while it is made. It is drawn in the draft theme like everything else.
+ */
+.theme-editor {
+  position: fixed; z-index: var(--zli-z-editor); top: calc(var(--zli-bar-height) + var(--zli-space-2)); right: var(--zli-space-3);
+  display: flex; width: 340px; max-height: calc(100vh - var(--zli-bar-height) - var(--zli-space-5)); flex-direction: column;
+  border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xl); background: var(--zli-raised);
+  box-shadow: var(--zli-highlight), var(--zli-shadow-dialog); color: var(--zli-text);
+  animation: theme-editor-in var(--zli-duration-enter) var(--zli-ease);
+}
+.theme-editor.is-minimized { width: 260px; }
+@keyframes theme-editor-in { from { opacity: 0; transform: translateY(-4px); } }
+.theme-editor-header { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-pane-header); padding: 0 var(--zli-space-2) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); color: var(--zli-muted); }
+.theme-editor.is-minimized .theme-editor-header { border-bottom: 0; }
+.theme-editor-title { min-width: 0; flex: 1; margin: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.theme-editor-body { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: var(--zli-space-4); overflow-y: auto; padding: var(--zli-space-3); }
+.theme-editor-footer { display: flex; justify-content: flex-end; gap: var(--zli-space-2); padding: var(--zli-space-2-5) var(--zli-space-3); border-top: 1px solid var(--zli-border); }
+
+.theme-editor-section { display: flex; flex-direction: column; gap: var(--zli-space-1); }
+.theme-editor-heading { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.theme-editor-note { margin: 0 0 var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.theme-editor-inspect { align-self: flex-start; }
+.theme-editor-disclosure {
+  display: flex; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-control-sm); padding: 0; border: 0;
+  background: transparent; color: var(--zli-text); cursor: pointer; font-size: var(--zli-text-sm); font-weight: 600;
+}
+.theme-editor-disclosure > svg { color: var(--zli-dim); }
+
+/* One color: swatch, name, and value; it opens into the picker below. */
+.theme-color-row { border-radius: var(--zli-radius-md); transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.theme-color-row.is-open { padding-bottom: var(--zli-space-2); background: var(--zli-well); }
+.theme-color-head { display: flex; align-items: center; gap: var(--zli-space-1); padding-right: var(--zli-space-1); }
+.theme-color-toggle {
+  display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-2); height: var(--zli-control-md);
+  padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text);
+  cursor: pointer; font-size: var(--zli-text-sm); text-align: left;
+}
+.theme-color-toggle:hover { background: var(--zli-hover); }
+.theme-color-swatch { width: 16px; height: 16px; flex: 0 0 auto; border-radius: var(--zli-radius-xs); box-shadow: inset 0 0 0 1px var(--zli-border-hover); }
+.theme-color-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.theme-color-badge { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+.theme-color-hex { flex: 0 0 auto; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+
+.theme-field-group { display: flex; flex-direction: column; gap: 1px; margin-top: var(--zli-space-2); }
+.theme-field-group-title { margin: 0 0 2px var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
+
+.theme-depth { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px var(--zli-space-3); padding: var(--zli-space-1) var(--zli-space-2) 0; }
+.theme-depth-label { color: var(--zli-text); font-size: var(--zli-text-sm); }
+.theme-depth-scale { display: flex; grid-column: 2; justify-content: space-between; color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+
+.theme-readability { display: flex; align-items: flex-start; gap: var(--zli-space-2); margin: 0; color: var(--zli-green); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.theme-readability > svg { flex: 0 0 auto; margin-top: 2px; }
+.theme-readability.is-warning { padding: var(--zli-space-2); border-radius: var(--zli-radius-md); background: var(--zli-amber-soft); box-shadow: inset 0 0 0 1px var(--zli-amber-line); color: var(--zli-amber-ink); }
+.theme-readability ul { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+
+.theme-picked { display: flex; min-width: 0; margin: 0; padding: 0; border: 0; flex-wrap: wrap; gap: var(--zli-space-1); margin-top: var(--zli-space-1); }
+.theme-picked-chip { height: var(--zli-control-sm); padding: 0 var(--zli-space-2); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-xs); }
+.theme-picked-chip[aria-pressed="true"] { border-color: var(--zli-accent-edge); background: var(--zli-accent-soft); color: var(--zli-text); }
+
+/* Color picker. The area and hue track show raw colors on purpose: they are the colors being chosen. */
+.color-picker { display: flex; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-1) var(--zli-space-2) 0; }
+.color-picker-area {
+  position: relative; height: 120px; border-radius: var(--zli-radius-md); cursor: crosshair; touch-action: none;
+  background-image: linear-gradient(to top, #000000, transparent), linear-gradient(to right, #ffffff, transparent);
+}
+.color-picker-area:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.color-picker-thumb {
+  position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border: 2px solid #ffffff; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .5); pointer-events: none;
+}
+.color-picker .color-picker-hue::-webkit-slider-runnable-track {
+  height: 8px;
+  background: linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000);
+}
+.color-picker .color-picker-hue::-webkit-slider-thumb { margin-top: -3px; border-color: #ffffff; background: transparent; box-shadow: 0 0 0 1px rgba(0, 0, 0, .5); }
+.color-picker-row { display: flex; align-items: center; gap: var(--zli-space-1); }
+.color-picker-hex { width: 96px; }
+
+/* Picking a color from the app: a crosshair layer with a box around what is under the pointer. */
+.inspect-layer { position: fixed; z-index: var(--zli-z-inspect); inset: 0; cursor: crosshair; }
+.inspect-box { position: fixed; border: 1.5px solid var(--zli-accent); border-radius: 3px; background: var(--zli-accent-soft); pointer-events: none; }
+.inspect-label {
+  position: fixed; padding: 3px var(--zli-space-2); border-radius: var(--zli-radius-sm); background: var(--zli-overlay);
+  box-shadow: var(--zli-shadow-pop); color: var(--zli-text); font-size: var(--zli-text-xs); white-space: nowrap; pointer-events: none;
+}
+.inspect-hint {
+  position: fixed; top: var(--zli-space-3); left: 50%; padding: var(--zli-space-1-5) var(--zli-space-3); border-radius: var(--zli-radius-pill);
+  background: var(--zli-overlay); box-shadow: var(--zli-shadow-pop); color: var(--zli-text); font-size: var(--zli-text-sm);
+  transform: translateX(-50%); pointer-events: none;
+}

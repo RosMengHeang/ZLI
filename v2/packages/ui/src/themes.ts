@@ -31,7 +31,7 @@ export type TerminalPalette = {
 };
 
 /** The hand-picked colors of a theme; the rest of its tokens are derived from these. */
-type ThemeBase = {
+export type ThemeBase = {
   scheme: "dark" | "light";
   canvas: string;
   sidebar: string;
@@ -75,7 +75,8 @@ type ThemeBase = {
 };
 
 export type Theme = {
-  id: ThemeId;
+  /** A built-in theme id, or the id of a theme the person made. */
+  id: string;
   name: string;
   /** One line for the picker. */
   description: string;
@@ -83,6 +84,8 @@ export type Theme = {
   /** Custom property name to value, for every color token. */
   tokens: Record<string, string>;
   terminal: TerminalPalette & { background: string; cursorAccent: string };
+  /** The colors the tokens were built from, so a theme can be the start of a new one. */
+  base: ThemeBase;
 };
 
 /** `#rrggbb` at an alpha, as `rgba()`. */
@@ -152,7 +155,8 @@ function tokensFor(base: ThemeBase): Record<string, string> {
   };
 }
 
-function theme(id: ThemeId, name: string, description: string, base: ThemeBase): Theme {
+/** Turns a theme's colors into every token it sets. */
+export function buildTheme(id: string, name: string, description: string, base: ThemeBase): Theme {
   return {
     id,
     name,
@@ -160,8 +164,11 @@ function theme(id: ThemeId, name: string, description: string, base: ThemeBase):
     scheme: base.scheme,
     tokens: tokensFor(base),
     terminal: { ...base.terminal, background: base.surface, cursorAccent: base.surface },
+    base,
   };
 }
+
+const theme = buildTheme;
 
 /** Status hues shared by most dark themes, so running, modified, and failed read the same way. */
 const darkStatus = {
@@ -578,4 +585,116 @@ export const THEMES: Record<ThemeId, Theme> = {
 
 export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === "string" && (THEME_IDS as readonly string[]).includes(value);
+}
+
+/* ---------- Color math for themes people make ---------- */
+
+const HEX = /^#[0-9a-f]{6}$/iu;
+
+export function isHexColor(value: unknown): value is string {
+  return typeof value === "string" && HEX.test(value);
+}
+
+function channels(hex: string): [number, number, number] {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+}
+
+function toHex(r: number, g: number, b: number): string {
+  return `#${[r, g, b]
+    .map((channel) =>
+      Math.round(Math.min(255, Math.max(0, channel)))
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}
+
+/** `a` moved toward `b` by `amount`, from 0 (all `a`) to 1 (all `b`). */
+export function mixHex(a: string, b: string, amount: number): string {
+  const [ar, ag, ab] = channels(a);
+  const [br, bg, bb] = channels(b);
+  return toHex(ar + (br - ar) * amount, ag + (bg - ag) * amount, ab + (bb - ab) * amount);
+}
+
+export function luminance(hex: string): number {
+  const [r, g, b] = channels(hex).map((channel) => {
+    const c = channel / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** The WCAG contrast ratio of two colors, from 1 to 21. */
+export function contrastRatio(a: string, b: string): number {
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (light + 0.05) / (dark + 0.05);
+}
+
+/** The color furthest from `text` toward `background` that still reads at `ratio` on `against`. */
+function readableStep(text: string, background: string, against: string, ratio: number): string {
+  let low = 0;
+  let high = 1;
+  for (let step = 0; step < 16; step += 1) {
+    const middle = (low + high) / 2;
+    if (contrastRatio(mixHex(text, background, middle), against) >= ratio) low = middle;
+    else high = middle;
+  }
+  return mixHex(text, background, low);
+}
+
+/** The two colors a made theme starts from, plus how far its panels sit from the window. */
+export type ThemeSeed = {
+  background: string;
+  accent: string;
+  /** 0 keeps panels the window color; 1 lifts them clearly off it. */
+  depth: number;
+};
+
+/**
+ * Derives every hand-picked color from a seed. Status, code, and terminal colors come from `from`,
+ * the theme the new one started as, with the accent carried into the cursor and selection.
+ */
+export function deriveBase(seed: ThemeSeed, from: ThemeBase): ThemeBase {
+  const background = seed.background.toLowerCase();
+  const accent = seed.accent.toLowerCase();
+  const depth = Math.min(1, Math.max(0, seed.depth));
+  const scheme = luminance(background) > 0.35 ? "light" : "dark";
+  const dark = scheme === "dark";
+  const surface = dark ? mixHex(background, "#ffffff", depth * 0.06) : mixHex(background, "#ffffff", 0.4 + depth * 0.6);
+  const raised = dark ? mixHex(surface, "#ffffff", 0.045) : mixHex(surface, background, 0.35);
+  const overlay = dark ? mixHex(surface, "#ffffff", 0.075) : "#ffffff";
+  // Text leans a little toward the accent so it belongs to the theme, then is checked for contrast.
+  const text = mixHex(dark ? "#ededed" : "#18181b", accent, 0.06);
+  // Secondary text must still read on the surface it contrasts with least.
+  const weakest = [background, surface, raised, overlay].reduce((worst, next) =>
+    contrastRatio(text, next) < contrastRatio(text, worst) ? next : worst,
+  );
+  const muted = readableStep(text, background, weakest, 6);
+  const dim = readableStep(text, background, weakest, 4.7);
+  const white = contrastRatio("#ffffff", accent);
+  const ink = mixHex("#000000", accent, 0.15);
+  return {
+    ...from,
+    scheme,
+    canvas: background,
+    sidebar: background,
+    surface,
+    raised,
+    overlay,
+    text,
+    muted,
+    dim,
+    disabled: mixHex(text, background, 0.62),
+    accent,
+    accentHover: mixHex(accent, dark ? "#ffffff" : "#000000", 0.12),
+    accentPressed: mixHex(accent, "#000000", 0.12),
+    accentInk: white >= 4.5 || white >= contrastRatio(ink, accent) ? "#ffffff" : ink,
+    terminal: {
+      ...from.terminal,
+      foreground: mixHex(text, background, 0.08),
+      cursor: accent,
+      selectionBackground: withAlpha(accent, dark ? 0.28 : 0.2),
+    },
+  };
 }

@@ -41,3 +41,11 @@
 .theme-card-name { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-1); color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 550; }
 .theme-card-name > svg { color: var(--zli-accent); }
 .theme-card-description { color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-tight); }
+
+/* A made theme keeps its menu in the card's corner, outside the label so it does not pick the theme. */
+.theme-card-wrap { position: relative; min-width: 0; }
+.theme-card-wrap > .theme-card { height: 100%; }
+.theme-card-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.theme-card-menu { position: absolute; right: var(--zli-space-2); bottom: var(--zli-space-2); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.theme-card-wrap:hover .theme-card-menu, .theme-card-menu:focus-visible, .theme-card-menu[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .theme-card-menu { opacity: 1; } }

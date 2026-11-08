@@ -1,29 +1,77 @@
-import { THEMES, type ThemeId } from "@zli-v2/ui/themes";
+import type { Theme } from "@zli-v2/ui/themes";
+import { useSyncExternalStore } from "react";
 
 import { getBridge } from "../runtime/bridge.js";
 import { readAppSettings, subscribeAppSettings } from "../settings/appSettings.js";
+import { buildCustomTheme, resolveTheme } from "./customThemes.js";
+import { readThemeEditor, subscribeThemeEditor } from "./themeEditorStore.js";
 
-/** Sets every color token of the theme on the root element, so all styles follow it at once. */
-export function applyTheme(id: ThemeId, root: HTMLElement = document.documentElement): void {
-  const theme = THEMES[id];
-  for (const [property, value] of Object.entries(theme.tokens)) root.style.setProperty(property, value);
-  root.dataset.theme = id;
-  const canvas = theme.tokens["--zli-canvas"] ?? "";
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", canvas);
-  // The desktop window frame and its native controls sit outside the page.
-  void getBridge()
-    ?.app.setChrome?.({ background: canvas, symbols: theme.tokens["--zli-muted"] ?? "" })
-    .catch(() => undefined);
+/** The draft in the theme editor while it is open, otherwise the saved choice. */
+export function activeTheme(): Theme {
+  const editor = readThemeEditor();
+  if (editor) return buildCustomTheme(editor.draft);
+  const settings = readAppSettings();
+  return resolveTheme(settings.theme, settings.customThemes);
 }
 
-/** Applies the saved theme now and again whenever it changes, here or in another window. */
+const CHROME_DELAY_MS = 150;
+let chromeTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** The desktop window frame sits outside the page; dragging a color updates it once the drag settles. */
+function updateChrome(theme: Theme): void {
+  const setChrome = getBridge()?.app.setChrome;
+  if (!setChrome) return;
+  clearTimeout(chromeTimer);
+  chromeTimer = setTimeout(() => {
+    void setChrome({
+      background: theme.tokens["--zli-canvas"] ?? "",
+      symbols: theme.tokens["--zli-muted"] ?? "",
+    }).catch(() => undefined);
+  }, CHROME_DELAY_MS);
+}
+
+/** Sets every color token of the theme on the root element, so all styles follow it at once. */
+export function applyTheme(theme: Theme, root: HTMLElement = document.documentElement): void {
+  for (const [property, value] of Object.entries(theme.tokens)) root.style.setProperty(property, value);
+  root.dataset.theme = theme.id;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme.tokens["--zli-canvas"] ?? "");
+  updateChrome(theme);
+}
+
+let current: Theme | undefined;
+const listeners = new Set<() => void>();
+
+function readCurrent(): Theme {
+  current ??= activeTheme();
+  return current;
+}
+
+function subscribeCurrent(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** The theme on screen, for code that draws colors outside CSS, such as the terminal. */
+export function useActiveTheme(): Theme {
+  return useSyncExternalStore(subscribeCurrent, readCurrent, readCurrent);
+}
+
+function refresh(): void {
+  const next = activeTheme();
+  if (current && current.id === next.id && JSON.stringify(current.base) === JSON.stringify(next.base)) return;
+  current = next;
+  applyTheme(next);
+  for (const listener of listeners) listener();
+}
+
+/** Applies the theme now and again whenever the saved choice or the editor's draft changes. */
 export function startTheme(): () => void {
-  let current = readAppSettings().theme;
-  applyTheme(current);
-  return subscribeAppSettings(() => {
-    const next = readAppSettings().theme;
-    if (next === current) return;
-    current = next;
-    applyTheme(next);
-  });
+  current = undefined;
+  refresh();
+  const stopSettings = subscribeAppSettings(refresh);
+  const stopEditor = subscribeThemeEditor(refresh);
+  return () => {
+    stopSettings();
+    stopEditor();
+  };
 }

@@ -12,7 +12,6 @@ import {
   type WorktreeSetupProjection,
   worktreeDevServers,
 } from "@zli-v2/contracts";
-import { THEME_IDS, THEMES } from "@zli-v2/ui/themes";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
@@ -72,6 +71,9 @@ import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog.js";
+import { themeChoices } from "../theme/customThemes.js";
+import { ThemeEditor } from "../theme/ThemeEditor.js";
+import { useThemeEditor } from "../theme/themeEditorStore.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
@@ -426,6 +428,14 @@ function WorkspaceApp() {
     setIntegrationsView(undefined);
     setSettingsSection(section);
   };
+  // The theme editor needs the app in view, so Settings steps aside while it is open and comes back after.
+  const themeEditorOpen = useThemeEditor() !== undefined;
+  const editorWasOpen = useRef(false);
+  useEffect(() => {
+    if (themeEditorOpen) setSettingsSection(undefined);
+    else if (editorWasOpen.current) setSettingsSection("appearance");
+    editorWasOpen.current = themeEditorOpen;
+  }, [themeEditorOpen]);
   /** Opens Integrations at a connector; a server name that is not in the catalog opens the Installed tab. */
   const openConnectors = useCallback((connectorId?: string) => {
     const entry = connectorId ? MCP_CATALOG.find((candidate) => candidate.id === connectorId.toLowerCase()) : undefined;
@@ -1573,14 +1583,17 @@ function WorkspaceApp() {
     { label: "Export support bundle", icon: "download", group: "App", action: () => void exportSupportBundle() },
     { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
     { label: "Settings", icon: "settings", group: "App", shortcut: shortcuts.settings, action: () => openSettings() },
-    ...THEME_IDS.filter((id) => id !== settings.theme).map((id) => ({
-      label: `Theme: ${THEMES[id].name}`,
-      icon: "palette" as const,
-      group: "App" as const,
-      action: () => {
-        updateAppSettings((current) => ({ ...current, theme: id }));
-      },
-    })),
+    ...themeChoices(settings.customThemes)
+      .filter((theme) => theme.id !== settings.theme)
+      .map((theme) => ({
+        label: `Theme: ${theme.name}`,
+        icon: "palette" as const,
+        group: "App" as const,
+        action: () => {
+          updateAppSettings((current) => ({ ...current, theme: theme.id }));
+        },
+      })),
+    { label: "Appearance and themes", icon: "palette", group: "App", action: () => openSettings("appearance") },
     {
       label: "Keyboard shortcuts",
       icon: "command",
@@ -2126,6 +2139,7 @@ function WorkspaceApp() {
             />
           </Suspense>
         ) : null}
+        <ThemeEditor />
         <TooltipLayer />
       </div>
     </FileIndexProvider>

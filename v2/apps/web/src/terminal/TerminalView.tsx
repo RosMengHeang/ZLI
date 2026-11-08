@@ -4,10 +4,9 @@ import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 import type { RpcResponse } from "@zli-v2/contracts";
-import { THEMES, type ThemeId } from "@zli-v2/ui/themes";
 import type { FileLinks } from "../files/FileIndex.js";
 import type { ZliBridge } from "../runtime/bridge.js";
-import { useAppSettings } from "../settings/appSettings.js";
+import { useActiveTheme } from "../theme/applyTheme.js";
 import { registerTerminalModes } from "./terminalModes.js";
 
 type Props = {
@@ -28,11 +27,6 @@ const TERMINAL_FONT = '"JetBrains Mono Variable", "JetBrains Mono", "SFMono-Regu
 const TERMINAL_FONT_SIZE = 12;
 const ATTACH_ATTEMPTS = 30;
 
-/** The background matches --zli-terminal so output sits on its tile without a seam. */
-export function terminalThemeFor(id: ThemeId): ITheme {
-  return THEMES[id].terminal;
-}
-
 export function TerminalView({
   bridge,
   terminalId,
@@ -44,9 +38,10 @@ export function TerminalView({
   onFocus,
   fileLinks,
 }: Props) {
-  const themeId = useAppSettings().theme;
-  const themeRef = useRef(themeId);
-  themeRef.current = themeId;
+  // The background matches --zli-terminal so output sits on its tile without a seam.
+  const terminalTheme: ITheme = useActiveTheme().terminal;
+  const themeRef = useRef(terminalTheme);
+  themeRef.current = terminalTheme;
   const fileLinksRef = useRef(fileLinks);
   fileLinksRef.current = fileLinks;
   const autoFocusRef = useRef(autoFocus);
@@ -68,7 +63,7 @@ export function TerminalView({
       lineHeight: 1.15,
       scrollback: 5_000,
       cursorBlink: false,
-      theme: terminalThemeFor(themeRef.current),
+      theme: themeRef.current,
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -238,8 +233,8 @@ export function TerminalView({
 
   useEffect(() => {
     const terminal = terminalRef.current;
-    if (terminal) terminal.options.theme = terminalThemeFor(themeId);
-  }, [themeId]);
+    if (terminal) terminal.options.theme = terminalTheme;
+  }, [terminalTheme]);
 
   return (
     <div

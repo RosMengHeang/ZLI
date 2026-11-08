@@ -181,6 +181,16 @@ kbd {
 .segmented-item[aria-pressed="true"], .segmented-item[aria-selected="true"] { background: var(--zli-overlay); color: var(--zli-text); box-shadow: var(--zli-highlight), 0 1px 2px rgba(0, 0, 0, .35); }
 .segmented-item:focus-visible { outline-offset: -1px; }
 
+/* ---------- Range: a slider on a thin track ---------- */
+.range { width: 100%; height: 16px; margin: 0; background: transparent; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--zli-radius-pill); background: var(--zli-active); }
+.range::-webkit-slider-thumb {
+  width: 14px; height: 14px; margin-top: -5px; border: 2px solid var(--zli-text); border-radius: 50%;
+  background: var(--zli-accent); box-shadow: 0 1px 3px rgba(0, 0, 0, .4); appearance: none; -webkit-appearance: none;
+}
+.range:focus-visible { outline: none; }
+.range:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+
 /* ---------- Switch ---------- */
 .switch-row { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-4); min-height: 44px; padding: var(--zli-space-2) 0; cursor: pointer; }
 .switch-row.is-disabled { cursor: default; opacity: .55; }

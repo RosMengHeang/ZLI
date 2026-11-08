@@ -34,6 +34,7 @@ describe("app settings", () => {
       fileTreePosition: "right",
       sidebarLimits: { enabled: false, hidden: ["codex"] },
       theme: "midnight",
+      customThemes: [],
     });
   });
 

@@ -44,6 +44,13 @@ not cover, add it to the primitives instead of styling it locally.
   and a test holds every theme to the text contrast rule below. The values
   in this section are Midnight's. Settings > Appearance and the command
   palette switch themes.
+- People can make their own themes in a theme editor that floats over the
+  app, so changes show on the real interface as they are made. A theme starts
+  from two colors (background and accent) and a panel depth; every other
+  color is derived and checked for contrast, and any one of them can be set by
+  hand. "Pick a color from the app" lets the person click any part of the app
+  to jump to the colors it uses. The editor warns while text falls below
+  4.5:1.
 - The canvas `#000000` is the window itself: the sidebar, the top bar, and the
   gutters between work regions all share it, with no border between them.
 - Work regions are islands of surface `#000000`, set apart by a hairline border: agent tiles, the terminal
