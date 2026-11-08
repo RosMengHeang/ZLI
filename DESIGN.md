@@ -44,13 +44,13 @@ not cover, add it to the primitives instead of styling it locally.
   and a test holds every theme to the text contrast rule below. The values
   in this section are Midnight's. Settings > Appearance and the command
   palette switch themes.
-- The canvas `#050505` is the window itself: the sidebar, the top bar, and the
+- The canvas `#000000` is the window itself: the sidebar, the top bar, and the
   gutters between work regions all share it, with no border between them.
-- Work regions are islands of surface `#0f0f0f`: agent tiles, the terminal
+- Work regions are islands of surface `#0a0a0a`: agent tiles, the terminal
   drawer, the side panel, and the empty board. Terminals use the same color
   so output sits on its tile without a seam.
-- Raised `#171717` is for controls, the composer, and dialogs; overlay
-  `#1d1d1d` is for tooltips, menus, and selected segments. Fields, code, and
+- Raised `#141414` is for controls, the composer, and dialogs; overlay
+  `#1a1a1a` is for tooltips, menus, and selected segments. Fields, code, and
   logs sit in a translucent black well so they read as sunken on any surface.
 - Islands sit flat. Only popovers, dialogs, and the chat composer cast a
   shadow, and raised surfaces catch a faint top highlight.
@@ -59,7 +59,7 @@ not cover, add it to the primitives instead of styling it locally.
 - Text has three readable steps (text, muted, dim). Each one passes WCAG AA
   (4.5:1) on every surface, including the overlay. The disabled color is only
   for disabled controls and decorative glyphs.
-- There is one accent per theme (Midnight's is blue `#3d63dd`). It marks primary actions,
+- There is one accent per theme (Midnight's is blue `#4a6fdc`). It marks primary actions,
   keyboard focus, and the selected agent, and nothing else. Selected
   segments use a neutral raised fill, and selected choice cards get an accent
   edge, not a blue panel.
