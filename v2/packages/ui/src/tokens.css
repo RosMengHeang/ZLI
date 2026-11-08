@@ -131,7 +131,7 @@
   /* The gutter between islands on the canvas. */
   --zli-gutter: 6px;
 
-  /* Radii: small on controls, larger on containers. Pills only for counts and the send button. */
+  /* Radii: small on controls, larger on containers. Pills only for counts, switches, and the send button. */
   --zli-radius-xs: 4px;
   --zli-radius-sm: 6px;
   --zli-radius-md: 8px;

@@ -106,7 +106,7 @@ not cover, add it to the primitives instead of styling it locally.
   drawer resize handles live. A handle shows a line only while hovered or
   dragged.
 - Radii are 4 to 8px on controls, 12px on islands, and 16px on dialogs and
-  the composer. Pills are only for counts and the send button.
+  the composer. Pills are only for counts, switches, and the send button.
 
 ## Composition
 

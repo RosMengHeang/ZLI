@@ -206,14 +206,23 @@ kbd {
 .switch-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .switch-label { color: var(--zli-text); font-size: var(--zli-text-base); }
 .switch-hint { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+/* A pill track with a round knob: grey when off, the accent when on. */
 .switch {
-  position: relative; flex: 0 0 28px; width: 28px; height: 16px; margin: 0; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-sm);
-  appearance: none; background: var(--zli-well); cursor: inherit;
-  transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease);
+  position: relative; flex: 0 0 32px; width: 32px; height: 18px; margin: 0; border: 0; border-radius: var(--zli-radius-pill);
+  appearance: none; background: var(--zli-pressed); box-shadow: inset 0 0 0 1px var(--zli-border-strong); cursor: inherit;
+  transition: background-color var(--zli-duration-base) var(--zli-ease), box-shadow var(--zli-duration-base) var(--zli-ease);
 }
-.switch::before { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 2px; background: var(--zli-dim); content: ""; transition: transform var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
-.switch:checked { border-color: transparent; background: var(--zli-text); }
-.switch:checked::before { transform: translateX(12px); background: var(--zli-canvas); }
+.switch::before {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--zli-muted);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3); content: "";
+  transition: transform var(--zli-duration-base) var(--zli-ease), background-color var(--zli-duration-base) var(--zli-ease);
+}
+.switch:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--zli-border-hover); }
+.switch:hover:not(:disabled)::before { background: var(--zli-text); }
+.switch:checked { background: var(--zli-accent); box-shadow: none; }
+.switch:checked::before { transform: translateX(14px); background: var(--zli-accent-ink); }
+.switch:checked:hover:not(:disabled) { background: var(--zli-accent-hover); box-shadow: none; }
+.switch:checked:hover:not(:disabled)::before { background: var(--zli-accent-ink); }
 .switch:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 
 /* ---------- Tooltip ---------- */
