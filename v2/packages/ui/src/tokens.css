@@ -157,9 +157,10 @@
 
   /* Stacking. */
   --zli-z-dialog: 20;
-  /* The theme editor floats over dialogs, and its color picking layer over the editor. */
+  /* The theme editor floats over dialogs and over its own color picking layer, so it stays usable. */
+  --zli-z-inspect: 29;
   --zli-z-editor: 30;
-  --zli-z-inspect: 35;
+  --zli-z-popover: 31;
   --zli-z-tooltip: 40;
 
   font-family: var(--zli-font);

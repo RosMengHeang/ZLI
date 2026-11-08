@@ -1,5 +1,14 @@
 import { isHexColor } from "@zli-v2/ui/themes";
-import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 
 import { IconButton } from "../ui/Button.js";
 
@@ -46,6 +55,32 @@ export function hsvToHex({ h, s, v }: Hsv): string {
     .join("")}`;
 }
 
+/** `#rrggbb` as "r, g, b", the way people type RGB. */
+export function hexToRgbText(hex: string): string {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return `${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}`;
+}
+
+/** Reads "r, g, b" (commas or spaces, optional rgb()), or nothing when it is not three 0-255 numbers. */
+export function rgbTextToHex(text: string): string | undefined {
+  const parts = text
+    .replace(/rgba?\(|\)/giu, "")
+    .split(/[\s,]+/u)
+    .filter(Boolean);
+  if (parts.length !== 3) return undefined;
+  const numbers = parts.map(Number);
+  if (numbers.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return undefined;
+  return `#${numbers.map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Accepts "#abc", "abc", "#aabbcc", or "aabbcc". */
+export function parseHexText(text: string): string | undefined {
+  let hex = text.trim().toLowerCase();
+  if (!hex.startsWith("#")) hex = `#${hex}`;
+  if (/^#[0-9a-f]{3}$/u.test(hex)) hex = `#${[...hex.slice(1)].map((c) => c + c).join("")}`;
+  return isHexColor(hex) ? hex : undefined;
+}
+
 type EyeDropperResult = { sRGBHex: string };
 type EyeDropperWindow = Window & { EyeDropper?: new () => { open(): Promise<EyeDropperResult> } };
 
@@ -74,7 +109,53 @@ export const SWATCHES: Record<"surface" | "text" | "color", readonly string[]> =
   color: ["#4a6fdc", "#38bdf8", "#14b8a6", "#22c55e", "#eab308", "#f0883e", "#ef4444", "#e9a3c4", "#ec4899", "#a593e6"],
 };
 
-/** Swatches for a quick pick, then saturation and brightness on a square, hue, and the hex value. */
+/** A text box that only hands on a value once it parses; anything else snaps back when it loses focus. */
+export function ColorText({
+  label,
+  value,
+  format,
+  parse,
+  onCommit,
+  mono = true,
+}: {
+  label: string;
+  value: string;
+  format(hex: string): string;
+  parse(text: string): string | undefined;
+  onCommit(hex: string): void;
+  mono?: boolean;
+}) {
+  const [text, setText] = useState(format(value));
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (!editing) setText(format(value));
+  }, [value, editing, format]);
+  return (
+    <input
+      className={`input input-sm color-text${mono ? " is-mono" : ""}`}
+      value={text}
+      spellCheck={false}
+      aria-label={label}
+      onFocus={() => setEditing(true)}
+      onChange={(event) => {
+        setText(event.target.value);
+        const hex = parse(event.target.value);
+        if (hex) onCommit(hex);
+      }}
+      onBlur={() => {
+        setEditing(false);
+        setText(format(value));
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
+    />
+  );
+}
+
+const identity = (hex: string) => hex;
+
+/** The picker itself: one-click swatches, saturation and brightness, hue, and HEX and RGB fields. */
 export function ColorPicker({
   label,
   value,
@@ -83,23 +164,24 @@ export function ColorPicker({
 }: {
   label: string;
   value: string;
-  swatches?: readonly string[];
+  /** Each swatch may carry a name for its tooltip, such as "Sidebar color". */
+  swatches?: readonly (string | { color: string; name: string })[];
   onChange(hex: string): void;
 }) {
   // Hue and saturation are kept here because grays and black carry no hue of their own to read back.
   const [hsv, setHsv] = useState(() => hexToHsv(value));
-  const [text, setText] = useState(value);
   const areaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setText(value);
     setHsv((previous) => (hsvToHex(previous) === value ? previous : hexToHsv(value)));
   }, [value]);
 
   const commit = (next: Hsv) => {
     setHsv(next);
-    const hex = hsvToHex(next);
-    setText(hex);
+    onChange(hsvToHex(next));
+  };
+  const set = (hex: string) => {
+    setHsv(hexToHsv(hex));
     onChange(hex);
   };
 
@@ -130,26 +212,22 @@ export function ColorPicker({
   };
 
   const Dropper = eyeDropper();
+  const entries = swatches.map((swatch) => (typeof swatch === "string" ? { color: swatch, name: swatch } : swatch));
 
   return (
     <div className="color-picker">
-      {swatches.length > 0 ? (
-        <fieldset className="color-picker-swatches">
-          <legend className="sr-only">{`${label}: quick picks`}</legend>
-          {swatches.map((swatch) => (
+      {entries.length > 0 ? (
+        <fieldset className="color-picker-swatches" aria-label={`${label}: quick picks`}>
+          {entries.map((swatch) => (
             <button
-              key={swatch}
+              key={`${swatch.name}-${swatch.color}`}
               type="button"
               className="color-picker-swatch"
-              style={{ background: swatch }}
-              aria-pressed={swatch === value}
-              aria-label={swatch}
-              data-tooltip={swatch}
-              onClick={() => {
-                setHsv(hexToHsv(swatch));
-                setText(swatch);
-                onChange(swatch);
-              }}
+              style={{ background: swatch.color }}
+              aria-pressed={swatch.color === value}
+              aria-label={swatch.name}
+              data-tooltip={swatch.name}
+              onClick={() => set(swatch.color)}
             />
           ))}
         </fieldset>
@@ -183,38 +261,34 @@ export function ColorPicker({
         aria-label={`${label}: hue`}
         onChange={(event) => commit({ ...hsv, h: Number(event.target.value) })}
       />
-      <div className="color-picker-row">
-        <input
-          className="input input-sm is-mono color-picker-hex"
-          value={text}
-          spellCheck={false}
-          maxLength={7}
-          aria-label={`${label}: hex value`}
-          onChange={(event) => {
-            const next = event.target.value.trim();
-            setText(next);
-            const hex = (next.startsWith("#") ? next : `#${next}`).toLowerCase();
-            if (isHexColor(hex)) {
-              setHsv(hexToHsv(hex));
-              onChange(hex);
-            }
-          }}
-          onBlur={() => setText(value)}
-        />
+      <div className="color-picker-fields">
+        <div className="color-picker-field">
+          <span className="color-picker-field-label" aria-hidden="true">
+            Hex
+          </span>
+          <span className="color-picker-hex">
+            <span className="color-picker-dot" style={{ background: value }} />
+            <ColorText label={`${label}: hex`} value={value} format={identity} parse={parseHexText} onCommit={set} />
+          </span>
+        </div>
+        <div className="color-picker-field">
+          <span className="color-picker-field-label" aria-hidden="true">
+            RGB
+          </span>
+          <ColorText label={`${label}: RGB`} value={value} format={hexToRgbText} parse={rgbTextToHex} onCommit={set} />
+        </div>
         {Dropper ? (
           <IconButton
             label="Sample a color from the screen"
             icon="pipette"
             size="sm"
+            className="color-picker-dropper"
             onClick={() => {
               void new Dropper()
                 .open()
                 .then((result) => {
-                  const hex = result.sRGBHex.toLowerCase();
-                  if (!isHexColor(hex)) return;
-                  setHsv(hexToHsv(hex));
-                  setText(hex);
-                  onChange(hex);
+                  const hex = parseHexText(result.sRGBHex);
+                  if (hex) set(hex);
                 })
                 // Escape closes the sampler without a color, which is not a problem.
                 .catch(() => undefined);
@@ -223,5 +297,88 @@ export function ColorPicker({
         ) : null}
       </div>
     </div>
+  );
+}
+
+const GAP = 10;
+const EDGE = 8;
+
+/**
+ * The picker in a card beside the row that opened it. It sits to the left of the editor so the row
+ * stays in view, and closes on Escape or a click outside it and the row.
+ */
+export function ColorPopover({
+  anchor,
+  title,
+  subtitle = "Choose a color",
+  children,
+  onClose,
+}: {
+  anchor: HTMLElement;
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+  onClose(): void;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ left: number; top: number }>();
+
+  useLayoutEffect(() => {
+    const place = () => {
+      const card = cardRef.current;
+      if (!card) return;
+      const row = anchor.getBoundingClientRect();
+      const panel = anchor.closest(".theme-editor")?.getBoundingClientRect() ?? row;
+      const width = card.offsetWidth;
+      const height = card.offsetHeight;
+      const left = panel.left - width - GAP >= EDGE ? panel.left - width - GAP : Math.max(EDGE, row.left);
+      const top = Math.min(Math.max(EDGE, row.top + row.height / 2 - height / 2), window.innerHeight - height - EDGE);
+      setPosition({ left, top });
+    };
+    place();
+    window.addEventListener("resize", place);
+    const scroller = anchor.closest(".theme-editor-body");
+    scroller?.addEventListener("scroll", place);
+    return () => {
+      window.removeEventListener("resize", place);
+      scroller?.removeEventListener("scroll", place);
+    };
+  }, [anchor]);
+
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      onClose();
+      anchor.focus();
+    };
+    const onPointer = (event: globalThis.PointerEvent) => {
+      const target = event.target as Node;
+      if (cardRef.current?.contains(target) || anchor.closest(".theme-row")?.contains(target)) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onPointer, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onPointer, true);
+    };
+  }, [anchor, onClose]);
+
+  return createPortal(
+    <div
+      ref={cardRef}
+      className="color-popover"
+      role="dialog"
+      aria-label={title}
+      style={position ? { left: position.left, top: position.top } : { visibility: "hidden" }}
+    >
+      <header className="color-popover-header">
+        <span className="color-popover-title">{title}</span>
+        <span className="color-popover-subtitle">{subtitle}</span>
+      </header>
+      {children}
+    </div>,
+    document.body,
   );
 }

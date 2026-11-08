@@ -75,7 +75,7 @@ export function InspectOverlay({ onPick, onCancel }: { onPick(fields: EditableFi
     layer.style.pointerEvents = "none";
     const element = document.elementFromPoint(x, y);
     layer.style.pointerEvents = "";
-    if (!element || element.closest(".theme-editor, .inspect-hint")) return undefined;
+    if (!element || element.closest(".theme-editor")) return undefined;
     return { rect: element.getBoundingClientRect(), fields: fieldsAt(element, colors) };
   };
 
@@ -96,9 +96,6 @@ export function InspectOverlay({ onPick, onCancel }: { onPick(fields: EditableFi
         onCancel();
       }}
     >
-      <div className="inspect-hint" role="status">
-        Click any part of the app to edit its color. Press Esc to stop.
-      </div>
       {target ? (
         <>
           <div
