@@ -643,27 +643,35 @@ function readableStep(text: string, background: string, against: string, ratio: 
   return mixHex(text, background, low);
 }
 
-/** The two colors a made theme starts from, plus how far its panels sit from the window. */
+/** The three colors a made theme starts from. */
 export type ThemeSeed = {
+  /** The window: sidebar, top bar, and the gaps between panels. */
   background: string;
+  /** Agent tiles, terminals, and the other panels. It may equal the background. */
+  terminal: string;
   accent: string;
-  /** 0 keeps panels the window color; 1 lifts them clearly off it. */
-  depth: number;
 };
 
+/** Whether a color is light enough that dark text belongs on it. */
+export function isLightColor(hex: string): boolean {
+  return luminance(hex) > 0.35;
+}
+
 /**
- * Derives every hand-picked color from a seed. Status, code, and terminal colors come from `from`,
- * the theme the new one started as, with the accent carried into the cursor and selection.
+ * Derives every hand-picked color from a seed. Status and code colors come from `from`, the theme the
+ * new one started as. The terminal's palette follows its own background, so a dark terminal in a light
+ * window still gets light text.
  */
 export function deriveBase(seed: ThemeSeed, from: ThemeBase): ThemeBase {
   const background = seed.background.toLowerCase();
+  const surface = seed.terminal.toLowerCase();
   const accent = seed.accent.toLowerCase();
-  const depth = Math.min(1, Math.max(0, seed.depth));
-  const scheme = luminance(background) > 0.35 ? "light" : "dark";
+  const scheme = isLightColor(background) ? "light" : "dark";
   const dark = scheme === "dark";
-  const surface = dark ? mixHex(background, "#ffffff", depth * 0.06) : mixHex(background, "#ffffff", 0.4 + depth * 0.6);
-  const raised = dark ? mixHex(surface, "#ffffff", 0.045) : mixHex(surface, background, 0.35);
-  const overlay = dark ? mixHex(surface, "#ffffff", 0.075) : "#ffffff";
+  // Controls and menus sit just above the lighter of the two, so they read on both.
+  const top = luminance(surface) > luminance(background) ? surface : background;
+  const raised = dark ? mixHex(top, "#ffffff", 0.05) : mixHex(surface, background, 0.35);
+  const overlay = dark ? mixHex(top, "#ffffff", 0.08) : "#ffffff";
   // Text leans a little toward the accent so it belongs to the theme, then is checked for contrast.
   const text = mixHex(dark ? "#ededed" : "#18181b", accent, 0.06);
   // Secondary text must still read on the surface it contrasts with least.
@@ -690,11 +698,20 @@ export function deriveBase(seed: ThemeSeed, from: ThemeBase): ThemeBase {
     accentHover: mixHex(accent, dark ? "#ffffff" : "#000000", 0.12),
     accentPressed: mixHex(accent, "#000000", 0.12),
     accentInk: white >= 4.5 || white >= contrastRatio(ink, accent) ? "#ffffff" : ink,
-    terminal: {
-      ...from.terminal,
-      foreground: mixHex(text, background, 0.08),
-      cursor: accent,
-      selectionBackground: withAlpha(accent, dark ? 0.28 : 0.2),
-    },
+    terminal: terminalFor(surface, accent, from),
+  };
+}
+
+/** ANSI colors made for the terminal's own background, light or dark. */
+function terminalFor(background: string, accent: string, from: ThemeBase): TerminalPalette {
+  const light = isLightColor(background);
+  // Keep the starting theme's palette when it was made for the same kind of background.
+  const palette =
+    (from.scheme === "light") === light ? from.terminal : light ? THEMES.daylight.base.terminal : neutralTerminal;
+  return {
+    ...palette,
+    foreground: light ? "#27272a" : mixHex("#e4e4e4", accent, 0.05),
+    cursor: accent,
+    selectionBackground: withAlpha(accent, light ? 0.2 : 0.28),
   };
 }

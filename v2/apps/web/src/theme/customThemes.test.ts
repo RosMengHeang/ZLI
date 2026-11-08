@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { contrastRatio, deriveBase, THEMES } from "@zli-v2/ui/themes";
+import { contrastRatio, deriveBase, isLightColor, mixHex, THEMES } from "@zli-v2/ui/themes";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { readAppSettings, updateAppSettings } from "../settings/appSettings.js";
@@ -25,7 +25,7 @@ const rose: CustomTheme = {
   id: "custom-rose1",
   name: "Rose",
   basedOn: "sakura",
-  seed: { background: "#120c10", accent: "#e9a3c4", depth: 0.4 },
+  seed: { background: "#120c10", terminal: "#18111a", accent: "#e9a3c4" },
   overrides: {},
 };
 
@@ -42,9 +42,14 @@ describe("themes people make", () => {
       { ...rose },
       { id: "custom-bad1", name: "No colors", seed: {} },
       { id: "not-custom", name: "Wrong id", seed: rose.seed },
-      { ...rose, id: "custom-over1", overrides: { text: "#ffffff", canvas: "red", nope: "#000000" } },
+      {
+        ...rose,
+        id: "custom-over1",
+        overrides: { text: "#ffffff", raised: "red", canvas: "#111111", nope: "#000000" },
+      },
     ]);
     expect(parsed.map((theme) => theme.id)).toEqual(["custom-rose1", "custom-over1"]);
+    // The window, terminal, and accent colors live in the seed, never in overrides.
     expect(parsed[1]?.overrides).toEqual({ text: "#ffffff" });
   });
 
@@ -55,31 +60,43 @@ describe("themes people make", () => {
     ["#ececef", "#2f5fe0"],
     ["#fdf6e3", "#b58900"],
   ])("derives readable colors from %s and %s", (background, accent) => {
-    for (const depth of [0, 0.5, 1]) {
-      const base = deriveBase({ background, accent, depth }, THEMES.midnight.base);
-      expect(readabilityProblems(base), `depth ${depth}`).toEqual([]);
+    // The terminal the same as the window, and a little lighter or darker than it.
+    const near = isLightColor(background) ? "#ffffff" : mixHex(background, "#ffffff", 0.06);
+    for (const terminal of [background, near]) {
+      const base = deriveBase({ background, terminal, accent }, THEMES.midnight.base);
+      expect(readabilityProblems(base), `terminal ${terminal}`).toEqual([]);
       expect(base.canvas).toBe(background);
+      expect(base.surface).toBe(terminal);
     }
   });
 
-  it("lifts panels off the window as depth grows", () => {
-    const flat = deriveBase({ ...rose.seed, depth: 0 }, THEMES.sakura.base);
-    const lifted = deriveBase({ ...rose.seed, depth: 1 }, THEMES.sakura.base);
-    expect(flat.surface).toBe(rose.seed.background);
-    expect(contrastRatio(lifted.surface, lifted.canvas)).toBeGreaterThan(contrastRatio(flat.surface, flat.canvas));
+  it("gives the terminal light text when it is dark, even in a light theme", () => {
+    const theme = buildCustomTheme({
+      ...rose,
+      basedOn: "daylight",
+      seed: { background: "#ececef", terminal: "#141414", accent: "#2f5fe0" },
+    });
+    expect(theme.scheme).toBe("light");
+    expect(theme.terminal.background).toBe("#141414");
+    expect(contrastRatio(theme.terminal.foreground, "#141414")).toBeGreaterThan(7);
+  });
+
+  it("turns a theme saved with a panel depth into a terminal color", () => {
+    const [old] = parseCustomThemes([{ ...rose, seed: { background: "#000000", accent: "#e9a3c4", depth: 0 } }]);
+    expect(old?.seed.terminal).toBe("#000000");
   });
 
   it("lets a color set by hand win over the derived one", () => {
-    const theme = buildCustomTheme({ ...rose, overrides: { surface: "#222222" } });
-    expect(theme.tokens["--zli-surface"]).toBe("#222222");
-    expect(theme.terminal.background).toBe("#222222");
+    const theme = buildCustomTheme({ ...rose, overrides: { raised: "#222222" } });
+    expect(theme.tokens["--zli-raised"]).toBe("#222222");
   });
 
-  it("starts a new theme from a built-in one with its two colors", () => {
+  it("starts a new theme from a built-in one with its three colors", () => {
     const made = customThemeFrom(THEMES.frost, "My Frost");
     expect(made.basedOn).toBe("frost");
     expect(made.seed.background).toBe(THEMES.frost.base.canvas);
     expect(made.seed.accent).toBe(THEMES.frost.base.accent);
+    expect(made.seed.terminal).toBe(THEMES.frost.base.surface);
     expect(made.id).toMatch(/^custom-/u);
   });
 

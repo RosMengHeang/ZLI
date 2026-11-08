@@ -5,6 +5,7 @@ import {
   deriveBase,
   isHexColor,
   isThemeId,
+  mixHex,
   THEME_IDS,
   THEMES,
   type Theme,
@@ -13,7 +14,7 @@ import {
   type ThemeSeed,
 } from "@zli-v2/ui/themes";
 
-/** The colors a person can set one by one in the editor, beyond the two a theme starts from. */
+/** Every theme color a person can point at or change. */
 export const EDITABLE_FIELDS = [
   "canvas",
   "sidebar",
@@ -32,57 +33,45 @@ export const EDITABLE_FIELDS = [
 ] as const satisfies readonly (keyof ThemeBase)[];
 export type EditableField = (typeof EDITABLE_FIELDS)[number];
 
-export const FIELD_GROUPS: readonly { title: string; fields: readonly { field: EditableField; label: string }[] }[] = [
-  {
-    title: "Window",
-    fields: [
-      { field: "canvas", label: "Window" },
-      { field: "sidebar", label: "Sidebar" },
-    ],
-  },
-  {
-    title: "Panels",
-    fields: [
-      { field: "surface", label: "Panels and terminal" },
-      { field: "raised", label: "Controls" },
-      { field: "overlay", label: "Menus and tooltips" },
-    ],
-  },
-  {
-    title: "Text",
-    fields: [
-      { field: "text", label: "Text" },
-      { field: "muted", label: "Secondary text" },
-      { field: "dim", label: "Hints" },
-    ],
-  },
-  {
-    title: "Accent",
-    fields: [
-      { field: "accent", label: "Accent" },
-      { field: "accentInk", label: "Text on accent" },
-    ],
-  },
-  {
-    title: "Status",
-    fields: [
-      { field: "blue", label: "Active" },
-      { field: "green", label: "Ready" },
-      { field: "amber", label: "Modified" },
-      { field: "red", label: "Failed" },
-    ],
-  },
+/** The three colors a theme starts from, and the field each one fills. */
+export const SEED_FIELDS = { background: "canvas", terminal: "surface", accent: "accent" } as const;
+export type SeedKey = keyof typeof SEED_FIELDS;
+const SEEDED = new Set<EditableField>(Object.values(SEED_FIELDS));
+
+export const FIELD_LABELS: Record<EditableField, string> = {
+  canvas: "Window",
+  sidebar: "Sidebar",
+  surface: "Terminal and panels",
+  raised: "Buttons and fields",
+  overlay: "Menus and tooltips",
+  text: "Text",
+  muted: "Secondary text",
+  dim: "Hints",
+  accent: "Accent",
+  accentInk: "Text on accent",
+  blue: "Active",
+  green: "Ready",
+  amber: "Modified",
+  red: "Failed",
+};
+
+/** The colors under "More colors": everything except the three a theme starts from. */
+export const FIELD_GROUPS: readonly { title: string; fields: readonly EditableField[] }[] = [
+  { title: "Surfaces", fields: ["sidebar", "raised", "overlay"] },
+  { title: "Text", fields: ["text", "muted", "dim", "accentInk"] },
+  { title: "Status", fields: ["blue", "green", "amber", "red"] },
 ];
 
-export const FIELD_LABELS = Object.fromEntries(
-  FIELD_GROUPS.flatMap((group) => group.fields.map((entry) => [entry.field, entry.label])),
-) as Record<EditableField, string>;
+/** The seed a picked color belongs to, when it is one of the three a theme starts from. */
+export function seedFor(field: EditableField): SeedKey | undefined {
+  return (Object.keys(SEED_FIELDS) as SeedKey[]).find((key) => SEED_FIELDS[key] === field);
+}
 
-/** A theme the person made: two colors and a depth, plus any colors they set by hand. */
+/** A theme the person made: three colors, plus any others they set by hand. */
 export type CustomTheme = {
   id: string;
   name: string;
-  /** The built-in theme it started from; status, code, and terminal colors come from it. */
+  /** The built-in theme it started from; status and code colors come from it. */
   basedOn: ThemeId;
   seed: ThemeSeed;
   overrides: Partial<Record<EditableField, string>>;
@@ -109,12 +98,17 @@ export function parseCustomThemes(value: unknown): CustomTheme[] {
     if (!isRecord(entry) || typeof entry.id !== "string" || !CUSTOM_ID.test(entry.id) || seen.has(entry.id)) continue;
     const seed = isRecord(entry.seed) ? entry.seed : {};
     if (!isHexColor(seed.background) || !isHexColor(seed.accent)) continue;
-    const depth = typeof seed.depth === "number" && Number.isFinite(seed.depth) ? seed.depth : 0.5;
+    // Themes saved before the terminal had its own color kept a panel depth instead.
+    const depth = typeof seed.depth === "number" && Number.isFinite(seed.depth) ? seed.depth : 0;
+    const terminal = isHexColor(seed.terminal)
+      ? seed.terminal
+      : mixHex(seed.background, "#ffffff", Math.min(1, Math.max(0, depth)) * 0.06);
     const overrides: CustomTheme["overrides"] = {};
     if (isRecord(entry.overrides)) {
       for (const field of EDITABLE_FIELDS) {
         const color = entry.overrides[field];
-        if (isHexColor(color)) overrides[field] = color.toLowerCase();
+        // The three starting colors live in the seed, so a stored override of one is dropped.
+        if (isHexColor(color) && !SEEDED.has(field)) overrides[field] = color.toLowerCase();
       }
     }
     const name = typeof entry.name === "string" ? entry.name.trim().slice(0, MAX_THEME_NAME) : "";
@@ -125,8 +119,8 @@ export function parseCustomThemes(value: unknown): CustomTheme[] {
       basedOn: isThemeId(entry.basedOn) ? entry.basedOn : DEFAULT_THEME,
       seed: {
         background: seed.background.toLowerCase(),
+        terminal: terminal.toLowerCase(),
         accent: seed.accent.toLowerCase(),
-        depth: Math.min(1, Math.max(0, depth)),
       },
       overrides,
     });
@@ -144,20 +138,14 @@ export function buildCustomTheme(theme: CustomTheme): Theme {
   return buildTheme(theme.id, theme.name, "Your theme", customBase(theme));
 }
 
-/** How far a theme's panels sit from its window, as an editor depth. */
-function depthOf(base: ThemeBase): number {
-  const lift = contrastRatio(base.surface, base.canvas) - 1;
-  return Math.min(1, Math.max(0, base.scheme === "dark" ? lift / 0.3 : lift / 0.2));
-}
-
 /**
- * A new theme that starts from `from`. A built-in theme gives its window color, accent, and depth, and
- * everything else is derived from those so the two colors stay in charge. A made theme is copied as is.
+ * A new theme that starts from `from`. A built-in theme gives its window, terminal, and accent colors,
+ * and everything else is derived from those so the three colors stay in charge. A made theme is copied.
  */
 export function customThemeFrom(from: Theme, name: string, custom?: CustomTheme): CustomTheme {
   if (custom) return { ...structuredClone(custom), id: newCustomThemeId(), name };
   const basedOn = isThemeId(from.id) ? from.id : DEFAULT_THEME;
-  const seed = { background: from.base.canvas, accent: from.base.accent, depth: depthOf(from.base) };
+  const seed = { background: from.base.canvas, terminal: from.base.surface, accent: from.base.accent };
   return { id: newCustomThemeId(), name, basedOn, seed, overrides: {} };
 }
 

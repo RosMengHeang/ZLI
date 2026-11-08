@@ -42,13 +42,14 @@ not cover, add it to the primitives instead of styling it locally.
   chosen one is applied to the root element before the first render. Each
   theme sets every color token, the terminal palette, and the syntax colors,
   and a test holds every theme to the text contrast rule below. The values
-  in this section are Midnight's. Settings > Appearance and the command
-  palette switch themes.
+  in this section are Midnight's. Settings > Appearance shows the current
+  theme large with its three colors, then the built-in themes, then the
+  person's own; the command palette also switches themes.
 - People can make their own themes in a theme editor that floats over the
   app, so changes show on the real interface as they are made. A theme starts
-  from two colors (background and accent) and a panel depth; every other
-  color is derived and checked for contrast, and any one of them can be set by
-  hand. "Pick a color from the app" lets the person click any part of the app
+  from three colors: the window, the terminal (agent tiles and panels), and
+  the accent. Every other color is derived and checked for contrast, and any
+  one of them can be set by hand under More colors. "Pick a color from the app" lets the person click any part of the app
   to jump to the colors it uses. The editor warns while text falls below
   4.5:1.
 - The canvas `#000000` is the window itself: the sidebar, the top bar, and the
