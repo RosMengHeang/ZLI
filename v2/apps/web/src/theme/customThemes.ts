@@ -42,25 +42,49 @@ export const FIELD_LABELS: Record<EditableField, string> = {
   canvas: "Window",
   sidebar: "Sidebar",
   surface: "Terminal and panels",
-  raised: "Buttons and fields",
+  raised: "Secondary button",
   overlay: "Menus and tooltips",
-  text: "Text",
+  text: "Primary text",
   muted: "Secondary text",
   dim: "Hints",
-  accent: "Accent",
-  accentInk: "Text on accent",
+  accent: "Primary button",
+  accentInk: "Primary button text",
   blue: "Active",
   green: "Ready",
   amber: "Modified",
   red: "Failed",
 };
 
-/** The colors under "More colors": everything except the three a theme starts from. */
-export const FIELD_GROUPS: readonly { title: string; fields: readonly EditableField[] }[] = [
-  { title: "Surfaces", fields: ["sidebar", "raised", "overlay"] },
-  { title: "Text", fields: ["text", "muted", "dim", "accentInk"] },
+/** Every color, area by area, for the advanced view. */
+export const AREA_GROUPS: readonly { title: string; fields: readonly EditableField[] }[] = [
+  { title: "Backgrounds", fields: ["canvas", "sidebar", "surface"] },
+  { title: "Text", fields: ["text", "muted", "dim"] },
+  { title: "Buttons", fields: ["accent", "accentInk", "raised"] },
+  { title: "Menus", fields: ["overlay"] },
   { title: "Status", fields: ["blue", "green", "amber", "red"] },
 ];
+
+/** What a color paints, shown under its name. */
+export const FIELD_HINTS: Partial<Record<EditableField, string>> = {
+  canvas: "Top bar and window edges",
+  surface: "Agent tiles and terminals",
+  accent: "Also selection and focus",
+  raised: "Other buttons and fields",
+  dim: "Paths and timestamps",
+  blue: "Agents that are working",
+  green: "Running and ready",
+  amber: "Changed files and warnings",
+  red: "Errors and deleted files",
+};
+
+/** The kind of color a field holds, which picks the swatches the picker offers. */
+export type ColorKind = "surface" | "text" | "color";
+export function colorKind(field: EditableField): ColorKind {
+  if (field === "text" || field === "muted" || field === "dim" || field === "accentInk") return "text";
+  if (field === "accent" || field === "blue" || field === "green" || field === "amber" || field === "red")
+    return "color";
+  return "surface";
+}
 
 /** The seed a picked color belongs to, when it is one of the three a theme starts from. */
 export function seedFor(field: EditableField): SeedKey | undefined {

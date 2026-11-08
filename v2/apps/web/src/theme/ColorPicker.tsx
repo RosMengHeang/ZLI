@@ -56,8 +56,36 @@ function eyeDropper(): (new () => { open(): Promise<EyeDropperResult> }) | undef
 
 const STEP = 0.02;
 
-/** Saturation and brightness on a square, hue on a slider, and the hex value, all kept in step. */
-export function ColorPicker({ label, value, onChange }: { label: string; value: string; onChange(hex: string): void }) {
+/** Ready-made colors for one click, by what the color is for. */
+export const SWATCHES: Record<"surface" | "text" | "color", readonly string[]> = {
+  surface: [
+    "#000000",
+    "#0a0a0a",
+    "#141414",
+    "#1c1c1f",
+    "#111318",
+    "#1a1f29",
+    "#151013",
+    "#07100a",
+    "#f4f4f5",
+    "#ffffff",
+  ],
+  text: ["#ffffff", "#ededed", "#d4d4d8", "#a3a3a3", "#8a8a8a", "#52525b", "#27272a", "#000000"],
+  color: ["#4a6fdc", "#38bdf8", "#14b8a6", "#22c55e", "#eab308", "#f0883e", "#ef4444", "#e9a3c4", "#ec4899", "#a593e6"],
+};
+
+/** Swatches for a quick pick, then saturation and brightness on a square, hue, and the hex value. */
+export function ColorPicker({
+  label,
+  value,
+  swatches = [],
+  onChange,
+}: {
+  label: string;
+  value: string;
+  swatches?: readonly string[];
+  onChange(hex: string): void;
+}) {
   // Hue and saturation are kept here because grays and black carry no hue of their own to read back.
   const [hsv, setHsv] = useState(() => hexToHsv(value));
   const [text, setText] = useState(value);
@@ -105,6 +133,27 @@ export function ColorPicker({ label, value, onChange }: { label: string; value: 
 
   return (
     <div className="color-picker">
+      {swatches.length > 0 ? (
+        <fieldset className="color-picker-swatches">
+          <legend className="sr-only">{`${label}: quick picks`}</legend>
+          {swatches.map((swatch) => (
+            <button
+              key={swatch}
+              type="button"
+              className="color-picker-swatch"
+              style={{ background: swatch }}
+              aria-pressed={swatch === value}
+              aria-label={swatch}
+              data-tooltip={swatch}
+              onClick={() => {
+                setHsv(hexToHsv(swatch));
+                setText(swatch);
+                onChange(swatch);
+              }}
+            />
+          ))}
+        </fieldset>
+      ) : null}
       <div
         ref={areaRef}
         className="color-picker-area"

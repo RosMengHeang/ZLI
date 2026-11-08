@@ -1,15 +1,20 @@
-import { type ReactNode, useCallback, useId, useState } from "react";
+import { useCallback, useId, useState } from "react";
 
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { ColorPicker } from "./ColorPicker.js";
+import { Switch } from "../ui/Switch.js";
+import { ColorPicker, SWATCHES } from "./ColorPicker.js";
 import {
+  AREA_GROUPS,
+  colorKind,
   customBase,
+  type CustomTheme,
   type EditableField,
-  FIELD_GROUPS,
+  FIELD_HINTS,
   FIELD_LABELS,
   MAX_THEME_NAME,
   readabilityProblems,
+  SEED_FIELDS,
   type SeedKey,
   seedFor,
 } from "./customThemes.js";
@@ -23,17 +28,23 @@ import {
 } from "./themeEditorStore.js";
 import "./themeEditor.css";
 
-/** The color row open in the editor: one of the three main colors, or one under More colors. */
-type Selection = SeedKey | EditableField;
-
-const SEEDS: readonly { key: SeedKey; label: string; hint: string }[] = [
-  { key: "background", label: "Window color", hint: "Sidebar, top bar, and gaps" },
-  { key: "terminal", label: "Terminal color", hint: "Agent tiles and terminals" },
-  { key: "accent", label: "Accent color", hint: "Main buttons, selection, and focus" },
+/** The two colors the simple view offers: the sidebar (with the rest of the window) and the terminal. */
+const SIMPLE_ROWS: readonly { field: EditableField; label: string; hint: string }[] = [
+  { field: "canvas", label: "Sidebar", hint: "Also the top bar and edges" },
+  { field: "surface", label: "Terminal", hint: "Agent tiles and terminals" },
 ];
 
-function isSeed(choice: Selection): choice is SeedKey {
-  return SEEDS.some((seed) => seed.key === choice);
+/** Sets one color: the three a theme starts from live in its seed, the rest are set by hand. */
+function withColor(draft: CustomTheme, field: EditableField, hex: string, simple: boolean): CustomTheme {
+  const seed = seedFor(field);
+  if (!seed) return { ...draft, overrides: { ...draft.overrides, [field]: hex } };
+  const next = { ...draft, seed: { ...draft.seed, [seed]: hex } };
+  // In the simple view the sidebar row paints the whole window, sidebar included.
+  if (simple && field === "canvas") {
+    const { sidebar: _sidebar, ...overrides } = draft.overrides;
+    return { ...next, overrides };
+  }
+  return next;
 }
 
 function ColorRow({
@@ -41,8 +52,9 @@ function ColorRow({
   hint,
   value,
   open,
-  overridden,
-  action,
+  changed,
+  swatches,
+  match,
   onToggle,
   onChange,
   onReset,
@@ -51,16 +63,17 @@ function ColorRow({
   hint?: string | undefined;
   value: string;
   open: boolean;
-  /** Set by hand instead of worked out from the three main colors. */
-  overridden?: boolean;
-  /** A small action under the hint, such as matching another color. */
-  action?: ReactNode;
+  /** Set by hand rather than worked out from the theme's main colors. */
+  changed?: boolean;
+  swatches: readonly string[];
+  /** Offers to copy another color, such as the terminal taking the sidebar's. */
+  match?: { label: string; onMatch(): void } | undefined;
   onToggle(): void;
   onChange(hex: string): void;
   onReset?: (() => void) | undefined;
 }) {
   return (
-    <div className={`theme-color-row${open ? " is-open" : ""}${hint ? " has-hint" : ""}`}>
+    <div className={`theme-color-row${open ? " is-open" : ""}`}>
       <div className="theme-color-head">
         <button type="button" className="theme-color-toggle" aria-expanded={open} onClick={onToggle}>
           <span className="theme-color-swatch" style={{ background: value }} />
@@ -68,15 +81,19 @@ function ColorRow({
             <span className="theme-color-label">{label}</span>
             {hint ? <span className="theme-color-hint">{hint}</span> : null}
           </span>
-          {overridden ? <span className="theme-color-badge">Changed</span> : null}
           <span className="theme-color-hex">{value}</span>
+          <Icon name={open ? "chevronUp" : "chevronDown"} size={13} className="theme-color-chevron" />
         </button>
-        {overridden && onReset ? (
+        {changed && onReset ? (
           <IconButton label={`Reset ${label.toLowerCase()}`} icon="undo" size="xs" onClick={onReset} />
         ) : null}
       </div>
-      {action ? <div className="theme-color-action">{action}</div> : null}
-      {open ? <ColorPicker label={label} value={value} onChange={onChange} /> : null}
+      {match ? (
+        <button type="button" className="theme-match" onClick={match.onMatch}>
+          {match.label}
+        </button>
+      ) : null}
+      {open ? <ColorPicker label={label} value={value} swatches={swatches} onChange={onChange} /> : null}
     </div>
   );
 }
@@ -86,37 +103,64 @@ function EditorBody({ session }: { session: ThemeEditorSession }) {
   const base = customBase(draft);
   const problems = readabilityProblems(base);
   const nameId = useId();
-  const [selection, setSelection] = useState<Selection>();
-  const [moreOpen, setMoreOpen] = useState(Object.keys(draft.overrides).length > 0);
+  const [open, setOpen] = useState<EditableField>();
+  const [advanced, setAdvanced] = useState(Object.keys(draft.overrides).length > 0);
   const [inspecting, setInspecting] = useState(false);
-  const [picked, setPicked] = useState<Selection[]>([]);
+  const [picked, setPicked] = useState<EditableField[]>([]);
 
-  const toggle = (next: Selection) => setSelection((current) => (current === next ? undefined : next));
-  const setSeed = (key: SeedKey, hex: string) =>
-    updateThemeDraft((current) => ({ ...current, seed: { ...current.seed, [key]: hex } }));
-  const setField = (field: EditableField, hex: string) =>
-    updateThemeDraft((current) => ({ ...current, overrides: { ...current.overrides, [field]: hex } }));
-  const resetField = (field: EditableField) =>
+  const toggle = (field: EditableField) => setOpen((current) => (current === field ? undefined : field));
+  const setColor = (field: EditableField, hex: string) =>
+    updateThemeDraft((current) => withColor(current, field, hex, !advanced));
+  const reset = (field: EditableField) =>
     updateThemeDraft((current) => {
       const { [field]: _removed, ...overrides } = current.overrides;
       return { ...current, overrides };
     });
+  const terminalMatch =
+    draft.seed.terminal !== draft.seed.background
+      ? {
+          label: advanced ? "Use the window color" : "Use the sidebar color",
+          onMatch: () => setColor("surface", draft.seed.background),
+        }
+      : undefined;
+  const simpleLabel = (field: EditableField) =>
+    SIMPLE_ROWS.find((entry) => entry.field === field)?.label ?? FIELD_LABELS[field];
 
-  const onPick = useCallback((fields: EditableField[]) => {
-    const choices = [...new Set(fields.map((field) => seedFor(field) ?? field))];
-    setInspecting(false);
-    setPicked(choices);
-    setSelection(choices[0]);
-    // A first pick outside the three main colors lives under More colors.
-    if (choices[0] && !isSeed(choices[0])) setMoreOpen(true);
-    // The picked row may be further down the panel.
-    requestAnimationFrame(() =>
-      document.querySelector(".theme-color-row.is-open")?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+  const row = (field: EditableField, label = FIELD_LABELS[field], hint = FIELD_HINTS[field]) => {
+    const seed: SeedKey | undefined = seedFor(field);
+    return (
+      <ColorRow
+        key={field}
+        label={label}
+        hint={hint}
+        value={seed ? draft.seed[seed] : base[field]}
+        open={open === field}
+        changed={draft.overrides[field] !== undefined}
+        swatches={SWATCHES[colorKind(field)]}
+        match={field === SEED_FIELDS.terminal ? terminalMatch : undefined}
+        onToggle={() => toggle(field)}
+        onChange={(hex) => setColor(field, hex)}
+        onReset={() => reset(field)}
+      />
     );
-  }, []);
+  };
+
+  const onPick = useCallback(
+    (fields: EditableField[]) => {
+      // The simple view has no separate sidebar row; its sidebar color is the window color.
+      const choices = advanced ? fields : [...new Set(fields.map((field) => (field === "sidebar" ? "canvas" : field)))];
+      setInspecting(false);
+      setPicked(choices);
+      setOpen(choices[0]);
+      if (choices[0] && choices[0] !== "canvas" && choices[0] !== "surface") setAdvanced(true);
+      // The picked row may be further down the panel.
+      requestAnimationFrame(() =>
+        document.querySelector(".theme-color-row.is-open")?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+      );
+    },
+    [advanced],
+  );
   const onCancelInspect = useCallback(() => setInspecting(false), []);
-  const labelOf = (choice: Selection) =>
-    isSeed(choice) ? (SEEDS.find((seed) => seed.key === choice)?.label ?? choice) : FIELD_LABELS[choice];
 
   return (
     <>
@@ -135,30 +179,55 @@ function EditorBody({ session }: { session: ThemeEditorSession }) {
           />
         </div>
 
-        <section className="theme-editor-section" aria-label="Colors">
-          {SEEDS.map((seed) => (
-            <ColorRow
-              key={seed.key}
-              label={seed.label}
-              hint={seed.hint}
-              value={draft.seed[seed.key]}
-              open={selection === seed.key}
-              onToggle={() => toggle(seed.key)}
-              onChange={(hex) => setSeed(seed.key, hex)}
-              action={
-                seed.key === "terminal" && draft.seed.terminal !== draft.seed.background ? (
-                  <button
-                    type="button"
-                    className="theme-match"
-                    onClick={() => setSeed("terminal", draft.seed.background)}
-                  >
-                    Use the window color
-                  </button>
-                ) : null
-              }
-            />
-          ))}
-        </section>
+        {advanced ? (
+          AREA_GROUPS.map((group) => (
+            <section key={group.title} className="theme-area" aria-label={group.title}>
+              <h3 className="theme-area-title">{group.title}</h3>
+              <div className="theme-area-rows">{group.fields.map((field) => row(field))}</div>
+            </section>
+          ))
+        ) : (
+          <section className="theme-area" aria-label="Colors">
+            <div className="theme-area-rows">
+              {SIMPLE_ROWS.map((entry) => row(entry.field, entry.label, entry.hint))}
+            </div>
+          </section>
+        )}
+
+        <div className="theme-advanced">
+          <Switch
+            label="Advanced"
+            hint="Change text, buttons, menus, and status colors one by one."
+            checked={advanced}
+            onChange={(next) => {
+              setAdvanced(next);
+              setOpen(undefined);
+              setPicked([]);
+            }}
+          />
+        </div>
+
+        <div className="theme-editor-tools">
+          <Button icon="crosshair" size="sm" onClick={() => setInspecting(true)}>
+            Pick a color from the app
+          </Button>
+          {picked.length > 1 ? (
+            <fieldset className="theme-picked">
+              <legend className="theme-picked-legend">At that spot:</legend>
+              {picked.map((field) => (
+                <button
+                  key={field}
+                  type="button"
+                  className="theme-picked-chip"
+                  aria-pressed={open === field}
+                  onClick={() => setOpen(field)}
+                >
+                  {advanced ? FIELD_LABELS[field] : simpleLabel(field)}
+                </button>
+              ))}
+            </fieldset>
+          ) : null}
+        </div>
 
         {problems.length > 0 ? (
           <div className="theme-readability is-warning" role="status">
@@ -177,61 +246,6 @@ function EditorBody({ session }: { session: ThemeEditorSession }) {
             All text is easy to read.
           </p>
         )}
-
-        <Button icon="crosshair" size="sm" className="theme-editor-inspect" onClick={() => setInspecting(true)}>
-          Pick a color from the app
-        </Button>
-
-        {picked.length > 1 ? (
-          <fieldset className="theme-picked">
-            <legend className="theme-picked-legend">Colors at that spot</legend>
-            {picked.map((choice) => (
-              <button
-                key={choice}
-                type="button"
-                className="theme-picked-chip"
-                aria-pressed={selection === choice}
-                onClick={() => {
-                  setSelection(choice);
-                  if (!isSeed(choice)) setMoreOpen(true);
-                }}
-              >
-                {labelOf(choice)}
-              </button>
-            ))}
-          </fieldset>
-        ) : null}
-
-        <section className="theme-editor-section">
-          <button
-            type="button"
-            className="theme-editor-disclosure"
-            aria-expanded={moreOpen}
-            onClick={() => setMoreOpen((open) => !open)}
-          >
-            <Icon name={moreOpen ? "chevronDown" : "chevronRight"} size={13} />
-            More colors
-          </button>
-          {moreOpen
-            ? FIELD_GROUPS.map((group) => (
-                <div key={group.title} className="theme-field-group">
-                  <h4 className="theme-field-group-title">{group.title}</h4>
-                  {group.fields.map((field) => (
-                    <ColorRow
-                      key={field}
-                      label={FIELD_LABELS[field]}
-                      value={base[field]}
-                      open={selection === field}
-                      overridden={draft.overrides[field] !== undefined}
-                      onToggle={() => toggle(field)}
-                      onChange={(hex) => setField(field, hex)}
-                      onReset={() => resetField(field)}
-                    />
-                  ))}
-                </div>
-              ))
-            : null}
-        </section>
       </div>
       <footer className="theme-editor-footer">
         <Button variant="ghost" size="sm" onClick={closeThemeEditor}>
