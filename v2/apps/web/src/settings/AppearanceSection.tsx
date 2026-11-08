@@ -10,17 +10,17 @@ import {
 } from "../theme/customThemes.js";
 import { openThemeEditor } from "../theme/themeEditorStore.js";
 import { Button } from "../ui/Button.js";
-import { Icon } from "../ui/Icon.js";
 import { MenuButton } from "../ui/Menu.js";
 import { updateAppSettings, useAppSettings } from "./appSettings.js";
-import { SectionHeader, SettingGroup } from "./SectionHeader.js";
+import { SectionHeader } from "./SectionHeader.js";
 import "./appearance.css";
 
-/** The theme's own tokens on the preview, so its miniature window draws in that theme. */
+/** The theme's own tokens on the preview, so the miniature window draws in that theme. */
 function previewStyle(theme: Theme): CSSProperties {
   return theme.tokens as CSSProperties;
 }
 
+/** A tiny window: sidebar rows on the window color, and an agent terminal with a few lines. */
 function ThemePreview({ theme }: { theme: Theme }) {
   return (
     <span className="theme-preview" style={previewStyle(theme)} aria-hidden="true">
@@ -29,25 +29,26 @@ function ThemePreview({ theme }: { theme: Theme }) {
         <span className="theme-preview-row" />
         <span className="theme-preview-row is-short" />
       </span>
-      <span className="theme-preview-island">
-        <span className="theme-preview-line is-text" />
-        <span className="theme-preview-line is-muted" />
-        <span className="theme-preview-code">
-          <span className="is-keyword" />
-          <span className="is-function" />
-          <span className="is-string" />
+      <span className="theme-preview-terminal">
+        <span className="theme-preview-line">
+          <span className="is-accent" />
+          <span className="is-text" />
         </span>
-        <span className="theme-preview-foot">
-          <span className="theme-preview-dot is-green" />
-          <span className="theme-preview-dot is-amber" />
-          <span className="theme-preview-button" />
+        <span className="theme-preview-line">
+          <span className="is-green" />
+          <span className="is-muted" />
         </span>
+        <span className="theme-preview-button" />
       </span>
     </span>
   );
 }
 
-function ThemeCard({
+function pick(id: string) {
+  updateAppSettings((current) => ({ ...current, theme: id }));
+}
+
+function ThemeTile({
   theme,
   name,
   checked,
@@ -60,29 +61,17 @@ function ThemeCard({
   custom?: CustomTheme | undefined;
 }) {
   return (
-    <div className="theme-card-wrap">
-      <label className="theme-card">
-        <input
-          type="radio"
-          name={name}
-          value={theme.id}
-          checked={checked}
-          onChange={() => updateAppSettings((current) => ({ ...current, theme: theme.id }))}
-        />
+    <div className="theme-tile">
+      <label className="theme-tile-pick" data-tooltip={custom ? undefined : theme.description}>
+        <input type="radio" name={name} value={theme.id} checked={checked} onChange={() => pick(theme.id)} />
         <ThemePreview theme={theme} />
-        <span className="theme-card-copy">
-          <span className="theme-card-name">
-            <span className="theme-card-title">{theme.name}</span>
-            {checked ? <Icon name="check" size={13} /> : null}
-          </span>
-          <span className="theme-card-description">{theme.description}</span>
-        </span>
+        <span className="theme-tile-name">{theme.name}</span>
       </label>
       {custom ? (
         <MenuButton
           label={`${theme.name} options`}
           size="xs"
-          className="theme-card-menu"
+          className="theme-tile-menu"
           items={() => [
             { label: "Edit", icon: "pencil", run: () => openThemeEditor(custom, false) },
             {
@@ -115,44 +104,65 @@ export function AppearanceSection() {
   const current = resolveTheme(settings.theme, settings.customThemes);
   const currentCustom = settings.customThemes.find((theme) => theme.id === current.id);
   const atLimit = settings.customThemes.length >= MAX_CUSTOM_THEMES;
+  const isCustom = (theme: Theme) => settings.customThemes.some((custom) => custom.id === theme.id);
   const choices = themeChoices(settings.customThemes);
+  const builtIn = choices.filter((theme) => !isCustom(theme));
+  const yours = choices.filter(isCustom);
+  const create = () =>
+    openThemeEditor(
+      customThemeFrom(current, currentCustom ? `${current.name} copy` : `My ${current.name}`, currentCustom),
+      true,
+    );
+
   return (
-    <>
+    <div className="appearance">
       <SectionHeader title="Appearance">Colors for every ZLI window, including terminals and the editor.</SectionHeader>
-      <SettingGroup
-        title="Theme"
-        description="Pick a theme, or create your own from any of them."
-        actions={
+
+      <section className="appearance-block" aria-labelledby={`${name}-themes`}>
+        <h4 id={`${name}-themes`} className="appearance-heading">
+          Theme
+        </h4>
+        <div className="theme-tiles" role="radiogroup" aria-labelledby={`${name}-themes`}>
+          {builtIn.map((theme) => (
+            <ThemeTile key={theme.id} theme={theme} name={name} checked={current.id === theme.id} />
+          ))}
+        </div>
+      </section>
+
+      <section className="appearance-block" aria-labelledby={`${name}-yours`}>
+        <div className="appearance-heading-row">
+          <h4 id={`${name}-yours`} className="appearance-heading">
+            Your themes
+          </h4>
           <Button
             icon="plus"
             size="sm"
+            variant="ghost"
             disabled={atLimit}
             tooltip={
               atLimit ? `You can keep up to ${MAX_CUSTOM_THEMES} themes. Delete one to make another.` : undefined
             }
-            onClick={() =>
-              openThemeEditor(
-                customThemeFrom(current, currentCustom ? `${current.name} copy` : `My ${current.name}`, currentCustom),
-                true,
-              )
-            }
+            onClick={create}
           >
             Create theme
           </Button>
-        }
-      >
-        <div className="theme-grid" role="radiogroup" aria-label="Theme">
-          {choices.map((theme) => (
-            <ThemeCard
-              key={theme.id}
-              theme={theme}
-              name={name}
-              checked={current.id === theme.id}
-              custom={settings.customThemes.find((entry) => entry.id === theme.id)}
-            />
-          ))}
         </div>
-      </SettingGroup>
-    </>
+        {yours.length > 0 ? (
+          <div className="theme-tiles" role="radiogroup" aria-labelledby={`${name}-yours`}>
+            {yours.map((theme) => (
+              <ThemeTile
+                key={theme.id}
+                theme={theme}
+                name={name}
+                checked={current.id === theme.id}
+                custom={settings.customThemes.find((entry) => entry.id === theme.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="appearance-empty">Start from the theme you use now and change any color.</p>
+        )}
+      </section>
+    </div>
   );
 }
