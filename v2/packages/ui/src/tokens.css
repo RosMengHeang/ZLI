@@ -3,32 +3,37 @@
  * component styles reference these variables instead of raw values.
  */
 :root {
-  color-scheme: dark;
+  /*
+   * Colors. These are the Midnight theme, the default; themes.ts holds every theme and applies the
+   * chosen one over these on the root element. A test keeps this block equal to Midnight.
+   */
+  --zli-scheme: dark;
+  color-scheme: var(--zli-scheme);
 
   /*
    * Surfaces, from the deepest layer up. The canvas is the window itself: sidebar, top bar, and the
    * gutters between work panels. Work panels (tiles, the drawer, the side panel) are islands of
    * --zli-surface on it, so tone separates regions and borders can stay faint.
    */
-  --zli-canvas: #0a0a0b;
-  --zli-sidebar: #0a0a0b;
-  --zli-surface: #141416;
-  --zli-raised: #1b1b1e;
-  --zli-overlay: #1f1f23;
-  /* Must match terminalTheme.background so a terminal blends into its tile. */
-  --zli-terminal: #141416;
+  --zli-canvas: #000000;
+  --zli-sidebar: #000000;
+  --zli-surface: #000000;
+  --zli-raised: #121212;
+  --zli-overlay: #181818;
+  /* Equals the terminal theme's background so a terminal blends into its tile. */
+  --zli-terminal: #000000;
   /* Sunken wells for fields, code, and logs, on any surface. */
   --zli-well: rgba(0, 0, 0, .22);
 
   /* Interaction fills drawn over any surface. */
-  --zli-hover: rgba(255, 255, 255, .055);
-  --zli-active: rgba(255, 255, 255, .09);
-  --zli-pressed: rgba(255, 255, 255, .12);
+  --zli-hover: rgba(255, 255, 255, 0.055);
+  --zli-active: rgba(255, 255, 255, 0.09);
+  --zli-pressed: rgba(255, 255, 255, 0.12);
 
   /* Hairlines. */
-  --zli-border: rgba(255, 255, 255, .06);
-  --zli-border-strong: rgba(255, 255, 255, .1);
-  --zli-border-hover: rgba(255, 255, 255, .17);
+  --zli-border: rgba(255, 255, 255, 0.06);
+  --zli-border-strong: rgba(255, 255, 255, 0.1);
+  --zli-border-hover: rgba(255, 255, 255, 0.17);
 
   /*
    * Text. Each step keeps WCAG AA (4.5:1) on every surface above, including --zli-overlay.
@@ -40,32 +45,51 @@
   --zli-disabled: #5c5c5c;
 
   /* The one accent: primary actions, focus, and the selected agent. */
-  --zli-accent: oklch(.571 .21 264);
-  --zli-accent-hover: oklch(.62 .2 264);
-  --zli-accent-pressed: oklch(.53 .2 264);
+  --zli-accent: #4a6fdc;
+  --zli-accent-hover: #5f80e3;
+  --zli-accent-pressed: #3f60c4;
   --zli-accent-ink: #ffffff;
-  --zli-accent-soft: oklch(.571 .21 264 / .14);
-  --zli-accent-line: oklch(.62 .2 264 / .6);
-  --zli-accent-edge: oklch(.62 .2 264 / .42);
-  --zli-focus: oklch(.66 .19 264 / .9);
+  --zli-accent-soft: rgba(74, 111, 220, 0.14);
+  --zli-accent-line: rgba(95, 128, 227, 0.6);
+  --zli-accent-edge: rgba(95, 128, 227, 0.42);
+  --zli-focus: rgba(95, 128, 227, 0.9);
+  --zli-selection: rgba(74, 111, 220, 0.38);
+  --zli-scrollbar: rgba(255, 255, 255, 0.12);
+  --zli-active-line: rgba(255, 255, 255, 0.035);
 
   /* Status colors carry process and Git meaning only. */
-  --zli-blue: oklch(.76 .12 264);
+  --zli-blue: #a3b8f0;
   --zli-green: #57c487;
   --zli-amber: #e3b45f;
   --zli-red: #ef7b7b;
-  --zli-blue-soft: oklch(.76 .12 264 / .13);
-  --zli-green-soft: rgba(87, 196, 135, .13);
-  --zli-amber-soft: rgba(227, 180, 95, .13);
-  --zli-red-soft: rgba(239, 123, 123, .13);
-  --zli-red-line: rgba(239, 123, 123, .32);
+  --zli-blue-soft: rgba(163, 184, 240, 0.13);
+  --zli-green-soft: rgba(87, 196, 135, 0.13);
+  --zli-amber-soft: rgba(227, 180, 95, 0.13);
+  --zli-red-soft: rgba(239, 123, 123, 0.13);
+  --zli-red-line: rgba(239, 123, 123, 0.32);
   /* Text on the soft fills above. */
   --zli-green-ink: #a3e0bb;
   --zli-amber-ink: #efd6a6;
   --zli-red-ink: #f5c0c0;
-  --zli-amber-line: rgba(227, 180, 95, .32);
+  --zli-amber-line: rgba(227, 180, 95, 0.32);
   --zli-danger: #c2413f;
   --zli-danger-hover: #d14d4b;
+
+  /* Code: the editor, Markdown code blocks, and diffs. */
+  --zli-syntax-keyword: #b3a6dc;
+  --zli-syntax-string: #a3c49a;
+  --zli-syntax-regexp: #d3a283;
+  --zli-syntax-number: #d8b67e;
+  --zli-syntax-comment: #6a6a6a;
+  --zli-syntax-function: #8fb0e3;
+  --zli-syntax-type: #80bfb8;
+  --zli-syntax-property: #a9bad6;
+  --zli-syntax-variable: #dcdcdc;
+  --zli-syntax-operator: #a3a3a3;
+  --zli-syntax-punctuation: #8a8a8a;
+  --zli-syntax-heading: #e6e6e6;
+  --zli-syntax-deleted: #de8f8f;
+  --zli-syntax-invalid: #ec7272;
 
   /* Spacing: a 4px scale. */
   --zli-space-0-5: 2px;
@@ -107,7 +131,7 @@
   /* The gutter between islands on the canvas. */
   --zli-gutter: 6px;
 
-  /* Radii: small on controls, larger on containers. Pills only for counts and the send button. */
+  /* Radii: small on controls, larger on containers. Pills only for counts, switches, and the send button. */
   --zli-radius-xs: 4px;
   --zli-radius-sm: 6px;
   --zli-radius-md: 8px;
@@ -121,6 +145,8 @@
    */
   --zli-highlight: inset 0 1px 0 rgba(255, 255, 255, .055);
   --zli-shadow-pop: 0 0 0 1px rgba(0, 0, 0, .5), 0 12px 32px -8px rgba(0, 0, 0, .7);
+  /* The soft drop under the chat composer. */
+  --zli-shadow-lift: 0 14px 32px -18px rgba(0, 0, 0, .8);
   --zli-shadow-dialog: 0 0 0 1px rgba(0, 0, 0, .55), 0 32px 80px -20px rgba(0, 0, 0, .85);
 
   /* Motion. */
@@ -131,6 +157,10 @@
 
   /* Stacking. */
   --zli-z-dialog: 20;
+  /* The theme editor floats over dialogs and over its own color picking layer, so it stays usable. */
+  --zli-z-inspect: 29;
+  --zli-z-editor: 30;
+  --zli-z-popover: 31;
   --zli-z-tooltip: 40;
 
   font-family: var(--zli-font);
@@ -146,10 +176,10 @@ body { overflow: hidden; background: var(--zli-canvas); color: var(--zli-text); 
 button, input, textarea, select { font: inherit; letter-spacing: inherit; }
 button { color: inherit; }
 svg { flex: 0 0 auto; }
-::selection { background: oklch(.571 .21 264 / .38); }
-* { scrollbar-color: rgba(255, 255, 255, .12) transparent; scrollbar-width: thin; }
+::selection { background: var(--zli-selection); }
+* { scrollbar-color: var(--zli-scrollbar) transparent; scrollbar-width: thin; }
 input::placeholder, textarea::placeholder { color: var(--zli-dim); opacity: 1; }
-select { color-scheme: dark; }
+select { color-scheme: var(--zli-scheme); }
 code { padding: 1px 5px; border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-text); font-family: var(--zli-mono); font-size: .9em; }
 /* Ligatures would draw operators such as != and => as single glyphs, which misreads code. */
 code, kbd, pre, samp { font-variant-ligatures: none; }

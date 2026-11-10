@@ -4,9 +4,11 @@ import {
   PLAN_LIMIT_PROVIDERS,
   type PlanLimitProvider,
 } from "@zli-v2/contracts";
+import { DEFAULT_THEME, isThemeId } from "@zli-v2/ui/themes";
 import { useSyncExternalStore } from "react";
 
 import type { SessionMode } from "../sessions/sessions.js";
+import { type CustomTheme, parseCustomThemes } from "../theme/customThemes.js";
 
 const STORAGE_KEY = "zli.settings.v1";
 export const DEFAULT_BRANCH_TEMPLATE = "{agent}-{random}";
@@ -58,6 +60,10 @@ export type AppSettings = {
   shortcuts: Partial<Record<ShortcutId, string>>;
   fileTreePosition: FileTreePosition;
   sidebarLimits: SidebarLimits;
+  /** The color theme of every ZLI window: a built-in theme id or the id of one in customThemes. */
+  theme: string;
+  /** Themes the person made in the theme editor. */
+  customThemes: CustomTheme[];
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -67,6 +73,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   shortcuts: {},
   fileTreePosition: "right",
   sidebarLimits: { enabled: false, hidden: [] },
+  theme: DEFAULT_THEME,
+  customThemes: [],
 };
 
 const modes: readonly SessionMode[] = ["terminal", "chat"];
@@ -116,6 +124,10 @@ function parseSidebarLimits(value: unknown): SidebarLimits {
   return { enabled: value.enabled === true, hidden, ...(pinned ? { pinned } : {}) };
 }
 
+function knownTheme(value: unknown, customThemes: readonly CustomTheme[]): value is string {
+  return isThemeId(value) || customThemes.some((theme) => theme.id === value);
+}
+
 export function parseAppSettings(raw: string | null): AppSettings {
   if (!raw) return structuredClone(DEFAULT_SETTINGS);
   let value: unknown;
@@ -143,6 +155,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     typeof value.branchTemplate === "string" && value.branchTemplate.trim()
       ? value.branchTemplate.trim().slice(0, MAX_BRANCH_TEMPLATE)
       : DEFAULT_BRANCH_TEMPLATE;
+  const customThemes = parseCustomThemes(value.customThemes);
   return {
     defaults: parseDefaults(value.defaults),
     projects,
@@ -150,6 +163,8 @@ export function parseAppSettings(raw: string | null): AppSettings {
     shortcuts,
     fileTreePosition: value.fileTreePosition === "left" ? "left" : "right",
     sidebarLimits: parseSidebarLimits(value.sidebarLimits),
+    theme: knownTheme(value.theme, customThemes) ? value.theme : DEFAULT_THEME,
+    customThemes,
   };
 }
 
@@ -166,7 +181,8 @@ export function readAppSettings(): AppSettings {
   return cache;
 }
 
-function subscribe(listener: () => void): () => void {
+/** Calls `listener` whenever the settings change, in this window or another one. */
+export function subscribeAppSettings(listener: () => void): () => void {
   listeners.add(listener);
   const onStorage = (event: StorageEvent) => {
     if (event.key !== STORAGE_KEY) return;
@@ -181,7 +197,7 @@ function subscribe(listener: () => void): () => void {
 }
 
 export function useAppSettings(): AppSettings {
-  return useSyncExternalStore(subscribe, readAppSettings, () => DEFAULT_SETTINGS);
+  return useSyncExternalStore(subscribeAppSettings, readAppSettings, () => DEFAULT_SETTINGS);
 }
 
 export function updateAppSettings(change: (current: AppSettings) => AppSettings): AppSettings {
