@@ -8,6 +8,7 @@ import {
   type DesktopFixture,
   launchDesktop,
   openCreateWorktree,
+  togglePanel,
 } from "./desktop-fixtures.js";
 
 test("shrinks the side panel and terminal drawer to fit a smaller window", async () => {
@@ -41,7 +42,7 @@ test("shrinks the side panel and terminal drawer to fit a smaller window", async
     await page.getByRole("button", { name: "Start terminal" }).click();
     const drawerHandle = page.getByRole("separator", { name: "Resize terminal drawer" });
     await expect(drawerHandle).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("button", { name: "Files", exact: true }).click();
+    await togglePanel(page, "Files");
     const panelHandle = page.getByRole("separator", { name: "Resize side panel" });
     await expect(page.getByRole("complementary", { name: "Files panel" })).toBeVisible();
 

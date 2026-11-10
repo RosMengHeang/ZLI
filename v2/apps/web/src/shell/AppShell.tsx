@@ -98,7 +98,13 @@ import {
   useWorkbenchState,
   type WorkbenchState,
 } from "../sessions/workbench.js";
-import { readAppSettings, resolveLaunchDefaults, updateAppSettings, useAppSettings } from "../settings/appSettings.js";
+import {
+  readAppSettings,
+  resolveLaunchDefaults,
+  updateAppSettings,
+  useAppSettings,
+  workStyleOf,
+} from "../settings/appSettings.js";
 import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
@@ -550,7 +556,10 @@ function WorkspaceApp() {
     setHuddleId(next);
     setSidePane("huddle");
   }, []);
-  const toggleDrawer = () => updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
+  // Chat only keeps the terminal out of sight: its toggle and shortcut only close a drawer something else opened.
+  const chatOnly = workStyleOf(settings.defaults) === "chat";
+  const toggleDrawer = () =>
+    updateWorkbench((state) => (chatOnly && !state.drawerOpen ? state : { ...state, drawerOpen: !state.drawerOpen }));
   const openSettings = (section: SettingsSection = "agents") => {
     setPaletteOpen(false);
     setFocusConnector(undefined);
@@ -2056,13 +2065,17 @@ function WorkspaceApp() {
           },
         ]
       : []),
-    {
-      label: "Toggle terminal",
-      icon: "terminal",
-      group: "View",
-      shortcut: shortcuts.toggleDrawer,
-      action: toggleDrawer,
-    },
+    ...(chatOnly
+      ? []
+      : [
+          {
+            label: "Toggle terminal",
+            icon: "terminal" as const,
+            group: "View" as const,
+            shortcut: shortcuts.toggleDrawer,
+            action: toggleDrawer,
+          },
+        ]),
     {
       label: "Focus files",
       icon: "folderTree",
@@ -2318,6 +2331,7 @@ function WorkspaceApp() {
             worktree={contextWorktree}
             hasProjects={hasProjects}
             drawerOpen={workbench.drawerOpen}
+            showTerminal={!chatOnly}
             sidePane={sidePane}
             onShowSidebar={toggleSidebar}
             onNewAgent={() => openNewAgent()}

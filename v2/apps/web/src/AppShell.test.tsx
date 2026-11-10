@@ -995,10 +995,8 @@ describe("Settings", () => {
       button(container, "New agent with options")?.click();
     });
     const newAgent = dialog("New agent");
-    const chat = [...(newAgent?.querySelectorAll<HTMLInputElement>('input[name="agent-mode"]') ?? [])].find(
-      (input) => input.closest("label")?.textContent === "Chat",
-    );
-    expect(chat?.checked).toBe(true);
+    // Chat only: every new agent is a chat, so the dialog does not offer the terminal.
+    expect(newAgent?.querySelectorAll('input[name="agent-mode"]')).toHaveLength(0);
     await act(async () => {
       [...(newAgent?.querySelectorAll<HTMLInputElement>('input[name="agent-placement"]') ?? [])]
         .find((input) => input.closest("label")?.textContent === "New worktree")

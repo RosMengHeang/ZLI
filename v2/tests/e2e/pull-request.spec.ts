@@ -10,6 +10,7 @@ import {
   git,
   launchDesktop,
   openCreateWorktree,
+  togglePanel,
 } from "./desktop-fixtures.js";
 
 const PR_URL = "https://github.com/zli/fixture/pull/7";
@@ -102,7 +103,7 @@ test("creates a draft pull request from the Changes panel and opens it", async (
     const worktreePath = join(`${repo}-worktrees`, "feature");
     await writeFile(join(worktreePath, "greeting.txt"), "hello from the feature branch\n", "utf8");
 
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     const section = page.getByRole("group", { name: "Pull request" });
     await expect(section).toContainText("No pull request");
@@ -215,7 +216,7 @@ test("shows a pull request's checks and sends a failed check's log to an agent",
     await newAgent.getByRole("button", { name: "Start agent" }).click();
     await expect(page.getByRole("textbox", { name: "Message Codex" })).toBeEnabled({ timeout: 20_000 });
 
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     const section = page.getByRole("group", { name: "Pull request" });
     await expect(section).toContainText("#7", { timeout: 30_000 });
@@ -327,7 +328,7 @@ test("reads a pull request's review comments and sends the picked ones to an age
     await newAgent.getByRole("button", { name: "Start agent" }).click();
     await expect(page.getByRole("textbox", { name: "Message Codex" })).toBeEnabled({ timeout: 20_000 });
 
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     const section = page.getByRole("group", { name: "Pull request" });
     await expect(section).toContainText("#7", { timeout: 30_000 });
@@ -431,7 +432,7 @@ test("replies to and resolves a review thread, approves, and turns auto-merge on
     await expect(worktree).toContainText("Ready", { timeout: 30_000 });
     await worktree.click();
 
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     const section = page.getByRole("group", { name: "Pull request" });
     await expect(section).toContainText("#7", { timeout: 30_000 });

@@ -6,7 +6,7 @@ import { ChatStart, ChatView, type StartRunsRequest } from "../chat/ChatView.js"
 import { type DraftChange, DraftChat, type DraftMessage } from "../chat/DraftChat.js";
 import { useFileLinks } from "../files/FileIndex.js";
 import { HUDDLE_AGENT_DRAG_TYPE, sessionAgentId, typingHeldCount } from "../huddle/huddles.js";
-import { HuddleHeldPill, HuddleMenuButton, TileHuddleChip } from "../huddle/TileHuddle.js";
+import { HuddleHeldPill, TileHuddleChip, useHuddleEntries } from "../huddle/TileHuddle.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { setupProgress, worktreeSetup } from "../setup/setup.js";
@@ -235,6 +235,34 @@ export function AgentTile({
   const huddleAgentId = onOpenHuddle ? sessionAgentId(session) : undefined;
   const memberOf = huddleAgentId ? huddlesOf(projection, huddleAgentId) : [];
   const heldForTyping = huddleAgentId && mode === "terminal" ? typingHeldCount(projection, huddleAgentId) : 0;
+  // The tile's rarer actions share one menu, so the header keeps only what is used all the time.
+  const huddleEntries = useHuddleEntries({
+    projection,
+    agentId: huddleAgentId,
+    agentLabel: agentName ?? title,
+    onOpen: (huddleId) => onOpenHuddle?.(huddleId),
+    onError: setError,
+  });
+  const moreItems: MenuEntry[] = [
+    ...(mode === "chat" && onHandoff
+      ? [{ id: "handoff", label: "Continue with another agent", icon: "handoff" as const, run: onHandoff }]
+      : []),
+    ...(onRename && !agentName
+      ? [
+          {
+            id: "rename",
+            label: "Name this agent",
+            icon: "pencil" as const,
+            title: "Name this agent so you and other agents can refer to it",
+            run: onRename,
+          },
+        ]
+      : []),
+    ...(huddleEntries.length > 0 && (onHandoff || onRename) ? ["separator" as const] : []),
+    ...huddleEntries.map((entry) =>
+      entry === "separator" || entry.id === "new" ? entry : { ...entry, label: `Huddle: ${entry.label}` },
+    ),
+  ];
 
   return (
     <section
@@ -368,33 +396,14 @@ export function AgentTile({
               items={historyItems}
             />
           ) : null}
-          {huddleAgentId && onOpenHuddle ? (
-            <HuddleMenuButton
-              projection={projection}
-              agentId={huddleAgentId}
-              agentLabel={agentName ?? title}
-              onOpen={onOpenHuddle}
-              onError={setError}
-            />
-          ) : null}
-          {mode === "chat" && onHandoff ? (
-            <IconButton
-              label="Continue with another agent"
-              tooltip="Continue this chat with another agent"
-              icon="handoff"
+          {moreItems.length > 0 ? (
+            <MenuButton
+              label="More actions"
+              tooltip="Hand off, name, or add to a huddle"
+              icon="more"
               size="sm"
-              iconSize={13}
-              onClick={onHandoff}
-            />
-          ) : null}
-          {onRename && !agentName ? (
-            <IconButton
-              label="Name this agent"
-              tooltip="Name this agent so you and other agents can refer to it"
-              icon="pencil"
-              size="sm"
-              iconSize={13}
-              onClick={onRename}
+              iconSize={14}
+              items={moreItems}
             />
           ) : null}
           {canStop && mode !== "chat" ? (

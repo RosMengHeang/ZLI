@@ -13,6 +13,7 @@ import {
   git,
   launchDesktop,
   openCreateWorktree,
+  togglePanel,
 } from "./desktop-fixtures.js";
 
 test("completes the workspace, provider, browser, review, and restoration journey", async () => {
@@ -95,7 +96,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByText("Mock response: inspect workspace")).toBeVisible();
 
-    await page.getByRole("button", { name: "Browser", exact: true }).click();
+    await togglePanel(page, "Browser");
     await page.getByRole("textbox", { name: "Browser URL" }).fill(`http://127.0.0.1:${browserPort}`);
     await page.getByRole("button", { name: "Open", exact: true }).click();
     await expect(page.getByRole("heading", { name: "ZLI fixture" })).toBeVisible({ timeout: 20_000 });
@@ -125,7 +126,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
       await setRendererRandomUUID(fixture.page, false);
       rendererRandomUUIDDisabled = true;
     }
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     await expect(page.getByText("change.txt")).toBeVisible({ timeout: 20_000 });
     await page.locator(".review-file", { hasText: "change.txt" }).click();
@@ -189,7 +190,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     // The worktree has an agent, so the sidebar lists the agent under a row for its branch.
     await expect(fixture.page.locator(".worktree-group-row", { hasText: "e2e" })).toBeVisible({ timeout: 30_000 });
     await expect(fixture.page.getByText("Mock response: inspect workspace")).toBeVisible({ timeout: 20_000 });
-    await fixture.page.getByRole("button", { name: "Browser", exact: true }).click();
+    await togglePanel(fixture.page, "Browser");
     await expect(fixture.page.getByRole("heading", { name: "ZLI fixture" })).toBeVisible({ timeout: 20_000 });
   } finally {
     await closeServer(browserServer);

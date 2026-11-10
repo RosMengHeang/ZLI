@@ -4,7 +4,14 @@ import { delimiter, join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, git, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  git,
+  launchDesktop,
+  togglePanel,
+} from "./desktop-fixtures.js";
 
 const ISSUE = {
   number: 42,
@@ -148,7 +155,7 @@ test("lists GitHub issues and starts an agent from one", async () => {
     await writeFile(join(worktreePath, "fix.txt"), "fixed\n", "utf8");
     await git(worktreePath, ["add", "fix.txt"]);
     await git(worktreePath, ["commit", "-m", "Fix the login button"]);
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     const section = page.getByRole("group", { name: "Pull request" });
     await section.getByRole("button", { name: "Create PR" }).click({ timeout: 30_000 });

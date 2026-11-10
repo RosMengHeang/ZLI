@@ -5,11 +5,12 @@ import { expect, test } from "@playwright/test";
 
 import {
   closeDesktop,
-  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openCreateWorktree,
   sendChatMessage,
+  togglePanel,
 } from "./desktop-fixtures.js";
 
 test("comments on diff lines and sends them to a chat agent", async () => {
@@ -42,8 +43,7 @@ test("comments on diff lines and sends them to a chat agent", async () => {
       "# ZLI integration fixture\n\nSetup steps go here.\nRun the tests before merging.\n",
       "utf8",
     );
-    const changesToggle = page.getByRole("button", { name: "Changes", exact: true });
-    await changesToggle.click();
+    await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     await page.locator(".review-file", { hasText: "README.md" }).click();
     const lines = page.getByRole("listbox", { name: "Lines of README.md" });
@@ -64,9 +64,9 @@ test("comments on diff lines and sends them to a chat agent", async () => {
     await expect(list).toContainText("README.md:3-4");
     await expect(list).toContainText("Turn these into a numbered list.");
 
-    await changesToggle.click();
+    await togglePanel(page, "Changes");
     await expect(list).toHaveCount(0);
-    await changesToggle.click();
+    await togglePanel(page, "Changes");
     await expect(list).toContainText("Turn these into a numbered list.");
 
     // Shift+click opens the message to read first; a plain click sends to the only agent.
@@ -129,7 +129,7 @@ test("collects notes from a turn's diff and the Files editor and sends them toge
     await expect(page.getByRole("button", { name: /^1 review note not sent/u })).toBeVisible();
 
     await page.evaluate(() => window.localStorage.removeItem("zli.files.viewModes.v1"));
-    await page.getByRole("button", { name: "Files", exact: true }).click();
+    await togglePanel(page, "Files");
     const panel = page.getByRole("complementary", { name: "Files panel" });
     await panel.locator(".file-row", { hasText: "README.md" }).first().click();
     await panel.getByRole("tab", { name: "Code", exact: true }).click();

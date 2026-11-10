@@ -5,11 +5,12 @@ import { expect, test } from "@playwright/test";
 
 import {
   closeDesktop,
-  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   git,
   launchDesktop,
+  openCreateWorktree,
+  togglePanel,
 } from "./desktop-fixtures.js";
 
 test("stages a hunk, commits only it, and stashes the rest", async () => {
@@ -31,7 +32,7 @@ test("stages a hunk, commits only it, and stashes the rest", async () => {
     await writeFile(join(worktreePath, "README.md"), "# ZLI integration fixture\n\nStaged on its own.\n", "utf8");
     await writeFile(join(worktreePath, "scratch.txt"), "not ready yet\n", "utf8");
 
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     const readme = page.getByRole("checkbox", { name: "Stage README.md" });
     await expect(readme).not.toBeChecked({ timeout: 20_000 });

@@ -44,6 +44,10 @@ test("changes New agent defaults, branch names, and shortcuts from Settings", as
 
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
+    // Chat only keeps the terminal out of sight; the panels are in one Tools menu.
+    await expect(page.locator(".topbar-tools").getByRole("button", { name: "Terminal", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Tools", exact: true })).toBeVisible();
+
     // In Chat the new-agent shortcut opens a chat at once; the dialog with every option is in the palette.
     await page.keyboard.press("Control+Shift+Y");
     await expect(page.getByRole("dialog", { name: "New agent" })).toHaveCount(0);
@@ -54,7 +58,8 @@ test("changes New agent defaults, branch names, and shortcuts from Settings", as
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await expect(newAgent).toBeVisible();
     await expect(newAgent.getByRole("radio", { name: /Codex/u })).toBeChecked();
-    await expect(newAgent.getByRole("radio", { name: /Chat/u })).toBeChecked();
+    // Chat only: the dialog starts a chat and does not offer the terminal.
+    await expect(newAgent.getByRole("radio", { name: /Terminal/u })).toHaveCount(0);
     await newAgent.getByRole("radio", { name: /New worktree/u }).check();
     await expect(newAgent.getByLabel("Branch name")).toHaveValue(/^task\/codex-[a-z0-9]{4}$/u);
   } finally {

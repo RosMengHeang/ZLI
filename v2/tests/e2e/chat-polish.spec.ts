@@ -9,6 +9,7 @@ import {
   type DesktopFixture,
   launchDesktop,
   sendChatMessage,
+  togglePanel,
 } from "./desktop-fixtures.js";
 
 test("folds file reads, previews HTML replies, attaches long pastes, and finds text in a diff", async () => {
@@ -72,7 +73,7 @@ test("folds file reads, previews HTML replies, attaches long pastes, and finds t
       "# ZLI integration fixture\n\nRun the tests.\nRun the linter.\n",
       "utf8",
     );
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     await page.locator(".review-file", { hasText: "README.md" }).click();
     const lines = page.getByRole("listbox", { name: "Lines of README.md" });

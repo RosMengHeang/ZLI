@@ -5,11 +5,12 @@ import { expect, test } from "@playwright/test";
 
 import {
   closeDesktop,
-  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openCreateWorktree,
   sendChatMessage,
+  togglePanel,
 } from "./desktop-fixtures.js";
 
 test("browses, edits, finds, and searches files in a worktree", async () => {
@@ -33,7 +34,7 @@ test("browses, edits, finds, and searches files in a worktree", async () => {
 
     // Views picked in earlier runs are remembered, and this test starts from the default one.
     await page.evaluate(() => window.localStorage.removeItem("zli.files.viewModes.v1"));
-    await page.getByRole("button", { name: "Files", exact: true }).click();
+    await togglePanel(page, "Files");
     const panel = page.getByRole("complementary", { name: "Files panel" });
     const folder = panel.getByRole("button", { name: /^src 1 changed$/u });
     await expect(folder).toBeVisible({ timeout: 10_000 });
@@ -125,7 +126,7 @@ test("adds selected lines to the agent chat and sends them with the next message
       "utf8",
     );
 
-    await page.getByRole("button", { name: "Files", exact: true }).click();
+    await togglePanel(page, "Files");
     const panel = page.getByRole("complementary", { name: "Files panel" });
     await panel.locator('.file-row[data-group="changed"]', { hasText: "math.ts" }).click({ timeout: 10_000 });
     const editor = panel.locator(".cm-content");
