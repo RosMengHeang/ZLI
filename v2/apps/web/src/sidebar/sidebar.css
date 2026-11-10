@@ -255,3 +255,101 @@
 @media (prefers-reduced-motion: reduce) {
   .sidebar-more-toggle, .sidebar-more-chevron, .sidebar-more-project, .sidebar-more-start { transition: none; }
 }
+
+/* ---------- Waiting on you ---------- */
+/* Agents that asked for something, and chats that finished out of view, from every project. It is the one
+   boxed part of the sidebar, so it reads as apart from the project tree and is gone when nothing waits. */
+.sidebar-shelf { margin: 0 0 var(--zli-space-4); padding: var(--zli-space-1); border-radius: var(--zli-radius-lg); background: color-mix(in srgb, var(--zli-raised) 70%, var(--zli-sidebar)); box-shadow: inset 0 0 0 1px var(--zli-border); }
+.shelf-head { display: flex; align-items: center; gap: var(--zli-space-1-5); height: 26px; padding: 0 var(--zli-space-0-5) 0 var(--zli-space-2); }
+.shelf-heading { margin: 0; color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 600; }
+.shelf-count { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.shelf-clear { margin-left: auto; color: var(--zli-dim); }
+.shelf-list { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.shelf-row { display: flex; width: 100%; align-items: flex-start; gap: var(--zli-space-2); padding: 6px var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.shelf-row:hover { background: var(--zli-hover); }
+.shelf-row.is-active { background: var(--zli-active); }
+.shelf-row:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.shelf-row > .provider-mark { flex: 0 0 auto; margin-top: 3px; color: var(--zli-muted); }
+.shelf-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.shelf-line { display: flex; min-width: 0; align-items: baseline; gap: var(--zli-space-2); }
+.shelf-title { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.shelf-project { max-width: 42%; flex: 0 1 auto; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+/* Two lines, so a finished reply or a question says enough to decide whether to open it now. */
+.shelf-reason { display: -webkit-box; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: 16px; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.shelf-row.is-waiting .shelf-reason { color: var(--zli-amber); }
+.shelf-row.is-failed .shelf-reason { color: var(--zli-red); }
+
+/* ---------- Chat rows ---------- */
+/* A live agent's row grows a line that says what it is doing, or what it asked. */
+.session-row.has-state { height: 44px; }
+.session-row.has-branch.has-state { height: 60px; }
+.session-row.has-state ~ .row-more { top: 14px; }
+.session-state { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.session-row:hover .session-state, .session-row.is-active .session-state { color: var(--zli-muted); }
+.session-state.is-waiting, .session-row:hover .session-state.is-waiting, .session-row.is-active .session-state.is-waiting { color: var(--zli-amber); }
+/* Finished while the person was elsewhere: the title stands out until the chat is opened. */
+.session-row.is-unread .session-title { color: var(--zli-text); font-weight: 600; }
+.session-unread { width: 6px; height: 6px; flex: 0 0 6px; margin-right: 6px; border-radius: 50%; background: var(--zli-accent); }
+
+/* Chats that share a worktree sit under one row for its branch. */
+.worktree-group > .session-list { display: flex; flex-direction: column; gap: 1px; }
+.session-entry + .worktree-group, .worktree-group + .session-entry, .worktree-group + .worktree-group { margin-top: var(--zli-space-1); }
+.worktree-row.worktree-group-row { height: 24px; color: var(--zli-dim); }
+.worktree-row.worktree-group-row > svg { flex: 0 0 auto; }
+.worktree-row.worktree-group-row .worktree-name { color: var(--zli-muted); }
+.worktree-row.worktree-group-row:hover .worktree-name { color: var(--zli-text); }
+.worktree-entry.worktree-group > .row-more { top: 12px; }
+.older-toggle { display: inline-flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-control-sm); padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-dim); cursor: pointer; font-size: var(--zli-text-xs); font-weight: 500; text-align: left; }
+.older-toggle:hover { color: var(--zli-muted); }
+.older-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.older-toggle[aria-expanded="true"] .worktree-toggle-chevron { transform: rotate(90deg); }
+/* The line under a live row already says what the agent is doing or asking, so its status shrinks to the
+   dot and the title keeps the width. The words stay for screen readers. */
+.session-row.has-state .session-status-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.session-status.is-failed.is-seen { color: var(--zli-dim); font-weight: 400; }
+.session-status.is-failed.is-seen .dot { display: none; }
+
+/* ---------- Chat-first layout ---------- */
+/* New chat is the one raised control; adding a project is rarer, so it is an icon beside it. */
+.sidebar-primary { gap: var(--zli-space-2); padding-bottom: var(--zli-space-4); }
+.sidebar-primary-row { display: flex; align-items: center; gap: var(--zli-space-1); }
+.sidebar-primary-row .sidebar-new-agent { min-width: 0; flex: 1; }
+.sidebar-primary-row .sidebar-add-project { flex: 0 0 auto; width: var(--zli-control-lg); height: var(--zli-control-lg); color: var(--zli-muted); }
+.sidebar-primary-row .sidebar-add-project:hover { color: var(--zli-text); }
+.sidebar-search { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-control-md); padding: 0 var(--zli-space-2-5); border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-dim); cursor: text; transition: background-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-search:focus-within { background: transparent; box-shadow: inset 0 0 0 1px var(--zli-border-hover); color: var(--zli-muted); }
+.sidebar-search > svg { flex: 0 0 auto; }
+.sidebar-search input { min-width: 0; flex: 1; height: 100%; padding: 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); }
+.sidebar-search input::placeholder { color: var(--zli-dim); }
+.sidebar-search input::-webkit-search-cancel-button { cursor: pointer; }
+
+/* Projects read as quiet headings over their chats rather than as folders to open. */
+.project-label { height: 28px; font-size: var(--zli-text-sm); }
+.project-toggle > svg:first-child { width: 13px; height: 13px; }
+.project-name { color: var(--zli-muted); font-weight: 600; }
+.project-label:hover .project-name { color: var(--zli-text); }
+.sidebar-project + .sidebar-project { margin-top: var(--zli-space-3); }
+.sidebar-heading { margin-top: var(--zli-space-1); }
+
+/* A chat is one line: its agent, its title, its time. A second line appears only when there is news. */
+.session-row { height: 30px; padding-left: var(--zli-space-3); }
+.session-row.has-branch { height: 42px; }
+.session-row.has-state { height: 44px; }
+.session-row .provider-mark { flex: 0 0 auto; }
+.session-title { font-size: var(--zli-text-base); }
+.session-project { flex: 0 1 auto; max-width: 40%; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.session-line .session-project + .session-side, .session-line .session-title + .session-side { margin-left: auto; }
+.row-more { top: 15px; }
+.session-row.has-state ~ .row-more, .session-row.has-branch ~ .row-more { top: 15px; }
+
+/* Chats in their own worktree hang off one row for its branch. */
+.worktree-row.worktree-group-row { height: 26px; padding-left: var(--zli-space-3); }
+.worktree-group > .session-list { margin-left: var(--zli-space-3); padding-left: var(--zli-space-1); border-left: 1px solid var(--zli-border); }
+.worktree-group > .session-list .session-row { padding-left: var(--zli-space-2); }
+.worktree-entry.worktree-group > .row-more { top: 13px; }
+
+.sidebar-pinned { margin-bottom: var(--zli-space-4); }
+.sidebar-pinned > .session-list { display: flex; flex-direction: column; gap: 1px; }
+.sidebar-results > .session-list { display: flex; flex-direction: column; gap: 1px; }
+.sidebar-results-empty { margin: 0; padding: 0 var(--zli-space-2-5); color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.sidebar-results .session-row:focus-visible, .sidebar-scroll .session-row:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
