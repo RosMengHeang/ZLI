@@ -1,8 +1,6 @@
 import {
   type HistoryFolder,
-  HistoryImportResult,
   HistoryScanResult,
-  type HistorySource,
   type ProviderDiscovery,
   ProvidersDiscoverResult,
   type RpcResponse,
@@ -36,19 +34,7 @@ export function scanHistory(dispatch: Dispatch): Promise<Result<HistoryFolder[]>
     dispatch,
     { type: "history.scan" },
     (value) => HistoryScanResult.safeParse(value).data?.folders,
-    "Past chats could not be read. Try again.",
-  );
-}
-
-export function importChat(
-  dispatch: Dispatch,
-  input: { source: HistorySource; providerSessionId: string; worktreeId: string; sessionId: string },
-): Promise<Result<HistoryImportResult>> {
-  return request(
-    dispatch,
-    { type: "history.import", ...input },
-    (value) => HistoryImportResult.safeParse(value).data,
-    "The chat could not be imported.",
+    "Past sessions could not be read. Try again.",
   );
 }
 

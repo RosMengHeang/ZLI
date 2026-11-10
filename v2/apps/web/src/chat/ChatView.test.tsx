@@ -54,6 +54,7 @@ async function render(
   results: (command: Record<string, unknown>) => unknown = () => undefined,
   active = false,
   bridgeExtras: Partial<ZliBridge> = {},
+  onSwitchAgent?: (provider: string, model: string | undefined) => Promise<string | undefined>,
 ) {
   const dispatched: Array<{ command: Record<string, unknown> }> = [];
   const bridge = {
@@ -84,6 +85,7 @@ async function render(
           worktree={projection.worktrees[0]}
           onOpenDiff={onOpenDiff}
           onRestart={() => undefined}
+          onSwitchAgent={onSwitchAgent}
           active={active}
         />
       </RuntimeProvider>,
@@ -100,6 +102,130 @@ const button = (container: HTMLElement, name: string) =>
 afterEach(() => document.body.replaceChildren());
 
 describe("ChatView", () => {
+  it("offers the signed-in agents' models before the first message and moves the chat to the one picked", async () => {
+    const idle = { ...thread, status: "idle", activeTurnId: undefined } as ThreadProjection;
+    const onSwitchAgent = vi.fn(async () => undefined);
+    const { container } = await render(
+      projectionWith({
+        threads: [idle],
+        providers: [
+          { provider: "droid", displayName: "Droid", status: "found", path: "droid" },
+          {
+            provider: "claude-code",
+            displayName: "Claude Code",
+            status: "found",
+            path: "claude",
+            models: [{ id: "opus", label: "Opus" }],
+            login: { status: "signed-in", method: "subscription", plan: "max" },
+          },
+          { provider: "gemini", displayName: "Gemini", status: "found", path: "gemini" },
+          {
+            provider: "codex",
+            displayName: "Codex",
+            status: "found",
+            path: "codex",
+            login: { status: "signed-out" },
+          },
+        ],
+      }),
+      vi.fn(),
+      () => undefined,
+      false,
+      {},
+      onSwitchAgent,
+    );
+    await act(async () => button(container, "Model: Default model")?.click());
+    const agents = [...document.querySelectorAll<HTMLButtonElement>('[aria-label="Agent"] [role="option"]')];
+    // Codex is signed out and Gemini's login cannot be read, so neither is offered.
+    expect(agents.map((agent) => agent.dataset.label)).toEqual(["Droid", "Claude Code"]);
+    expect(agents[1]?.textContent).toContain("Max");
+    const models = () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[aria-label$=" models"] [role="option"]')].map(
+        (option) => option.dataset.label,
+      );
+    expect(models()).toEqual(["Default model"]);
+    await act(async () => agents[1]?.focus());
+    expect(models()).toEqual(["Default model", "Opus"]);
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+        .find((option) => option.dataset.label === "Opus")
+        ?.click(),
+    );
+    expect(onSwitchAgent).toHaveBeenCalledWith("claude-code", "opus");
+  });
+
+  it("offers other agents in a started chat once the agent is idle, but not while it works", async () => {
+    const providers = [
+      { provider: "droid", displayName: "Droid", status: "found", path: "droid" },
+      {
+        provider: "claude-code",
+        displayName: "Claude Code",
+        status: "found",
+        path: "claude",
+        models: [{ id: "opus", label: "Opus" }],
+        login: { status: "signed-in", method: "subscription" },
+      },
+    ] as RuntimeProjection["providers"];
+    const messages = [
+      { messageId: "m1", threadId, role: "user", text: "Check the cache" },
+      { messageId: "m2", threadId, turnId: "t1", role: "assistant", text: "It is stale." },
+    ] as RuntimeProjection["messages"];
+    const agentNames = () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[aria-label="Agent"] [role="option"]')].map(
+        (agent) => agent.dataset.label,
+      );
+    const onSwitchAgent = vi.fn(async () => undefined);
+    const idle = await render(
+      projectionWith({ threads: [{ ...thread, status: "idle", activeTurnId: undefined }], providers, messages }),
+      vi.fn(),
+      () => undefined,
+      false,
+      {},
+      onSwitchAgent,
+    );
+    const trigger = idle.container.querySelector<HTMLButtonElement>(".composer-model");
+    expect(trigger?.dataset.tooltip).toContain("goes with your next message");
+    await act(async () => trigger?.click());
+    expect(agentNames()).toEqual(["Droid", "Claude Code"]);
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+        .find((option) => option.dataset.agent === "claude-code")
+        ?.focus(),
+    );
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+        .find((option) => option.dataset.label === "Opus")
+        ?.click(),
+    );
+    expect(onSwitchAgent).toHaveBeenCalledWith("claude-code", "opus");
+
+    const busy = await render(
+      projectionWith({ threads: [{ ...thread, status: "working" }], providers, messages }),
+      vi.fn(),
+      () => undefined,
+      false,
+      {},
+      vi.fn(async () => undefined),
+    );
+    await act(async () => busy.container.querySelector<HTMLButtonElement>(".composer-model")?.click());
+    expect(document.querySelector('[aria-label="Agent"]')).toBeNull();
+  });
+
+  it("tells the person to sign in when the chat's agent is signed out", async () => {
+    const { container } = await render(
+      projectionWith({
+        providers: [
+          { provider: "codex", displayName: "Codex", status: "found", path: "codex", login: { status: "signed-out" } },
+        ],
+        threads: [{ ...thread, provider: "codex" } as ThreadProjection],
+      }),
+    );
+    const notice = container.querySelector(".chat-sign-in");
+    expect(notice?.textContent).toContain("Codex is signed out");
+    expect(notice?.querySelector("code")?.textContent).toBe("codex login");
+    expect(button(container, "Check again")).toBeDefined();
+  });
+
   it("keeps the composer for a stopped chat that can resume, and offers New chat otherwise", async () => {
     const stopped = { ...thread, status: "stopped", providerSessionId: "conv-1" } as ThreadProjection;
     const resumable = await render(projectionWith({ threads: [stopped] }));
@@ -349,7 +475,7 @@ describe("ChatView", () => {
 
   it("sends composer text and shows the session's permission mode", async () => {
     const { container, dispatched } = await render(projectionWith({ threads: [{ ...thread, status: "idle" }] }));
-    expect(container.querySelector(".composer-badge")?.textContent).toContain("Auto");
+    expect(container.querySelector(".composer-badge")?.textContent).toContain("Edit files");
     const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
@@ -363,6 +489,58 @@ describe("ChatView", () => {
       threadId,
       text: "run the tests",
     });
+  });
+
+  it("shows a chat that moved to another agent as one conversation, and brings the new agent up to date", async () => {
+    const takeover = {
+      ...thread,
+      threadId: "00000000-0000-4000-8000-000000000402",
+      provider: "claude-code",
+      status: "idle",
+      activeTurnId: undefined,
+      model: "opus",
+      continues: threadId,
+    } as ThreadProjection;
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [takeover, { ...thread, status: "stopped", activeTurnId: undefined }],
+        providers: [
+          { provider: "droid", displayName: "Droid", status: "found", path: "droid" },
+          {
+            provider: "claude-code",
+            displayName: "Claude Code",
+            status: "found",
+            path: "claude",
+            models: [{ id: "opus", label: "Opus" }],
+          },
+        ],
+        messages: [
+          { messageId: "m1", threadId, role: "user", text: "Why is the home page stale?" },
+          { messageId: "m2", threadId, turnId: "t1", role: "assistant", text: "Its cached copy is a day old." },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    expect([...container.querySelectorAll(".chat-message-user, .chat-switch")].map((row) => row.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining("Why is the home page stale?")]),
+    );
+    expect(container.querySelector(".chat-switch")?.textContent).toBe("Switched from Droid to Claude Code · Opus");
+    expect(container.textContent).toContain("Its cached copy is a day old.");
+    // Nothing was sent when the chat moved: the new agent waits for the person.
+    expect(dispatched.filter((entry) => String(entry.command.type).startsWith("thread."))).toEqual([]);
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Claude Code"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, "Redeploy it");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button(container, "Send")?.click());
+    const sent = dispatched.at(-1)?.command as { text: string; context?: string; threadId: string };
+    expect(sent.threadId).toBe(takeover.threadId);
+    expect(sent.text).toBe("Redeploy it");
+    expect(sent.context).toContain("You are taking over this chat from Droid");
+    expect(sent.context).toContain("## User\n\nWhy is the home page stale?");
+    expect(sent.context).toContain("## Droid\n\nIts cached copy is a day old.");
   });
 
   it("gathers attach files, window capture, and saved prompts behind one Add button", async () => {
@@ -509,8 +687,8 @@ describe("ChatView", () => {
     expect(cards()).toEqual([]);
   });
 
-  it("shows a sent message's files as cards above what the person typed", async () => {
-    const { container } = await render(
+  it("shows a sent message's pictures as thumbnails and its files as cards above what the person typed", async () => {
+    const { container, dispatched } = await render(
       projectionWith({
         threads: [{ ...thread, status: "idle" }],
         messages: [
@@ -523,16 +701,111 @@ describe("ChatView", () => {
           },
         ] as RuntimeProjection["messages"],
       }),
+      undefined,
+      (command) =>
+        command.type === "thread.attachment.read"
+          ? { name: "shot.png", mimeType: "image/png", size: 4, dataBase64: "AAAA" }
+          : undefined,
     );
     const message = container.querySelector(".chat-message-user");
+    await vi.waitFor(() =>
+      expect(message?.querySelector(".chat-attachment-pictures img")?.getAttribute("src")).toBe(
+        "data:image/png;base64,AAAA",
+      ),
+    );
+    expect(dispatched.map((entry) => entry.command)).toContainEqual({
+      type: "thread.attachment.read",
+      threadId,
+      path: "/data/a.png",
+    });
     expect([...(message?.querySelectorAll(".chat-attachments li") ?? [])].map((item) => item.textContent)).toEqual([
-      "shot.png",
       "report.pdf",
     ]);
     expect(message?.querySelector(".chat-attachments li:last-child")?.getAttribute("title")).toBe(
       "C:\\Users\\USER\\Downloads\\report.pdf",
     );
     expect(message?.querySelector("p")?.textContent).toBe("Read this");
+  });
+
+  it("folds the steps of earlier turns into one line that opens, and keeps the latest turn's steps in view", async () => {
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        messages: [
+          { messageId: "m1", threadId, role: "user", text: "Rename the helper" },
+          { messageId: "m2", threadId, turnId: "t1", role: "assistant", text: "Renamed it." },
+          { messageId: "m3", threadId, role: "user", text: "Now run the tests" },
+          { messageId: "m4", threadId, turnId: "t2", role: "assistant", text: "They pass." },
+        ] as RuntimeProjection["messages"],
+        activities: [
+          {
+            activityId: "a1",
+            threadId,
+            turnId: "t1",
+            kind: "file-edit",
+            title: "Edit src/helper.ts",
+            status: "completed",
+            files: ["src/helper.ts"],
+          },
+          { activityId: "a2", threadId, turnId: "t2", kind: "command", title: "npm test", status: "completed" },
+        ] as RuntimeProjection["activities"],
+      }),
+    );
+    const fold = container.querySelector<HTMLButtonElement>(".turn-fold-row");
+    expect(fold?.textContent).toBe("Edited helper.ts");
+    expect(fold?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelectorAll('[aria-label="Steps"]')).toHaveLength(1);
+    expect(container.querySelector('[aria-label="Steps"]')?.textContent).toContain("npm test");
+    await act(async () => fold?.click());
+    expect(container.querySelectorAll('[aria-label="Steps"]')).toHaveLength(2);
+    expect(container.querySelector(".turn-fold-body")?.textContent).toContain("helper.ts");
+  });
+
+  it("copies a finished reply, and offers no copy while the reply is still being written", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const messages = [
+      { messageId: "m1", threadId, role: "user", text: "Explain the route" },
+      { messageId: "m2", threadId, turnId: "t1", role: "assistant", text: "It answers **ok**." },
+    ] as RuntimeProjection["messages"];
+    const done = await render(projectionWith({ threads: [{ ...thread, status: "idle" }], messages }));
+    await act(async () => done.container.querySelector<HTMLButtonElement>('[aria-label="Copy reply"]')?.click());
+    expect(writeText).toHaveBeenCalledWith("It answers **ok**.");
+    await act(async () => done.container.querySelector<HTMLButtonElement>('[aria-label="Copy message"]')?.click());
+    expect(writeText).toHaveBeenLastCalledWith("Explain the route");
+
+    const live = await render(projectionWith({ threads: [{ ...thread, status: "working" }], messages }));
+    expect(live.container.querySelector('[aria-label="Copy reply"]')).toBeNull();
+  });
+
+  it("lists the sent messages on a rail once the chat is long, and opens web links in the browser", async () => {
+    const openExternal = vi.fn(async () => undefined);
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        messages: [
+          { messageId: "m1", threadId, role: "user", text: "First question" },
+          { messageId: "m2", threadId, turnId: "t1", role: "assistant", text: "See https://example.com/docs." },
+          { messageId: "m3", threadId, role: "user", text: "Second question\nwith detail" },
+          { messageId: "m4", threadId, turnId: "t2", role: "assistant", text: "| A | B |\n| - | - |\n| 1 | 2 |" },
+          { messageId: "m5", threadId, role: "user", text: "Third question" },
+        ] as RuntimeProjection["messages"],
+      }),
+      undefined,
+      undefined,
+      false,
+      { app: { openExternal } } as unknown as Partial<ZliBridge>,
+    );
+    expect([...container.querySelectorAll(".turn-rail-text")].map((item) => item.textContent)).toEqual([
+      "First question",
+      "Second question",
+      "Third question",
+    ]);
+    expect(container.querySelector(".md-table td")?.textContent).toBe("1");
+    const link = container.querySelector<HTMLButtonElement>("button.md-link");
+    expect(link?.textContent).toBe("https://example.com/docs");
+    await act(async () => link?.click());
+    expect(openExternal).toHaveBeenCalledWith("https://example.com/docs");
   });
 
   it("queues messages while the agent works and can send one now or remove it", async () => {
@@ -558,6 +831,22 @@ describe("ChatView", () => {
     expect(dispatched.at(-1)?.command).toEqual({ type: "thread.queue.remove", threadId, queueId: "q1" });
   });
 
+  it("shows a message sent while the agent starts in the conversation, not in a queue", async () => {
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "starting" }],
+        queuedMessages: [
+          { queueId: "q1", threadId, text: "Add a health check" },
+        ] as RuntimeProjection["queuedMessages"],
+      }),
+    );
+    expect(container.querySelector('[aria-label="Queued messages"]')).toBeNull();
+    expect(container.querySelector(".chat-message-user")?.textContent).toContain("Add a health check");
+    // The start-up reads as the turn itself: the person sees their message and the agent working on it.
+    expect(container.querySelector(".chat-working-label")?.textContent).toBe("Working");
+    expect(container.querySelector(".chat-start")).toBeNull();
+  });
+
   it("holds Send now until the agent's request is answered", async () => {
     const { container } = await render(
       projectionWith({
@@ -575,14 +864,14 @@ describe("ChatView", () => {
       projectionWith({ threads: [{ ...thread, status: "idle", capabilities: { permissionSwitch: "in-session" } }] }),
     );
     expect(container.querySelector(".composer-badge")).toBeNull();
-    const trigger = button(container, "Permissions: Auto");
+    const trigger = button(container, "Permissions: Edit files");
     expect(trigger?.getAttribute("aria-expanded")).toBe("false");
     await act(async () => trigger?.click());
     expect(trigger?.getAttribute("aria-expanded")).toBe("true");
     const options = [...document.querySelectorAll<HTMLButtonElement>('[role="listbox"] [role="option"]')];
     expect(options.map((option) => option.querySelector(".picker-option-label")?.textContent)).toEqual([
       "Read only",
-      "Auto",
+      "Edit files",
       "Full access",
     ]);
     expect(options[1]?.getAttribute("aria-selected")).toBe("true");

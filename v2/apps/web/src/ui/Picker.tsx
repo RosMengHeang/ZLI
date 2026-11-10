@@ -14,6 +14,8 @@ export type PickerOption<T extends string> = {
    * appears; an option without one, when others have one, sits in an unlabelled section of its own.
    */
   group?: string | undefined;
+  /** Listed so the person sees it exists, but cannot be picked. The description says why. */
+  disabled?: boolean | undefined;
 };
 
 const GAP = 6;
@@ -146,13 +148,16 @@ export function Picker<T extends string>({
         type="button"
         role="option"
         aria-selected={selected}
+        aria-disabled={option.disabled || undefined}
         tabIndex={-1}
         className="picker-option"
         data-label={option.label}
         onPointerMove={(event) => {
           if (document.activeElement !== event.currentTarget) event.currentTarget.focus({ preventScroll: true });
         }}
-        onClick={() => pick(option.value)}
+        onClick={() => {
+          if (!option.disabled) pick(option.value);
+        }}
       >
         {withIcons ? (
           <span className="picker-option-icon" aria-hidden="true">

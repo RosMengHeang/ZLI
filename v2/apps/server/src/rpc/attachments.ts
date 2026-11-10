@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { mkdir, open, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 
-import type { AttachmentMimeType, ThreadAttachment, ThreadAttachmentUpload } from "@zli-v2/contracts";
+import type {
+  AttachmentMimeType,
+  ThreadAttachment,
+  ThreadAttachmentData,
+  ThreadAttachmentUpload,
+} from "@zli-v2/contracts";
 
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
@@ -29,6 +34,19 @@ export class AttachmentError extends Error {
  * durable event log never holds image data. Files are named by content hash, which keeps a retried
  * command (same commandId, same bytes) identical to the original and therefore idempotent.
  */
+/** The bytes of a stored attachment. `known` is the record a message of the thread holds for the path. */
+export async function readThreadAttachment(known: ThreadAttachment | undefined): Promise<ThreadAttachmentData> {
+  if (!known) throw new AttachmentError("This attachment is not part of the conversation.");
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(known.path);
+  } catch {
+    throw new AttachmentError(`${known.name} is no longer on this computer.`);
+  }
+  if (bytes.length > MAX_ATTACHMENT_BYTES) throw new AttachmentError(`${known.name} is larger than 10 MiB.`);
+  return { name: known.name, mimeType: known.mimeType, size: bytes.length, dataBase64: bytes.toString("base64") };
+}
+
 export async function storeThreadAttachments(
   root: string | undefined,
   threadId: string,

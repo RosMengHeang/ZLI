@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 
-import type { GitBranchesResult, ReviewProjection } from "@zli-v2/contracts";
+import { CommandId, type GitBranchesResult, type ReviewProjection } from "@zli-v2/contracts";
 import { act, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resetPullRequestStoreForTests } from "../review/pullRequestStore.js";
+import { refreshPullRequest, resetPullRequestStoreForTests } from "../review/pullRequestStore.js";
 import { buttonByLabel, cleanupRuntimeRenders, renderWithRuntime, worktree } from "../review/testRuntime.js";
 import { commitPlan, EnvironmentButton, shortPath } from "./EnvironmentButton.js";
 
@@ -198,5 +198,105 @@ describe("EnvironmentButton", () => {
     });
     expect(popover()).toBeNull();
     expect(document.activeElement).toBe(buttonByLabel("Environment"));
+  });
+});
+
+function CardHarness({ initial }: { initial: ReviewProjection | undefined }) {
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const [current, set] = useState(initial);
+  setReview = set;
+  return (
+    <>
+      <div ref={setHost} data-testid="card-host" />
+      <EnvironmentButton
+        worktree={worktree}
+        review={current}
+        noGit={false}
+        onOpenChanges={() => undefined}
+        card={{ open: true, host, onOpenChange: () => undefined }}
+      />
+    </>
+  );
+}
+
+const card = () => document.querySelector<HTMLElement>('section[aria-label="Environment"]');
+const inCard = (text: string) =>
+  [...(card()?.querySelectorAll("button") ?? [])].find((button) => button.textContent?.includes(text));
+
+describe("EnvironmentButton card", () => {
+  it("switches branch from a dropdown list instead of a dialog", async () => {
+    const commands = await renderWithRuntime(<CardHarness initial={review([])} />, (command) =>
+      command.type === "review.git.branches" || command.type === "review.git.switchBranch"
+        ? { result: { ...BRANCHES, current: command.type === "review.git.switchBranch" ? "main" : "feature" } }
+        : { result: {} },
+    );
+    await act(async () => buttonByLabel("Branch feature. Switch branch")?.click());
+    const item = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (entry) => entry.textContent?.trim() === "main",
+    );
+    expect(item).toBeDefined();
+    await act(async () => item?.click());
+    expect(commands).toContainEqual({ type: "review.git.switchBranch", worktreeId: worktree.worktreeId, name: "main" });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("says what Commit & push will do, and offers to commit without pushing", async () => {
+    const commands = await renderWithRuntime(
+      <CardHarness initial={review([file("a.ts", false, true)])} />,
+      (command) => (command.type === "review.git.branches" ? { result: BRANCHES } : { result: {} }),
+    );
+    const row = inCard("Commit & push");
+    expect(row?.textContent).toContain("1 file");
+    await act(async () => row?.click());
+    expect(card()?.textContent).toContain(
+      "Saves all 1 changed file as one commit on feature, then sends it to origin.",
+    );
+    const input = card()?.querySelector<HTMLInputElement>('input[aria-label="Commit message"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "Fix the header");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => inCard("Commit only")?.click());
+    expect(commands).toContainEqual({
+      type: "review.commit",
+      worktreeId: worktree.worktreeId,
+      message: "Fix the header",
+    });
+    await act(async () =>
+      setReview(review([file("a.ts", false, false)], { updatedAt: "2026-01-01T10:01:00.000Z", state: "clean" })),
+    );
+    expect(commands.some((command) => command.type === "review.pr.push")).toBe(false);
+  });
+
+  it("shows the pull request's title with one Merge button", async () => {
+    await refreshPullRequest(
+      async (request: unknown) => ({
+        commandId: CommandId.parse((request as { commandId: string }).commandId),
+        accepted: true,
+        result: {
+          branch: "feature",
+          uncommittedFiles: 0,
+          defaults: { title: "", body: "", base: "main" },
+          pullRequest: {
+            number: 139,
+            url: "https://github.com/acme/app/pull/139",
+            state: "OPEN",
+            isDraft: false,
+            title: "Welcome new installs with a three-step setup",
+            checks: [{ name: "ci", state: "passed" }],
+          },
+        },
+      }),
+      worktree.worktreeId,
+      true,
+    );
+    await renderWithRuntime(<CardHarness initial={review([])} />, (command) =>
+      command.type === "review.git.branches" ? { result: BRANCHES } : { result: {} },
+    );
+    expect(card()?.querySelector(".env-pr-title")?.textContent).toBe("Welcome new installs with a three-step setup");
+    expect(card()?.textContent).toContain("#139");
+    await act(async () => inCard("Merge")?.click());
+    expect(document.querySelector('[role="dialog"][aria-label="Merge pull request"]')).not.toBeNull();
   });
 });

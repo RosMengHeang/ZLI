@@ -36,6 +36,30 @@ export function reasoningLevels(
   return { levels: discovery?.status === "found" ? (discovery.reasoningEfforts ?? []) : [] };
 }
 
+/**
+ * What each agent calls it: Claude Code sets an effort level, Codex a reasoning level. Other agents read
+ * as reasoning.
+ */
+export function reasoningNoun(provider: string | undefined): string {
+  return provider === "claude-code" ? "Effort" : "Reasoning";
+}
+
+/** One line on what a level trades, so a pick says more than a word. Unknown levels show none. */
+const LEVEL_HINTS: Readonly<Record<string, string>> = {
+  off: "Answers straight away",
+  none: "Answers straight away",
+  minimal: "Barely thinks. Fastest",
+  low: "Quick answers for small tasks",
+  medium: "Balanced for everyday work",
+  high: "Thinks longer on hard problems",
+  xhigh: "Thinks the longest. Slower",
+  max: "No limit on thinking. Slowest",
+};
+
+export function reasoningHint(level: string | undefined): string | undefined {
+  return level ? LEVEL_HINTS[level.toLowerCase()] : undefined;
+}
+
 export function reasoningOptions(levels: readonly string[], defaultLevel?: string | undefined): PickerOption<string>[] {
   return [
     {
@@ -43,6 +67,9 @@ export function reasoningOptions(levels: readonly string[], defaultLevel?: strin
       label: defaultLevel ? `Default (${reasoningLabel(defaultLevel)})` : "Default",
       description: "The model's own level",
     },
-    ...levels.map((level) => ({ value: level, label: reasoningLabel(level) })),
+    ...levels.map((level) => {
+      const hint = LEVEL_HINTS[level.toLowerCase()];
+      return { value: level, label: reasoningLabel(level), ...(hint ? { description: hint } : {}) };
+    }),
   ];
 }

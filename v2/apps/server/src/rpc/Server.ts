@@ -23,9 +23,9 @@ import {
   FileSearchResult,
   FileWriteResult,
   GIT_CHANGES_COMMAND_TYPES,
+  type GitChangesCommand,
   HISTORY_COMMAND_TYPES,
   type HistoryCommand,
-  type GitChangesCommand,
   ISSUE_COMMAND_TYPES,
   type IssueCommand,
   LIMITS_COMMAND_TYPES,
@@ -50,7 +50,6 @@ import {
   SKILL_COMMAND_TYPES,
   type SkillCommand,
   TerminalId,
-  ThreadId,
   type TerminalReadResult,
 } from "@zli-v2/contracts";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
@@ -59,6 +58,7 @@ import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckp
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import { huddleScopeError } from "../huddles/huddleScope.js";
 import type { TerminalInputTracker } from "../huddles/TerminalInputTracker.js";
+import type { AgentHistoryScanner } from "../import/AgentHistoryScanner.js";
 import { defaultIssueSources, IssueError, type IssueSources, runIssueCommand } from "../issues/IssueService.js";
 import { McpRequestError } from "../mcp/McpServerStore.js";
 import { SignInError } from "../mcp/signIn/oauth.js";
@@ -79,9 +79,8 @@ import type { SkillStore } from "../skills/SkillStore.js";
 import { SkillError } from "../skills/skillFolders.js";
 import type { TerminalService, TerminalSubscription } from "../terminal/TerminalService.js";
 import { readableTerminalText } from "../terminal/terminalText.js";
-import type { AgentHistoryScanner } from "../import/AgentHistoryScanner.js";
 import { readZliConfig } from "../worktrees/zliConfig.js";
-import { AttachmentError, storeThreadAttachments } from "./attachments.js";
+import { AttachmentError, readThreadAttachment, storeThreadAttachments } from "./attachments.js";
 
 /** Fits thread.send or thread.queue with eight 10 MiB images as base64 (about 112 MB) plus the JSON envelope. */
 const MAX_FRAME_BYTES = 128 * 1024 * 1024;
@@ -127,8 +126,8 @@ type RpcServerOptions = {
   };
   /** Plan limits per login. Without it, limits commands are answered as unavailable. */
   limits?: { read(refresh?: boolean): Promise<PlanLimitsResult> };
-  /** Past Claude Code and Codex chats on disk. Without it, history commands are answered as unavailable. */
-  history?: Pick<AgentHistoryScanner, "scan" | "load">;
+  /** Folders found in past Claude Code and Codex sessions. Without it, the scan is answered as unavailable. */
+  history?: Pick<AgentHistoryScanner, "scan">;
   /** Looks for agent CLIs again without the cache. */
   refreshProviders?: () => Promise<readonly ProviderDiscovery[]>;
   host?: string;
@@ -554,10 +553,7 @@ export class RpcServer {
     return true;
   }
 
-  /**
-   * Past chats are read from the agents' own files on demand. An import becomes one event holding the
-   * chat and its messages; the next message the person sends resumes the agent's own session.
-   */
+  /** Setup asks for agents again and for the folders past agent sessions ran in. Neither writes anything. */
   private async handleHistoryCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
     const command = request.command;
     if (!isHistoryCommand(command)) return false;
@@ -583,71 +579,14 @@ export class RpcServer {
     }
     const history = this.history;
     if (!history) {
-      reject({ code: "unavailable", message: "Chat history is not available here.", retryable: false });
+      reject({ code: "unavailable", message: "Past sessions are not available here.", retryable: false });
       return true;
     }
-    const projection = await this.engine.projection();
-    if (command.type === "history.scan") {
-      try {
-        const imported = new Set(
-          projection.threads.flatMap((thread) => (thread.providerSessionId ? [thread.providerSessionId] : [])),
-        );
-        respond({ folders: await history.scan(imported) });
-      } catch {
-        reject({ code: "internal", message: "Past chats could not be read. Try again.", retryable: true });
-      }
-      return true;
+    try {
+      respond({ folders: await history.scan() });
+    } catch {
+      reject({ code: "internal", message: "Past sessions could not be read. Try again.", retryable: true });
     }
-    const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
-    if (!worktree) {
-      reject({ code: "invalid_request", message: "The project for this chat is no longer open.", retryable: false });
-      return true;
-    }
-    const chat = await history.load(command.source, command.providerSessionId).catch(() => undefined);
-    if (!chat) {
-      reject({
-        code: "invalid_request",
-        message: "This chat's file was moved or deleted, so it could not be imported.",
-        retryable: false,
-      });
-      return true;
-    }
-    const threadId = ThreadId.parse(randomUUID());
-    const now = new Date().toISOString();
-    const receipt = await this.engine.dispatchPromise({
-      protocolVersion: 1,
-      commandId: CommandId.parse(randomUUID()),
-      command: {
-        type: "thread.import",
-        thread: {
-          threadId,
-          worktreeId: worktree.worktreeId,
-          provider: chat.source,
-          status: "stopped",
-          capabilities: {},
-          ...(chat.model ? { model: chat.model } : {}),
-          sessionId: command.sessionId,
-          providerSessionId: chat.providerSessionId,
-          createdAt: chat.createdAt,
-          updatedAt: chat.lastActiveAt ?? now,
-        },
-        messages: chat.messages.map((message, index) => ({
-          messageId: `${threadId}:import:${index}`,
-          threadId,
-          role: message.role,
-          text: message.text,
-        })),
-      },
-    });
-    if (receipt.status === "rejected") {
-      reject({
-        code: "invalid_request",
-        message: receipt.error?.message ?? "The chat could not be imported.",
-        retryable: false,
-      });
-      return true;
-    }
-    respond({ threadId, messageCount: chat.messages.length });
     return true;
   }
 
@@ -699,6 +638,35 @@ export class RpcServer {
           }),
         );
     }
+  }
+
+  /** A file a message carried, read back for the chat. Only paths the thread's own messages recorded are served. */
+  private async handleAttachmentRead(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (command.type !== "thread.attachment.read") return false;
+    try {
+      const projection = await this.engine.projection();
+      const known = (projection.messages ?? [])
+        .filter((message) => message.threadId === command.threadId)
+        .flatMap((message) => message.attachments ?? [])
+        .find((attachment) => attachment.path === command.path);
+      const result = await readThreadAttachment(known);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: {
+            code: "invalid_request",
+            message: error instanceof AttachmentError ? error.message : "The attachment could not be read.",
+            retryable: false,
+          },
+        },
+      });
+    }
+    return true;
   }
 
   /** Pull request commands run git and gh in the worktree and answer directly, outside the event log. */
@@ -900,6 +868,7 @@ export class RpcServer {
       case "command":
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
         if (await this.handleFileCommand(client, message.data.request)) return;
+        if (await this.handleAttachmentRead(client, message.data.request)) return;
         if (await this.handlePullRequestCommand(client, message.data.request)) return;
         if (await this.handleGitChangesCommand(client, message.data.request)) return;
         if (await this.handleIssueCommand(client, message.data.request)) return;

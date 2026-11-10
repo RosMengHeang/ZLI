@@ -492,7 +492,7 @@ describe("AppShell", () => {
       );
 
     await act(async () => {
-      button(container, "Chat history")?.click();
+      button(container, "Chats")?.click();
     });
     expect(menuItem("Add a test")?.getAttribute("aria-checked")).toBe("true");
     await act(async () => {
@@ -504,7 +504,7 @@ describe("AppShell", () => {
     expect(container.querySelector(".agent-tile textarea")).not.toBeNull();
 
     await act(async () => {
-      button(container, "New chat")?.click();
+      button(container, "Chats")?.click();
     });
     expect(menuItem("Start with recent context")?.getAttribute("aria-disabled")).toBeNull();
     await act(async () => {
@@ -934,7 +934,39 @@ describe("Settings", () => {
     expect(dialog("New agent")).not.toBeNull();
   });
 
-  it("starts New agent with the saved defaults and branch template", async () => {
+  it("opens a new chat as a draft and starts its agent only with the first message", async () => {
+    const dispatched: unknown[] = [];
+    const trusted: RuntimeProjection = {
+      ...discovered,
+      projects: [{ projectId, path: "C:/repo", name: "repo", agentsTrusted: true }],
+    };
+    const container = await render(makeBridge(trusted, dispatched));
+    const agents = await openSettings(container);
+    await choose(agents, "View", "Chat");
+    await press(window, { key: "Escape", code: "Escape" });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
+    });
+    const box = container.querySelector<HTMLTextAreaElement>(".agent-tile textarea");
+    expect(box).not.toBeNull();
+    // Nothing runs before the person asks for something.
+    expect(commands(dispatched).some((command) => command.type === "thread.start")).toBe(false);
+    if (!box) return;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(box, "Add a health check");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await vi.waitFor(() => expect(commands(dispatched).some((command) => command.type === "thread.queue")).toBe(true));
+    const start = commands(dispatched).find((command) => command.type === "thread.start");
+    const queue = commands(dispatched).find((command) => command.type === "thread.queue");
+    expect(start?.provider).toBe("claude-code");
+    expect(queue).toMatchObject({ threadId: start?.threadId, text: "Add a health check" });
+  });
+
+  it("starts a chat at once in Chat, and keeps the saved defaults and branch template in New agent with options", async () => {
     const container = await render(makeBridge(discovered));
     const agents = await openSettings(container);
     expect((await choose(agents, "View", "Chat")).getAttribute("aria-label")).toBe("View: Chat");
@@ -949,8 +981,18 @@ describe("Settings", () => {
     expect(agents.textContent).toContain("zli/claude-k3f9");
 
     await press(window, { key: "Escape", code: "Escape" });
+    // In Chat a new agent is a new chat at once; the model list moves it to another agent.
     await act(async () => {
       container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
+    });
+    expect(dialog("New agent")).toBeFalsy();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".command-trigger")?.click();
+    });
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="Search commands"]');
+    await setValue(search as HTMLInputElement, "options");
+    await act(async () => {
+      button(container, "New agent with options")?.click();
     });
     const newAgent = dialog("New agent");
     const chat = [...(newAgent?.querySelectorAll<HTMLInputElement>('input[name="agent-mode"]') ?? [])].find(
@@ -983,11 +1025,12 @@ describe("Settings", () => {
     await act(async () => trigger?.click());
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
-        .find((option) => option.textContent?.startsWith("Read only"))
+        .find((option) => option.textContent?.startsWith("Plan mode"))
         ?.click(),
     );
-    expect(trigger?.getAttribute("aria-label")).toBe("Permissions: Read only");
-    expect(dialog("New agent")?.textContent).toContain("Reads and plans, never changes files");
+    // Claude Code's own names for the levels.
+    expect(trigger?.getAttribute("aria-label")).toBe("Permissions: Plan mode");
+    expect(dialog("New agent")?.textContent).toContain("Explores and writes a plan");
   });
 
   it("lets a project override the agent defaults", async () => {
@@ -995,7 +1038,7 @@ describe("Settings", () => {
     const container = await render(makeBridge(discovered));
     const settings = await openSettings(container, "Projects");
     expect(picker(settings, "Permissions").getAttribute("aria-label")).toBe("Permissions: Same as New agents");
-    await choose(settings, "Permissions", "Auto");
+    await choose(settings, "Permissions", "Edit files");
     expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(button(settings, "Reset repo to New agents")).not.toBeUndefined();
 
@@ -1006,7 +1049,7 @@ describe("Settings", () => {
     const permissionPicker = dialog("New agent")?.querySelector(
       'button[aria-haspopup="listbox"][aria-label^="Permissions"]',
     );
-    expect(permissionPicker?.getAttribute("aria-label")).toBe("Permissions: Auto");
+    expect(permissionPicker?.getAttribute("aria-label")).toBe("Permissions: Accept edits");
   });
 
   it("removes a project only after a second click, and leaves its folder alone", async () => {

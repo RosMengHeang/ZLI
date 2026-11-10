@@ -65,7 +65,8 @@ export function sendTargets(
   for (const session of deriveSessions(projection)) {
     const place = order.get(session.worktreeId);
     if (!place) continue;
-    const title = sessionTitle(session, projection.messages, projection.providers);
+    // A chat with nothing in it yet is named for its agent here, so two new chats can be told apart.
+    const title = sessionTitle({ ...session, mode: undefined }, projection.messages, projection.providers);
     const name = providerDisplayName(session.provider, projection.providers);
     const status = sessionStatusLabel[session.status];
     const shared = { sessionId: session.sessionId, agent: name, title, worktreeId: session.worktreeId, ...place };

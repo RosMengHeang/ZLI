@@ -235,3 +235,23 @@
 .run-badge { flex: 0 0 auto; padding: 1px var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); font-size: var(--zli-text-2xs); font-weight: 500; font-variant-numeric: tabular-nums; }
 .session-entry.is-run .session-title { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
 .session-status.is-done { color: var(--zli-green); }
+
+/* Projects without agents fold into one quiet row under the busy ones, so added folders never crowd the list. */
+.sidebar-more { margin-top: var(--zli-space-4); }
+.sidebar-more-toggle { display: flex; width: 100%; align-items: center; gap: var(--zli-space-1-5); height: 26px; padding: 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); cursor: pointer; font: inherit; font-size: var(--zli-text-xs); text-align: left; transition: color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-more-toggle:hover { background: var(--zli-hover); color: var(--zli-muted); }
+.sidebar-more-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.sidebar-more-chevron { flex: 0 0 auto; transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-more-toggle[aria-expanded="true"] .sidebar-more-chevron { transform: rotate(90deg); }
+.sidebar-more-list { margin: var(--zli-space-1) 0 0; padding: 0; list-style: none; }
+.sidebar-more-project { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2); height: 30px; padding: 0 var(--zli-space-2) 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-base); text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-more-project:hover { background: var(--zli-hover); }
+.sidebar-more-project:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.sidebar-more-project > svg:first-child { flex: 0 0 auto; color: var(--zli-dim); }
+.sidebar-more-project .project-name { flex: 1; color: var(--zli-muted); }
+/* The start icon says what a click does; it shows only on the row being pointed at. */
+.sidebar-more-start { flex: 0 0 auto; color: var(--zli-dim); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-more-project:hover .sidebar-more-start, .sidebar-more-project:focus-visible .sidebar-more-start { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-more-toggle, .sidebar-more-chevron, .sidebar-more-project, .sidebar-more-start { transition: none; }
+}

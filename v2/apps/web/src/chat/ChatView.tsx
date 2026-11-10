@@ -9,24 +9,39 @@ import type {
   ThreadQueuedMessage,
   WorktreeProjection,
 } from "@zli-v2/contracts";
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-import { listedDiscoveries, providerDisplayName } from "../agent/providers.js";
-import { type FileLinks, useFileLinks } from "../files/FileIndex.js";
+import { isSelectableProvider, listedDiscoveries, providerDisplayName, signInCommand } from "../agent/providers.js";
+import { type FileLinks, useFileIndexContext, useFileLinks } from "../files/FileIndex.js";
+import { useCopyFeedback } from "../review/links.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
-import { entriesForThread, shallowArrayEqual } from "../runtime/runtimeStore.js";
+import { entriesForThread, entriesForThreads, shallowArrayEqual } from "../runtime/runtimeStore.js";
 import { forkPointAfter, type RunAgent, type RunStart } from "../sessions/bestOf.js";
-import { buildTimeline, type TimelineItem } from "../sessions/sessions.js";
+import { takeoverContext } from "../sessions/handoff.js";
+import type { ChatPlace } from "../sessions/launch.js";
+import { buildTimeline, conversationThreads, type TimelineItem } from "../sessions/sessions.js";
 import { Button, IconButton } from "../ui/Button.js";
+import { Collapse } from "../ui/Collapse.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
-import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
+import { discoverProviders } from "../welcome/welcomeClient.js";
+import { accountPlan, otherAgents } from "./agentModels.js";
 import { fileName, splitAttachedFiles } from "./attachedFiles.js";
 import type { BestOfAgentOption } from "./BestOfPopover.js";
-import { ChatImageScope } from "./ChatImage.js";
+import { ChatImage, ChatImageScope, isImagePath } from "./ChatImage.js";
 import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Composer.js";
 import { ConnectorCard } from "./ConnectorCard.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
@@ -34,8 +49,12 @@ import { FileBadge } from "./FileBadge.js";
 import { Markdown } from "./Markdown.js";
 import { RequestCard } from "./RequestCard.js";
 import { reasoningLevels } from "./reasoning.js";
+import { isSwitchNotice, switchNotice } from "./switchNotice.js";
 import { TurnChanges } from "./TurnChanges.js";
+import { TurnRail } from "./TurnRail.js";
+import { groupTurns, trailSummary } from "./turns.js";
 import { ChangedFiles, elapsedLabel, WorkSteps } from "./WorkLog.js";
+import { WorkspaceBar } from "./WorkspaceBar.js";
 import "./chat.css";
 
 export function ChatView({
@@ -45,6 +64,8 @@ export function ChatView({
   onOpenDiff,
   onRestart,
   onHandoff,
+  onSwitchAgent,
+  onMoveChat,
   onOpenConnectors,
   onStartRuns,
   active,
@@ -55,6 +76,13 @@ export function ChatView({
   onOpenDiff(path?: string): void;
   onRestart(): void;
   onHandoff?: (() => void) | undefined;
+  /**
+   * Starts this chat over with another agent, before anything was sent. Absent where the tile cannot
+   * start agents, such as a scratch chat.
+   */
+  onSwitchAgent?: ((provider: string, model: string | undefined) => Promise<string | undefined>) | undefined;
+  /** Moves the chat to another folder, worktree, or branch before its first message. */
+  onMoveChat?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
   /** Opens Settings at a connector, a catalog id or a server name. */
   onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Starts best-of runs from this chat. Absent where runs cannot start, such as a scratch chat. */
@@ -73,13 +101,20 @@ export function ChatView({
   const [peerTargetId, setPeerTargetId] = useState<string>();
   const logRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  /** Scrolled up from the end of the chat, which offers the way back down. */
+  const [away, setAway] = useState(false);
+  const [unseen, setUnseen] = useState(false);
+  const [openFolds, setOpenFolds] = useState<ReadonlySet<string>>(() => new Set());
   const displayName = thread.name ?? providerDisplayName(thread.provider, projection.providers);
   const discovery = projection.providers?.find((entry) => entry.provider === thread.provider);
   const models = discovery?.status === "found" ? discovery.models : undefined;
   const [chosenReasoning, setChosenReasoning] = useState<string>();
   const reasoning = reasoningLevels(models, model, thread.capabilities, discovery);
   // A level the new model does not take falls back to the default instead of failing the turn.
-  const reasoningEffort = chosenReasoning && reasoning.levels.includes(chosenReasoning) ? chosenReasoning : undefined;
+  // A new chat starts on Low, the quickest level, when the model offers it; picking another level holds for the chat.
+  const startingReasoning = reasoning.levels.find((level) => level.toLowerCase() === "low");
+  const reasoningEffort =
+    (chosenReasoning && reasoning.levels.includes(chosenReasoning) ? chosenReasoning : undefined) ?? startingReasoning;
   // The projection passed in skips chat-only updates, so this thread's chat state is read from the
   // store. Each selector returns the same value while this thread is unchanged, even when another
   // thread is streaming.
@@ -117,15 +152,50 @@ export function ChatView({
     shallowArrayEqual,
   );
   const context = useMemo(() => latestContext(usage), [usage]);
+  // A chat that moved to another agent or model is one conversation across the threads it went through.
+  const chain = useMemo(() => conversationThreads(thread, projection.threads), [thread, projection.threads]);
+  const earlierKey = chain
+    .slice(0, -1)
+    .map((entry) => entry.threadId)
+    .join(" ");
+  // Every turn of the conversation keeps its file changes and its point to try again from, whichever
+  // agent ran it.
+  const chainKey = earlierKey ? `${earlierKey} ${threadId}` : threadId;
   const checkpoints = useRuntimeSelector(
-    useCallback((value: RuntimeProjection | undefined) => entriesForThread(value?.checkpoints, threadId), [threadId]),
+    useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.checkpoints, chainKey), [chainKey]),
+    shallowArrayEqual,
+  );
+  const earlierMessages = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.messages, earlierKey), [earlierKey]),
+    shallowArrayEqual,
+  );
+  const earlierActivities = useRuntimeSelector(
+    useCallback(
+      (value: RuntimeProjection | undefined) => entriesForThreads(value?.activities, earlierKey),
+      [earlierKey],
+    ),
     shallowArrayEqual,
   );
   const previousTimeline = useRef<readonly TimelineItem[]>([]);
-  const timeline = useMemo(() => buildTimeline(messages, activities, previousTimeline.current), [messages, activities]);
+  const timeline = useMemo(() => {
+    const items: TimelineItem[] = [];
+    let before: (typeof chain)[number] | undefined;
+    for (const entry of chain) {
+      const own = entry.threadId === threadId;
+      const said = own ? messages : earlierMessages.filter((message) => message.threadId === entry.threadId);
+      const done = own ? activities : earlierActivities.filter((activity) => activity.threadId === entry.threadId);
+      // A thread nobody wrote in adds nothing to read, so the notice spans it.
+      if (!own && said.length === 0 && done.length === 0) continue;
+      if (before) items.push({ kind: "message", message: switchNotice(before, entry, projection.providers) });
+      items.push(...buildTimeline(said, done, previousTimeline.current));
+      before = entry;
+    }
+    return items;
+  }, [chain, threadId, messages, activities, earlierMessages, earlierActivities, projection.providers]);
   useEffect(() => {
     previousTimeline.current = timeline;
   }, [timeline]);
+  const turns = useMemo(() => groupTurns(timeline), [timeline]);
   const fileLinks = useFileLinks(worktree?.worktreeId, messages.length);
   const latestOpenDiff = useRef(onOpenDiff);
   useLayoutEffect(() => {
@@ -136,11 +206,41 @@ export function ChatView({
   latestLinks.current = fileLinks;
   const openFile = useCallback((path: string) => latestLinks.current?.open({ path }), []);
   const ended = thread.status === "stopped" || thread.status === "failed";
+  // Files the agent just made must open from the reply that names them, so the file list reloads as
+  // steps finish and once more, at once, when the turn ends.
+  const fileIndex = useFileIndexContext();
+  const reloadFiles = fileIndex?.refresh;
+  const linkWorktreeId = worktree?.worktreeId;
+  const turnRunning = thread.status === "working";
+  const stepCount = activities.length;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a finished step signals that files may have changed.
+  useEffect(() => {
+    if (!reloadFiles || !linkWorktreeId) return;
+    void reloadFiles(linkWorktreeId, turnRunning ? 3_000 : 0).catch(() => undefined);
+  }, [reloadFiles, linkWorktreeId, turnRunning, stepCount]);
   // The agent's own conversation id lets the next message start it again where it left off.
   const resumable = ended && Boolean(thread.providerSessionId) && worktree !== undefined;
   const canSend = !ended || resumable;
   const working = thread.status === "working" || thread.status === "waiting";
   const busy = working || queued.length > 0;
+  // A chat opens before its agent has started. Messages sent meanwhile read as sent, in the conversation,
+  // and go out the moment the agent is up, so the start-up never looks like a queue.
+  const startingUp = thread.status === "starting";
+  const earlyMessages = useMemo(
+    () =>
+      startingUp
+        ? queued.map(
+            (entry): ThreadMessageProjection => ({
+              messageId: entry.queueId,
+              threadId: thread.threadId,
+              role: "user",
+              text: entry.text,
+              ...(entry.attachments ? { attachments: entry.attachments } : {}),
+            }),
+          )
+        : [],
+    [startingUp, queued, thread.threadId],
+  );
   const peers = useMemo(() => {
     if (!worktree) return [];
     return projection.threads.filter((candidate) => {
@@ -175,8 +275,44 @@ export function ChatView({
     log.scrollTop = log.scrollHeight;
   });
 
+  // A message that arrives while the person reads further up is announced on the way back down.
+  const messageCount = messages.length;
+  const seenCount = useRef(messageCount);
+  useEffect(() => {
+    if (messageCount > seenCount.current && !stickToBottom.current) setUnseen(true);
+    seenCount.current = messageCount;
+  }, [messageCount]);
+
+  const jumpToLatest = () => {
+    const log = logRef.current;
+    if (!log) return;
+    stickToBottom.current = true;
+    setUnseen(false);
+    log.scrollTo({ top: log.scrollHeight, behavior: "smooth" });
+  };
+  const toggleFold = (key: string) =>
+    setOpenFolds((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   const send = async (text: string, attachments: ComposerAttachment[]): Promise<boolean> => {
     setError(undefined);
+    // The first message to an agent that took the chat over brings it the conversation so far. The chat
+    // shows the message alone.
+    const takeover =
+      earlierMessages.length > 0 && queued.length === 0 && !messages.some((message) => message.role === "user")
+        ? takeoverContext({
+            branch: worktree?.branch ?? "the current branch",
+            messages: earlierMessages,
+            nameOf: (message) => {
+              const writer = chain.find((entry) => entry.threadId === message.threadId);
+              return writer ? (writer.name ?? providerDisplayName(writer.provider, projection.providers)) : "Agent";
+            },
+          })
+        : undefined;
     try {
       const response = await dispatch({
         protocolVersion: 1,
@@ -190,6 +326,7 @@ export function ChatView({
           ...(reasoningEffort ? { reasoningEffort } : {}),
           ...(permissionSwitch && permissionMode !== threadMode ? { permissionMode } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...(takeover ? { context: takeover } : {}),
         },
       });
       if (response?.accepted === false) {
@@ -263,7 +400,8 @@ export function ChatView({
     [projection.providers],
   );
   // Runs each get their own worktree, which a folder without Git cannot have.
-  const gitProject = projection.projects.find((project) => project.projectId === worktree?.projectId)?.git !== false;
+  const project = projection.projects.find((candidate) => candidate.projectId === worktree?.projectId);
+  const gitProject = project?.git !== false;
   const bestOf: ComposerBestOf | undefined =
     onStartRuns && worktree?.status === "ready" && gitProject
       ? {
@@ -296,59 +434,116 @@ export function ChatView({
   // A running step already shimmers in the list, so the line under it only says that work goes on.
   const liveLabel = thread.status === "waiting" ? `${displayName} is waiting for you` : step ? "Working" : "Thinking";
   const visibleError = error;
+  // Until the first message, the chat is not tied to its agent yet, so the model list offers every agent.
+  const fresh = messages.length === 0 && earlierMessages.length === 0 && queued.length === 0 && !ended;
+  // A started chat can move too: the pick opens a new chat in the tile that carries the conversation so far.
+  // Not while the agent works, so a click in the model list never cuts off a reply.
+  const switchable = onSwitchAgent !== undefined && !working && queued.length === 0;
+  const modelLocked = thread.capabilities.modelSwitch === "unsupported" && messages.length > 0;
+  const others = useMemo(
+    () => (switchable ? otherAgents(projection.providers, thread.provider) : []),
+    [switchable, projection.providers, thread.provider],
+  );
+  const agentName = providerDisplayName(thread.provider, projection.providers);
+  const signedOut = discovery?.status === "found" && discovery.login?.status === "signed-out";
+  const switchAgent = (provider: string, next: string | undefined) => {
+    setError(undefined);
+    void onSwitchAgent?.(provider, next).then((failure) => {
+      if (failure) setError(failure);
+    });
+  };
+
+  const renderItem = (index: number, withChanges: boolean) => {
+    const item = timeline[index];
+    if (!item) return null;
+    return (
+      <Fragment key={item.kind === "work" ? `work-${item.key}` : (item.key ?? item.message.messageId)}>
+        {item.kind === "work" ? (
+          <ChatWork item={item} showChangedFiles={!placedCheckpoints.turns.has(item.turnId)} onOpenDiff={openDiff} />
+        ) : isSwitchNotice(item.message) ? (
+          <div className="chat-switch" role="note">
+            <span className="chat-switch-line" aria-hidden="true" />
+            <span className="chat-switch-text">{item.message.text}</span>
+            <span className="chat-switch-line" aria-hidden="true" />
+          </div>
+        ) : (
+          <ChatMessage
+            message={item.message}
+            index={index}
+            links={fileLinks}
+            source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
+            // A reply still being written has no Copy yet: it would copy half an answer.
+            reply={working && index >= turns.latestStart ? undefined : turns.replies.get(index)}
+            onTryWays={bestOf && canSend ? tryWays : undefined}
+          />
+        )}
+        {withChanges ? placedCheckpoints.after.get(index)?.map(turnChanges) : null}
+      </Fragment>
+    );
+  };
 
   return (
     <div className="chat-view">
       <ChatImageScope value={worktree?.worktreeId}>
-        <div
-          className="chat-log"
-          role="log"
-          aria-label="Agent conversation"
-          ref={logRef}
-          onScroll={(event) => {
-            const target = event.currentTarget;
-            stickToBottom.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
-          }}
-        >
-          <div className="chat-column">
-            {timeline.length === 0 ? (
-              <EmptyState
-                className="chat-empty"
-                media={
-                  thread.status === "starting" ? (
-                    <span className="spinner" aria-hidden="true" />
+        <div className="chat-stage">
+          <div
+            className="chat-log"
+            role="log"
+            aria-label="Agent conversation"
+            ref={logRef}
+            onScroll={(event) => {
+              const target = event.currentTarget;
+              const atEnd = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
+              stickToBottom.current = atEnd;
+              setAway(!atEnd);
+              if (atEnd) setUnseen(false);
+            }}
+          >
+            <div className="chat-column">
+              {timeline.length === 0 && earlyMessages.length === 0 ? (
+                <ChatStart provider={thread.provider} folder={project?.name} />
+              ) : (
+                turns.rows.map((row) =>
+                  row.kind === "item" ? (
+                    renderItem(row.index, true)
                   ) : (
-                    <ProviderMark provider={thread.provider} size={18} />
-                  )
-                }
-                title={thread.status === "starting" ? `Starting ${displayName}` : `${displayName} is ready`}
-                detail={`Describe a task. ${displayName} works in ${worktree?.branch ?? "this worktree"}.`}
-              />
-            ) : (
-              timeline.map((item, index) => (
-                <Fragment key={item.kind === "work" ? `work-${item.key}` : (item.key ?? item.message.messageId)}>
-                  {item.kind === "work" ? (
-                    <ChatWork
-                      item={item}
-                      showChangedFiles={!placedCheckpoints.turns.has(item.turnId)}
-                      onOpenDiff={openDiff}
-                    />
-                  ) : (
-                    <ChatMessage
-                      message={item.message}
-                      index={index}
-                      links={fileLinks}
-                      source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
-                      onTryWays={bestOf && canSend ? tryWays : undefined}
-                    />
-                  )}
-                  {placedCheckpoints.after.get(index)?.map(turnChanges)}
-                </Fragment>
-              ))
-            )}
-            {placedCheckpoints.unplaced.map(turnChanges)}
-            {working ? <WorkingStatus label={liveLabel} live={!step && thread.status !== "waiting"} /> : null}
+                    <Fragment key={row.key}>
+                      <TurnFold
+                        summary={trailSummary(row.activities)}
+                        open={openFolds.has(row.key)}
+                        onToggle={() => toggleFold(row.key)}
+                      >
+                        {row.indexes.map((index) => renderItem(index, false))}
+                      </TurnFold>
+                      {row.indexes.flatMap((index) => placedCheckpoints.after.get(index)?.map(turnChanges) ?? [])}
+                    </Fragment>
+                  ),
+                )
+              )}
+              {placedCheckpoints.unplaced.map(turnChanges)}
+              {earlyMessages.map((message, index) => (
+                <ChatMessage
+                  key={message.messageId}
+                  message={message}
+                  index={timeline.length + index}
+                  links={fileLinks}
+                  source=""
+                />
+              ))}
+              {earlyMessages.length > 0 ? (
+                <WorkingStatus label="Working" live />
+              ) : working ? (
+                <WorkingStatus label={liveLabel} live={!step && thread.status !== "waiting"} />
+              ) : null}
+            </div>
           </div>
+          <TurnRail prompts={turns.prompts} logRef={logRef} />
+          {away ? (
+            <button type="button" className={`chat-jump${unseen ? " is-new" : ""}`} onClick={jumpToLatest}>
+              <Icon name="chevronDown" size={13} />
+              {unseen ? "New messages" : "Latest"}
+            </button>
+          ) : null}
         </div>
       </ChatImageScope>
       <div className="chat-dock">
@@ -379,7 +574,7 @@ export function ChatView({
               onDismiss={() => setDismissedConnectors((current) => new Set(current).add(connectorActivity.activityId))}
             />
           ) : null}
-          {queued.length > 0 ? (
+          {queued.length > 0 && earlyMessages.length === 0 ? (
             <QueuedMessages
               queued={queued}
               displayName={displayName}
@@ -394,6 +589,13 @@ export function ChatView({
               waiting={thread.status === "waiting" || waitingCount > 0}
               onSteer={(queueId) => run({ type: "thread.steer", threadId: thread.threadId, queueId })}
               onRemove={(queueId) => run({ type: "thread.queue.remove", threadId: thread.threadId, queueId })}
+            />
+          ) : null}
+          {signedOut && !ended ? (
+            <SignInNotice
+              name={agentName}
+              command={isSelectableProvider(thread.provider) ? signInCommand(thread.provider) : undefined}
+              onCheck={() => discoverProviders(dispatch)}
             />
           ) : null}
           {visibleError ? (
@@ -442,14 +644,31 @@ export function ChatView({
               displayName={displayName}
               provider={thread.provider}
               branch={worktree?.branch ?? "this worktree"}
-              disabled={thread.status === "starting"}
+              workspace={
+                worktree ? (
+                  <WorkspaceBar
+                    project={project}
+                    projects={projection.projects}
+                    worktree={worktree}
+                    worktrees={projection.worktrees}
+                    git={gitProject}
+                    onMove={fresh ? onMoveChat : undefined}
+                  />
+                ) : undefined
+              }
+              disabled={false}
               queues={busy}
               models={models}
               model={model}
-              modelLocked={thread.capabilities.modelSwitch === "unsupported" && messages.length > 0}
-              onModelChange={setModel}
+              modelLocked={modelLocked && !switchable}
+              onModelChange={modelLocked && switchable ? (next) => switchAgent(thread.provider, next) : setModel}
+              carriesOver={switchable && !fresh}
+              agentName={agentName}
+              agentPlan={discovery?.status === "found" ? accountPlan(discovery.login) : undefined}
+              otherAgents={others}
+              onAgentChange={switchable ? switchAgent : undefined}
               reasoningLevels={reasoning.levels}
-              defaultReasoning={reasoning.defaultLevel}
+              defaultReasoning={startingReasoning ?? reasoning.defaultLevel}
               reasoningEffort={reasoningEffort}
               onReasoningEffortChange={setChosenReasoning}
               permissionMode={permissionMode}
@@ -463,6 +682,7 @@ export function ChatView({
               onStop={working ? stopTurn : undefined}
               bestOf={bestOf}
               active={active}
+              draftKey={thread.sessionId ?? thread.threadId}
             />
           )}
           {peers.length > 0 && selectedPeerId && !ended ? (
@@ -672,11 +892,179 @@ export type StartRunsRequest = {
   permissionMode: PermissionMode;
 };
 
+/** A folded turn opens to its steps and remarks; closed, one line says what the agent did. */
+function TurnFold({
+  summary,
+  open,
+  onToggle,
+  children,
+}: {
+  summary: string;
+  open: boolean;
+  onToggle(): void;
+  children: ReactNode;
+}) {
+  return (
+    <section className={`turn-fold${open ? " is-open" : ""}`} aria-label="Steps of an earlier turn">
+      <button type="button" className="turn-fold-row" aria-expanded={open} onClick={onToggle}>
+        <Icon name="chevronRight" size={11} className="turn-fold-chevron" />
+        <span className="turn-fold-summary">{summary}</span>
+      </button>
+      <Collapse open={open}>
+        <div className="turn-fold-body">{children}</div>
+      </Collapse>
+    </section>
+  );
+}
+
+/** Past this, a sent message shows its start and opens on request, so a pasted log does not fill the chat. */
+const LONG_MESSAGE_LINES = 14;
+const LONG_MESSAGE_CHARS = 1_400;
+
+function UserMessage({
+  message,
+  index,
+  links,
+  onTryWays,
+}: {
+  message: ThreadMessageProjection;
+  index: number;
+  links: FileLinks | undefined;
+  onTryWays?: ((message: ThreadMessageProjection, index: number) => void) | undefined;
+}) {
+  const typed = splitAttachedFiles(message.text);
+  const uploads = message.attachments ?? [];
+  const [copyState, copy] = useCopyFeedback();
+  const [expanded, setExpanded] = useState(false);
+  const long = typed.text.length > LONG_MESSAGE_CHARS || typed.text.split("\n").length > LONG_MESSAGE_LINES;
+  const files = typed.paths.map((path) => ({ path, location: links?.resolve(path) }));
+  const pictures = files.flatMap((file) =>
+    file.location && isImagePath(file.location.path) ? [file.location.path] : [],
+  );
+  const sentPictures = uploads.filter((attachment) => attachment.mimeType !== "text/plain");
+  const sentFiles = uploads.filter((attachment) => attachment.mimeType === "text/plain");
+  return (
+    <article className="chat-message chat-message-user" data-turn={message.messageId}>
+      <span className="chat-message-actions">
+        {onTryWays && message.text.trim() ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            icon="split"
+            tooltip="Run this message again in new worktrees, from before it was sent"
+            onClick={() => onTryWays(message, index)}
+          >
+            Try N ways
+          </Button>
+        ) : null}
+        {typed.text ? (
+          <IconButton
+            label="Copy message"
+            tooltip={copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy message"}
+            icon={copyState === "copied" ? "check" : "copy"}
+            size="xs"
+            iconSize={12}
+            onClick={() => copy(typed.text)}
+          />
+        ) : null}
+      </span>
+      {pictures.length > 0 || sentPictures.length > 0 ? (
+        <div className="chat-attachment-pictures">
+          {sentPictures.map((attachment) => (
+            <ChatImage
+              key={attachment.path}
+              source={{ attachment: attachment.path, threadId: message.threadId, name: attachment.name }}
+            />
+          ))}
+          {pictures.map((path) => (
+            <ChatImage key={path} source={{ path }} />
+          ))}
+        </div>
+      ) : null}
+      {sentFiles.length > 0 || files.length > 0 ? (
+        <ul className="chat-attachments" aria-label="Attachments">
+          {sentFiles.map((attachment) => (
+            <li key={attachment.path} title={attachment.name}>
+              <span
+                className={`file-badge is-sm ${attachment.mimeType === "text/plain" ? "is-doc" : "is-media"}`}
+                aria-hidden="true"
+              >
+                <Icon name={attachment.mimeType === "text/plain" ? "fileText" : "image"} size={11} />
+              </span>
+              <span className="chat-attachment-name">{attachment.name}</span>
+            </li>
+          ))}
+          {files.map(({ path, location }) => {
+            const label = (
+              <>
+                <FileBadge path={path} size="sm" />
+                <span className="chat-attachment-name">{fileName(path)}</span>
+              </>
+            );
+            return location && links ? (
+              <li key={path} className="is-link">
+                <button type="button" title={`Open ${location.path}`} onClick={() => links.open(location)}>
+                  {label}
+                </button>
+              </li>
+            ) : (
+              <li key={path} title={path}>
+                {label}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {typed.text ? <p className={long && !expanded ? "is-clamped" : undefined}>{typed.text}</p> : null}
+      {long ? (
+        <button
+          type="button"
+          className="chat-message-more"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "Show less" : "Show all"}
+        </button>
+      ) : null}
+    </article>
+  );
+}
+
+function AssistantMessage({
+  message,
+  links,
+  reply,
+}: {
+  message: ThreadMessageProjection;
+  links: FileLinks | undefined;
+  reply: string | undefined;
+}) {
+  const [copyState, copy] = useCopyFeedback();
+  return (
+    <article className="chat-message chat-message-assistant">
+      <Markdown text={message.text} links={links} showImages />
+      {reply ? (
+        <div className="chat-reply-foot">
+          <IconButton
+            label="Copy reply"
+            tooltip={copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy reply"}
+            icon={copyState === "copied" ? "check" : "copy"}
+            size="xs"
+            iconSize={12}
+            onClick={() => copy(reply)}
+          />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 const ChatMessage = memo(function ChatMessage({
   message,
   index,
   links,
   source,
+  reply,
   onTryWays,
 }: {
   message: ThreadMessageProjection;
@@ -684,50 +1072,12 @@ const ChatMessage = memo(function ChatMessage({
   index: number;
   links: FileLinks | undefined;
   source: string;
+  /** The turn's whole reply, on its last part only, which offers to copy it. */
+  reply?: string | undefined;
   onTryWays?: ((message: ThreadMessageProjection, index: number) => void) | undefined;
 }) {
   if (message.role === "user") {
-    const typed = splitAttachedFiles(message.text);
-    const uploads = message.attachments ?? [];
-    return (
-      <article className="chat-message chat-message-user">
-        {onTryWays && message.text.trim() ? (
-          <span className="chat-message-actions">
-            <Button
-              variant="ghost"
-              size="xs"
-              icon="split"
-              tooltip="Run this message again in new worktrees, from before it was sent"
-              onClick={() => onTryWays(message, index)}
-            >
-              Try N ways
-            </Button>
-          </span>
-        ) : null}
-        {uploads.length > 0 || typed.paths.length > 0 ? (
-          <ul className="chat-attachments" aria-label="Attachments">
-            {uploads.map((attachment) => (
-              <li key={attachment.path} title={attachment.name}>
-                <span
-                  className={`file-badge is-sm ${attachment.mimeType === "text/plain" ? "is-doc" : "is-media"}`}
-                  aria-hidden="true"
-                >
-                  <Icon name={attachment.mimeType === "text/plain" ? "fileText" : "image"} size={11} />
-                </span>
-                <span className="chat-attachment-name">{attachment.name}</span>
-              </li>
-            ))}
-            {typed.paths.map((path) => (
-              <li key={path} title={path}>
-                <FileBadge path={path} size="sm" />
-                <span className="chat-attachment-name">{fileName(path)}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {typed.text ? <p>{typed.text}</p> : null}
-      </article>
-    );
+    return <UserMessage message={message} index={index} links={links} onTryWays={onTryWays} />;
   }
   if (message.role === "agent") {
     return (
@@ -741,11 +1091,7 @@ const ChatMessage = memo(function ChatMessage({
     );
   }
   if (message.role === "system") return <p className="chat-system">{message.text}</p>;
-  return (
-    <article className="chat-message chat-message-assistant">
-      <Markdown text={message.text} links={links} showImages />
-    </article>
-  );
+  return <AssistantMessage message={message} links={links} reply={reply} />;
 });
 function sourceLabel(projection: RuntimeProjection, sourceThreadId: ThreadId | undefined): string {
   const thread = projection.threads.find((candidate) => candidate.threadId === sourceThreadId);
@@ -759,4 +1105,91 @@ function peerOptionLabel(projection: RuntimeProjection, threadId: string): strin
   const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread?.worktreeId);
   const provider = thread ? providerDisplayName(thread.provider, projection.providers) : "Agent";
   return `${provider} in ${worktree?.branch ?? "a worktree"}`;
+}
+
+/**
+ * The chat's agent is installed but signed out, so a message would fail. Says what to run and checks
+ * again on request; once discovery sees the login, the notice goes away by itself.
+ */
+function SignInNotice({
+  name,
+  command,
+  onCheck,
+}: {
+  name: string;
+  command: string | undefined;
+  onCheck(): Promise<{ ok: true } | { ok: false; error: string }>;
+}) {
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<string>();
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="chat-ended chat-sign-in" role="status">
+      <Icon name="alert" size={13} />
+      <span className="chat-ended-copy">
+        <span className="chat-ended-title">{name} is signed out</span>
+        <span className="chat-ended-detail">
+          {command ? (
+            <>
+              Run <code>{command}</code> in a terminal and sign in, then check again.
+            </>
+          ) : (
+            `Sign in from ${name}'s own CLI, then check again.`
+          )}
+          {result ? ` ${result}` : null}
+        </span>
+      </span>
+      {command ? (
+        <IconButton
+          label={`Copy ${command}`}
+          tooltip={copied ? "Copied" : "Copy command"}
+          icon={copied ? "check" : "copy"}
+          size="sm"
+          onClick={() => {
+            void navigator.clipboard?.writeText(command).then(
+              () => setCopied(true),
+              () => undefined,
+            );
+          }}
+        />
+      ) : null}
+      <Button
+        size="sm"
+        disabled={checking}
+        onClick={() => {
+          setChecking(true);
+          setResult(undefined);
+          void onCheck().then((outcome) => {
+            setChecking(false);
+            setResult(outcome.ok ? "Still signed out." : outcome.error);
+          });
+        }}
+      >
+        {checking ? "Checking…" : "Check again"}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * A new chat opens straight onto the message box, like any chat app. The agent may still be starting; the
+ * header says so, and a message sent meanwhile waits until it is up.
+ */
+/** The empty chat: the agent's mark and one question, so the first thing to do is type the task. */
+export function ChatStart({ provider, folder }: { provider: string; folder: string | undefined }) {
+  return (
+    <div className="chat-start">
+      <ProviderMark provider={provider} size={28} />
+      <h2 className="chat-start-title">
+        What should we work on
+        {folder ? (
+          <>
+            {" "}
+            in <span className="chat-start-folder">{folder}</span>
+          </>
+        ) : null}
+        ?
+      </h2>
+    </div>
+  );
 }

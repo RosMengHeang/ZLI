@@ -324,6 +324,20 @@ describe("chat history", () => {
     expect(sessionChats(session, [], [])[0]?.title).toBe("New chat");
   });
 
+  it("follows a chat moved to another agent and drops the empty chat it left", () => {
+    const moved = {
+      ...thread,
+      threadId: "00000000-0000-4000-8000-000000000403",
+      provider: "claude-code",
+      createdAt: "2026-01-02T09:00:00.000Z",
+    } as ThreadProjection;
+    const left = { ...thread, status: "stopped" } as ThreadProjection;
+    const [session] = deriveSessions({ terminals: [], threads: [left, moved] });
+    if (!session) throw new Error("no session");
+    expect(session.provider).toBe("claude-code");
+    expect(sessionChats(session, [], []).map((chat) => chat.threadId)).toEqual([moved.threadId]);
+  });
+
   it("remembers the picked chat and forgets it with the session", () => {
     const state = parseWorkbenchState(JSON.stringify({ chats: { [sessionId]: older.threadId, other: 3 } }));
     expect(state.chats).toEqual({ [sessionId]: older.threadId });

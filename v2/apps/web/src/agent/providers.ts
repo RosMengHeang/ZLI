@@ -32,6 +32,31 @@ const FALLBACK_NAMES: Record<(typeof SELECTABLE_PROVIDERS)[number], string> = {
   goose: "Goose",
 };
 
+/** What to run to sign in, for the agents whose login ZLI can read. Claude Code and Gemini ask on first start. */
+const SIGN_IN: Partial<Record<ListedProviderKind, string>> = {
+  "claude-code": "claude",
+  codex: "codex login",
+  gemini: "gemini",
+};
+
+export function signInCommand(provider: ListedProviderKind): string | undefined {
+  return SIGN_IN[provider];
+}
+
+/** Installed, and not known to be signed out. An agent whose login ZLI cannot read counts as ready. */
+export function agentReady(entry: ProviderDiscovery): boolean {
+  return entry.status === "found" && entry.login?.status !== "signed-out";
+}
+
+/** "pro" reads as "Pro". Plans come from the CLI's own files, so unknown names pass through. */
+export function planLabel(plan: string): string {
+  return plan
+    .split(/[\s_-]+/u)
+    .filter(Boolean)
+    .map((word) => word[0]?.toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 export function isSelectableProvider(provider: string): provider is ListedProviderKind {
   return (SELECTABLE_PROVIDERS as readonly string[]).includes(provider);
 }

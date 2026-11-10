@@ -86,3 +86,61 @@ button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-of
 .env-line { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: var(--zli-space-1-5) var(--zli-space-2) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .env-line > svg { flex: 0 0 auto; margin-top: 1px; }
 .env-line.is-done > svg { color: var(--zli-green); }
+
+.tile-chat-start { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+
+/* ---------- Environment card (chat mode) ---------- */
+/* Pinned to the chat's top-right corner as one list of rows: where the agent works, then its Git state.
+   The host lets clicks through, so only the card itself takes them. The header's screen button hides it. */
+.env-card-host { position: absolute; top: var(--zli-space-3); right: var(--zli-space-3); z-index: 4; display: flex; pointer-events: none; }
+.env-card { display: flex; width: 272px; max-height: min(70vh, 560px); flex-direction: column; overflow: auto; border: 1px solid var(--zli-border-strong); border-radius: 14px; background: var(--zli-raised); box-shadow: var(--zli-highlight), 0 16px 36px -20px rgba(0, 0, 0, .9); pointer-events: auto; animation: env-card-in 220ms cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes env-card-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.env-card-group { display: flex; flex-direction: column; gap: 1px; padding: var(--zli-space-1-5); }
+.env-card-group + .env-card-group { border-top: 1px solid var(--zli-border); }
+.env-card .env-row { min-height: 34px; padding: 0 var(--zli-space-2-5); }
+.env-card .env-row > svg:last-child { flex: 0 0 auto; color: var(--zli-dim); }
+.env-card-folder .env-row-label { font-weight: 600; }
+.env-card-kind { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 7px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-muted); font-size: 11px; line-height: 20px; }
+.env-card-kind.is-worktree { background: var(--zli-accent-soft); color: var(--zli-accent-hover); }
+.env-card-kind > svg { color: currentColor; }
+/* "Open in <app>": the row opens the last-used app, the chevron at its end picks another. */
+.open-in-row { gap: 0; padding: 0 !important; }
+.open-in-row-main { display: flex; min-width: 0; height: 34px; flex: 1; align-items: center; gap: var(--zli-space-2-5); padding: 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-sm) 0 0 var(--zli-radius-sm); background: transparent; color: var(--zli-text); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); text-align: left; }
+.open-in-row-more { display: grid; width: 32px; height: 34px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 0 var(--zli-radius-sm) var(--zli-radius-sm) 0; background: transparent; color: var(--zli-dim); cursor: pointer; }
+.open-in-row-main:hover, .open-in-row-more:hover, .open-in-row-more[aria-expanded="true"] { background: var(--zli-hover); color: var(--zli-text); }
+.open-in-row-main:focus-visible, .open-in-row-more:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--zli-accent-line); }
+.open-in-row .app-mark { width: 15px; height: 15px; flex: 0 0 auto; }
+.env-card-commit { padding: 0 var(--zli-space-1) var(--zli-space-1); animation: zli-fade-in var(--zli-duration-base) var(--zli-ease) both; }
+.env-card-commit .env-commit { margin-top: 0; padding-top: var(--zli-space-1); border-top: 0; }
+.env-pr-state { padding: 0 6px; border-radius: var(--zli-radius-xs); font-size: var(--zli-text-xs); font-weight: 500; }
+.env-pr-state.is-open { background: var(--zli-green-soft); color: var(--zli-green); }
+.env-pr-state.is-draft, .env-pr-state.is-closed { background: var(--zli-hover); color: var(--zli-muted); }
+.env-pr-state.is-merged { background: var(--zli-accent-soft); color: var(--zli-accent-hover); }
+.env-checks { display: inline-flex; align-items: center; gap: 4px; }
+.env-checks.is-passed { color: var(--zli-green); }
+.env-checks.is-failed { color: var(--zli-red); }
+.env-checks.is-pending { color: var(--zli-amber); }
+/* The header button that toggles the card reads as pressed while the card shows. */
+.tile-actions .btn-icon.is-on { background: var(--zli-active); color: var(--zli-text); }
+/* The pull request: its title on up to two lines, then its number, checks, and one Merge button. */
+.env-pr-card { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: var(--zli-space-2-5); row-gap: 4px; align-items: start; padding: var(--zli-space-2) var(--zli-space-2-5); border-radius: var(--zli-radius-sm); }
+.env-pr-card > svg { margin-top: 2px; color: var(--zli-green); }
+.env-pr-card.is-merged > svg { color: var(--zli-accent-hover); }
+.env-pr-card.is-draft > svg, .env-pr-card.is-closed > svg { color: var(--zli-muted); }
+.env-pr-title { display: -webkit-box; overflow: hidden; padding: 0; border: 0; background: transparent; color: var(--zli-text); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); font-weight: 600; line-height: 18px; text-align: left; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.env-pr-title:hover { text-decoration: underline; text-decoration-color: var(--zli-border-hover); text-underline-offset: 3px; }
+.env-pr-title:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; border-radius: 2px; }
+.env-pr-meta { display: flex; min-width: 0; grid-column: 2; align-items: center; gap: var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.env-pr-meta .env-checks { display: inline-flex; align-items: center; gap: 3px; }
+.env-pr-merge { margin-left: auto; }
+/* Commit & push: the row says what is waiting; the panel says what the button will do before it does it. */
+.env-commit-count { flex: 0 0 auto; padding: 0 7px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-dim); font-size: 11px; font-variant-numeric: tabular-nums; line-height: 18px; }
+.env-commit-count.is-waiting { background: var(--zli-accent-soft); color: var(--zli-accent-hover); }
+.env-commit-row.is-idle { cursor: default; }
+.env-commit-row.is-idle:hover { background: transparent; }
+.env-commit-row.is-idle .env-row-label { color: var(--zli-muted); }
+.env-commit-panel { display: flex; flex-direction: column; gap: var(--zli-space-2); margin: 2px var(--zli-space-1) var(--zli-space-1); padding: var(--zli-space-2-5); border-radius: var(--zli-radius-md); background: var(--zli-well); animation: zli-fade-in var(--zli-duration-base) var(--zli-ease) both; }
+.env-commit-panel .env-line { margin: 0; }
+.env-commit-message { width: 100%; }
+.env-commit-actions { display: flex; align-items: center; gap: var(--zli-space-1-5); }
+.env-commit-actions > .btn-primary { flex: 1; justify-content: center; }

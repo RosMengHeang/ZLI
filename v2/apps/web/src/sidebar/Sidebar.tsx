@@ -159,6 +159,9 @@ const noGroups: readonly RunGroup[] = [];
 const noAncestors: ReadonlySet<string> = new Set();
 const noStates: ReadonlyMap<string, RunState> = new Map();
 
+/** How many projects without agents it takes before they fold into one row. */
+const FOLD_QUIET_PROJECTS = 3;
+
 export function Sidebar({
   projection,
   sessions,
@@ -231,6 +234,34 @@ export function Sidebar({
     if (!parent || runIds.has(session.sessionId)) continue;
     subAgentsOf.set(parent.sessionId, [...(subAgentsOf.get(parent.sessionId) ?? []), session]);
   }
+
+  // Once several projects sit empty beside ones in use, as after setup adds every folder found, the empty
+  // ones fold into one row. Pinned and selected projects stay listed; a short list is left as it is.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const worked = new Set(
+    worktrees
+      .filter(
+        (worktree) =>
+          worktree.kind === "worktree" ||
+          worktree.status !== "ready" ||
+          sessions.some((session) => session.worktreeId === worktree.worktreeId),
+      )
+      .map((worktree) => worktree.projectId),
+  );
+  const listed = (project: ProjectProjection) =>
+    worked.has(project.projectId) ||
+    layout.pinned(project.projectId) ||
+    [
+      selectedProjectId,
+      currentProjectId,
+      renamingProjectId,
+      removingProjectId,
+      removeProjectProblem?.projectId,
+    ].includes(project.projectId);
+  const quiet = orderedProjects.filter((project) => !listed(project));
+  const fold = quiet.length >= FOLD_QUIET_PROJECTS && quiet.length < orderedProjects.length;
+  const listedProjects = fold ? orderedProjects.filter(listed) : orderedProjects;
+  const quietProjects = fold ? quiet : [];
 
   const asideRef = useRef<HTMLElement>(null);
   const { expandProject } = layout;
@@ -751,7 +782,12 @@ export function Sidebar({
     const active = session.sessionId === activeSessionId;
     const background = backgroundSessionIds.has(session.sessionId);
     const stoppable = sessionStopCommands(session).length > 0;
-    const quiet = runStatus === undefined && (session.status === "ready" || session.status === "ended");
+    // A chat that is starting reads as ready: it already takes messages, so its start-up is not news.
+    const quiet =
+      runStatus === undefined &&
+      (session.status === "ready" ||
+        session.status === "ended" ||
+        (session.mode === "chat" && (session.status === "starting" || session.status === "preparing")));
     const agentName = sessionAgentName(session);
     const runName = runIndex === undefined ? title : `Run ${runIndex}`;
     const name = agentName ? `${agentName}, ${runName}` : runName;
@@ -892,7 +928,7 @@ export function Sidebar({
         ) : (
           <>
             <h2 className="sidebar-heading">Projects</h2>
-            {orderedProjects.map((project) => {
+            {listedProjects.map((project) => {
               const projectWorktrees = worktrees.filter((worktree) => worktree.projectId === project.projectId);
               const worktreeIds = new Set<string>(projectWorktrees.map((worktree) => worktree.worktreeId));
               const projectSessions = sessions
@@ -1059,6 +1095,41 @@ export function Sidebar({
                 </section>
               );
             })}
+            {quietProjects.length > 0 ? (
+              <section className="sidebar-more" aria-label="Projects without agents">
+                <button
+                  className="sidebar-more-toggle"
+                  type="button"
+                  aria-expanded={moreOpen}
+                  onClick={() => setMoreOpen((value) => !value)}
+                >
+                  <Icon name="chevronRight" size={11} className="sidebar-more-chevron" />
+                  {quietProjects.length} more projects
+                </button>
+                {moreOpen ? (
+                  <ul className="sidebar-more-list">
+                    {quietProjects.map((project) => (
+                      <li key={project.projectId}>
+                        <button
+                          className="sidebar-more-project"
+                          type="button"
+                          title={project.path}
+                          aria-label={`Start an agent in ${project.name}`}
+                          onClick={() => onNewAgent(project)}
+                          onContextMenu={(event) =>
+                            openContextMenu(event, `${project.name} actions`, () => projectContextItems(project))
+                          }
+                        >
+                          <Icon name="folder" size={14} />
+                          <span className="project-name">{project.name}</span>
+                          <Icon name="agentNew" size={13} className="sidebar-more-start" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+            ) : null}
           </>
         )}
       </div>

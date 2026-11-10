@@ -2,7 +2,8 @@ import { huddlesOf, type RpcResponse, type RuntimeProjection, type WorktreeProje
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
-import { ChatView, type StartRunsRequest } from "../chat/ChatView.js";
+import { ChatStart, ChatView, type StartRunsRequest } from "../chat/ChatView.js";
+import { type DraftChange, DraftChat, type DraftMessage } from "../chat/DraftChat.js";
 import { useFileLinks } from "../files/FileIndex.js";
 import { HUDDLE_AGENT_DRAG_TYPE, sessionAgentId, typingHeldCount } from "../huddle/huddles.js";
 import { HuddleHeldPill, HuddleMenuButton, TileHuddleChip } from "../huddle/TileHuddle.js";
@@ -19,6 +20,7 @@ import { ProviderMark } from "../ui/ProviderMark.js";
 import { StopButton } from "../ui/StopButton.js";
 import type { RunPosition } from "./bestOf.js";
 import { EnvironmentButton } from "./EnvironmentButton.js";
+import type { ChatPlace } from "./launch.js";
 import {
   type AgentSession,
   chatStatusLabel,
@@ -69,6 +71,12 @@ export function AgentTile({
   onReviewSetup,
   onShowSetupOutput,
   onHandoff,
+  onSwitchAgent,
+  onMoveChat,
+  onOpenPullRequest,
+  onDraftChange,
+  onDraftMove,
+  onDraftSend,
   onOpenConnectors,
   run,
   onStartRuns,
@@ -101,6 +109,17 @@ export function AgentTile({
   onShowSetupOutput(): void;
   /** Absent when the chat has nothing to hand over yet. */
   onHandoff?: (() => void) | undefined;
+  /** Starts the tile's empty chat again with another agent and model. */
+  onSwitchAgent?: ((provider: string, model: string | undefined) => Promise<string | undefined>) | undefined;
+  /** Shows the worktree's pull request in the side panel. */
+  onOpenPullRequest?: (() => void) | undefined;
+  /** Moves a chat that has not started to another folder, worktree, or branch. */
+  onMoveChat?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
+  /** A draft chat's settings changed before its first message. */
+  onDraftChange?: ((change: DraftChange) => void) | undefined;
+  onDraftMove?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
+  /** Starts a draft chat's agent with its first message. */
+  onDraftSend?: ((message: DraftMessage) => Promise<string | undefined>) | undefined;
   /** Opens Settings at a connector, for a chat that needs one. */
   onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Where this agent sits in a best-of run that is still being compared. */
@@ -129,6 +148,8 @@ export function AgentTile({
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [envCardOpen, setEnvCardOpen] = useState(readEnvCardOpen);
+  const [cardHost, setCardHost] = useState<HTMLDivElement | null>(null);
   const displayName = providerDisplayName(session.provider, projection.providers);
   const title = sessionTitle(session, projection.messages, projection.providers);
   const agentName = sessionAgentName(session);
@@ -237,8 +258,10 @@ export function AgentTile({
             : undefined
         }
       >
+        {/* A chat's tile shows the conversation, not the agent: the agent can change under it, and the
+            message box already says which one answers. */}
         <span className="tile-mark" aria-hidden="true">
-          <ProviderMark provider={session.provider} size={13} />
+          {mode === "chat" ? <Icon name="message" size={13} /> : <ProviderMark provider={session.provider} size={13} />}
         </span>
         {agentName ? (
           onRename ? (
@@ -287,40 +310,62 @@ export function AgentTile({
             Run {run.index}
           </span>
         ) : null}
-        <Badge
-          className="tile-status"
-          tone={statusTone[status]}
-          dot={!statusBusy}
-          spinner={statusBusy}
-          title={sessionStatusLabel[status]}
-        >
-          {sessionStatusLabel[status]}
-        </Badge>
+        {/* A chat is a conversation, not a process: its start-up and idle states say nothing worth a chip. */}
+        {mode === "chat" && quietInChat.has(status) ? null : (
+          <Badge
+            className="tile-status"
+            tone={statusTone[status]}
+            dot={!statusBusy}
+            spinner={statusBusy}
+            title={sessionStatusLabel[status]}
+          >
+            {sessionStatusLabel[status]}
+          </Badge>
+        )}
         <span className="tile-spacer" />
         <span className="tile-actions">
           {worktree?.status === "ready" ? (
-            <EnvironmentButton worktree={worktree} review={review} noGit={noGit} onOpenChanges={() => onOpenDiff()} />
-          ) : null}
-          {onOpenChat && chats.length > 1 ? (
-            <MenuButton
-              label="Chat history"
-              tooltip={`Chat history: ${chats.length} chats`}
-              icon="history"
-              size="sm"
-              iconSize={13}
-              items={historyItems}
+            <EnvironmentButton
+              worktree={worktree}
+              review={review}
+              noGit={noGit}
+              onOpenChanges={() => onOpenDiff()}
+              onOpenPullRequest={onOpenPullRequest}
+              card={
+                mode === "chat"
+                  ? {
+                      open: envCardOpen,
+                      host: cardHost,
+                      onOpenChange: (open) => {
+                        setEnvCardOpen(open);
+                        writeEnvCardOpen(open);
+                      },
+                    }
+                  : undefined
+              }
             />
           ) : null}
           {mode === "chat" && thread && onNewChat ? (
             <MenuButton
               ref={newChatButton}
-              label="New chat"
-              tooltip="New chat. This one stays in history"
+              label="Chats"
+              tooltip={
+                chats.length > 1 ? `New chat, or one of ${chats.length} chats` : "New chat. This one stays in Chats"
+              }
               shortcut={newChatShortcut}
               icon="squarePen"
               size="sm"
               iconSize={13}
-              items={newChatItems}
+              items={onOpenChat && chats.length > 1 ? [...newChatItems, "separator", ...historyItems] : newChatItems}
+            />
+          ) : onOpenChat && chats.length > 1 ? (
+            <MenuButton
+              label="Chats"
+              tooltip={`${chats.length} chats`}
+              icon="history"
+              size="sm"
+              iconSize={13}
+              items={historyItems}
             />
           ) : null}
           {huddleAgentId && onOpenHuddle ? (
@@ -352,7 +397,7 @@ export function AgentTile({
               onClick={onRename}
             />
           ) : null}
-          {canStop ? (
+          {canStop && mode !== "chat" ? (
             <StopButton
               className="tile-stop"
               size="xs"
@@ -379,6 +424,7 @@ export function AgentTile({
         </span>
       </header>
       <div className="tile-body">
+        {mode === "chat" ? <div className="env-card-host" ref={setCardHost} /> : null}
         {!terminal && !thread && session.pending ? (
           session.pending.errorMessage ? (
             <EmptyState
@@ -411,6 +457,29 @@ export function AgentTile({
                 </Button>
               ) : null}
             </EmptyState>
+          ) : session.pending.mode === "chat" &&
+            session.pending.draft &&
+            worktree?.status === "ready" &&
+            onDraftChange &&
+            onDraftMove &&
+            onDraftSend ? (
+            <DraftChat
+              projection={projection}
+              launch={session.pending}
+              worktree={worktree}
+              active={active}
+              onChange={onDraftChange}
+              onMove={onDraftMove}
+              onSend={onDraftSend}
+            />
+          ) : session.pending.mode === "chat" && worktree?.status === "ready" ? (
+            // The chat opens at once; the agent starts behind it.
+            <div className="tile-chat-start">
+              <ChatStart
+                provider={session.provider}
+                folder={projection.projects.find((project) => project.projectId === worktree.projectId)?.name}
+              />
+            </div>
           ) : (
             <EmptyState
               media={<span className="spinner" aria-hidden="true" />}
@@ -470,6 +539,8 @@ export function AgentTile({
             onOpenDiff={onOpenDiff}
             onRestart={() => void start("chat")}
             onHandoff={onHandoff}
+            onSwitchAgent={onSwitchAgent}
+            onMoveChat={onMoveChat}
             onOpenConnectors={onOpenConnectors}
             onStartRuns={onStartRuns}
             active={active}
@@ -495,3 +566,25 @@ export function AgentTile({
     </section>
   );
 }
+
+const ENV_CARD_KEY = "zli.envCard.v1";
+
+/** Whether chat tiles pin the environment card. It starts shown, and closing it in one tile closes it in all. */
+function readEnvCardOpen(): boolean {
+  try {
+    return window.localStorage.getItem(ENV_CARD_KEY) !== "closed";
+  } catch {
+    return true;
+  }
+}
+
+function writeEnvCardOpen(open: boolean): void {
+  try {
+    window.localStorage.setItem(ENV_CARD_KEY, open ? "open" : "closed");
+  } catch {
+    // Storage can be unavailable; the choice still holds in this tile.
+  }
+}
+
+/** States a chat tile leaves unsaid. The composer already takes messages while the agent starts. */
+const quietInChat: ReadonlySet<string> = new Set(["preparing", "starting", "ready"]);

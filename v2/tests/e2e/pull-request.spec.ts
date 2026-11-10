@@ -5,11 +5,11 @@ import { expect, test } from "@playwright/test";
 
 import {
   closeDesktop,
-  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   git,
   launchDesktop,
+  openCreateWorktree,
 } from "./desktop-fixtures.js";
 
 const PR_URL = "https://github.com/zli/fixture/pull/7";

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect, type Page, test } from "@playwright/test";
@@ -7,7 +7,10 @@ import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } fr
 
 const jsonl = (...lines: unknown[]) => `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`;
 
-/** A home folder with one past Claude Code chat in the fixture repository, so the scan is predictable. */
+/**
+ * A home folder with past Claude Code sessions: the newest in the fixture repository and older ones in
+ * three other folders, so the scan is predictable and setup adds more projects than the one it opens.
+ */
 async function fakeHome(root: string, repo: string): Promise<string> {
   const home = join(root, "home");
   // Electron reads its own folders from the home on Windows, so they have to exist there too.
@@ -30,10 +33,22 @@ async function fakeHome(root: string, repo: string): Promise<string> {
       record("assistant", "Added GET /health that returns ok.", "2026-11-01T10:00:05.000Z"),
     ),
   );
+  const older = new Date("2026-10-01T00:00:00.000Z");
+  for (const name of ["api", "docs", "site"]) {
+    const folder = join(root, name);
+    await mkdir(folder, { recursive: true });
+    const file = join(home, ".claude", "projects", name, `${name}.jsonl`);
+    await mkdir(join(home, ".claude", "projects", name), { recursive: true });
+    await writeFile(
+      file,
+      jsonl({ type: "user", sessionId: name, cwd: folder, message: { role: "user", content: "Hi" } }),
+    );
+    await utimes(file, older, older);
+  }
   return home;
 }
 
-/** Starts ZLI as a fresh install would: no test project, and a home with one past chat. */
+/** Starts ZLI as a fresh install would: no test project, and a home with one past session. */
 async function launchFresh(): Promise<DesktopFixture> {
   const { root, repo } = await createGitFixture();
   const home = await fakeHome(root, repo);
@@ -53,7 +68,7 @@ async function shot(page: Page, name: string): Promise<void> {
   if (dir) await page.screenshot({ path: join(dir, `${name}.png`) });
 }
 
-test("imports a past chat and lands on it, ready for the next message", async () => {
+test("finds the project from past sessions and opens a fresh chat in it", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   let fixture: DesktopFixture | undefined;
   try {
@@ -72,18 +87,23 @@ test("imports a past chat and lands on it, ready for the next message", async ()
     await shot(page, "2-workspace");
 
     await continueButton.click();
-    // The project is found from the past chat and starts ticked.
+    // The projects found in past sessions start unticked; the person picks them, or selects them all.
+    await expect(dialog.getByRole("checkbox", { name: /repo/ })).not.toBeChecked();
+    await expect(dialog.getByRole("checkbox")).toHaveCount(4);
+    await dialog.getByRole("button", { name: "Select all" }).click();
     await expect(dialog.getByRole("checkbox", { name: /repo/ })).toBeChecked();
     await shot(page, "3-projects");
-    await dialog.getByRole("button", { name: /1 chat/ }).click();
-    await expect(dialog.getByText("Add a health check endpoint")).toBeVisible();
-    await shot(page, "3-projects-open");
-    await dialog.getByRole("button", { name: "Import 1 project and open" }).click();
+    await dialog.getByRole("button", { name: "Add 4 projects and open" }).click();
 
-    // Setup closes on the imported chat itself, with its messages and a composer that resumes it.
+    // Setup closes on a new chat in that project, with none of the old session's messages.
     await expect(dialog).toBeHidden({ timeout: 30_000 });
-    await expect(page.getByText("Added GET /health that returns ok.")).toBeVisible();
-    await expect(page.getByText(/next message picks up where it left off/)).toBeVisible();
+    // The message box is ready to type in, so the first thing the person does is write the task.
+    await expect(page.getByRole("textbox", { name: /^Message / })).toBeFocused({ timeout: 30_000 });
+    await expect(page.getByText("Added GET /health that returns ok.")).toHaveCount(0);
+    // Only the project in use is listed; the other three wait folded under one row.
+    const sidebar = page.getByRole("complementary", { name: "Projects and agents" });
+    await expect(sidebar.getByRole("button", { name: "3 more projects" })).toBeVisible();
+    await expect(sidebar.getByRole("button", { name: "Start an agent in api" })).toHaveCount(0);
     await shot(page, "4-landed-chat");
   } finally {
     if (fixture) await closeDesktop(fixture);
@@ -116,6 +136,8 @@ test("lands a terminal person in the agent's CLI in the folder they added", asyn
 
     await expect(dialog).toBeHidden({ timeout: 30_000 });
     await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 30_000 });
+    // Keys go straight to the agent's CLI.
+    await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
     await shot(page, "6-landed-terminal");
   } finally {
     if (fixture) await closeDesktop(fixture);

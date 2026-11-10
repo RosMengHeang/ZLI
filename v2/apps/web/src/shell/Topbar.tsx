@@ -9,7 +9,9 @@ import { Kbd } from "../ui/Kbd.js";
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { useShortcuts } from "./keybindings.js";
 
-export type SidePane = "files" | "browser" | "mobile" | "review" | "huddle";
+/** The side panels. A pull request opens from its agent, so it has no button in the top bar. */
+export type SidePane = "files" | "browser" | "mobile" | "review" | "huddle" | "pullRequest";
+type ToolbarPane = Exclude<SidePane, "pullRequest">;
 
 export const sidePaneLabel: Record<SidePane, string> = {
   files: "Files",
@@ -17,9 +19,10 @@ export const sidePaneLabel: Record<SidePane, string> = {
   mobile: "Mobile",
   review: "Changes",
   huddle: "Huddle",
+  pullRequest: "Pull request",
 };
 
-const sidePaneIcon: Record<SidePane, IconName> = {
+const sidePaneIcon: Record<ToolbarPane, IconName> = {
   files: "folderTree",
   browser: "globe",
   mobile: "smartphone",
@@ -33,7 +36,7 @@ export const sidePaneShortcut = {
   mobile: "toggleMobile",
   review: "toggleChanges",
   huddle: "toggleHuddle",
-} as const satisfies Record<SidePane, ShortcutId>;
+} as const satisfies Record<ToolbarPane, ShortcutId>;
 
 export function Topbar({
   sidebarOpen,
@@ -74,7 +77,7 @@ export function Topbar({
   /** The Mobile panel exists only in the desktop app, which runs the emulators and simulators. */
   mobileAvailable?: boolean;
 }) {
-  const panes: readonly SidePane[] = mobileAvailable
+  const panes: readonly ToolbarPane[] = mobileAvailable
     ? ["files", "browser", "mobile", "review", "huddle"]
     : ["files", "browser", "review", "huddle"];
   const shortcuts = useShortcuts();

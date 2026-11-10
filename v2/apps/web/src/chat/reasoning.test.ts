@@ -36,7 +36,7 @@ describe("reasoningOptions", () => {
   it("leads with the default and names known levels", () => {
     expect(reasoningOptions(["xhigh", "custom"], "xhigh")).toEqual([
       { value: DEFAULT_REASONING, label: "Default (Extra high)", description: "The model's own level" },
-      { value: "xhigh", label: "Extra high" },
+      { value: "xhigh", label: "Extra high", description: "Thinks the longest. Slower" },
       { value: "custom", label: "custom" },
     ]);
     expect(reasoningLabel("MAX")).toBe("Max");

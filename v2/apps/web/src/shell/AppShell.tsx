@@ -1,5 +1,6 @@
 import {
   type Account,
+  type ListedProviderKind,
   MCP_CATALOG,
   type PluginAction,
   type PluginOrigin,
@@ -14,7 +15,6 @@ import {
   worktreeDevServers,
 } from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
@@ -22,6 +22,7 @@ import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../bro
 import type { StartRunsRequest } from "../chat/ChatView.js";
 import { forkWorktree } from "../chat/checkpointClient.js";
 import { addCodeReference } from "../chat/codeReferences.js";
+import type { DraftChange, DraftMessage } from "../chat/DraftChat.js";
 import { textBase64 } from "../chat/pastedText.js";
 import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
@@ -44,6 +45,7 @@ import {
 } from "../plugins/plugins.js";
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
+import { PullRequestPane } from "../review/PullRequestPane.js";
 import { usePullRequestPolling } from "../review/pullRequestStore.js";
 import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
@@ -57,13 +59,19 @@ import { CompareRunsDialog } from "../sessions/CompareRunsDialog.js";
 import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
 import type { HandoffRequest } from "../sessions/HandoffDialog.js";
 import { canHandOff, inlineFirstMessage, recentContextMessage } from "../sessions/handoff.js";
-import { createWorktree, ensureCheckout, samePath, startAccountSignIn, startSessionAgent } from "../sessions/launch.js";
+import {
+  type ChatPlace,
+  createWorktree,
+  ensureCheckout,
+  samePath,
+  startAccountSignIn,
+  startSessionAgent,
+} from "../sessions/launch.js";
 import { NewAgentDialog, type NewAgentPrefill, type NewAgentRequest } from "../sessions/NewAgentDialog.js";
-import { shouldWelcome } from "../welcome/welcome.js";
-import { WelcomeDialog } from "../welcome/WelcomeDialog.js";
 import {
   type AgentSession,
   agentNameProblem,
+  conversationThreads,
   deriveSessions,
   gridLayout,
   type PendingLaunch,
@@ -99,13 +107,13 @@ import { AgentReachDialog } from "../setup/AgentReachDialog.js";
 import { AgentTrustDialog } from "../setup/AgentTrustDialog.js";
 import { useAgentReach } from "../setup/agentReach.js";
 import { AGENTS_NOT_TRUSTED, useAgentTrust } from "../setup/agentTrust.js";
-import { themeChoices } from "../theme/customThemes.js";
-import { ThemeEditor } from "../theme/ThemeEditor.js";
-import { useThemeEditor } from "../theme/themeEditorStore.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
+import { themeChoices } from "../theme/customThemes.js";
+import { ThemeEditor } from "../theme/ThemeEditor.js";
+import { useThemeEditor } from "../theme/themeEditorStore.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { LoadingState } from "../ui/Pane.js";
@@ -114,6 +122,8 @@ import { RestartToUpdateDialog } from "../updates/RestartToUpdateDialog.js";
 import { UpdatePill } from "../updates/UpdatePill.js";
 import { busyAgentCount } from "../updates/updateCopy.js";
 import { useUpdates } from "../updates/useUpdates.js";
+import { WelcomeDialog } from "../welcome/WelcomeDialog.js";
+import { defaultAgent, shouldWelcome } from "../welcome/welcome.js";
 import { MIN_PANEL_WIDTH, PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
 import {
   CloseAgentDialog,
@@ -506,7 +516,7 @@ function WorkspaceApp() {
     setFilesFocus({ kind: "search", nonce: Date.now() });
   }, []);
 
-  const openNewAgent = useCallback(
+  const openNewAgentDialog = useCallback(
     (project?: ProjectProjection) => {
       if (!hasProjects) return;
       setPaletteOpen(false);
@@ -643,7 +653,7 @@ function WorkspaceApp() {
       }));
     }
     for (const launch of workbench.pending) {
-      if (launch.errorMessage || launch.started || existing.has(launch.sessionId)) continue;
+      if (launch.errorMessage || launch.started || launch.draft || existing.has(launch.sessionId)) continue;
       if (launching.current.has(launch.sessionId)) continue;
       const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === launch.worktreeId);
       const fail = (message: string) =>
@@ -1099,6 +1109,7 @@ function WorkspaceApp() {
       ...(request.prompt ? { prompt: request.prompt } : {}),
       ...(request.accountId ? { accountId: request.accountId } : {}),
       ...(request.name ? { name: request.name } : {}),
+      ...(request.draft && request.mode === "chat" && !request.prompt ? { draft: true } : {}),
       createdAt: new Date().toISOString(),
     };
     if (issueStart) {
@@ -1120,6 +1131,37 @@ function WorkspaceApp() {
     setIssueStart(undefined);
     return undefined;
   };
+  /**
+   * In chat mode a new agent is a new chat: it opens at once with the default agent, and the model list
+   * under the message box moves it to any other installed agent before the first message. Terminal mode
+   * keeps the dialog, since a terminal agent cannot change once it starts, and so does a computer with
+   * no agent installed, where the dialog says what is missing.
+   */
+  const openNewAgent = (project?: ProjectProjection) => {
+    if (!hasProjects || !projection) return;
+    const target = project ?? selectedProject ?? contextProject ?? projection.projects[0];
+    const defaults = resolveLaunchDefaults(readAppSettings(), target?.projectId);
+    const agent = defaultAgent(projection.providers ?? [], defaults.provider);
+    if (!target || defaults.mode !== "chat" || !agent) {
+      openNewAgentDialog(project);
+      return;
+    }
+    setPaletteOpen(false);
+    const accountId = launchAccountId(accounts, agent.provider, undefined);
+    void submitNewAgent({
+      project: target,
+      draft: true,
+      placement: { kind: "checkout" },
+      provider: agent.provider,
+      mode: "chat",
+      permissionMode: defaults.permissionMode ?? "supervised",
+      ...(defaults.provider === agent.provider && defaults.model ? { model: defaults.model } : {}),
+      ...(accountId ? { accountId } : {}),
+    }).then((failure) => {
+      if (failure) showError(failure);
+    });
+  };
+
   const submitHandoff = async (from: AgentSession, request: HandoffRequest): Promise<string | undefined> => {
     const worktree = findWorktree(from.worktreeId);
     if (worktree?.status !== "ready") return "The worktree for this agent is gone.";
@@ -1485,7 +1527,9 @@ function WorkspaceApp() {
             title: sessionTitle(session, current.messages, current.providers),
             name: providerDisplayName(session.provider, current.providers),
             branch: worktree.branch,
-            messages: (current.messages ?? []).filter((entry) => entry.threadId === thread.threadId),
+            messages: (current.messages ?? []).filter((entry) =>
+              conversationThreads(thread, session.threads).some((link) => link.threadId === entry.threadId),
+            ),
           })
         : undefined;
     if (thread && thread.status !== "stopped" && thread.status !== "failed") {
@@ -1516,6 +1560,208 @@ function WorkspaceApp() {
       });
     }
     return failure;
+  };
+
+  /**
+   * Moves a chat to another agent or model, in the same tile and worktree, and keeps it one conversation.
+   * The new agent's thread carries on the old one: the chat shows both, and the person's next message
+   * takes the conversation so far to the new agent. Nothing is sent before then. A thread nobody wrote in
+   * is skipped, so trying a few agents in a row leaves no empty stretches. The pick becomes the default for
+   * the next new chat, the way the model list remembers it.
+   */
+  const switchChatAgent = async (
+    session: AgentSession,
+    provider: string,
+    model: string | undefined,
+  ): Promise<string | undefined> => {
+    const current = projectionRef.current;
+    const worktree = findWorktree(session.worktreeId);
+    if (!current || !worktree) return "The worktree for this agent is gone.";
+    if (worktree.status !== "ready") return "The worktree is not ready yet.";
+    if (!isSelectableProvider(provider)) return "This agent is not supported.";
+    const thread = session.thread;
+    const said = thread ? canHandOff({ thread }, current.messages) : false;
+    const continues = thread ? (said ? thread.threadId : thread.continues) : undefined;
+    if (thread && thread.status !== "stopped" && thread.status !== "failed") {
+      if (!(await send({ type: "thread.stop", threadId: thread.threadId })))
+        return "The current chat could not be stopped.";
+    }
+    const accountId = launchAccountId(accounts, provider, undefined);
+    const failure = await startSessionAgent(dispatch, current, {
+      provider,
+      mode: "chat",
+      permissionMode: thread?.permissionMode ?? "full-access",
+      ...(model ? { model } : {}),
+      ...(accountId ? { accountId } : {}),
+      ...(continues ? { continues } : {}),
+      sessionId: session.sessionId,
+      worktreeId: worktree.worktreeId,
+      cwd: worktree.path,
+    });
+    if (failure) return failure;
+    updateWorkbench((state) => {
+      const { [session.sessionId]: _shown, ...chats } = state.chats;
+      return { ...state, chats };
+    });
+    updateAppSettings((settings) => {
+      const { model: _previous, ...defaults } = settings.defaults;
+      return { ...settings, defaults: { ...defaults, provider, ...(model ? { model } : {}) } };
+    });
+    return undefined;
+  };
+
+  /**
+   * Moves a chat that has not started to another folder, worktree, or branch. The agent's working folder is
+   * fixed once it starts, so the empty chat is removed and the same agent opens a new one in the new place.
+   */
+  const moveChat = async (session: AgentSession, place: ChatPlace): Promise<string | undefined> => {
+    const current = projectionRef.current;
+    if (!current) return "The runtime is not connected.";
+    const thread = session.thread;
+    const worktree = findWorktree(session.worktreeId);
+    const projectId = place.kind === "worktree" ? undefined : place.projectId;
+    const project = current.projects.find(
+      (candidate) =>
+        candidate.projectId ===
+        (projectId ??
+          current.worktrees.find((entry) => entry.worktreeId === (place.kind === "worktree" ? place.worktreeId : ""))
+            ?.projectId),
+    );
+    if (!project) return "That project is gone.";
+    if (!isSelectableProvider(session.provider)) return "This agent is not supported.";
+    let placement: NewAgentRequest["placement"];
+    if (place.kind === "worktree") placement = { kind: "existing", worktreeId: place.worktreeId };
+    else if (place.kind === "project") placement = { kind: "checkout" };
+    else {
+      const result = await createWorktree(dispatch, project, place.branch, "", true);
+      if ("error" in result) return result.error;
+      placement = { kind: "existing", worktreeId: result.worktreeId };
+    }
+    if (worktree && sessionStopCommands(session).length > 0) {
+      await stopSession(session);
+      await waitUntilStopped(session.sessionId);
+    }
+    if (session.terminal || session.thread) {
+      if (!(await send({ type: "session.delete", sessionId: session.sessionId })))
+        return "The empty chat could not be removed.";
+    }
+    updateWorkbench((state) => forgetSession(state, session.sessionId));
+    return submitNewAgent({
+      project,
+      placement,
+      draft: true,
+      provider: session.provider,
+      mode: "chat",
+      permissionMode: thread?.permissionMode ?? "full-access",
+      ...(thread?.model ? { model: thread.model } : {}),
+    });
+  };
+
+  const updateDraft = (sessionId: string, change: (launch: PendingLaunch) => PendingLaunch) =>
+    updateWorkbench((state) => ({
+      ...state,
+      pending: state.pending.map((entry) => (entry.sessionId === sessionId ? change(entry) : entry)),
+    }));
+
+  /** A draft chat's agent, model, or permission changed. Nothing runs yet, so this is only a setting. */
+  const changeDraft = (sessionId: string, change: DraftChange) => {
+    updateDraft(sessionId, (launch) => {
+      const { model: _model, ...rest } = launch;
+      const provider = change.provider ?? launch.provider;
+      const model = "model" in change ? change.model : provider === launch.provider ? launch.model : undefined;
+      return {
+        ...rest,
+        provider,
+        ...(model ? { model } : {}),
+        ...(change.permissionMode ? { permissionMode: change.permissionMode } : {}),
+      };
+    });
+    if (change.provider) {
+      const { provider, model } = change;
+      updateAppSettings((settings) => {
+        const { model: _previous, ...defaults } = settings.defaults;
+        return {
+          ...settings,
+          defaults: { ...defaults, provider: provider as ListedProviderKind, ...(model ? { model } : {}) },
+        };
+      });
+    }
+  };
+
+  /** Moves a draft chat to another project, worktree, or branch: it only points the draft somewhere else. */
+  const moveDraft = async (sessionId: string, place: ChatPlace): Promise<string | undefined> => {
+    const current = projectionRef.current;
+    if (!current) return "The runtime is not connected.";
+    let worktreeId: string;
+    if (place.kind === "worktree") worktreeId = place.worktreeId;
+    else {
+      const project = current.projects.find((candidate) => candidate.projectId === place.projectId);
+      if (!project) return "That project is gone.";
+      const result =
+        place.kind === "project"
+          ? await ensureCheckout(dispatch, current, project)
+          : await createWorktree(dispatch, project, place.branch, "", true);
+      if ("error" in result) return result.error;
+      worktreeId = result.worktreeId;
+    }
+    updateDraft(sessionId, (launch) => ({ ...launch, worktreeId }));
+    setSelectedWorktreeId(worktreeId);
+    return undefined;
+  };
+
+  /**
+   * Sends a draft chat's first message: the agent starts with the draft's settings and the message is queued
+   * on its thread at once, so it shows in the conversation while the agent comes up.
+   */
+  const sendDraft = async (session: AgentSession, message: DraftMessage): Promise<string | undefined> => {
+    const launch = session.pending;
+    const current = projectionRef.current;
+    if (!launch?.draft || !current) return "This chat already started.";
+    const worktree = current.worktrees.find((candidate) => candidate.worktreeId === launch.worktreeId);
+    if (worktree?.status !== "ready") return "The folder is still being prepared.";
+    if (!isSelectableProvider(launch.provider)) return "This agent is not supported.";
+    if (launching.current.has(launch.sessionId)) return "The agent is already starting.";
+    launching.current.add(launch.sessionId);
+    if (!(await ensureTrusted(worktree.projectId))) {
+      launching.current.delete(launch.sessionId);
+      return AGENTS_NOT_TRUSTED;
+    }
+    const threadId = makeCommandId();
+    const failure = await startSessionAgent(dispatch, current, {
+      provider: launch.provider,
+      mode: "chat",
+      permissionMode: launch.permissionMode ?? "supervised",
+      ...(launch.model ? { model: launch.model } : {}),
+      ...(launch.accountId ? { accountId: launch.accountId } : {}),
+      ...(launch.name ? { name: launch.name } : {}),
+      sessionId: launch.sessionId,
+      worktreeId: worktree.worktreeId,
+      cwd: worktree.path,
+      threadId,
+    });
+    if (failure) {
+      launching.current.delete(launch.sessionId);
+      return failure;
+    }
+    updateDraft(launch.sessionId, ({ draft: _draft, ...rest }) => ({ ...rest, started: true }));
+    try {
+      const response = await dispatch({
+        protocolVersion: 1,
+        commandId: makeCommandId(),
+        command: {
+          type: "thread.queue",
+          queueId: makeCommandId(),
+          threadId,
+          text: message.text,
+          ...(launch.model ? { model: launch.model } : {}),
+          ...(message.reasoningEffort ? { reasoningEffort: message.reasoningEffort } : {}),
+          ...(message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+        },
+      });
+      return response?.accepted === false ? response.error.message : undefined;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : "The message could not be sent.";
+    }
   };
 
   /** Shows an earlier chat in the session's tile. The chat on screen stops, so one agent runs per tile. */
@@ -1686,6 +1932,12 @@ function WorkspaceApp() {
             group: "Create" as const,
             shortcut: shortcuts.newAgent,
             action: () => openNewAgent(),
+          },
+          {
+            label: "New agent with options",
+            icon: "agentNew" as const,
+            group: "Create" as const,
+            action: () => openNewAgentDialog(),
           },
         ]
       : []),
@@ -2171,6 +2423,10 @@ function WorkspaceApp() {
                             }
                             startedBy={parentChip(session)}
                             onOpenHuddle={openHuddle}
+                            onOpenPullRequest={() => {
+                              focusSession(session);
+                              setSidePane("pullRequest");
+                            }}
                             onOpenDiff={(path) => {
                               focusSession(session);
                               setSidePane("review");
@@ -2182,6 +2438,19 @@ function WorkspaceApp() {
                             onReviewSetup={() => reviewSetup(session.worktreeId)}
                             onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
                             onHandoff={handoffTarget(session) ? () => setHandoffRequest(session) : undefined}
+                            onSwitchAgent={
+                              newChatTarget(session)
+                                ? (provider, model) => switchChatAgent(session, provider, model)
+                                : undefined
+                            }
+                            onDraftChange={(change) => changeDraft(session.sessionId, change)}
+                            onDraftMove={(place) => moveDraft(session.sessionId, place)}
+                            onDraftSend={(message) => sendDraft(session, message)}
+                            onMoveChat={
+                              newChatTarget(session) && !sessionHasMessages(session, projection.messages)
+                                ? (place) => moveChat(session, place)
+                                : undefined
+                            }
                             onNewChat={
                               newChatTarget(session) ? (withContext) => startNewChat(session, withContext) : undefined
                             }
@@ -2249,6 +2518,12 @@ function WorkspaceApp() {
                         onNotice={showSent}
                         projects={projection?.projects}
                         onOpenProject={openBrowserInProject}
+                      />
+                    ) : sidePane === "pullRequest" ? (
+                      <PullRequestPane
+                        worktree={contextWorktree}
+                        onOpenChanges={() => setSidePane("review")}
+                        onShowAgent={showAgent}
                       />
                     ) : sidePane === "huddle" ? (
                       <HuddlePane
@@ -2469,20 +2744,6 @@ function WorkspaceApp() {
             dispatch={dispatch}
             pickFolder={bridge?.dialog?.openProject}
             registerProjectPath={registerProjectPath}
-            checkoutFor={async (project) => {
-              const current = projectionRef.current;
-              if (!current) return { error: "The runtime is not connected." };
-              return ensureCheckout(dispatch, current, project);
-            }}
-            onImported={(sessionIds, show) => {
-              // Imported chats wait in the sidebar; only the one setup lands on goes to the board.
-              updateWorkbench((state) => ({
-                ...state,
-                closed: [...new Set([...state.closed, ...sessionIds.filter((id) => id !== show?.sessionId)])],
-                ...(show ? { activeSessionId: show.sessionId, maximizedSessionId: undefined } : {}),
-              }));
-              if (show) setSelectedProjectId(show.projectId);
-            }}
             onStart={async (request) => {
               const current = projectionRef.current;
               if (!current) return "The runtime is not connected.";
@@ -2698,4 +2959,16 @@ function useNarrowWindow(): boolean {
     },
     () => typeof window.matchMedia === "function" && window.matchMedia(NARROW_WINDOW).matches,
   );
+}
+
+/**
+ * Whether anything was said in any of the session's chats. A session whose chats are all empty, as after
+ * moving a new chat to another agent, can still move to another folder, since nothing would be lost.
+ */
+function sessionHasMessages(
+  session: AgentSession,
+  messages: readonly { threadId: string; role: string }[] | undefined,
+): boolean {
+  const threads = new Set<string>((session.threads ?? []).map((thread) => thread.threadId));
+  return (messages ?? []).some((message) => message.role === "user" && threads.has(message.threadId));
 }

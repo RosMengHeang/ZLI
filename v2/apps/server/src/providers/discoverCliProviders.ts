@@ -3,12 +3,15 @@ import { statSync } from "node:fs";
 import { posix, win32 } from "node:path";
 
 import {
+  type AgentLogin,
   type ListedProviderKind,
   type ProviderDiscovery,
   type ProviderModelOption,
   ReasoningEffort,
 } from "@zli-v2/contracts";
 import { spawnCli } from "@zli-v2/shared";
+
+import { parseCursorStatus, readAgentLogin } from "../accounts/agentLogin.js";
 
 const LISTED = [
   { provider: "codex", displayName: "Codex", binary: "codex" },
@@ -42,6 +45,9 @@ export type CliProbe = {
   readVersion?(command: string): Promise<string | undefined>;
   /** Models the CLI offers. Undefined means unknown, never "no models". */
   readModels?(provider: ListedProviderKind, command: string): Promise<readonly ProviderModelOption[] | undefined>;
+  /** Who the CLI is signed in as. Undefined means unknown. */
+  /** Who the CLI is signed in as. Most agents say so in their files; Cursor only through its own command. */
+  readLogin?(provider: ListedProviderKind, command: string): Promise<AgentLogin | undefined>;
 };
 
 const VERSION_TIMEOUT_MS = 1_000;
@@ -86,6 +92,19 @@ export function createDefaultCliProbe(
     fileExists: (filePath) => fileLooksExecutable(filePath, platform),
     readVersion: (command) => readCliVersion(command),
     readModels: (provider, command) => readCachedCliModels(provider, command),
+    ...(homeDir
+      ? {
+          readLogin: async (provider: ListedProviderKind, command: string) =>
+            provider === "cursor-agent"
+              ? parseCursorStatus(
+                  await readCliOutput(command, ["status"], {
+                    timeoutMs: MODEL_TIMEOUT_MS,
+                    maxChars: MAX_MODEL_OUTPUT_CHARS,
+                  }).catch(() => undefined),
+                )
+              : readAgentLogin(provider, { home: homeDir, env }),
+        }
+      : {}),
   };
 }
 
@@ -369,9 +388,12 @@ async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boo
       reason: `${spec.displayName} CLI was not found on PATH or in known install locations.`,
     };
   }
-  const [version, models] = await Promise.all([
+  const [version, models, login] = await Promise.all([
     readFoundVersion(probe, path),
     includeModels ? readFoundModels(probe, spec.provider, path) : Promise.resolve(undefined),
+    includeModels && probe.readLogin
+      ? probe.readLogin(spec.provider, path).catch(() => undefined)
+      : Promise.resolve(undefined),
   ]);
   const reasoningEfforts =
     includeModels && probe.readModels ? providerReasoningEfforts(spec.provider, models) : undefined;
@@ -383,6 +405,7 @@ async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boo
     ...(version ? { version } : {}),
     ...(models ? { models } : {}),
     ...(reasoningEfforts?.length ? { reasoningEfforts: [...reasoningEfforts] } : {}),
+    ...(login ? { login } : {}),
   };
 }
 

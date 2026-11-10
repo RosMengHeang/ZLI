@@ -11,8 +11,8 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { accountOptions, defaultAccountId, launchAccountId } from "../accounts/accounts.js";
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
+import { PermissionIcon, permissionOptionsFor, permissionText } from "../chat/permissions.js";
 import { ISSUE_SOURCE_NAMES, type IssueRef, issueBranchName } from "../issues/issueStart.js";
-import { PermissionIcon, permissionHint, permissionLabel, permissionOptions } from "../chat/permissions.js";
 import {
   branchFromTemplate,
   type LaunchDefaults,
@@ -50,6 +50,8 @@ export type NewAgentRequest = LaunchOptions & {
   placement: Placement;
   /** Sent to the agent once it is ready. */
   prompt?: string;
+  /** A chat that waits for its first message before its agent starts. */
+  draft?: boolean;
 };
 
 /** Starting values when the agent is started from an issue. */
@@ -454,17 +456,21 @@ export function NewAgentDialog({
                 <span className="picker-trigger-label">{modelLabel}</span>
               </Picker>
             </FormSection>
-            <FormSection label="Permissions" htmlFor={`${ids}-permissions`} hint={permissionHint[permissionMode]}>
+            <FormSection
+              label="Permissions"
+              htmlFor={`${ids}-permissions`}
+              hint={permissionText(provider, permissionMode).hint}
+            >
               <Picker<PermissionMode>
                 variant="field"
                 id={`${ids}-permissions`}
                 label="Permissions"
                 value={permissionMode}
-                options={permissionOptions}
+                options={permissionOptionsFor(provider)}
                 onChange={setPermissionMode}
               >
                 <PermissionIcon mode={permissionMode} size={15} />
-                <span className="picker-trigger-label">{permissionLabel[permissionMode]}</span>
+                <span className="picker-trigger-label">{permissionText(provider, permissionMode).label}</span>
               </Picker>
             </FormSection>
           </div>

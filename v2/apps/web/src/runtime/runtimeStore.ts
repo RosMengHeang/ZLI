@@ -142,6 +142,15 @@ export function entriesForThread<T extends { threadId: string }>(
   return index.get(threadId) ?? EMPTY;
 }
 
+/** The entries of several threads, in the order the space-separated ids give. Compare with shallowArrayEqual. */
+export function entriesForThreads<T extends { threadId: string }>(
+  entries: readonly T[] | undefined,
+  threadIds: string,
+): readonly T[] {
+  if (!threadIds) return EMPTY;
+  return threadIds.split(" ").flatMap((threadId) => entriesForThread(entries, threadId));
+}
+
 const SHELL_IGNORED = new Set<keyof RuntimeProjection>([
   "messages",
   "activities",

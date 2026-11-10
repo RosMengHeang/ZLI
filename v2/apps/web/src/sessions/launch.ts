@@ -19,6 +19,12 @@ export type Placement =
   | { kind: "checkout" }
   | { kind: "existing"; worktreeId: string };
 
+/** Where a chat that has not started can move: a project's own folder, a worktree, or a branch to check out. */
+export type ChatPlace =
+  | { kind: "project"; projectId: string }
+  | { kind: "worktree"; worktreeId: string }
+  | { kind: "branch"; projectId: string; branch: string };
+
 export type LaunchOptions = {
   provider: ListedProviderKind;
   mode: SessionMode;
@@ -27,6 +33,8 @@ export type LaunchOptions = {
   /** Unset when the agent has no saved accounts, so it starts with the usual login. */
   accountId?: string;
   name?: string;
+  /** The thread of the same chat this agent carries on, when the person moved the chat to it. */
+  continues?: string;
 };
 
 export function shellForPlatform(): string {
@@ -63,6 +71,8 @@ export async function createWorktree(
   project: ProjectProjection,
   branch: string,
   baseRef: string,
+  /** Check out a branch that already exists instead of making a new one from baseRef. */
+  existing = false,
 ): Promise<{ worktreeId: string } | { error: string }> {
   const safeBranch = safeBranchName(branch);
   if (!safeBranch) return { error: "Choose a branch name before creating a worktree." };
@@ -78,7 +88,7 @@ export async function createWorktree(
       path: `${workspaceRoot}/${safeBranch.replace(/[\\/]/gu, "-")}`,
       workspaceRoot,
       branch: safeBranch,
-      ...(baseRef.trim() ? { baseRef: baseRef.trim() } : {}),
+      ...(existing ? { checkoutExistingBranch: true } : baseRef.trim() ? { baseRef: baseRef.trim() } : {}),
     },
   });
   if (response?.accepted === false) return { error: response.error.message };
@@ -140,13 +150,13 @@ export async function startAccountSignIn(
 export async function startSessionAgent(
   dispatch: Dispatch,
   projection: Pick<RuntimeProjection, "threads" | "providers">,
-  input: LaunchOptions & { sessionId: string; worktreeId: string; cwd: string },
+  input: LaunchOptions & { sessionId: string; worktreeId: string; cwd: string; threadId?: string },
 ): Promise<string | undefined> {
   const command =
     input.mode === "chat"
       ? {
           type: "thread.start",
-          threadId: makeCommandId(),
+          threadId: input.threadId ?? makeCommandId(),
           worktreeId: input.worktreeId,
           provider: input.provider,
           cwd: input.cwd,
@@ -155,6 +165,7 @@ export async function startSessionAgent(
           ...(input.name ? { name: input.name } : {}),
           ...(input.model ? { model: input.model } : {}),
           ...(input.accountId ? { accountId: input.accountId } : {}),
+          ...(input.continues ? { continues: input.continues } : {}),
           // The person picked this placement, so a second agent in the same checkout is intended.
           ...(worktreeHasLiveThread(projection.threads, input.worktreeId) ? { shareWorktree: true } : {}),
         }

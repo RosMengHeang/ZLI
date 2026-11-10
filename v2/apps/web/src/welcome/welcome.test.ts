@@ -2,15 +2,16 @@ import type { HistoryFolder, ProviderDiscovery } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+  agentReady,
+  allFolders,
   defaultAgent,
-  preselect,
-  folderState,
-  importPlan,
   installCommand,
   installPlatform,
-  landing,
+  landingPath,
+  planLabel,
+  preselect,
+  selectedFolders,
   shouldWelcome,
-  toggleFolder,
   welcomeAgents,
 } from "./welcome.js";
 
@@ -55,87 +56,26 @@ describe("installCommand", () => {
   });
 });
 
-describe("chat selection", () => {
-  const folder: HistoryFolder = {
-    path: "/w/app",
-    name: "app",
-    exists: true,
-    lastActiveAt: "2026-11-03T00:00:00.000Z",
-    chats: [
-      {
-        source: "codex",
-        providerSessionId: "b",
-        title: "B",
-        messageCount: 2,
-        lastActiveAt: "2026-11-03T00:00:00.000Z",
-      },
-      {
-        source: "claude-code",
-        providerSessionId: "a",
-        title: "A",
-        messageCount: 4,
-        lastActiveAt: "2026-11-01T00:00:00.000Z",
-      },
-      {
-        source: "claude-code",
-        providerSessionId: "c",
-        title: "C",
-        messageCount: 1,
-        lastActiveAt: "2026-11-02T00:00:00.000Z",
-        imported: true,
-      },
-    ],
-  };
+describe("projects", () => {
+  const folder = (name: string, lastActiveAt: string): HistoryFolder => ({
+    path: `/w/${name}`,
+    name,
+    lastActiveAt,
+    sources: ["claude-code"],
+  });
+  const folders = [folder("new", "2026-11-03T00:00:00.000Z"), folder("old", "2026-11-01T00:00:00.000Z")];
 
-  it("toggles every chat that can still be imported, and plans oldest first", () => {
-    const all = toggleFolder(new Set(), folder);
-    expect([...all].sort()).toEqual(["claude-code:a", "codex:b"]);
-    expect(folderState(all, folder)).toBe("all");
-    expect(importPlan([folder], all)).toEqual([
-      {
-        path: "/w/app",
-        name: "app",
-        chats: [
-          { source: "claude-code", providerSessionId: "a" },
-          { source: "codex", providerSessionId: "b" },
-        ],
-      },
-    ]);
-    expect(folderState(toggleFolder(all, folder), folder)).toBe("none");
-    expect(folderState(new Set(["codex:b"]), folder)).toBe("some");
+  it("starts with nothing ticked, and Select all ticks every folder in list order", () => {
+    expect([...preselect(folders)]).toEqual([]);
+    expect([...allFolders(folders)]).toEqual(["/w/new", "/w/old"]);
+    expect(selectedFolders(folders, new Set(["/w/old"])).map((entry) => entry.name)).toEqual(["old"]);
   });
 
-  it("skips folders that no longer exist", () => {
-    const gone = { ...folder, exists: false };
-    expect(folderState(toggleFolder(new Set(), gone), gone)).toBe("none");
-    expect(importPlan([gone], new Set(["codex:b"]))).toEqual([]);
-  });
-});
-
-describe("landing", () => {
-  const imported = [
-    { sessionId: "old", projectId: "p1", lastActiveAt: "2026-11-01T00:00:00.000Z" },
-    { sessionId: "new", projectId: "p2", lastActiveAt: "2026-11-03T00:00:00.000Z" },
-  ];
-
-  it("starts an agent in the folder the person added", () => {
-    expect(landing({ style: "chat", added: [{ projectId: "a" }], imported })).toEqual({
-      kind: "start",
-      projectId: "a",
-    });
-  });
-
-  it("opens the newest imported chat for chat, and starts the CLI in its project for terminal", () => {
-    expect(landing({ style: "chat", added: [], imported })).toEqual({
-      kind: "show",
-      sessionId: "new",
-      projectId: "p2",
-    });
-    expect(landing({ style: "terminal", added: [], imported })).toEqual({ kind: "start", projectId: "p2" });
-  });
-
-  it("lands on the empty board when nothing was added", () => {
-    expect(landing({ style: "chat", added: [], imported: [] })).toEqual({ kind: "none" });
+  it("opens the agent in the folder added last, else the newest ticked folder", () => {
+    expect(landingPath(folders, allFolders(folders), [{ path: "/picked" }])).toBe("/picked");
+    expect(landingPath(folders, allFolders(folders), [])).toBe("/w/new");
+    expect(landingPath(folders, new Set(["/w/old"]), [])).toBe("/w/old");
+    expect(landingPath(folders, new Set(), [])).toBeUndefined();
   });
 });
 
@@ -154,30 +94,29 @@ describe("automatic choices", () => {
     expect(defaultAgent([], undefined)).toBeUndefined();
   });
 
-  it("ticks every chat that can still come in", () => {
-    const folder: HistoryFolder = {
-      path: "/w",
-      name: "w",
-      exists: true,
-      lastActiveAt: "2026-11-01T00:00:00.000Z",
-      chats: [
-        {
-          source: "codex",
-          providerSessionId: "a",
-          title: "A",
-          messageCount: 1,
-          lastActiveAt: "2026-11-01T00:00:00.000Z",
-        },
-        {
-          source: "codex",
-          providerSessionId: "b",
-          title: "B",
-          messageCount: 1,
-          lastActiveAt: "2026-11-01T00:00:00.000Z",
-          imported: true,
-        },
-      ],
+  it("passes over a signed-out agent unless it is the only one installed", () => {
+    const signedOut: ProviderDiscovery = {
+      provider: "claude-code",
+      displayName: "Claude Code",
+      status: "found",
+      path: "/bin/claude",
+      login: { status: "signed-out" },
     };
-    expect([...preselect([folder, { ...folder, path: "/gone", exists: false }])]).toEqual(["codex:a"]);
+    const codex: ProviderDiscovery = {
+      provider: "codex",
+      displayName: "Codex",
+      status: "found",
+      path: "/bin/codex",
+      login: { status: "signed-in", email: "kim@example.com" },
+    };
+    expect(agentReady(signedOut)).toBe(false);
+    expect(agentReady(found("gemini"))).toBe(true);
+    expect(defaultAgent([signedOut, codex], "claude-code")?.provider).toBe("codex");
+    expect(defaultAgent([signedOut], undefined)?.provider).toBe("claude-code");
+  });
+
+  it("names plans the way people read them", () => {
+    expect(planLabel("pro")).toBe("Pro");
+    expect(planLabel("team_plus")).toBe("Team Plus");
   });
 });

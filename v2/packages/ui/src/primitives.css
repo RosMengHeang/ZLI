@@ -118,6 +118,8 @@ kbd {
 .picker-option-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-option[aria-selected="true"] .picker-option-label { font-weight: 500; }
 .picker-option-description { color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.picker-option[aria-disabled="true"] { color: var(--zli-muted); cursor: default; }
+.picker-option[aria-disabled="true"] .picker-option-icon { opacity: 0.55; }
 .picker-option-check { display: grid; width: 14px; height: 18px; flex: 0 0 auto; place-items: center; color: var(--zli-text); }
 .picker-footer { margin: var(--zli-space-1) calc(-1 * var(--zli-space-1)) calc(-1 * var(--zli-space-1)); padding: var(--zli-space-2) var(--zli-space-3); border-top: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); }
 
@@ -353,3 +355,23 @@ kbd {
 .banner-danger > svg { color: var(--zli-red); }
 .banner-info { background: var(--zli-surface); color: var(--zli-text); }
 .banner-info > svg { color: var(--zli-muted); }
+
+/* A dropdown for long lists such as branches: a filter on top, a list of fixed height that scrolls, then actions. */
+.search-list { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-overlay); box-shadow: var(--zli-shadow-pop); color: var(--zli-text); animation: picker-in var(--zli-duration-base) var(--zli-ease) both; transform-origin: top center; }
+.search-list-filter { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); padding: 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); }
+.search-list-filter input { min-width: 0; height: 36px; flex: 1; padding: 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); }
+.search-list-items { display: flex; height: 264px; flex-direction: column; gap: 1px; padding: var(--zli-space-1); overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--zli-border-strong) transparent; scrollbar-width: thin; }
+.search-list-item { display: flex; min-height: 30px; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2-5); padding: 4px var(--zli-space-2); border-radius: var(--zli-radius-sm); color: var(--zli-text); cursor: pointer; font-size: var(--zli-text-sm); }
+.search-list-item > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.search-list-item.is-active { background: var(--zli-hover); }
+.search-list-item[aria-selected="true"] .search-list-label { font-weight: 600; }
+.search-list-item[aria-disabled="true"] { color: var(--zli-dim); cursor: default; }
+.search-list-item[aria-disabled="true"] > svg { opacity: .6; }
+.search-list-text { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.search-list-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-list-detail { overflow: hidden; color: var(--zli-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.search-list-item > .search-list-check { color: var(--zli-text); }
+.search-list-empty { margin: 0; padding: var(--zli-space-3); color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
+.search-list-actions { display: flex; flex: 0 0 auto; flex-direction: column; padding: var(--zli-space-1); border-top: 1px solid var(--zli-border); }
+.search-list-action { display: flex; height: 30px; align-items: center; gap: var(--zli-space-2-5); padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); text-align: left; }
+.search-list-action:hover, .search-list-action:focus-visible { background: var(--zli-hover); color: var(--zli-text); outline: none; }

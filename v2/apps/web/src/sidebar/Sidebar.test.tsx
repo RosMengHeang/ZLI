@@ -221,6 +221,38 @@ describe("Sidebar next step in an empty project", () => {
 });
 
 describe("Sidebar projects", () => {
+  it("folds projects without agents into one row once several sit beside a project in use", async () => {
+    const current = projection([
+      { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
+    ]);
+    const quiet = ["api", "docs", "site"].map((name, index) => ({
+      projectId: ProjectId.parse(`00000000-0000-4000-8000-00000000002${index}`),
+      path: `/work/${name}`,
+      name,
+    }));
+    current.projects = [...current.projects, ...quiet];
+    const onNewAgent = vi.fn();
+    const { container } = await mount(current, { sessions: [agent(checkoutId)], onNewAgent });
+    expect(container.querySelector('[aria-label="api"]')).toBeNull();
+    const more = button(container, "3 more projects");
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => more.click());
+    await act(async () => button(container, "Start an agent in docs").click());
+    expect(onNewAgent).toHaveBeenCalledWith(expect.objectContaining({ name: "docs" }));
+  });
+
+  it("keeps a short list of empty projects listed in full", async () => {
+    const current = projection([]);
+    current.projects = [
+      ...current.projects,
+      { projectId: ProjectId.parse("00000000-0000-4000-8000-000000000020"), path: "/work/api", name: "api" },
+    ];
+    const { container } = await mount(current);
+    expect(container.querySelector(".sidebar-more")).toBeNull();
+    expect(container.querySelector('[aria-label="api"]')).not.toBeNull();
+  });
+
   it("folds a project and remembers it after a restart", async () => {
     const current = projection([
       {

@@ -33,6 +33,11 @@ export type PendingLaunch = {
   errorMessage?: string;
   /** The start command was accepted; the entry stays until the terminal or thread is projected. */
   started?: boolean;
+  /**
+   * A chat waiting for its first message. Nothing runs until then, so its agent, model, and folder can
+   * change at once; sending starts the agent.
+   */
+  draft?: boolean;
   /** First message for the agent, moved to the workbench's delivery queue once the agent starts. */
   prompt?: string;
   /** Text that goes with the first message: attached in a chat, pasted after it in a terminal. */
@@ -113,7 +118,11 @@ export function deriveSessions(
   for (const entry of sessions.values()) {
     const chosen = chosenChats[entry.sessionId];
     const thread = entry.threads?.find((candidate) => candidate.threadId === chosen) ?? entry.threads?.at(-1);
-    if (thread) entry.thread = thread;
+    if (thread) {
+      entry.thread = thread;
+      // A chat can move to another agent before its first message, so the tile follows the chat on screen.
+      if (entry.lastKind === "chat") entry.provider = thread.provider;
+    }
   }
   return [...sessions.values()]
     .sort((left, right) => left.order - right.order)
@@ -132,7 +141,10 @@ export type SessionChat = {
   current: boolean;
 };
 
-/** A session's chats for its history menu, newest first. A chat with nothing said in it yet is a New chat. */
+/**
+ * A session's chats for its history menu, newest first. A chat with nothing said in it yet is a New chat,
+ * and one that ended that way is left out.
+ */
 export function sessionChats(
   session: Pick<AgentSession, "thread" | "threads" | "provider">,
   messages: readonly ThreadMessageProjection[] | undefined,
@@ -141,15 +153,23 @@ export function sessionChats(
   const said = new Set(
     (messages ?? []).filter((message) => message.role === "user" && message.text.trim()).map((m) => m.threadId),
   );
-  return [...(session.threads ?? [])].reverse().map((thread) => ({
-    threadId: thread.threadId,
-    title: said.has(thread.threadId)
-      ? sessionTitle({ thread, provider: session.provider }, messages, providers)
-      : "New chat",
-    updatedAt: thread.updatedAt ?? thread.createdAt,
-    status: thread.status,
-    current: thread.threadId === session.thread?.threadId,
-  }));
+  // A chat that ended before anything was said, such as one moved to another agent, has nothing to go back to.
+  const empty = (thread: ThreadProjection) =>
+    !said.has(thread.threadId) &&
+    (thread.status === "stopped" || thread.status === "failed") &&
+    thread.threadId !== session.thread?.threadId;
+  return [...(session.threads ?? [])]
+    .reverse()
+    .filter((thread) => !empty(thread))
+    .map((thread) => ({
+      threadId: thread.threadId,
+      title: said.has(thread.threadId)
+        ? sessionTitle({ thread, provider: session.provider }, messages, providers)
+        : "New chat",
+      updatedAt: thread.updatedAt ?? thread.createdAt,
+      status: thread.status,
+      current: thread.threadId === session.thread?.threadId,
+    }));
 }
 
 export const chatStatusLabel: Record<ThreadProjection["status"], string> = {
@@ -295,14 +315,38 @@ export const sessionStatusLabel: Record<SessionStatus, string> = {
   failed: "Failed",
 };
 
+/**
+ * The threads of one chat, oldest first: the thread itself and the ones it carries on, from each time the
+ * person moved the chat to another agent or model.
+ */
+export function conversationThreads(
+  thread: ThreadProjection,
+  threads: readonly ThreadProjection[] | undefined,
+): ThreadProjection[] {
+  const chain = [thread];
+  const seen = new Set([thread.threadId]);
+  let current = thread;
+  while (current.continues && !seen.has(current.continues)) {
+    const earlier = threads?.find((candidate) => candidate.threadId === current.continues);
+    if (!earlier) break;
+    chain.unshift(earlier);
+    seen.add(earlier.threadId);
+    current = earlier;
+  }
+  return chain;
+}
+
 export function sessionTitle(
-  session: Pick<AgentSession, "thread" | "provider">,
+  session: Pick<AgentSession, "thread" | "provider" | "threads"> & { mode?: SessionMode | undefined },
   messages: readonly ThreadMessageProjection[] | undefined,
   providers: RuntimeProjection["providers"],
 ): string {
-  const threadId = session.thread?.threadId;
-  const first = threadId
-    ? messages?.find((message) => message.threadId === threadId && message.role === "user" && message.text.trim())
+  // A chat that moved to another agent keeps the name its first message gave it.
+  const chain = session.thread
+    ? new Set(conversationThreads(session.thread, session.threads).map((t) => t.threadId))
+    : undefined;
+  const first = chain
+    ? messages?.find((message) => chain.has(message.threadId) && message.role === "user" && message.text.trim())
     : undefined;
   if (first) {
     const lines = first.text.trim().split(/\r?\n/u);
@@ -314,6 +358,9 @@ export function sessionTitle(
     const line = (task ?? lines[0] ?? "").trim();
     return line.length > 72 ? `${line.slice(0, 71)}…` : line;
   }
+  // A chat is named for what the person asks. Until then it is a new chat, whichever agent it is set to,
+  // so moving it to another agent before the first message leaves its name alone.
+  if (session.mode === "chat") return "New chat";
   return providerDisplayName(session.provider, providers);
 }
 

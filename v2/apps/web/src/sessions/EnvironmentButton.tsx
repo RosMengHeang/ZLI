@@ -1,16 +1,20 @@
 import type { GitBranchesResult, ReviewProjection, WorktreeProjection } from "@zli-v2/contracts";
-import { type FocusEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type FocusEvent, type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { OpenInButton } from "../files/OpenInButton.js";
 import { BranchMenu } from "../review/BranchMenu.js";
 import { trackDescription, trackText, useBranches } from "../review/branches.js";
 import { changeTotals, stageStateOf } from "../review/changes.js";
-import { pushBranch } from "../review/pullRequestClient.js";
-import { refreshPullRequest } from "../review/pullRequestStore.js";
+import { openExternalLink } from "../review/links.js";
+import { MergePullRequestDialog } from "../review/MergePullRequestDialog.js";
+import { pushBranch, switchBranch } from "../review/pullRequestClient.js";
+import { recordPullRequest, refreshPullRequest, usePullRequestEntry } from "../review/pullRequestStore.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { SearchList, type SearchListItem } from "../ui/SearchList.js";
 
 /** Git answers a commit or a first read through the projection; past this the popover stops waiting. */
 export const GIT_ANSWER_TIMEOUT_MS = 60_000;
@@ -73,15 +77,30 @@ export function EnvironmentButton({
   review,
   noGit,
   onOpenChanges,
+  onOpenPullRequest,
+  card,
 }: {
   worktree: WorktreeProjection;
   review: ReviewProjection | undefined;
   /** The project folder is not a Git repository. */
   noGit: boolean;
   onOpenChanges(): void;
+  /** Shows the pull request in the side panel; without it the pull request opens on GitHub. */
+  onOpenPullRequest?: (() => void) | undefined;
+  /**
+   * Shows the environment as a card pinned inside the tile instead of a popover. Chat mode uses it, so the
+   * folder, branch, pull request, and changes stay in view while the person talks to the agent.
+   */
+  card?: { open: boolean; host: HTMLElement | null; onOpenChange(open: boolean): void } | undefined;
 }) {
-  const { dispatch } = useRuntime();
-  const [open, setOpen] = useState(false);
+  const { dispatch, bridge } = useRuntime();
+  const [popoverOpen, setOpen] = useState(false);
+  const open = card ? card.open : popoverOpen;
+  const pullRequest = usePullRequestEntry(open && !noGit ? worktree.worktreeId : undefined)?.status?.pullRequest;
+  const [commitOpen, setCommitOpen] = useState(false);
+  const [branchList, setBranchList] = useState(false);
+  const branchRowRef = useRef<HTMLButtonElement>(null);
+  const [merging, setMerging] = useState(false);
   const [placement, setPlacement] = useState<Placement>();
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -104,7 +123,7 @@ export function EnvironmentButton({
   };
 
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open || card) return;
     const anchor = triggerRef.current?.getBoundingClientRect();
     const popover = popoverRef.current;
     if (!anchor || !popover) return;
@@ -114,7 +133,7 @@ export function EnvironmentButton({
       top: anchor.bottom + GAP,
       maxHeight: Math.max(160, window.innerHeight - anchor.bottom - GAP - EDGE),
     });
-  }, [open]);
+  }, [open, card]);
 
   // The popover is measured while hidden, and hidden elements cannot take focus, so focus waits for placement.
   const placed = placement !== undefined;
@@ -124,7 +143,7 @@ export function EnvironmentButton({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: close only sets state and reads refs, so opening is the only change.
   useEffect(() => {
-    if (!open) return;
+    if (!open || card) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
@@ -140,7 +159,7 @@ export function EnvironmentButton({
       window.removeEventListener("resize", onLeave);
       window.removeEventListener("blur", onLeave);
     };
-  }, [open]);
+  }, [open, card]);
 
   // Opening the popover reads the uncommitted changes when nothing has read this worktree's changes yet.
   useEffect(() => {
@@ -227,7 +246,7 @@ export function EnvironmentButton({
   const files = review?.files ?? [];
   const totals = changeTotals(files);
 
-  const runAction = async () => {
+  const runAction = async (pushAfter?: boolean) => {
     if (phase) return;
     setError(undefined);
     setNotice(undefined);
@@ -244,7 +263,7 @@ export function EnvironmentButton({
       setPhase(undefined);
       setError("Git has not answered the commit yet. Open Changes to see where it stands.");
     }, GIT_ANSWER_TIMEOUT_MS);
-    commitRef.current = { since: review?.updatedAt, push: plan.push, timer };
+    commitRef.current = { since: review?.updatedAt, push: pushAfter ?? plan.push, timer };
     const failed = (reason: string) => {
       window.clearTimeout(timer);
       commitRef.current = undefined;
@@ -264,14 +283,15 @@ export function EnvironmentButton({
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Escape") return;
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Escape" || card) return;
     event.preventDefault();
     event.stopPropagation();
     close(true);
   };
 
   const onBlur = (event: FocusEvent<HTMLDivElement>) => {
+    if (card) return;
     const next = event.relatedTarget;
     if (next instanceof Node && !popoverRef.current?.contains(next) && !triggerRef.current?.contains(next))
       close(false);
@@ -298,20 +318,423 @@ export function EnvironmentButton({
         }`
       : plan.reason;
 
+  const changesRow = (
+    <button
+      type="button"
+      className="env-row is-action"
+      title={
+        review && review.baseRef !== "HEAD"
+          ? `Changes against ${review.baseRef}. Opens Changes.`
+          : "Uncommitted changes. Opens Changes."
+      }
+      onClick={() => {
+        close(false);
+        onOpenChanges();
+      }}
+    >
+      <Icon name="diff" size={14} />
+      <span className="env-row-label">Changes</span>
+      <span className="env-row-end">
+        {!review ? (
+          reading ? (
+            <>
+              <span className="spinner" aria-hidden="true" />
+              Reading
+            </>
+          ) : null
+        ) : files.length === 0 ? (
+          "None"
+        ) : (
+          <>
+            <span className="env-add">+{totals.additions.toLocaleString("en-US")}</span>
+            <span className="env-del">−{totals.deletions.toLocaleString("en-US")}</span>
+          </>
+        )}
+      </span>
+      <Icon name="chevronRight" size={13} />
+    </button>
+  );
+  const branchRow = (
+    <button
+      type="button"
+      className="env-row is-action"
+      aria-haspopup="dialog"
+      aria-label={`Branch ${branchName}`}
+      title="Switch, create, rename, or delete branches"
+      onClick={() => {
+        close(false);
+        setBranchMenuOpen(true);
+      }}
+    >
+      <Icon name="branch" size={14} />
+      <span className="env-row-label is-mono">{branchName}</span>
+      {track ? (
+        <span className="env-row-end" title={trackDescription(upstream)}>
+          {track}
+        </span>
+      ) : null}
+      <Icon name="chevronDown" size={13} />
+    </button>
+  );
+  const checks = pullRequest?.checks ?? [];
+  const failing = checks.filter((check) => check.state === "failed").length;
+  const running = checks.filter((check) => check.state === "pending").length;
+  const pullRequestState = pullRequest
+    ? pullRequest.isDraft
+      ? "Draft"
+      : pullRequest.state === "OPEN"
+        ? "Open"
+        : pullRequest.state === "MERGED"
+          ? "Merged"
+          : "Closed"
+    : "";
+  const pullRequestRow = pullRequest ? (
+    <button
+      type="button"
+      className="env-row is-action env-pr"
+      title={`Open pull request #${pullRequest.number} on GitHub`}
+      onClick={() => {
+        void openExternalLink(bridge, pullRequest.url).then((failure) => {
+          if (failure) setError(failure);
+        });
+      }}
+    >
+      <Icon name="pullRequest" size={14} />
+      <span className="env-row-label">
+        <span className="is-mono">#{pullRequest.number}</span>{" "}
+        <span className={`env-pr-state is-${pullRequestState.toLowerCase()}`}>{pullRequestState}</span>
+      </span>
+      {checks.length > 0 ? (
+        <span className={`env-row-end env-checks${failing ? " is-failed" : running ? " is-pending" : " is-passed"}`}>
+          <Icon name={failing ? "alert" : running ? "loader" : "check"} size={12} />
+          {failing ? `${failing} failing` : running ? `${running} running` : "Checks pass"}
+        </span>
+      ) : null}
+      <Icon name="externalLink" size={12} />
+    </button>
+  ) : null;
+  const commitForm = (
+    <>
+      <div className="env-commit">
+        {plan.kind === "commit" ? (
+          <input
+            className="input input-sm"
+            aria-label="Commit message"
+            placeholder="Commit message"
+            value={message}
+            disabled={!!phase}
+            onChange={(event) => setMessage(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || !message.trim()) return;
+              event.preventDefault();
+              void runAction();
+            }}
+          />
+        ) : null}
+        <Button
+          variant={plan.kind === "none" ? "secondary" : "primary"}
+          size="sm"
+          icon={plan.kind === "push" ? "upload" : "commit"}
+          loading={!!phase}
+          disabled={plan.kind === "none" || (plan.kind === "commit" && !message.trim())}
+          onClick={() => void runAction()}
+        >
+          {actionLabel}
+        </Button>
+      </div>
+      {error ? (
+        <p className="inline-error env-line" role="alert">
+          <Icon name="alert" size={13} />
+          <span>{error}</span>
+        </p>
+      ) : notice ? (
+        <p className="env-line is-done" role="status">
+          <Icon name="check" size={13} />
+          <span>{notice}</span>
+        </p>
+      ) : (
+        <p className="env-line">{hint}</p>
+      )}
+    </>
+  );
+  const noGitLine = <p className="env-line">This folder is not a Git repository, so it has no changes or branches.</p>;
+  const body = (
+    <>
+      <div className="env-row" title={worktree.path}>
+        <Icon name={local ? "monitor" : "folderTree"} size={14} />
+        <span className="env-row-text">
+          <span className="env-row-label">{local ? "Local" : "Worktree"}</span>
+          <span className="env-row-detail">{shortPath(worktree.path)}</span>
+        </span>
+      </div>
+      {noGit ? (
+        noGitLine
+      ) : (
+        <>
+          {changesRow}
+          {branchRow}
+          {pullRequestRow}
+          {commitForm}
+        </>
+      )}
+    </>
+  );
+
+  // ---------- The card's rows ----------
+
+  const switchTo = async (name: string) => {
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      branchState.apply(await switchBranch(dispatch, worktreeId, name));
+      setNotice(`Switched to ${name}.`);
+      void refreshPullRequest(dispatch, worktreeId, true);
+      if (review) {
+        void dispatch({
+          protocolVersion: 1,
+          commandId: makeCommandId(),
+          command: { type: "review.refresh", worktreeId, baseRef: review.baseRef },
+        }).catch(() => undefined);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : `${name} could not be checked out.`);
+    }
+  };
+
+  /** The branch row opens a dropdown of this repository's branches, filtered as the person types. */
+  const branchItems: SearchListItem[] = [...(branches?.local ?? [])]
+    .sort((left, right) => (left === branchName ? -1 : right === branchName ? 1 : left.localeCompare(right)))
+    .map((name) => {
+      const elsewhere = name === branchName ? undefined : branches?.details?.[name]?.worktreePath;
+      return {
+        id: name,
+        label: name,
+        icon: "branch",
+        checked: name === branchName,
+        disabled: !!elsewhere,
+        detail: elsewhere ? `In ${shortPath(elsewhere, 30)}` : undefined,
+        title: elsewhere ? `Checked out in ${elsewhere}, so it cannot be checked out here too.` : undefined,
+      };
+    });
+  const closeBranchList = useCallback((returnFocus: boolean) => {
+    setBranchList(false);
+    if (returnFocus) branchRowRef.current?.focus();
+  }, []);
+
+  const cardBranchRow = (
+    <button
+      ref={branchRowRef}
+      type="button"
+      className={`env-row is-action${branchList ? " is-open" : ""}`}
+      aria-haspopup="listbox"
+      aria-expanded={branchList}
+      aria-label={`Branch ${branchName}. Switch branch`}
+      onClick={() => setBranchList((value) => !value)}
+    >
+      <Icon name="branch" size={14} />
+      <span className="env-row-label is-mono">{branchName}</span>
+      {track ? (
+        <span className="env-row-end" title={trackDescription(upstream)}>
+          {track}
+        </span>
+      ) : null}
+      <Icon name="chevronDown" size={13} />
+    </button>
+  );
+
+  const openOnGitHub = () => {
+    if (!pullRequest) return;
+    void openExternalLink(bridge, pullRequest.url).then((failure) => {
+      if (failure) setError(failure);
+    });
+  };
+  const mergeable = pullRequest?.state === "OPEN" && !pullRequest.isDraft;
+  const checkTone = failing ? "is-failed" : running ? "is-pending" : "is-passed";
+  const cardPullRequest = pullRequest ? (
+    <div className={`env-pr-card is-${pullRequestState.toLowerCase()}`}>
+      <Icon name={pullRequest.state === "MERGED" ? "merge" : "pullRequest"} size={15} />
+      <button
+        type="button"
+        className="env-pr-title"
+        title={onOpenPullRequest ? `Show #${pullRequest.number}` : `Open #${pullRequest.number} on GitHub`}
+        onClick={onOpenPullRequest ?? openOnGitHub}
+      >
+        {pullRequest.title ?? `Pull request #${pullRequest.number}`}
+      </button>
+      <div className="env-pr-meta">
+        <span className="is-mono">#{pullRequest.number}</span>
+        {checks.length > 0 ? (
+          <span
+            className={`env-checks ${checkTone}`}
+            title={failing ? `${failing} checks failing` : running ? `${running} checks running` : "Checks pass"}
+          >
+            <Icon name={failing ? "alert" : running ? "loader" : "check"} size={12} />
+            {failing ? `${failing} failing` : running ? `${running} running` : null}
+          </span>
+        ) : null}
+        {mergeable ? null : (
+          <span className={`env-pr-state is-${pullRequestState.toLowerCase()}`}>{pullRequestState}</span>
+        )}
+        {mergeable ? (
+          <Button
+            variant="primary"
+            size="xs"
+            className="env-pr-merge"
+            icon="merge"
+            disabled={!!pullRequest.autoMerge}
+            title={pullRequest.autoMerge ? "Auto-merge is on. GitHub merges it once checks pass." : undefined}
+            onClick={() => setMerging(true)}
+          >
+            {pullRequest.autoMerge ? "Auto-merge on" : "Merge"}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+
+  // Commit and push: the row says what is waiting, and opening it says exactly what the button will do.
+  const ahead = upstream && !upstream.gone ? upstream.ahead : 0;
+  const fileCount = files.length;
+  const commitSummary =
+    plan.kind === "commit"
+      ? `${fileCount} ${fileCount === 1 ? "file" : "files"}`
+      : plan.kind === "push"
+        ? ahead > 0
+          ? `${ahead} to push`
+          : "Not on origin"
+        : review
+          ? "Up to date"
+          : "";
+  const commitTitle = plan.kind === "push" ? "Push" : plan.push ? "Commit & push" : "Commit";
+  const commitExplain =
+    plan.kind === "commit"
+      ? `Saves ${plan.staged ? "the staged changes" : `all ${fileCount} changed ${fileCount === 1 ? "file" : "files"}`} as one commit on ${branchName}${plan.push ? ", then sends it to origin." : ". There is no origin to send it to."}`
+      : plan.kind === "push"
+        ? `${plan.reason} Sends ${branchName} to origin so others, and a pull request, can see it.`
+        : plan.reason;
+  const commitShown = (commitOpen && plan.kind !== "none") || !!phase || !!error || !!notice;
+  const cardCommit = (
+    <>
+      <button
+        type="button"
+        className={`env-row is-action env-commit-row${plan.kind === "none" ? " is-idle" : ""}`}
+        aria-expanded={commitShown}
+        onClick={() => setCommitOpen((value) => !value)}
+      >
+        <Icon name={plan.kind === "push" ? "upload" : "commit"} size={14} />
+        <span className="env-row-label">{commitTitle}</span>
+        {commitSummary ? (
+          <span className={`env-commit-count${plan.kind === "none" ? "" : " is-waiting"}`}>{commitSummary}</span>
+        ) : null}
+        {plan.kind === "none" ? null : <Icon name={commitShown ? "chevronDown" : "chevronRight"} size={13} />}
+      </button>
+      {commitShown ? (
+        <div className="env-commit-panel">
+          {plan.kind === "commit" ? (
+            <input
+              className="input input-sm env-commit-message"
+              aria-label="Commit message"
+              placeholder="Describe what changed"
+              value={message}
+              disabled={!!phase}
+              onChange={(event) => setMessage(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || !message.trim()) return;
+                event.preventDefault();
+                void runAction();
+              }}
+            />
+          ) : null}
+          {error ? (
+            <p className="inline-error env-line" role="alert">
+              <Icon name="alert" size={13} />
+              <span>{error}</span>
+            </p>
+          ) : notice && !phase ? (
+            <p className="env-line is-done" role="status">
+              <Icon name="check" size={13} />
+              <span>{notice}</span>
+            </p>
+          ) : (
+            <p className="env-line">{commitExplain}</p>
+          )}
+          {plan.kind === "none" ? null : (
+            <div className="env-commit-actions">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={plan.kind === "push" ? "upload" : "commit"}
+                loading={!!phase}
+                disabled={plan.kind === "commit" && !message.trim()}
+                onClick={() => void runAction()}
+              >
+                {phase === "committing"
+                  ? "Committing"
+                  : phase === "pushing"
+                    ? "Pushing"
+                    : plan.kind === "push"
+                      ? "Push to origin"
+                      : commitTitle}
+              </Button>
+              {plan.kind === "commit" && plan.push && !phase ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!message.trim()}
+                  title="Commit without pushing"
+                  onClick={() => void runAction(false)}
+                >
+                  Commit only
+                </Button>
+              ) : null}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </>
+  );
+
+  const cardBody = noGit ? (
+    noGitLine
+  ) : (
+    <>
+      <div className="env-card-group">
+        {cardBranchRow}
+        {cardPullRequest}
+      </div>
+      <div className="env-card-group">
+        {cardCommit}
+        {changesRow}
+      </div>
+    </>
+  );
+  const folderLabel = worktree.path.split(/[\\/]/u).filter(Boolean).at(-1) ?? worktree.path;
+
   return (
     <>
       <IconButton
         ref={triggerRef}
         label="Environment"
-        tooltip="Environment: folder, changes, and branch"
+        tooltip={
+          card
+            ? card.open
+              ? "Hide the environment card"
+              : "Show the environment card: folder, branch, and changes"
+            : "Environment: folder, changes, and branch"
+        }
         icon="monitor"
         size="sm"
         iconSize={13}
-        aria-haspopup="dialog"
+        aria-haspopup={card ? undefined : "dialog"}
         aria-expanded={open}
-        onClick={() => (open ? close(false) : setOpen(true))}
+        className={card?.open ? "is-on" : undefined}
+        onClick={() => {
+          if (card) card.onOpenChange(!card.open);
+          else if (open) close(false);
+          else setOpen(true);
+        }}
       />
-      {open
+      {open && !card
         ? createPortal(
             <div
               ref={popoverRef}
@@ -323,117 +746,73 @@ export function EnvironmentButton({
               onBlur={onBlur}
             >
               <p className="popover-title">Environment</p>
-              <div className="env-row" title={worktree.path}>
-                <Icon name={local ? "monitor" : "folderTree"} size={14} />
-                <span className="env-row-text">
-                  <span className="env-row-label">{local ? "Local" : "Worktree"}</span>
-                  <span className="env-row-detail">{shortPath(worktree.path)}</span>
-                </span>
-              </div>
-              {noGit ? (
-                <p className="env-line">This folder is not a Git repository, so it has no changes or branches.</p>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="env-row is-action"
-                    title={
-                      review && review.baseRef !== "HEAD"
-                        ? `Changes against ${review.baseRef}. Opens Changes.`
-                        : "Uncommitted changes. Opens Changes."
-                    }
-                    onClick={() => {
-                      close(false);
-                      onOpenChanges();
-                    }}
-                  >
-                    <Icon name="diff" size={14} />
-                    <span className="env-row-label">Changes</span>
-                    <span className="env-row-end">
-                      {!review ? (
-                        reading ? (
-                          <>
-                            <span className="spinner" aria-hidden="true" />
-                            Reading
-                          </>
-                        ) : null
-                      ) : files.length === 0 ? (
-                        "None"
-                      ) : (
-                        <>
-                          <span className="env-add">+{totals.additions.toLocaleString("en-US")}</span>
-                          <span className="env-del">−{totals.deletions.toLocaleString("en-US")}</span>
-                        </>
-                      )}
-                    </span>
-                    <Icon name="chevronRight" size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    className="env-row is-action"
-                    aria-haspopup="dialog"
-                    aria-label={`Branch ${branchName}`}
-                    title="Switch, create, rename, or delete branches"
-                    onClick={() => {
-                      close(false);
-                      setBranchMenuOpen(true);
-                    }}
-                  >
-                    <Icon name="branch" size={14} />
-                    <span className="env-row-label is-mono">{branchName}</span>
-                    {track ? (
-                      <span className="env-row-end" title={trackDescription(upstream)}>
-                        {track}
-                      </span>
-                    ) : null}
-                    <Icon name="chevronDown" size={13} />
-                  </button>
-                  <div className="env-commit">
-                    {plan.kind === "commit" ? (
-                      <input
-                        className="input input-sm"
-                        aria-label="Commit message"
-                        placeholder="Commit message"
-                        value={message}
-                        disabled={!!phase}
-                        onChange={(event) => setMessage(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter" || !message.trim()) return;
-                          event.preventDefault();
-                          void runAction();
-                        }}
-                      />
-                    ) : null}
-                    <Button
-                      variant={plan.kind === "none" ? "secondary" : "primary"}
-                      size="sm"
-                      icon={plan.kind === "push" ? "upload" : "commit"}
-                      loading={!!phase}
-                      disabled={plan.kind === "none" || (plan.kind === "commit" && !message.trim())}
-                      onClick={() => void runAction()}
-                    >
-                      {actionLabel}
-                    </Button>
-                  </div>
-                  {error ? (
-                    <p className="inline-error env-line" role="alert">
-                      <Icon name="alert" size={13} />
-                      <span>{error}</span>
-                    </p>
-                  ) : notice ? (
-                    <p className="env-line is-done" role="status">
-                      <Icon name="check" size={13} />
-                      <span>{notice}</span>
-                    </p>
-                  ) : (
-                    <p className="env-line">{hint}</p>
-                  )}
-                </>
-              )}
+              {body}
             </div>,
             document.body,
           )
         : null}
+      {open && card?.host
+        ? createPortal(
+            <section className="env-card" aria-label="Environment">
+              <div className="env-card-group">
+                <div className="env-row env-card-folder" title={worktree.path}>
+                  <Icon name="folder" size={15} />
+                  <span className="env-row-label">{folderLabel}</span>
+                  <span className={`env-card-kind${local ? "" : " is-worktree"}`}>
+                    <Icon name={local ? "monitor" : "folderTree"} size={11} />
+                    {local ? "Local" : "Worktree"}
+                  </span>
+                </div>
+                <OpenInButton worktreeId={worktreeId} onError={setError} row />
+              </div>
+              {cardBody}
+            </section>,
+            card.host,
+          )
+        : null}
+      {branchList ? (
+        <SearchList
+          anchorRef={branchRowRef}
+          label="Branches"
+          placeholder="Search branches"
+          items={branchItems}
+          status={branches ? undefined : (branchState.error ?? "Reading branches…")}
+          actions={[
+            {
+              id: "manage",
+              label: "New, rename, or delete a branch",
+              icon: "plus",
+              run: () => {
+                closeBranchList(false);
+                setBranchMenuOpen(true);
+              },
+            },
+          ]}
+          onPick={(name) => {
+            closeBranchList(true);
+            if (name !== branchName) void switchTo(name);
+          }}
+          onClose={closeBranchList}
+        />
+      ) : null}
+      {merging && pullRequest ? (
+        <MergePullRequestDialog
+          worktree={worktree}
+          pullRequest={pullRequest}
+          onClose={() => setMerging(false)}
+          onMerged={(result) => {
+            setMerging(false);
+            recordPullRequest(worktreeId, result.pullRequest);
+            setNotice(`Merged #${result.pullRequest.number}.`);
+            void refreshPullRequest(dispatch, worktreeId, true);
+            void branchState.reload();
+          }}
+          onAutoMerge={(result) => {
+            setMerging(false);
+            recordPullRequest(worktreeId, result.pullRequest);
+          }}
+        />
+      ) : null}
       {branchMenuOpen ? (
         <BranchMenu
           worktree={worktree}

@@ -1,6 +1,6 @@
 import type { ThreadMessageProjection } from "@zli-v2/contracts";
 
-import type { AgentSession } from "./sessions.js";
+import { type AgentSession, conversationThreads } from "./sessions.js";
 
 /** Older messages are dropped first; the newest ones carry what the next agent needs most. */
 export const HANDOFF_CHAR_BUDGET = 60_000;
@@ -28,9 +28,11 @@ function trimMessage(text: string): string {
   return `${trimmed.slice(0, half)}\n\n[${cut.toLocaleString("en-US")} characters left out]\n\n${trimmed.slice(-half)}`;
 }
 
-function speaker(message: ThreadMessageProjection, fromName: string): string | undefined {
+type SpeakerName = string | ((message: ThreadMessageProjection) => string);
+
+function speaker(message: ThreadMessageProjection, fromName: SpeakerName): string | undefined {
   if (message.role === "user") return "User";
-  if (message.role === "assistant") return fromName;
+  if (message.role === "assistant") return typeof fromName === "string" ? fromName : fromName(message);
   if (message.role === "agent") return "Message from another agent";
   return undefined;
 }
@@ -38,7 +40,7 @@ function speaker(message: ThreadMessageProjection, fromName: string): string | u
 /** The conversation as Markdown sections, newest messages kept when it is over the budget. */
 export function handoffTranscript(
   messages: readonly ThreadMessageProjection[],
-  fromName: string,
+  fromName: SpeakerName,
   budget = HANDOFF_CHAR_BUDGET,
 ): { text: string; included: number; omitted: number } {
   const sections = messages.flatMap((message) => {
@@ -112,16 +114,49 @@ export function recentContextMessage(input: {
   };
 }
 
-/** A chat with something said in it can be handed to another agent. */
+/** Room for the earlier conversation when a chat moves to another agent, newest messages first. */
+export const TAKEOVER_CHAR_BUDGET = 40_000;
+
+/**
+ * What an agent reads before the first message it gets in a chat it took over. The chat shows the
+ * person's message alone; this goes ahead of it, to the agent only. Over the budget, the newest messages
+ * stay, and so does the person's first request, which usually says what the work is for.
+ */
+export function takeoverContext(input: {
+  branch: string;
+  /** Earlier messages of the chat, oldest first, and which agent wrote each reply. */
+  messages: readonly ThreadMessageProjection[];
+  nameOf(message: ThreadMessageProjection): string;
+}): string | undefined {
+  const transcript = handoffTranscript(input.messages, input.nameOf, TAKEOVER_CHAR_BUDGET);
+  if (transcript.included === 0) return undefined;
+  const firstAsk = input.messages.find((message) => message.role === "user" && message.text.trim());
+  const pinned =
+    transcript.omitted > 0 && firstAsk ? `## User, first request\n\n${trimMessage(firstAsk.text)}\n\n` : "";
+  const agents = [
+    ...new Set(input.messages.flatMap((message) => (message.role === "assistant" ? [input.nameOf(message)] : []))),
+  ];
+  const who = agents.length > 0 ? agents.join(" and ") : "another agent";
+  return [
+    `You are taking over this chat from ${who}, in the same folder, on branch ${input.branch}. The conversation so far is below, oldest first. Files may have changed since, so check them before you rely on it. Then answer the person's new message, which follows.`,
+    `<earlier-conversation>\n${pinned}${transcript.text}\n</earlier-conversation>`,
+    "The person's new message:",
+  ].join("\n\n");
+}
+
+/**
+ * A chat with something said in it can be handed to another agent. With the session's threads given, that
+ * counts the whole chat, across the agents it moved through; without them, only the current thread.
+ */
 export function canHandOff(
-  session: Pick<AgentSession, "thread">,
+  session: Pick<AgentSession, "thread" | "threads">,
   messages: readonly ThreadMessageProjection[] | undefined,
 ): boolean {
-  const threadId = session.thread?.threadId;
-  if (!threadId) return false;
+  if (!session.thread) return false;
+  const ids = new Set(conversationThreads(session.thread, session.threads).map((thread) => thread.threadId));
   return (messages ?? []).some(
     (message) =>
-      message.threadId === threadId && (message.role === "user" || message.role === "assistant") && message.text.trim(),
+      ids.has(message.threadId) && (message.role === "user" || message.role === "assistant") && message.text.trim(),
   );
 }
 

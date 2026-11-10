@@ -95,7 +95,7 @@ describe("PullRequestService.status", () => {
       "view",
       "feature/pr",
       "--json",
-      "url,state,isDraft,number,statusCheckRollup,reviewDecision,autoMergeRequest",
+      "url,state,isDraft,number,title,body,author,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,statusCheckRollup,reviewDecision,autoMergeRequest",
     ]);
   });
 

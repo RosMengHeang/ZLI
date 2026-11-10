@@ -60,7 +60,8 @@ const MAX_LOG_LINES = 150;
 const MAX_LOG_CHARS = 30_000;
 const MAX_BODY_SUBJECTS = 50;
 const GH_READY_MS = 5 * 60_000;
-const PR_FIELDS = "url,state,isDraft,number,statusCheckRollup,reviewDecision,autoMergeRequest";
+const PR_FIELDS =
+  "url,state,isDraft,number,title,body,author,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,statusCheckRollup,reviewDecision,autoMergeRequest";
 const MAX_THREADS = 100;
 const MAX_THREAD_COMMENTS = 50;
 const MAX_REVIEWS = 30;
@@ -1050,8 +1051,15 @@ function parsePullRequest(stdout: string): PullRequestInfo | undefined {
   const { statusCheckRollup, reviewDecision, autoMergeRequest, ...rest } = raw as Record<string, unknown>;
   const checks = summarizeChecks(statusCheckRollup);
   const autoMerge = autoMergeOf(autoMergeRequest);
+  // GitHub sends null for a missing author or an empty description; a missing field reads better than none.
+  const present = Object.fromEntries(
+    Object.entries(rest)
+      .filter(([, value]) => value !== null && value !== "")
+      // A very long description is cut rather than losing the whole pull request.
+      .map(([key, value]) => [key, key === "body" && typeof value === "string" ? value.slice(0, 100_000) : value]),
+  );
   const parsed = PullRequestInfo.safeParse({
-    ...rest,
+    ...present,
     ...(checks ? { checks } : {}),
     ...(autoMerge ? { autoMerge } : {}),
     ...(reviewDecision === "APPROVED" || reviewDecision === "CHANGES_REQUESTED" || reviewDecision === "REVIEW_REQUIRED"
