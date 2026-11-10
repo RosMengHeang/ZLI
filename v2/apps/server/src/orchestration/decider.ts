@@ -398,6 +398,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       if (command.name !== undefined) assertAgentNameFree(projection, worktree.projectId, command.name);
       if (command.startedBy !== undefined) assertStartedBy(projection, worktree.projectId, command.startedBy);
       if (command.continues !== undefined) assertContinues(projection, command.continues, command.worktreeId);
+      if (command.joins !== undefined) assertJoins(projection, worktree.projectId, command.joins);
       return [
         {
           type: "thread.start.requested",
@@ -417,6 +418,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             ...(command.sessionId ? { sessionId: command.sessionId } : {}),
             ...(command.accountId ? { accountId: command.accountId } : {}),
             ...(command.continues !== undefined ? { continues: command.continues } : {}),
+            ...(command.joins !== undefined ? { joins: command.joins } : {}),
           },
         },
       ];
@@ -973,6 +975,14 @@ function assertContinues(projection: RuntimeProjection, threadId: string, worktr
   if (!earlier) throw new DomainError("thread_missing", `Thread does not exist: ${threadId}`);
   if (earlier.worktreeId !== worktreeId)
     throw new DomainError("unsupported_command", "A chat can only carry on a conversation from the same worktree.");
+}
+
+function assertJoins(projection: RuntimeProjection, projectId: string, threadId: string): void {
+  const host = projection.threads.find((thread) => thread.threadId === threadId);
+  if (!host) throw new DomainError("thread_missing", `The chat to join does not exist: ${threadId}`);
+  const hostProject = projection.worktrees.find((worktree) => worktree.worktreeId === host.worktreeId)?.projectId;
+  if (hostProject !== projectId)
+    throw new DomainError("unsupported_command", "An agent can only join a chat in the same project.");
 }
 
 function sendQueued(projection: RuntimeProjection, queued: ThreadQueuedMessage): DomainDecision[] {

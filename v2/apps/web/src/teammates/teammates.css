@@ -1,0 +1,31 @@
+/* Settings: saved teammates. */
+.teammates-empty { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.teammates-list { display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0; padding: 0; list-style: none; }
+.teammate-row {
+  display: flex;
+  align-items: center;
+  gap: var(--zli-space-3);
+  padding: var(--zli-space-2) var(--zli-space-2);
+  border-radius: var(--zli-radius-md, 8px);
+}
+.teammate-row:hover { background: var(--zli-hover); }
+.teammate-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.teammate-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.teammate-meta { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.teammate-notes { overflow: hidden; color: var(--zli-muted, var(--zli-dim)); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.teammate-form { display: flex; flex-direction: column; gap: var(--zli-space-3); margin-top: var(--zli-space-2); padding: var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md, 8px); }
+.teammate-animals { display: flex; flex-wrap: wrap; gap: var(--zli-space-1); margin: 0; padding: 0; border: 0; }
+.teammate-animals legend { width: 100%; margin-bottom: var(--zli-space-1); }
+.teammate-animal {
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+.teammate-animal:hover { background: var(--zli-hover); }
+.teammate-animal.is-picked { border-color: var(--zli-accent); }
+.teammate-pickers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--zli-space-2); }
+@media (max-width: 720px) { .teammate-pickers { grid-template-columns: 1fr; } }

@@ -585,3 +585,44 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
 .chat-switch-line { flex: 1 1 0; height: 1px; background: var(--zli-border); }
 .chat-switch-text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/*
+ * A chat with more than one agent. Each run of replies opens with who is speaking; members at work show as
+ * a card at the end; the bar above the message box lists who is in the chat and brings more in.
+ */
+.room-speaker { display: flex; align-items: center; gap: var(--zli-space-2); margin: var(--zli-space-3) 0 calc(var(--zli-space-1) * -1); }
+.room-speaker-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.room-speaker-agent { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+
+.room-live {
+  display: flex;
+  align-items: center;
+  gap: var(--zli-space-3);
+  margin: var(--zli-space-2) 0;
+  padding: var(--zli-space-2) var(--zli-space-3);
+  border: 1px solid var(--zli-border);
+  border-radius: var(--zli-radius-lg);
+  background: color-mix(in srgb, var(--zli-raised) 40%, transparent);
+  animation: zli-fade-in var(--zli-duration-base) var(--zli-ease) both;
+}
+.room-live.is-waiting { border-color: var(--zli-amber-line); }
+.room-live-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.room-live-who { display: flex; align-items: baseline; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.room-live-role { color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 400; }
+.room-live-step { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.room-live-time { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+
+.room-bar { display: flex; min-height: 26px; align-items: center; gap: var(--zli-space-2); margin-bottom: var(--zli-space-1); padding: 0 var(--zli-space-1); }
+.room-people { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1); margin: 0; padding: 0; overflow-x: auto; list-style: none; scrollbar-width: none; }
+.room-person { flex: none; }
+.room-person-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 var(--zli-space-2) 0 3px; border-radius: var(--zli-radius-pill); }
+span.room-person-chip { color: var(--zli-muted); }
+.room-person-chip > svg:first-child { order: 3; color: var(--zli-dim); }
+.room-person-name { max-width: 120px; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.room-person.is-host .room-person-name { color: var(--zli-muted); }
+.room-person.is-helper .room-person-name { font-weight: 450; }
+.room-bar-hint { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.room-bar-joining { flex: none; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.room-bring { flex: none; margin-left: auto; }
+
+.mention-option { display: flex; flex-direction: row; align-items: center; gap: var(--zli-space-2); }
+.mention-option-copy { display: flex; min-width: 0; flex-direction: column; }

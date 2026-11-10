@@ -941,6 +941,24 @@ describe("agent names", () => {
     );
   });
 
+  it("lets an agent join a chat in the same project, and refuses one from another project", () => {
+    let state = fold(twoProjects(), decide(twoProjects(), start(firstThread, "Bob")));
+    state = fold(state, decide(state, { ...start(secondThread, "Owl"), joins: firstThread }));
+    expect(state.threads[1]).toMatchObject({ name: "Owl", joins: firstThread });
+    expect(() =>
+      decide(state, {
+        ...start(ThreadId.parse("00000000-0000-4000-8000-000000000438"), "Ann"),
+        joins: ThreadId.parse("00000000-0000-4000-8000-000000000440"),
+      }),
+    ).toThrow("The chat to join does not exist: 00000000-0000-4000-8000-000000000440");
+    expect(() =>
+      decide(state, {
+        ...start(ThreadId.parse("00000000-0000-4000-8000-000000000439"), "Ann", otherWorktree),
+        joins: firstThread,
+      }),
+    ).toThrow("An agent can only join a chat in the same project.");
+  });
+
   it("only names agent terminals", () => {
     const state = fold(projection("/repo/tree"), decide(projection("/repo/tree"), terminalCreate("/repo/tree")));
     expect(() => decide(state, { type: "terminal.rename", terminalId, name: "Bob" })).toThrow(

@@ -161,6 +161,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     accountId: AccountId.optional(),
     /** The thread of the same chat this one carries on, when the chat moves to another agent or model. */
     continues: ThreadId.optional(),
+    /** The chat this agent joins at the person's request. It must be a chat in the same project. */
+    joins: ThreadId.optional(),
   }),
   z.object({
     type: z.literal("thread.send"),

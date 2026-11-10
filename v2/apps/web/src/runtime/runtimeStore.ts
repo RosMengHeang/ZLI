@@ -151,6 +151,30 @@ export function entriesForThreads<T extends { threadId: string }>(
   return threadIds.split(" ").flatMap((threadId) => entriesForThread(entries, threadId));
 }
 
+const orderedCache = new WeakMap<readonly unknown[], Map<string, readonly unknown[]>>();
+
+/**
+ * The entries of several threads in the order they arrived, across threads, so a chat with more than one
+ * agent reads in the order things were said. Compare with shallowArrayEqual.
+ */
+export function entriesInOrder<T extends { threadId: string }>(
+  entries: readonly T[] | undefined,
+  threadIds: string,
+): readonly T[] {
+  if (!entries || entries.length === 0 || !threadIds) return EMPTY;
+  let byKey = orderedCache.get(entries);
+  if (!byKey) {
+    byKey = new Map();
+    orderedCache.set(entries, byKey);
+  }
+  const cached = byKey.get(threadIds) as readonly T[] | undefined;
+  if (cached) return cached;
+  const wanted = new Set(threadIds.split(" "));
+  const picked = entries.filter((entry) => wanted.has(entry.threadId));
+  byKey.set(threadIds, picked);
+  return picked;
+}
+
 const SHELL_IGNORED = new Set<keyof RuntimeProjection>([
   "messages",
   "activities",

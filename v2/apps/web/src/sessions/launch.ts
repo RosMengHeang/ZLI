@@ -35,6 +35,10 @@ export type LaunchOptions = {
   name?: string;
   /** The thread of the same chat this agent carries on, when the person moved the chat to it. */
   continues?: string;
+  /** The chat this agent joins, when the person brings it into a chat. */
+  joins?: string;
+  /** The agent that started this one, which lists it under that agent. */
+  startedBy?: string;
 };
 
 export function shellForPlatform(): string {
@@ -166,6 +170,8 @@ export async function startSessionAgent(
           ...(input.model ? { model: input.model } : {}),
           ...(input.accountId ? { accountId: input.accountId } : {}),
           ...(input.continues ? { continues: input.continues } : {}),
+          ...(input.joins ? { joins: input.joins } : {}),
+          ...(input.startedBy ? { startedBy: input.startedBy } : {}),
           // The person picked this placement, so a second agent in the same checkout is intended.
           ...(worktreeHasLiveThread(projection.threads, input.worktreeId) ? { shareWorktree: true } : {}),
         }
