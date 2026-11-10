@@ -22,6 +22,7 @@ import { UpdatesSection } from "../updates/UpdatesSection.js";
 import type { Updates } from "../updates/useUpdates.js";
 import { AccountsSection } from "./AccountsSection.js";
 import { AgentMessagesSection } from "./AgentMessagesSection.js";
+import { AppearanceSection } from "./AppearanceSection.js";
 import {
   type AppSettings,
   branchFromTemplate,
@@ -57,6 +58,7 @@ export type SettingsSection =
   | "skills"
   | "issues"
   | "mobile"
+  | "appearance"
   | "shortcuts"
   | "phoneAccess"
   | "notifications"
@@ -116,6 +118,13 @@ const sections: readonly SectionEntry[] = [
     icon: "handoff",
     group: "Tools",
     keywords: "zli remote pair phone qr code mobile access",
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    icon: "palette",
+    group: "App",
+    keywords: "theme colors dark light pink black",
   },
   { id: "shortcuts", label: "Shortcuts", icon: "command", group: "App", keywords: "keys keyboard bindings" },
   { id: "notifications", label: "Notifications", icon: "bell", group: "App", keywords: "sound alerts" },
@@ -329,6 +338,7 @@ export function SettingsDialog({
               <SkillsSection projection={projection} initialProjectId={initialProjectId} />
             ) : null}
             {section === "issues" ? <IssuesSection /> : null}
+            {section === "appearance" ? <AppearanceSection /> : null}
             {section === "shortcuts" ? <ShortcutSettings /> : null}
             {section === "notifications" ? <NotificationSection {...notifications} /> : null}
             {section === "mobile" ? <MobileSection /> : null}

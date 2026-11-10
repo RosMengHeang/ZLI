@@ -41,6 +41,33 @@ export function secureWebPreferences(preloadPath: string, partition?: string): R
   };
 }
 
+/** The window background and the color of the native title bar controls, from the renderer's theme. */
+export type WindowChrome = { background: string; symbols: string };
+
+export const DEFAULT_CHROME: WindowChrome = { background: themeColors.canvas, symbols: themeColors.muted };
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/iu;
+
+/** Accepts only two `#rrggbb` colors, since the value comes from the renderer. */
+export function parseWindowChrome(input: unknown): WindowChrome | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const { background, symbols } = input as Record<string, unknown>;
+  if (typeof background !== "string" || typeof symbols !== "string") return undefined;
+  if (!HEX_COLOR.test(background) || !HEX_COLOR.test(symbols)) return undefined;
+  return { background: background.toLowerCase(), symbols: symbols.toLowerCase() };
+}
+
+export type ChromeWindowLike = {
+  setBackgroundColor(color: string): void;
+  setTitleBarOverlay?(options: { color: string; symbolColor: string }): void;
+};
+
+/** Recolors an open window. macOS keeps its traffic lights, which have no overlay colors to set. */
+export function applyWindowChrome(window: ChromeWindowLike, chrome: WindowChrome, platform: NodeJS.Platform): void {
+  window.setBackgroundColor(chrome.background);
+  if (platform !== "darwin") window.setTitleBarOverlay?.({ color: chrome.background, symbolColor: chrome.symbols });
+}
+
 /** The renderer's top bar height, so the native chrome lines up with the app around it. */
 const TITLE_BAR_HEIGHT = 44;
 /** macOS draws its traffic lights 14px tall. */
@@ -51,13 +78,17 @@ const TRAFFIC_LIGHT_HEIGHT = 14;
  * Linux keep native window controls through the overlay; macOS keeps its traffic lights, centered in
  * the bar. Menu accelerators still work without the visible menu.
  */
-export function titleBarOptions(platform: NodeJS.Platform, height = TITLE_BAR_HEIGHT): Record<string, unknown> {
+export function titleBarOptions(
+  platform: NodeJS.Platform,
+  height = TITLE_BAR_HEIGHT,
+  chrome: WindowChrome = DEFAULT_CHROME,
+): Record<string, unknown> {
   if (platform === "darwin") {
     return { titleBarStyle: "hiddenInset", trafficLightPosition: trafficLights(height), titleBarOverlay: true };
   }
   return {
     titleBarStyle: "hidden",
-    titleBarOverlay: { color: themeColors.canvas, symbolColor: themeColors.muted, height },
+    titleBarOverlay: { color: chrome.background, symbolColor: chrome.symbols, height },
   };
 }
 
@@ -129,6 +160,7 @@ export function createMainWindow(
   appOrigin: string,
   platform: NodeJS.Platform = process.platform,
   icon?: string,
+  chrome: WindowChrome = DEFAULT_CHROME,
 ): BrowserWindowLike {
   const window = new BrowserWindow({
     title: "ZLI",
@@ -138,8 +170,8 @@ export function createMainWindow(
     minWidth: 960,
     minHeight: 640,
     show: false,
-    backgroundColor: themeColors.canvas,
-    ...titleBarOptions(platform),
+    backgroundColor: chrome.background,
+    ...titleBarOptions(platform, TITLE_BAR_HEIGHT, chrome),
     webPreferences: secureWebPreferences(preloadPath),
   });
   applyNavigationPolicy(window, appOrigin);

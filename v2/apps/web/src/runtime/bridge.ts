@@ -108,6 +108,8 @@ export type ZliBridge = {
     getVersion(): Promise<string>;
     quit(): Promise<void>;
     openExternal?(url: string): Promise<unknown>;
+    /** Present in the desktop app: recolors the window background and its native title bar controls. */
+    setChrome?(colors: { background: string; symbols: string }): Promise<unknown>;
     zoom?(zoom: "in" | "out" | "reset"): Promise<unknown>;
   };
   test?: {

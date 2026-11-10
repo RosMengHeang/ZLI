@@ -37,13 +37,35 @@ not cover, add it to the primitives instead of styling it locally.
 
 ## Palette
 
-- The canvas `#0a0a0b` is the window itself: the sidebar, the top bar, and the
+- Colors come from themes. `v2/packages/ui/src/themes.ts` defines Midnight
+  (the default), Graphite, Sakura, Frost, Ember, Matrix, and Daylight, and the
+  chosen one is applied to the root element before the first render. Each
+  theme sets every color token, the terminal palette, and the syntax colors,
+  and a test holds every theme to the text contrast rule below. The values
+  in this section are Midnight's. Settings > Appearance and the command
+  palette switch themes.
+- People can make their own themes in a theme editor that floats over the
+  app, so changes show on the real interface as they are made. Its form has
+  a name, a Light or Dark switch, and the colors as rows: name on the left,
+  a round swatch and an editable hex value on the right. By default there are
+  two rows, the sidebar (with the rest of the window) and the terminal;
+  everything else is derived and checked for contrast. Advanced lists every
+  color by area (backgrounds, text, buttons, menus, status) with a filter.
+  A swatch opens a picker card beside the editor: one-click swatches, the
+  saturation and hue picker, and HEX and RGB fields. The inspect button in
+  the header (Ctrl+Shift+C) works like the element picker in browser
+  developer tools: the element under the pointer shows its margin, border,
+  padding, and content, with a label naming it, its size, and its theme
+  colors, and a click opens the color it uses. "Pick a color from the app" lets the person click any part of the app
+  to jump to the colors it uses. The editor warns while text falls below
+  4.5:1.
+- The canvas `#000000` is the window itself: the sidebar, the top bar, and the
   gutters between work regions all share it, with no border between them.
-- Work regions are islands of surface `#141416`: agent tiles, the terminal
+- Work regions are islands of surface `#000000`, set apart by a hairline border: agent tiles, the terminal
   drawer, the side panel, and the empty board. Terminals use the same color
   so output sits on its tile without a seam.
-- Raised `#1b1b1e` is for controls, the composer, and dialogs; overlay
-  `#1f1f23` is for tooltips, menus, and selected segments. Fields, code, and
+- Raised `#121212` is for controls, the composer, and dialogs; overlay
+  `#181818` is for tooltips, menus, and selected segments. Fields, code, and
   logs sit in a translucent black well so they read as sunken on any surface.
 - Islands sit flat. Only popovers, dialogs, and the chat composer cast a
   shadow, and raised surfaces catch a faint top highlight.
@@ -52,7 +74,7 @@ not cover, add it to the primitives instead of styling it locally.
 - Text has three readable steps (text, muted, dim). Each one passes WCAG AA
   (4.5:1) on every surface, including the overlay. The disabled color is only
   for disabled controls and decorative glyphs.
-- There is one accent, blue `oklch(.571 .21 264)`. It marks primary actions,
+- There is one accent per theme (Midnight's is blue `#4a6fdc`). It marks primary actions,
   keyboard focus, and the selected agent, and nothing else. Selected
   segments use a neutral raised fill, and selected choice cards get an accent
   edge, not a blue panel.
@@ -84,7 +106,7 @@ not cover, add it to the primitives instead of styling it locally.
   drawer resize handles live. A handle shows a line only while hovered or
   dragged.
 - Radii are 4 to 8px on controls, 12px on islands, and 16px on dialogs and
-  the composer. Pills are only for counts and the send button.
+  the composer. Pills are only for counts, switches, and the send button.
 
 ## Composition
 

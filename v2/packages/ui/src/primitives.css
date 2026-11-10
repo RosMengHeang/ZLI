@@ -23,7 +23,7 @@
 .btn-primary { background: var(--zli-accent); color: var(--zli-accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 1px 2px rgba(0, 0, 0, .4); }
 .btn-primary:hover:not(:disabled) { background: var(--zli-accent-hover); }
 .btn-primary:active:not(:disabled) { background: var(--zli-accent-pressed); }
-.btn-primary kbd { border-color: transparent; background: rgba(255, 255, 255, .16); color: rgba(255, 255, 255, .9); }
+.btn-primary kbd { border-color: transparent; background: color-mix(in srgb, var(--zli-accent-ink) 16%, transparent); color: color-mix(in srgb, var(--zli-accent-ink) 90%, transparent); }
 
 .btn-secondary { border-color: var(--zli-border-strong); background: var(--zli-raised); box-shadow: var(--zli-highlight); }
 .btn-secondary:hover:not(:disabled) { border-color: var(--zli-border-hover); background: var(--zli-overlay); }
@@ -33,7 +33,7 @@
 .btn-ghost:hover:not(:disabled) { background: var(--zli-hover); color: var(--zli-text); }
 .btn-ghost:active:not(:disabled), .btn-ghost[aria-pressed="true"], .btn-ghost.is-active { background: var(--zli-active); color: var(--zli-text); }
 
-.btn-danger { background: var(--zli-danger); color: var(--zli-accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); }
+.btn-danger { background: var(--zli-danger); color: #ffffff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); }
 .btn-danger:hover:not(:disabled) { background: var(--zli-danger-hover); }
 .btn-ghost.is-danger { color: var(--zli-red); }
 .btn-ghost.is-danger:hover:not(:disabled) { background: var(--zli-red-soft); color: var(--zli-red); }
@@ -190,20 +190,39 @@ kbd {
 .segmented-item[aria-pressed="true"], .segmented-item[aria-selected="true"] { background: var(--zli-overlay); color: var(--zli-text); box-shadow: var(--zli-highlight), 0 1px 2px rgba(0, 0, 0, .35); }
 .segmented-item:focus-visible { outline-offset: -1px; }
 
+/* ---------- Range: a slider on a thin track ---------- */
+.range { width: 100%; height: 16px; margin: 0; background: transparent; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--zli-radius-pill); background: var(--zli-active); }
+.range::-webkit-slider-thumb {
+  width: 14px; height: 14px; margin-top: -5px; border: 2px solid var(--zli-text); border-radius: 50%;
+  background: var(--zli-accent); box-shadow: 0 1px 3px rgba(0, 0, 0, .4); appearance: none; -webkit-appearance: none;
+}
+.range:focus-visible { outline: none; }
+.range:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+
 /* ---------- Switch ---------- */
 .switch-row { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-4); min-height: 44px; padding: var(--zli-space-2) 0; cursor: pointer; }
 .switch-row.is-disabled { cursor: default; opacity: .55; }
 .switch-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .switch-label { color: var(--zli-text); font-size: var(--zli-text-base); }
 .switch-hint { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+/* A pill track with a round knob: grey when off, the accent when on. */
 .switch {
-  position: relative; flex: 0 0 28px; width: 28px; height: 16px; margin: 0; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-sm);
-  appearance: none; background: var(--zli-well); cursor: inherit;
-  transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease);
+  position: relative; flex: 0 0 32px; width: 32px; height: 18px; margin: 0; border: 0; border-radius: var(--zli-radius-pill);
+  appearance: none; background: var(--zli-pressed); box-shadow: inset 0 0 0 1px var(--zli-border-strong); cursor: inherit;
+  transition: background-color var(--zli-duration-base) var(--zli-ease), box-shadow var(--zli-duration-base) var(--zli-ease);
 }
-.switch::before { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 2px; background: var(--zli-dim); content: ""; transition: transform var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
-.switch:checked { border-color: transparent; background: var(--zli-text); }
-.switch:checked::before { transform: translateX(12px); background: var(--zli-canvas); }
+.switch::before {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--zli-muted);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3); content: "";
+  transition: transform var(--zli-duration-base) var(--zli-ease), background-color var(--zli-duration-base) var(--zli-ease);
+}
+.switch:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--zli-border-hover); }
+.switch:hover:not(:disabled)::before { background: var(--zli-text); }
+.switch:checked { background: var(--zli-accent); box-shadow: none; }
+.switch:checked::before { transform: translateX(14px); background: var(--zli-accent-ink); }
+.switch:checked:hover:not(:disabled) { background: var(--zli-accent-hover); box-shadow: none; }
+.switch:checked:hover:not(:disabled)::before { background: var(--zli-accent-ink); }
 .switch:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 
 /* ---------- Tooltip ---------- */

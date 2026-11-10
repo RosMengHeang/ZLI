@@ -75,7 +75,8 @@ export function screenBackground(terminal: Terminal, theme: ITheme): string | un
 export function extendScreenBackground(terminal: Terminal, host: HTMLElement, theme: ITheme): { dispose(): void } {
   let current = "";
   const update = () => {
-    const color = screenBackground(terminal, theme) ?? "";
+    // The theme can change while the terminal is open, so read the one it draws with now.
+    const color = screenBackground(terminal, terminal.options?.theme ?? theme) ?? "";
     if (color === current) return;
     current = color;
     host.style.backgroundColor = color;
