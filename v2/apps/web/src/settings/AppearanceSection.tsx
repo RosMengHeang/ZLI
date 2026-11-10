@@ -8,7 +8,7 @@ import {
   resolveTheme,
   themeChoices,
 } from "../theme/customThemes.js";
-import { openThemeEditor } from "../theme/themeEditorStore.js";
+import { openThemeEditor, THEME_LIMIT_MESSAGE } from "../theme/themeEditorStore.js";
 import { Button } from "../ui/Button.js";
 import { MenuButton } from "../ui/Menu.js";
 import { updateAppSettings, useAppSettings } from "./appSettings.js";
@@ -53,10 +53,13 @@ function ThemeTile({
   name,
   checked,
   custom,
+  atLimit = false,
 }: {
   theme: Theme;
   name: string;
   checked: boolean;
+  /** No room for another theme, so Duplicate is off. */
+  atLimit?: boolean;
   /** Present for a theme the person made, which gets its own menu. */
   custom?: CustomTheme | undefined;
 }) {
@@ -77,6 +80,8 @@ function ThemeTile({
             {
               label: "Duplicate",
               icon: "copy",
+              disabled: atLimit,
+              title: atLimit ? THEME_LIMIT_MESSAGE : undefined,
               run: () => openThemeEditor(customThemeFrom(theme, `${theme.name} copy`, custom), true),
             },
             { separator: true },
@@ -139,9 +144,7 @@ export function AppearanceSection() {
             size="sm"
             variant="ghost"
             disabled={atLimit}
-            tooltip={
-              atLimit ? `You can keep up to ${MAX_CUSTOM_THEMES} themes. Delete one to make another.` : undefined
-            }
+            tooltip={atLimit ? THEME_LIMIT_MESSAGE : undefined}
             onClick={create}
           >
             Create theme
@@ -156,6 +159,7 @@ export function AppearanceSection() {
                 name={name}
                 checked={current.id === theme.id}
                 custom={settings.customThemes.find((entry) => entry.id === theme.id)}
+                atLimit={atLimit}
               />
             ))}
           </div>

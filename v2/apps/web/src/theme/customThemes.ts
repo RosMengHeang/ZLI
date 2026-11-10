@@ -153,9 +153,24 @@ export function parseCustomThemes(value: unknown): CustomTheme[] {
   return themes;
 }
 
-/** The derived colors with the person's own picks laid over them. */
+/**
+ * The derived colors with the person's own picks laid over them. Colors drawn from a picked one, such as
+ * the danger button from Failed, follow the pick, so changing a color changes everything Inspect shows it on.
+ */
 export function customBase(theme: CustomTheme): ThemeBase {
-  return { ...deriveBase(theme.seed, THEMES[theme.basedOn].base), ...theme.overrides };
+  const base: ThemeBase = { ...deriveBase(theme.seed, THEMES[theme.basedOn].base), ...theme.overrides };
+  const { overrides } = theme;
+  const dark = base.scheme === "dark";
+  const ink = (color: string) => (dark ? mixHex(color, "#ffffff", 0.6) : mixHex(color, "#000000", 0.55));
+  if (overrides.green) base.greenInk = ink(base.green);
+  if (overrides.amber) base.amberInk = ink(base.amber);
+  if (overrides.red) {
+    base.redInk = ink(base.red);
+    base.danger = mixHex(base.red, "#000000", 0.2);
+    base.dangerHover = mixHex(base.danger, dark ? "#ffffff" : "#000000", 0.1);
+  }
+  if (overrides.dim) base.disabled = mixHex(base.dim, base.canvas, 0.4);
+  return base;
 }
 
 export function buildCustomTheme(theme: CustomTheme): Theme {
@@ -186,25 +201,27 @@ export function themeChoices(customThemes: readonly CustomTheme[]): Theme[] {
 }
 
 /** Text and surface pairs a theme must keep readable, for the editor's warning. */
+const TEXT_FIELDS = ["text", "muted", "dim"] as const satisfies readonly EditableField[];
+const SURFACE_FIELDS = [
+  "canvas",
+  "sidebar",
+  "surface",
+  "raised",
+  "overlay",
+] as const satisfies readonly EditableField[];
 const READABLE_PAIRS: readonly [EditableField, EditableField][] = [
-  ["text", "canvas"],
-  ["text", "surface"],
-  ["text", "overlay"],
-  ["muted", "surface"],
-  ["muted", "overlay"],
-  ["dim", "surface"],
-  ["dim", "overlay"],
+  ...TEXT_FIELDS.flatMap((text) => SURFACE_FIELDS.map((surface): [EditableField, EditableField] => [text, surface])),
   ["accentInk", "accent"],
 ];
 
 export type ReadabilityProblem = { text: EditableField; surface: EditableField; ratio: number };
 
-/** Pairs below the WCAG AA ratio of 4.5:1 for body text. */
+/** Pairs below the WCAG AA ratio of 4.5:1 for body text, the hardest to read first. */
 export function readabilityProblems(base: ThemeBase): ReadabilityProblem[] {
   return READABLE_PAIRS.flatMap(([text, surface]) => {
     const ratio = contrastRatio(base[text], base[surface]);
     return ratio < 4.5 ? [{ text, surface, ratio }] : [];
-  });
+  }).sort((a, b) => a.ratio - b.ratio);
 }
 
 /** The editable color each token is drawn from, so a picked element leads back to what to change. */

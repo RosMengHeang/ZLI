@@ -293,9 +293,10 @@ function EditorBody({
           <div className="theme-readability" role="status">
             <Icon name="alert" size={13} />
             <ul>
-              {problems.map((problem) => (
+              {problems.slice(0, 1).map((problem) => (
                 <li key={`${problem.text}-${problem.surface}`}>
                   {FIELD_LABELS[problem.text]} on {FIELD_LABELS[problem.surface].toLowerCase()} is hard to read
+                  {problems.length > 1 ? `, and ${problems.length - 1} more` : ""}
                 </li>
               ))}
             </ul>
@@ -303,7 +304,11 @@ function EditorBody({
         ) : null}
       </div>
       <footer className="theme-editor-footer">
-        {problems.length === 0 ? (
+        {session.error ? (
+          <span className="theme-footer-error" role="alert">
+            {session.error}
+          </span>
+        ) : problems.length === 0 ? (
           <span className="theme-footer-status" role="status">
             <Icon name="check" size={12} />
             Easy to read

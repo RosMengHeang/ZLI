@@ -4,20 +4,26 @@ import { contrastRatio, deriveBase, isLightColor, mixHex, THEMES } from "@zli-v2
 import { afterEach, describe, expect, it } from "vitest";
 
 import { readAppSettings, updateAppSettings } from "../settings/appSettings.js";
-import { activeTheme } from "./applyTheme.js";
+import { activeTheme, applyTheme } from "./applyTheme.js";
 import {
   buildCustomTheme,
   type CustomTheme,
+  customBase,
   customThemeFrom,
+  type EditableField,
+  MAX_CUSTOM_THEMES,
   parseCustomThemes,
   readabilityProblems,
   resolveTheme,
+  seedFor,
+  TOKEN_FIELDS,
 } from "./customThemes.js";
 import {
   closeThemeEditor,
   openThemeEditor,
   readThemeEditor,
   saveThemeEditor,
+  THEME_LIMIT_MESSAGE,
   updateThemeDraft,
 } from "./themeEditorStore.js";
 
@@ -122,5 +128,60 @@ describe("themes people make", () => {
     closeThemeEditor();
     expect(activeTheme().id).toBe("midnight");
     expect(readAppSettings().customThemes).toEqual([]);
+  });
+
+  it("keeps the editor and its draft open when a new theme would go over the limit", () => {
+    const full = Array.from({ length: MAX_CUSTOM_THEMES }, (_, index) => ({
+      ...rose,
+      id: `custom-full${index.toString().padStart(2, "0")}`,
+    }));
+    updateAppSettings((current) => ({ ...current, theme: "frost", customThemes: full }));
+    const copy = customThemeFrom(THEMES.sakura, "Rose copy", rose);
+    openThemeEditor(copy, true);
+    updateThemeDraft((draft) => ({ ...draft, seed: { ...draft.seed, accent: "#c58fe0" } }));
+
+    saveThemeEditor();
+    expect(readThemeEditor()?.error).toBe(THEME_LIMIT_MESSAGE);
+    expect(readThemeEditor()?.draft).toEqual({ ...copy, seed: { ...copy.seed, accent: "#c58fe0" } });
+    expect(readAppSettings().customThemes.map((theme) => theme.id)).toEqual(full.map((theme) => theme.id));
+    expect(readAppSettings().theme).toBe("frost");
+
+    // Editing a theme that is already saved still works at the limit.
+    openThemeEditor({ ...(full[0] as CustomTheme), name: "Renamed" }, false);
+    saveThemeEditor();
+    expect(readThemeEditor()).toBeUndefined();
+    expect(readAppSettings().customThemes[0]?.name).toBe("Renamed");
+  });
+
+  it.each(Object.entries(TOKEN_FIELDS))("changes %s when Inspect's %s color is edited", (token, field) => {
+    const start = customThemeFrom(THEMES.midnight, "Test");
+    const edit = (theme: CustomTheme, value: EditableField, hex: string): CustomTheme => {
+      const seed = seedFor(value);
+      return seed
+        ? { ...theme, seed: { ...theme.seed, [seed]: hex } }
+        : { ...theme, overrides: { ...theme.overrides, [value]: hex } };
+    };
+    const root = document.createElement("div");
+    applyTheme(buildCustomTheme(start), root);
+    const before = root.style.getPropertyValue(token);
+    applyTheme(buildCustomTheme(edit(start, field, "#3d8c5a")), root);
+    expect(root.style.getPropertyValue(token)).not.toBe(before);
+  });
+
+  it("flags light text on a white sidebar", () => {
+    const theme = { ...customThemeFrom(THEMES.midnight, "My Midnight"), overrides: { sidebar: "#ffffff" } };
+    const problems = readabilityProblems(customBase(theme));
+    expect(problems.length).toBeGreaterThan(0);
+    expect(problems.every((problem) => problem.surface === "sidebar")).toBe(true);
+    // The hardest pair to read comes first.
+    expect(problems[0]?.text).toBe("text");
+  });
+
+  it("checks secondary text and hints on the window and secondary buttons", () => {
+    const base = customBase(customThemeFrom(THEMES.midnight, "My Midnight"));
+    expect(readabilityProblems({ ...base, raised: base.muted })[0]).toMatchObject({ text: "muted", surface: "raised" });
+    const onDimWindow = readabilityProblems({ ...base, canvas: base.dim });
+    expect(onDimWindow.map((problem) => problem.text)).toContain("dim");
+    expect(onDimWindow.every((problem) => problem.surface === "canvas")).toBe(true);
   });
 });
