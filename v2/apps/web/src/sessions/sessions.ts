@@ -12,6 +12,7 @@ import {
 import { providerDisplayName } from "../agent/providers.js";
 import { shallowArrayEqual } from "../runtime/runtimeStore.js";
 import type { RunStart } from "./bestOf.js";
+import { customChatTitle } from "./chatTitles.js";
 import type { FirstMessageFile } from "./handoff.js";
 
 export type SessionMode = "terminal" | "chat";
@@ -341,6 +342,9 @@ export function sessionTitle(
   messages: readonly ThreadMessageProjection[] | undefined,
   providers: RuntimeProjection["providers"],
 ): string {
+  // A title the person gave the chat wins over the one its first message gives it.
+  const custom = session.thread ? customChatTitle(session.thread.sessionId ?? session.thread.threadId) : undefined;
+  if (custom) return custom;
   // A chat that moved to another agent keeps the name its first message gave it.
   const chain = session.thread
     ? new Set(conversationThreads(session.thread, session.threads).map((t) => t.threadId))

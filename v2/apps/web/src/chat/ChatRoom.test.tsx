@@ -174,7 +174,10 @@ describe("ChatView with more than one agent", () => {
       node.textContent?.includes("Codex"),
     );
     await act(async () => (item as HTMLElement | undefined)?.click());
-    expect(onBringIn).toHaveBeenCalledWith({ provider: "codex", name: "Owl" });
-    expect(container.querySelector("textarea")?.value).toBe("@Owl ");
+    // The guest takes an animal nobody in the chat wears yet, and is named after it.
+    const [request] = onBringIn.mock.calls[0] as unknown as [{ provider: string; name: string }];
+    expect(request.provider).toBe("codex");
+    expect(["Fox", "Owl", "Otter", "Cat", "Panda", "Penguin", "Bear", "Rabbit"]).toContain(request.name);
+    expect(container.querySelector("textarea")?.value).toBe(`@${request.name} `);
   });
 });

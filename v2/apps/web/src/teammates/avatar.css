@@ -1,56 +1,35 @@
 /*
- * Animal avatars. Motion says what the agent is doing and stops when it stops: a gentle bob while a step
- * runs, eyes up while it thinks, a raised paw when it needs the person, one nod when a turn ends.
+ * Animal avatars: one bold shape, two eyes. The eyes say the mood; motion only runs while the agent does
+ * something: a soft squish while a step runs, a sway while it thinks, one hop when it needs the person or
+ * finishes. Resting avatars hold still, and blink once when pointed at.
  */
-.animal-avatar {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--zli-raised) 70%, transparent);
-  box-shadow: inset 0 0 0 1px var(--zli-border);
-  --paw: #9b7350;
-}
+.animal-avatar { position: relative; display: inline-grid; place-items: center; flex: none; }
 .animal-avatar-art { display: block; overflow: visible; }
-.animal-avatar-body,
-.animal-avatar-eyes,
-.animal-avatar-paw { transform-box: fill-box; transform-origin: 50% 100%; transition: transform 240ms ease, opacity 240ms ease; }
-.animal-avatar-eyes { transform-origin: 50% 50%; }
-.animal-avatar-paw { fill: var(--paw); opacity: 0; transform: translateY(5px); }
+.animal-avatar-body { transform-box: fill-box; transform-origin: 50% 100%; }
+.animal-avatar-eyes { transform-box: fill-box; transform-origin: 50% 50%; }
 
-.animal-avatar.is-fox { --paw: #e8843f; }
-.animal-avatar.is-owl { --paw: #9b7350; }
-.animal-avatar.is-otter { --paw: #77706a; }
-.animal-avatar.is-cat { --paw: #a2a9b3; }
-.animal-avatar.is-panda { --paw: #26262b; }
-.animal-avatar.is-penguin { --paw: #2f3542; }
-.animal-avatar.is-bear { --paw: #9e6640; }
-.animal-avatar.is-rabbit { --paw: #e3ded5; }
-
-/* Working: a small steady bob, for as long as a step runs. */
-.animal-avatar.is-working .animal-avatar-body { animation: animal-bob 1.1s ease-in-out infinite; }
-/* Thinking: eyes look up and the head tips; it holds still. */
-.animal-avatar.is-thinking .animal-avatar-eyes { transform: translateY(-1.4px); }
-.animal-avatar.is-thinking .animal-avatar-body { transform: rotate(-6deg); }
-/* Needs you: the paw goes up and a mark appears once. */
-.animal-avatar.is-waiting .animal-avatar-paw { opacity: 1; transform: translateY(-4px) rotate(-14deg); }
-.animal-avatar.is-waiting { box-shadow: inset 0 0 0 1.5px var(--zli-amber); }
-/* Done: one nod. */
-.animal-avatar.is-done .animal-avatar-body { animation: animal-nod 700ms ease-in-out 1; }
-.animal-avatar.is-failed .animal-avatar-art,
-.animal-avatar.is-stopped .animal-avatar-art { filter: grayscale(1); opacity: 0.55; }
-.animal-avatar.is-failed { box-shadow: inset 0 0 0 1.5px var(--zli-danger); }
+/* Working: a squish and stretch, for as long as a step runs. */
+.animal-avatar.is-working .animal-avatar-body { animation: animal-squish 900ms cubic-bezier(.45, 0, .55, 1) infinite; }
+/* Thinking: a slow side to side, eyes up. */
+.animal-avatar.is-thinking .animal-avatar-body { animation: animal-sway 2.4s ease-in-out infinite; }
+/* Needs you and done: one hop. */
+.animal-avatar.is-waiting .animal-avatar-body,
+.animal-avatar.is-done .animal-avatar-body { animation: animal-hop 520ms cubic-bezier(.3, 1.6, .5, 1) 1; }
+.animal-avatar.is-failed .animal-avatar-art { filter: grayscale(1); opacity: .5; }
+.animal-avatar.is-stopped .animal-avatar-art { opacity: .8; }
+/* Pointed at while resting: one blink. */
+.animal-avatar.is-idle:hover .animal-avatar-eyes,
+:is(.session-row, .shelf-row, .room-person-chip, .teammate-animal):hover .animal-avatar.is-idle .animal-avatar-eyes { animation: animal-blink 360ms ease-in-out 1; }
 
 .animal-avatar-flag {
   position: absolute;
-  top: -3px;
-  right: -3px;
-  width: 9px;
-  height: 9px;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--zli-amber);
-  box-shadow: 0 0 0 2px var(--zli-surface);
+  box-shadow: 0 0 0 2px var(--zli-sidebar, var(--zli-surface));
   animation: animal-pop 260ms ease-out;
 }
 .animal-avatar-mark {
@@ -65,22 +44,33 @@
   line-height: 0;
 }
 
-@keyframes animal-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1.6px); }
+@keyframes animal-squish {
+  0%, 100% { transform: scale(1, 1); }
+  30% { transform: scale(1.06, .92); }
+  60% { transform: scale(.96, 1.05) translateY(-1px); }
 }
-@keyframes animal-nod {
-  0%, 100% { transform: rotate(0); }
-  40% { transform: translateY(1px) rotate(4deg); }
+@keyframes animal-sway {
+  0%, 100% { transform: rotate(-5deg); }
+  50% { transform: rotate(5deg); }
+}
+@keyframes animal-hop {
+  0% { transform: translateY(0) scale(1, 1); }
+  35% { transform: translateY(-3px) scale(.95, 1.06); }
+  70% { transform: translateY(0) scale(1.05, .95); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes animal-blink {
+  0%, 100% { transform: scaleY(1); }
+  45%, 55% { transform: scaleY(.1); }
 }
 @keyframes animal-pop {
-  from { transform: scale(0.2); }
+  from { transform: scale(.2); }
   to { transform: scale(1); }
 }
 
 .animal-avatar.is-still *,
-.animal-avatar.is-still { animation: none !important; transition: none !important; }
+.animal-avatar.is-still { animation: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .animal-avatar *,
-  .animal-avatar { animation: none !important; transition: none !important; }
+  .animal-avatar { animation: none !important; }
 }

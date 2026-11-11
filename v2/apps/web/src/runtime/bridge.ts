@@ -124,6 +124,8 @@ export type ZliBridge = {
     getSettings(): Promise<NotificationSettings>;
     setSettings(patch: Partial<NotificationSettings>): Promise<NotificationSettings>;
     setViewing(sessionIds: readonly string[]): Promise<unknown>;
+    /** Each chat's animal as a PNG data URL, shown as the icon of that chat's notifications. */
+    setFaces?(faces: Readonly<Record<string, string>>): Promise<unknown>;
     onActivate(listener: (event: { sessionId: string }) => void): () => void;
     /** Fires when the person clicks an agent's request to connect a service. */
     onOpenConnector?(listener: (event: { connectorId: string }) => void): () => void;

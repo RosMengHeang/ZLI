@@ -53,6 +53,8 @@ export type NewAgentRequest = LaunchOptions & {
   prompt?: string;
   /** A chat that waits for its first message before its agent starts. */
   draft?: boolean;
+  /** The new session's id, when the caller keeps something for it, such as a branch's conversation. */
+  sessionId?: string;
 };
 
 /** Starting values when the agent is started from an issue. */

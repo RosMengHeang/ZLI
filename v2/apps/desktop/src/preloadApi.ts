@@ -421,6 +421,15 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
         ipc.invoke("zli:notifications:set-viewing", {
           sessionIds: sessionIds.filter((id) => typeof id === "string").slice(0, 200),
         }),
+      /** Each chat's animal as a PNG data URL, which its notifications show as their icon. */
+      setFaces: (faces: Readonly<Record<string, string>>) =>
+        ipc.invoke("zli:notifications:set-faces", {
+          faces: Object.fromEntries(
+            Object.entries(faces)
+              .filter(([id, icon]) => typeof icon === "string" && icon.startsWith("data:image/png;base64,") && id)
+              .slice(0, 200),
+          ),
+        }),
       /** Fires when the person clicks a notification, with the session to select. */
       onActivate: (listener: (event: { sessionId: string }) => void) =>
         ipc.on("zli:notifications:activate", (_event, value) => {

@@ -94,8 +94,11 @@ export class MockProviderAdapter implements ProviderAdapter {
         return;
       }
       // "[steps]" plays a short turn with text between reads, an edit, and a command, each running for a moment.
-      if (input.text.includes("[steps]")) {
-        this.playSteps(input.threadId, turnId, input.text.includes("[slow]") ? 1_500 : 150);
+      // "[plan]" adds the agent's todo list, updated as the steps finish.
+      // Read from the person's own words, the last paragraph: context put before them can quote earlier tags.
+      const own = input.text.split("\n\n").at(-1) ?? input.text;
+      if (own.includes("[steps]") || own.includes("[plan]")) {
+        this.playSteps(input.threadId, turnId, own.includes("[slow]") ? 1_500 : 150, own.includes("[plan]"));
         return;
       }
       // "[write notes.md]" writes that file in the worktree, standing in for an agent's edit.
@@ -242,7 +245,7 @@ export class MockProviderAdapter implements ProviderAdapter {
     }, 5);
   }
 
-  private playSteps(threadId: ThreadId, turnId: string, pause: number): void {
+  private playSteps(threadId: ThreadId, turnId: string, pause: number, withPlan = false): void {
     const activity = (
       activityId: string,
       status: "running" | "completed",
@@ -258,15 +261,34 @@ export class MockProviderAdapter implements ProviderAdapter {
     };
     const test = { kind: "command" as const, title: "Run the tests", command: "npm test" };
     const text = (value: string): ProviderEvent => ({ type: "assistant.delta", threadId, turnId, text: value });
+    const stepNames = ["Read the routes", "Find where empty input is skipped", "Fix the route", "Run the tests"];
+    const plan = (done: number): ProviderEvent[] =>
+      withPlan
+        ? [
+            activity("plan", "completed", {
+              kind: "tool",
+              title: `Plan: ${done} of ${stepNames.length} done`,
+              todos: stepNames.map((name, index) => ({
+                text: name,
+                status: index < done ? "completed" : index === done ? "in_progress" : "pending",
+              })),
+            }),
+          ]
+        : [];
     const script: ProviderEvent[][] = [
+      [...plan(0)],
       [text("I'll look at the routes first.")],
       [activity("read-1", "running", read("src/app.ts"))],
       [activity("read-1", "completed", read("src/app.ts")), activity("read-2", "running", read("src/routes.ts"))],
-      [activity("read-2", "completed", read("src/routes.ts")), activity("search-1", "running", search)],
-      [activity("search-1", "completed", search), text("\n\nFound it. The route skips empty input, so I'll fix that.")],
+      [activity("read-2", "completed", read("src/routes.ts")), ...plan(1), activity("search-1", "running", search)],
+      [
+        activity("search-1", "completed", search),
+        ...plan(2),
+        text("\n\nFound it. The route skips empty input, so I'll fix that."),
+      ],
       [activity("edit-1", "running", edit)],
-      [activity("edit-1", "completed", edit), activity("test-1", "running", test)],
-      [activity("test-1", "completed", { ...test, detail: "2 passed" })],
+      [activity("edit-1", "completed", edit), ...plan(3), activity("test-1", "running", test)],
+      [activity("test-1", "completed", { ...test, detail: "2 passed" }), ...plan(4)],
       [text("\n\nDone. The route now handles empty input and the tests pass.")],
       [{ type: "turn.completed", threadId, turnId, status: "completed" }],
     ];

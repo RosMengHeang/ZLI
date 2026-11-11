@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  openNewAgentOptions,
+} from "./desktop-fixtures.js";
 
 test("asks once before agents work in a project, and starts nothing until the answer is yes", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -13,7 +19,7 @@ test("asks once before agents work in a project, and starts nothing until the an
     const trust = page.getByRole("dialog", { name: "Let agents work in this project" });
     const composer = page.getByRole("textbox", { name: "Message Codex" });
     const startChat = async () => {
-      await page.locator(".sidebar-new-agent").click();
+      await openNewAgentOptions(page);
       const newAgent = page.getByRole("dialog", { name: "New agent" });
       await newAgent.getByText("Codex", { exact: true }).click();
       await newAgent.getByText("Chat", { exact: true }).click();

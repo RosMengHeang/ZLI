@@ -52,7 +52,7 @@ test("changes New agent defaults, branch names, and shortcuts from Settings", as
     await page.keyboard.press("Control+Shift+Y");
     await expect(page.getByRole("dialog", { name: "New agent" })).toHaveCount(0);
     await expect(page.getByRole("textbox", { name: /^Message / }).first()).toBeVisible();
-    await page.getByRole("button", { name: "Open command palette" }).click();
+    await page.keyboard.press("Control+K");
     await page.getByRole("textbox", { name: "Search commands" }).fill("New agent with options");
     await page.keyboard.press("Enter");
     const newAgent = page.getByRole("dialog", { name: "New agent" });
@@ -158,6 +158,17 @@ test("removes a project from Settings after asking, and leaves its folder on dis
     await page.keyboard.press("Escape");
     await expect(page.locator(".project-label")).toHaveCount(0);
     expect((await stat(join(repo, ".git"))).isDirectory()).toBe(true);
+
+    // With no project left, New chat still opens a chat; its folder tab adds the next project.
+    await page.locator(".sidebar-new-agent").click();
+    await expect(page.getByRole("textbox", { name: "Message the agent" })).toBeFocused();
+    // Sending before a folder is picked opens the folder menu instead of losing the message.
+    await page.getByRole("textbox", { name: "Message the agent" }).fill("Add a dark mode");
+    await page.keyboard.press("Enter");
+    const folders = page.getByRole("listbox", { name: "Choose a project" });
+    await expect(folders.getByRole("option", { name: /Open a folder/u })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Message the agent" })).toHaveValue("Add a dark mode");
+    if (process.env.ZLI_E2E_SHOT) await page.screenshot({ path: process.env.ZLI_E2E_SHOT });
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

@@ -5,6 +5,7 @@ import {
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openNewAgentOptions,
   sendChatMessage,
 } from "./desktop-fixtures.js";
 
@@ -17,7 +18,7 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
@@ -29,22 +30,23 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
     await page.getByRole("button", { name: "Bring in an agent" }).click();
     await page.getByRole("menuitem", { name: /Codex/u }).click();
     const composer = page.getByRole("textbox", { name: /^Message / });
-    await expect(composer).toHaveValue("@Fox ");
+    await expect(composer).toHaveValue(/^@[A-Z][a-z]+ $/u);
+    const guest = (await composer.inputValue()).slice(1).trim();
     const room = page.getByRole("region", { name: "Who is in this chat" });
-    await expect(room).toContainText("Fox");
+    await expect(room).toContainText(guest);
 
-    await composer.fill("@Fox review the login page");
+    await composer.fill(`@${guest} review the login page`);
     await composer.press("Enter");
-    await expect(page.locator(".room-speaker-name", { hasText: "Fox" })).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".room-speaker-name", { hasText: guest })).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".room-speaker-name").first()).toHaveText("Codex");
 
     // Typing @ offers the people in the chat.
-    await composer.fill("@F");
-    await expect(page.getByRole("listbox", { name: "Teammates" })).toContainText("Fox");
+    await composer.fill(`@${guest.slice(0, 1)}`);
+    await expect(page.getByRole("listbox", { name: "Teammates" })).toContainText(guest);
     await composer.press("Escape");
-    await composer.fill("Thanks, fix what Fox found");
+    await composer.fill("Thanks, fix what the guest found");
     await composer.press("Enter");
-    await expect(page.locator(".chat-message-user").last()).toContainText("Thanks, fix what Fox found");
+    await expect(page.locator(".chat-message-user").last()).toContainText("Thanks, fix what the guest found");
 
     if (process.env.ZLI_E2E_SHOT) await page.screenshot({ path: process.env.ZLI_E2E_SHOT });
 

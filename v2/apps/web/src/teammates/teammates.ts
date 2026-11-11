@@ -1,7 +1,7 @@
 import { agentNameKey, type ListedProviderKind, type PermissionMode } from "@zli-v2/contracts";
 
 /** The animals a teammate can wear. Each has its own colours, so two teammates side by side never look alike. */
-export const ANIMALS = ["fox", "owl", "otter", "cat", "panda", "penguin", "bear", "rabbit"] as const;
+export const ANIMALS = ["fox", "owl", "otter", "cat", "panda", "penguin", "bear", "rabbit", "frog", "chick"] as const;
 export type Animal = (typeof ANIMALS)[number];
 
 export const animalLabel: Record<Animal, string> = {
@@ -13,6 +13,8 @@ export const animalLabel: Record<Animal, string> = {
   penguin: "Penguin",
   bear: "Bear",
   rabbit: "Rabbit",
+  frog: "Frog",
+  chick: "Chick",
 };
 
 export function isAnimal(value: unknown): value is Animal {
@@ -110,13 +112,13 @@ export function teammateNamed(teammates: readonly Teammate[], name: string | und
  * animal, or the next free one when someone in the chat already has it.
  */
 export function roomAnimals(
-  members: readonly { id: string; provider: string; name?: string | undefined }[],
+  members: readonly { id: string; provider: string; name?: string | undefined; animal?: Animal | undefined }[],
   teammates: readonly Teammate[],
 ): Map<string, Animal> {
   const animals = new Map<string, Animal>();
   const taken = new Set<Animal>();
   for (const member of members) {
-    const own = teammateNamed(teammates, member.name)?.animal;
+    const own = teammateNamed(teammates, member.name)?.animal ?? member.animal;
     if (own) {
       animals.set(member.id, own);
       taken.add(own);

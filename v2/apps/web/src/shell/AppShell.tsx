@@ -19,11 +19,13 @@ import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "..
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import { type ChatBranch, saveChatBranch, takeChatBranch } from "../chat/branches.js";
 import type { GuestRequest, StartRunsRequest } from "../chat/ChatView.js";
 import { forkWorktree } from "../chat/checkpointClient.js";
 import { addCodeReference } from "../chat/codeReferences.js";
 import type { DraftChange, DraftMessage } from "../chat/DraftChat.js";
 import { textBase64 } from "../chat/pastedText.js";
+import { forgetSideChat, markSideChat, useSideChatIds } from "../chat/sideChats.js";
 import { devServerCommands } from "../devservers/DevServers.js";
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
@@ -46,7 +48,7 @@ import {
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import { PullRequestPane } from "../review/PullRequestPane.js";
-import { usePullRequestPolling } from "../review/pullRequestStore.js";
+import { usePullRequestEntries, usePullRequestPolling } from "../review/pullRequestStore.js";
 import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
 import type { SentNotice } from "../review/SendToAgentButton.js";
@@ -56,6 +58,7 @@ import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/Runt
 import { AgentTile } from "../sessions/AgentTile.js";
 import { keepRunCleanup, planRuns, type RunGroup, runPosition, withoutRun } from "../sessions/bestOf.js";
 import { CompareRunsDialog } from "../sessions/CompareRunsDialog.js";
+import { archiveChatOnce } from "../sessions/chatArchive.js";
 import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
 import type { HandoffRequest } from "../sessions/HandoffDialog.js";
 import { canHandOff, inlineFirstMessage, recentContextMessage } from "../sessions/handoff.js";
@@ -141,6 +144,7 @@ import {
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
+import { type ChatFolder, NoProjectChat } from "./NoProjectChat.js";
 import {
   DisconnectedState,
   GridEmptyState,
@@ -149,6 +153,7 @@ import {
   RuntimeLoadingState,
 } from "./ShellStates.js";
 import { type SidePane, sidePaneLabel, Topbar } from "./Topbar.js";
+
 import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
 import { WorktreeDialog } from "./WorktreeDialog.js";
 import "./AppShell.css";
@@ -267,9 +272,16 @@ function WorkspaceApp() {
   const { request: reachAsking, answer: answerReach } = useAgentReach(bridge);
   const reachRef = useRef(false);
 
+  // Side questions belong to the chat that asked them, so they are neither tiles nor sidebar rows.
+  const sideChatIds = useSideChatIds();
   const sessions = useMemo(
-    () => (projection ? deriveSessions(projection, workbench.pending, workbench.chats) : []),
-    [projection, workbench.pending, workbench.chats],
+    () =>
+      projection
+        ? deriveSessions(projection, workbench.pending, workbench.chats).filter(
+            (session) => !sideChatIds.has(session.sessionId),
+          )
+        : [],
+    [projection, workbench.pending, workbench.chats, sideChatIds],
   );
   /** Asks one tile to open its New chat menu, so the person picks blank or recent context each time. */
   const [newChatRequest, setNewChatRequest] = useState<{ sessionId: string; nonce: number }>();
@@ -284,6 +296,16 @@ function WorkspaceApp() {
   }, [projection?.worktrees, projection?.projects]);
   // Keeps the sidebar's pull request and CI badges current; checks still running are revisited sooner.
   usePullRequestPolling(dispatch, readyWorktreeIds);
+  // A chat whose pull request merged or closed is done; it moves to Archived, once, unless that is turned off.
+  const pullRequests = usePullRequestEntries();
+  useEffect(() => {
+    if (!settings.archiveMergedChats) return;
+    for (const session of sessions) {
+      if (session.mode !== "chat" || session.status === "working" || session.status === "waiting") continue;
+      const state = pullRequests.get(session.worktreeId)?.status?.pullRequest?.state;
+      if (state === "MERGED" || state === "CLOSED") archiveChatOnce(session.sessionId);
+    }
+  }, [settings.archiveMergedChats, sessions, pullRequests]);
   const tiles = useMemo(
     () => sessions.filter((session) => !workbench.closed.includes(session.sessionId)),
     [sessions, workbench.closed],
@@ -386,6 +408,10 @@ function WorkspaceApp() {
       const session = sessionsRef.current.find((candidate) => candidate.sessionId === sessionId);
       if (session) focusSession(session);
     },
+    useMemo(
+      () => sessions.filter((session) => session.mode === "chat").map((session) => session.sessionId),
+      [sessions],
+    ),
   );
 
   const updates = useUpdates(bridge);
@@ -541,6 +567,7 @@ function WorkspaceApp() {
   );
 
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
+  // The right-panel switch: closed, it opens on the picker; open, it closes whatever is showing.
   // Zoomed far in, the window is too narrow to keep the sidebar beside the work, so it starts hidden
   // there without changing the saved choice for wider windows.
   const narrow = useNarrowWindow();
@@ -1102,14 +1129,15 @@ function WorkspaceApp() {
       if ("error" in result) return result.error;
       worktreeId = result.worktreeId;
     } else if (request.placement.kind === "checkout") {
-      const result = await ensureCheckout(dispatch, projection, request.project);
+      // A project added a moment ago may not be in this render's projection yet.
+      const result = await ensureCheckout(dispatch, projectionRef.current ?? projection, request.project);
       if ("error" in result) return result.error;
       worktreeId = result.worktreeId;
     } else {
       worktreeId = request.placement.worktreeId;
     }
     const launch: PendingLaunch = {
-      sessionId: makeCommandId(),
+      sessionId: request.sessionId ?? makeCommandId(),
       worktreeId,
       provider: request.provider,
       mode: request.mode,
@@ -1146,12 +1174,40 @@ function WorkspaceApp() {
    * keeps the dialog, since a terminal agent cannot change once it starts, and so does a computer with
    * no agent installed, where the dialog says what is missing.
    */
+  // The agent a first chat starts with, before there is a project to read its defaults from.
+  const firstChatDefault = projection
+    ? defaultAgent(projection.providers ?? [], settings.defaults.provider)
+    : undefined;
+  const firstChatAgent = firstChatDefault
+    ? {
+        provider: firstChatDefault.provider,
+        name: providerDisplayName(firstChatDefault.provider, projection?.providers),
+      }
+    : undefined;
+
   const openNewAgent = (project?: ProjectProjection) => {
-    if (!hasProjects || !projection) return;
-    const target = project ?? selectedProject ?? contextProject ?? projection.projects[0];
+    if (!projection) return;
+    // With no project yet, a chat still opens: its folder tab adds the first project.
+    if (!hasProjects) {
+      setPaletteOpen(false);
+      updateWorkbench((state) => ({ ...state, activeSessionId: undefined, maximizedSessionId: undefined }));
+      if (!chatOnly && workStyleOf(settings.defaults) === "terminal") void openProject();
+      // The first chat is already on screen; New chat puts the cursor in it.
+      requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(".no-project-chat textarea")?.focus());
+      return;
+    }
+    // A new chat opens in the project the person chose, or else the one they worked in last.
+    const recent = [...sessionsRef.current]
+      .sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""))
+      .map((session) => projection.worktrees.find((worktree) => worktree.worktreeId === session.worktreeId)?.projectId)
+      .find((projectId) => projectId !== undefined);
+    const recentProject = projection.projects.find((candidate) => candidate.projectId === recent);
+    const target = project ?? selectedProject ?? recentProject ?? contextProject ?? projection.projects[0];
     const defaults = resolveLaunchDefaults(readAppSettings(), target?.projectId);
     const agent = defaultAgent(projection.providers ?? [], defaults.provider);
-    if (!target || defaults.mode !== "chat" || !agent) {
+    // New chat is a chat. Only someone who chose Terminal in Settings, or has no agent installed yet, gets the
+    // dialog; the dialog with every option is also in the palette as New agent with options.
+    if (!target || defaults.mode === "terminal" || !agent) {
       openNewAgentDialog(project);
       return;
     }
@@ -1169,6 +1225,62 @@ function WorkspaceApp() {
     }).then((failure) => {
       if (failure) showError(failure);
     });
+  };
+
+  /** The system folder picker, for the first chat's folder tab. */
+  const pickChatFolder = async (): Promise<ChatFolder | undefined> => {
+    if (!bridge) {
+      showError("The desktop bridge is unavailable. Start ZLI from Electron.");
+      return undefined;
+    }
+    const path = await bridge.dialog.openProject();
+    if (!path) return undefined;
+    return { path, name: path.split(/[/]/u).filter(Boolean).at(-1) ?? path };
+  };
+
+  /** "Open a folder…" in a chat's project menu: adds the folder as a project, so the chat can move there. */
+  const addChatFolder = async (): Promise<string | undefined> => {
+    const folder = await pickChatFolder();
+    if (!folder) return undefined;
+    const added = await registerProjectPath(folder.path);
+    if ("error" in added) {
+      if (!added.late) showError(added.error);
+      return undefined;
+    }
+    return added.project.projectId;
+  };
+
+  /** The first chat, before any project: adds its folder as a project and starts the chat there. */
+  const startFirstChat = async (folder: ChatFolder, firstMessage: string): Promise<boolean> => {
+    const added = await registerProjectPath(folder.path);
+    if ("error" in added) {
+      if (!added.late) showError(added.error);
+      return false;
+    }
+    const current = projectionRef.current;
+    const defaults = resolveLaunchDefaults(readAppSettings(), added.project.projectId);
+    const agent = current ? defaultAgent(current.providers ?? [], defaults.provider) : undefined;
+    if (!agent) {
+      showAddedProject(added.project, { startAgent: true, existing: added.existing });
+      return true;
+    }
+    const accountId = launchAccountId(accounts, agent.provider, undefined);
+    const failure = await submitNewAgent({
+      project: added.project,
+      placement: { kind: "checkout" },
+      provider: agent.provider,
+      mode: "chat",
+      permissionMode: defaults.permissionMode ?? "supervised",
+      ...(defaults.provider === agent.provider && defaults.model ? { model: defaults.model } : {}),
+      ...(accountId ? { accountId } : {}),
+      ...(firstMessage ? { prompt: firstMessage } : { draft: true }),
+    });
+    if (failure) {
+      showError(failure);
+      return false;
+    }
+    setSelectedProjectId(added.project.projectId);
+    return true;
   };
 
   const submitHandoff = async (from: AgentSession, request: HandoffRequest): Promise<string | undefined> => {
@@ -1663,6 +1775,112 @@ function WorkspaceApp() {
     return { threadId };
   };
 
+  /** A new chat in the same folder that carries this conversation up to the reply it branched at. */
+  const branchChat = (session: AgentSession, branch: ChatBranch) => {
+    const worktree = findWorktree(session.worktreeId);
+    const project = projection?.projects.find((candidate) => candidate.projectId === worktree?.projectId);
+    if (!worktree || !project || !isSelectableProvider(session.provider)) return;
+    const sessionId = makeCommandId();
+    saveChatBranch(sessionId, branch);
+    const accountId = launchAccountId(accounts, session.provider, undefined);
+    void submitNewAgent({
+      project,
+      draft: true,
+      sessionId,
+      placement: { kind: "existing", worktreeId: worktree.worktreeId },
+      provider: session.provider,
+      mode: "chat",
+      permissionMode: session.thread?.permissionMode ?? "supervised",
+      ...(session.thread?.model ? { model: session.thread.model } : {}),
+      ...(accountId ? { accountId } : {}),
+    }).then((failure) => {
+      if (failure) showError(failure);
+    });
+  };
+
+  /** A follow-up the agent suggested, started as its own chat in the same project with the task typed. */
+  const newChatWithPrompt = (session: AgentSession, text: string) => {
+    const worktree = findWorktree(session.worktreeId);
+    const project = projection?.projects.find((candidate) => candidate.projectId === worktree?.projectId);
+    if (!project || !isSelectableProvider(session.provider)) return;
+    const accountId = launchAccountId(accounts, session.provider, undefined);
+    const defaults = resolveLaunchDefaults(readAppSettings(), project.projectId);
+    void submitNewAgent({
+      project,
+      prompt: text,
+      placement: { kind: "checkout" },
+      provider: session.provider,
+      mode: "chat",
+      permissionMode: defaults.permissionMode ?? session.thread?.permissionMode ?? "supervised",
+      ...(accountId ? { accountId } : {}),
+    }).then((failure) => {
+      if (failure) showError(failure);
+    });
+  };
+
+  /**
+   * A side question: a short read-only chat in the same folder that reads the conversation it is asked about.
+   * It stays off the board and the sidebar; the chat that asked shows it in its side panel.
+   */
+  const askAside = async (
+    session: AgentSession,
+    question: string,
+    context: string | undefined,
+  ): Promise<{ threadId: string } | { error: string }> => {
+    const current = projectionRef.current;
+    const worktree = findWorktree(session.worktreeId);
+    if (!current || !worktree || worktree.status !== "ready")
+      return { error: "The folder for this chat is not ready." };
+    if (!isSelectableProvider(session.provider)) return { error: "This agent cannot answer side questions." };
+    const sessionId = makeCommandId();
+    const threadId = makeCommandId();
+    markSideChat(sessionId);
+    const accountId = launchAccountId(accounts, session.provider, undefined);
+    const failure = await startSessionAgent(dispatch, current, {
+      provider: session.provider,
+      mode: "chat",
+      permissionMode: "read-only",
+      ...(session.thread?.model ? { model: session.thread.model } : {}),
+      ...(accountId ? { accountId } : {}),
+      sessionId,
+      threadId,
+      worktreeId: worktree.worktreeId,
+      cwd: worktree.path,
+    });
+    if (failure) {
+      forgetSideChat(sessionId);
+      return { error: failure };
+    }
+    const response = await dispatch({
+      protocolVersion: 1,
+      commandId: makeCommandId(),
+      command: {
+        type: "thread.queue",
+        queueId: makeCommandId(),
+        threadId,
+        text: question,
+        ...(context ? { context } : {}),
+      },
+    });
+    if (response?.accepted === false) return { error: response.error.message };
+    return { threadId };
+  };
+
+  /** Ends a side question: its agent stops and its chat is deleted. */
+  const closeAside = (threadId: string) => {
+    const thread = projectionRef.current?.threads.find((candidate) => candidate.threadId === threadId);
+    const sessionId = thread?.sessionId;
+    void (async () => {
+      if (thread && thread.status !== "stopped" && thread.status !== "failed") {
+        await send({ type: "thread.stop", threadId });
+      }
+      if (sessionId) {
+        await send({ type: "session.delete", sessionId });
+        forgetSideChat(sessionId);
+      }
+    })();
+  };
+
   /** Shows the tile of the agent with this thread or terminal id. */
   const openAgent = (agentId: string) => {
     const session = sessionsRef.current.find(
@@ -1803,6 +2021,8 @@ function WorkspaceApp() {
       return failure;
     }
     updateDraft(launch.sessionId, ({ draft: _draft, ...rest }) => ({ ...rest, started: true }));
+    // A branched chat's first message takes the conversation it branched from along.
+    const branch = takeChatBranch(launch.sessionId);
     try {
       const response = await dispatch({
         protocolVersion: 1,
@@ -1815,6 +2035,7 @@ function WorkspaceApp() {
           ...(launch.model ? { model: launch.model } : {}),
           ...(message.reasoningEffort ? { reasoningEffort: message.reasoningEffort } : {}),
           ...(message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+          ...(branch ? { context: branch.context } : {}),
         },
       });
       return response?.accepted === false ? response.error.message : undefined;
@@ -2347,6 +2568,7 @@ function WorkspaceApp() {
               updateWorkbench((state) => ({ ...state, activeSessionId: latest?.sessionId }));
             }}
             onNewAgent={openNewAgent}
+            onNewAgentOptions={openNewAgentDialog}
             onOpenProject={() => void openProject()}
             onCreateWorktree={(project) =>
               setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])
@@ -2433,7 +2655,17 @@ function WorkspaceApp() {
             <div className="workspace-body" ref={workspaceBodyRef}>
               <div className="workbench-column">
                 <section className="agent-grid-region" aria-label="Agents" ref={gridRegionRef}>
-                  {visibleTiles.length === 0 ? (
+                  {visibleTiles.length === 0 &&
+                  projection.projects.length === 0 &&
+                  workStyleOf(settings.defaults) !== "terminal" ? (
+                    // In chat, the first screen is already a chat: its folder tab adds the first project.
+                    <NoProjectChat
+                      agent={firstChatAgent}
+                      onPickFolder={pickChatFolder}
+                      onStart={startFirstChat}
+                      onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
+                    />
+                  ) : visibleTiles.length === 0 ? (
                     <GridEmptyState
                       projection={projection}
                       project={emptySelectedProject}
@@ -2509,6 +2741,7 @@ function WorkspaceApp() {
                             }
                             onDraftChange={(change) => changeDraft(session.sessionId, change)}
                             onDraftMove={(place) => moveDraft(session.sessionId, place)}
+                            onAddFolder={bridge ? addChatFolder : undefined}
                             onDraftSend={(message) => sendDraft(session, message)}
                             onMoveChat={
                               newChatTarget(session) && !sessionHasMessages(session, projection.messages)
@@ -2534,6 +2767,10 @@ function WorkspaceApp() {
                             onBringIn={session.thread ? (request) => bringIntoChat(session, request) : undefined}
                             onOpenAgent={openAgent}
                             onManageTeammates={() => setSettingsSection("teammates")}
+                            onBranch={(branch) => branchChat(session, branch)}
+                            onNewChatWithPrompt={(text) => newChatWithPrompt(session, text)}
+                            onAskAside={(question, context) => askAside(session, question, context)}
+                            onCloseAside={closeAside}
                           />
                         ))}
                       </div>

@@ -3,7 +3,13 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  openNewAgentOptions,
+} from "./desktop-fixtures.js";
 
 test("inserts shared and personal prompts with / in the composer", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -23,7 +29,7 @@ test("inserts shared and personal prompts with / in the composer", async () => {
     await page.reload();
     await expect(page.locator(".project-label")).toContainText("repo", { timeout: 20_000 });
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
@@ -39,7 +45,9 @@ test("inserts shared and personal prompts with / in the composer", async () => {
     await expect(composer).toHaveValue("inspect workspace");
     await expect(options).toHaveCount(0);
     await composer.press("Enter");
-    await expect(page.getByText("Mock response: inspect workspace")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".chat-log").getByText("Mock response: inspect workspace")).toBeVisible({
+      timeout: 30_000,
+    });
 
     await composer.fill("review the diff for typos");
     await page.getByRole("button", { name: "Add files and more", exact: true }).click();
@@ -62,7 +70,9 @@ test("inserts shared and personal prompts with / in the composer", async () => {
     await composer.press("Enter");
     await expect(composer).toHaveValue("review the diff for typos");
     await composer.press("Enter");
-    await expect(page.getByText("Mock response: review the diff for typos")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".chat-log").getByText("Mock response: review the diff for typos")).toBeVisible({
+      timeout: 20_000,
+    });
 
     // Personal prompts live on this computer and survive a reload.
     await page.reload();

@@ -9,7 +9,7 @@ import type { NotificationSettings } from "./notificationSettings.js";
 
 /** The Electron calls the notifier makes, injected so the decisions can be tested without a window. */
 export type NotifierHost = {
-  show(notification: { title: string; body: string; silent: boolean }, onClick: () => void): void;
+  show(notification: { title: string; body: string; silent: boolean; sessionId?: string }, onClick: () => void): void;
   setBadgeCount(count: number): void;
   /** Draws attention to the window in the taskbar or dock until it is focused. */
   flashFrame(flash: boolean): void;
@@ -54,8 +54,9 @@ export class AgentNotifier {
       if (this.notified.has(alert.key)) continue;
       this.remember(alert.key);
       if (focused && this.viewing.has(alert.sessionId)) continue;
-      this.host.show({ title: alert.title, body: alert.body, silent: !settings.sound }, () =>
-        this.host.activate(alert.sessionId),
+      this.host.show(
+        { title: alert.title, body: alert.body, silent: !settings.sound, sessionId: alert.sessionId },
+        () => this.host.activate(alert.sessionId),
       );
       if (!focused && (alert.kind === "approval" || alert.kind === "user-input")) flash = true;
     }

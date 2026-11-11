@@ -98,16 +98,17 @@ export async function clickProjectAction(row: Locator, button: Locator): Promise
 export async function openCreateWorktree(page: Page): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Create worktree" });
   const row = page.locator(".project-label").first();
-  // Scope to the row. The dialog has another Create worktree button, and a page-wide role query
-  // cannot see this one while it is display:none.
-  const button = row.getByRole("button", { name: "Create worktree", exact: true });
+  // New worktree sits in the project's menu, so the row keeps only New chat and the menu on hover.
+  const menu = row.getByRole("button", { name: / actions$/u });
+  const item = page.getByRole("menuitem", { name: "New worktree" });
   // The scrim covers the sidebar button. A click that already opened the dialog is still reported
   // as a miss, and every retry then times out on that same scrim.
   await expect(async () => {
     if (await dialog.isVisible()) return;
     await revealProjectActions(row);
     try {
-      await button.click({ timeout: 2_000 });
+      if (!(await item.isVisible())) await menu.click({ timeout: 2_000 });
+      await item.click({ timeout: 2_000 });
     } catch (error) {
       if (await dialog.isVisible()) return;
       throw error;
@@ -470,4 +471,18 @@ export async function togglePanel(page: Page, name: string): Promise<void> {
     .filter({ hasText: new RegExp(`^${name}`, "u") })
     .first()
     .click();
+}
+
+/**
+ * Opens the New agent dialog with every option. New chat opens a chat at once, so tests that pick an agent,
+ * a view, or a worktree reach the dialog the way a person does: New agent with options in the palette.
+ */
+export async function openNewAgentOptions(page: Page): Promise<void> {
+  // A focused terminal keeps Ctrl+K for itself, and the palette hands focus back to what had it when it closes,
+  // which would pull the cursor away from the agent this opens. Start from nothing focused, as after a click.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("Control+K");
+  await page.getByRole("textbox", { name: "Search commands" }).fill("New agent with options");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "New agent" })).toBeVisible();
 }

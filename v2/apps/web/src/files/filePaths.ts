@@ -3,10 +3,11 @@ export type FileReference = { start: number; end: number; location: FileLocation
 
 const TRAILING_PUNCTUATION = /[.,;:!?'")\]}>]+$/u;
 const LEADING_PUNCTUATION = /^['"(<[{]+/u;
-const LOCATION_SUFFIX = /(?::(\d+)(?::(\d+))?|\((\d+)(?:,\s?(\d+))?\)|#L(\d+)(?:C(\d+))?(?:-L?\d+)?)$/u;
+// A range such as :20-40 opens at its first line.
+const LOCATION_SUFFIX = /(?::(\d+)(?::(\d+)|[-–]\d+)?|\((\d+)(?:,\s?(\d+))?\)|#L(\d+)(?:C(\d+))?(?:-L?\d+)?)$/u;
 /** Path-like tokens: optional drive letter, segments, and a file name with an extension or a known bare name. */
 const CANDIDATE =
-  /(?:[A-Za-z]:[\\/]|[\\/])?(?:[\w@.~+-]+[\\/])*[\w@.+-]+(?:\.[A-Za-z0-9]{1,10}|(?<=Dockerfile|Makefile|LICENSE))(?::\d+(?::\d+)?|\(\d+(?:,\s?\d+)?\)|#L\d+(?:C\d+)?(?:-L?\d+)?)?/gu;
+  /(?:[A-Za-z]:[\\/]|[\\/])?(?:[\w@.~+-]+[\\/])*[\w@.+-]+(?:\.[A-Za-z0-9]{1,10}|(?<=Dockerfile|Makefile|LICENSE))(?::\d+(?::\d+|[-–]\d+)?|\(\d+(?:,\s?\d+)?\)|#L\d+(?:C\d+)?(?:-L?\d+)?)?/gu;
 
 function normalizeSlashes(value: string): string {
   return value.replaceAll("\\", "/");

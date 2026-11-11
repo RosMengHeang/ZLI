@@ -467,6 +467,14 @@ function AgentDefaults({
           onChange={(defaults) => updateAppSettings((current) => ({ ...current, defaults }))}
         />
       </SettingGroup>
+      <SettingGroup title="Chats">
+        <Switch
+          label="Archive chats when their pull request merges"
+          hint="The chat moves to Archived at the bottom of the sidebar once its pull request merges or closes. Unarchive it from there."
+          checked={settings.archiveMergedChats}
+          onChange={(checked) => updateAppSettings((current) => ({ ...current, archiveMergedChats: checked }))}
+        />
+      </SettingGroup>
       {onRunSetup ? (
         <SettingGroup title="Setup">
           <SettingRow

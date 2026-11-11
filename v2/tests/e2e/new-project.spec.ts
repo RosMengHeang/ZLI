@@ -3,7 +3,15 @@ import { join } from "node:path";
 
 import { expect, type Page, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, git, launchDesktop } from "./desktop-fixtures.js";
+import {
+  clickProjectAction,
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  git,
+  launchDesktop,
+  openNewAgentOptions,
+} from "./desktop-fixtures.js";
 
 async function startChat(page: Page, name: string) {
   const dialog = page.getByRole("dialog", { name: "New agent" });
@@ -29,7 +37,7 @@ test("points a newly added project at New agent until it has one", async () => {
   try {
     fixture = await launchDesktop(repo, root);
     const page = fixture.page;
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     await startChat(page, "Alpha");
 
     // The native folder picker can't be driven from the test, so it answers with the second repository.
@@ -50,9 +58,14 @@ test("points a newly added project at New agent until it has one", async () => {
     const project = page.getByRole("region", { name: "guider-crm" });
     await page.mouse.move(800, 400);
     await expect(project).toContainText("No agents yet.");
-    await expect(project.getByRole("button", { name: "New agent in guider-crm" })).toBeVisible();
+    await expect(project.getByRole("button", { name: "New chat in guider-crm" })).toBeVisible();
 
-    await project.getByRole("button", { name: "Start an agent in guider-crm" }).click();
+    // The project's menu opens the dialog with every option, already on that project.
+    await clickProjectAction(
+      project.locator(".project-label"),
+      project.getByRole("button", { name: "guider-crm actions" }),
+    );
+    await page.getByRole("menuitem", { name: "New agent with options…" }).click();
     await expect(newAgent.getByRole("button", { name: "Project: guider-crm" })).toBeVisible();
     await startChat(page, "Beta");
 

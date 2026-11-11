@@ -35,6 +35,7 @@ import type { ChatPlace } from "../sessions/launch.js";
 import { buildTimeline, conversationThreads, type TimelineItem } from "../sessions/sessions.js";
 import { useAppSettings } from "../settings/appSettings.js";
 import { AnimalAvatar } from "../teammates/AnimalAvatar.js";
+import { useChatAnimal } from "../teammates/chatAnimals.js";
 import {
   ANIMALS,
   type Animal,
@@ -56,6 +57,18 @@ import { discoverProviders } from "../welcome/welcomeClient.js";
 import { accountPlan, otherAgents } from "./agentModels.js";
 import { fileName, splitAttachedFiles } from "./attachedFiles.js";
 import type { BestOfAgentOption } from "./BestOfPopover.js";
+import {
+  ContinueRow,
+  FollowUps,
+  followUpsIn,
+  PlanApproval,
+  PlanCard,
+  PullRequestStrip,
+  ReviewCard,
+  reviewFindings,
+  SideChat,
+  StartSuggestions,
+} from "./ChatExtras.js";
 import { ChatImage, ChatImageScope, isImagePath } from "./ChatImage.js";
 import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Composer.js";
 import { ConnectorCard } from "./ConnectorCard.js";
@@ -67,6 +80,7 @@ import { RequestCard } from "./RequestCard.js";
 import { RoomBar, RoomLive, type RoomPerson, RoomSpeaker } from "./RoomParts.js";
 import { reasoningLevels } from "./reasoning.js";
 import { mergeRoomTimeline, missedBy, roomBrief, roomGuests, roomHelpers, runningStep } from "./room.js";
+import { isSideChat } from "./sideChats.js";
 import { isSwitchNotice, switchNotice } from "./switchNotice.js";
 import { TurnChanges } from "./TurnChanges.js";
 import { TurnRail } from "./TurnRail.js";
@@ -84,11 +98,16 @@ export function ChatView({
   onHandoff,
   onSwitchAgent,
   onMoveChat,
+  onAddFolder,
   onOpenConnectors,
   onStartRuns,
   onBringIn,
   onOpenAgent,
   onManageTeammates,
+  onBranch,
+  onNewChatWithPrompt,
+  onAskAside,
+  onCloseAside,
   active,
 }: {
   projection: RuntimeProjection;
@@ -104,6 +123,8 @@ export function ChatView({
   onSwitchAgent?: ((provider: string, model: string | undefined) => Promise<string | undefined>) | undefined;
   /** Moves the chat to another folder, worktree, or branch before its first message. */
   onMoveChat?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
+  /** Opens the folder picker and adds the folder as a project, for the project menu before the first message. */
+  onAddFolder?: (() => Promise<string | undefined>) | undefined;
   /** Opens Settings at a connector, a catalog id or a server name. */
   onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Starts best-of runs from this chat. Absent where runs cannot start, such as a scratch chat. */
@@ -114,6 +135,16 @@ export function ChatView({
   onOpenAgent?: ((agentId: string) => void) | undefined;
   /** Opens Settings at the saved teammates. */
   onManageTeammates?: (() => void) | undefined;
+  /** Starts a new chat that carries this conversation up to a reply. */
+  onBranch?: ((branch: { from: string; context: string }) => void) | undefined;
+  /** Opens a new chat in this project with the task already typed. */
+  onNewChatWithPrompt?: ((text: string) => void) | undefined;
+  /** Starts a side question: a short read-only chat that reads this conversation and never writes to it. */
+  onAskAside?:
+    | ((question: string, context: string | undefined) => Promise<{ threadId: string } | { error: string }>)
+    | undefined;
+  /** Ends a side question and removes its chat. */
+  onCloseAside?: ((threadId: string) => void) | undefined;
   active?: boolean;
 }) {
   const { bridge, dispatch } = useRuntime();
@@ -190,6 +221,8 @@ export function ChatView({
   const chainKey = earlierKey ? `${earlierKey} ${threadId}` : threadId;
   // The agents the person brought into this chat talk in it, so the chat reads as one room.
   const { teammates } = useAppSettings();
+  // The chat's own animal, the same one the sidebar shows for it.
+  const hostAnimal = useChatAnimal(thread.sessionId ?? thread.threadId);
   const chainIds = useMemo(() => new Set(chain.map((entry) => entry.threadId)), [chain]);
   const guests = useMemo(() => roomGuests(chainIds, projection.threads), [chainIds, projection.threads]);
   const guestIds = useMemo(() => new Set(guests.map((guest) => guest.threadId)), [guests]);
@@ -310,6 +343,7 @@ export function ChatView({
     return projection.threads.filter((candidate) => {
       if (candidate.threadId === thread.threadId) return false;
       if (candidate.status === "stopped" || candidate.status === "failed") return false;
+      if (candidate.sessionId && isSideChat(candidate.sessionId)) return false;
       const peerWorktree = projection.worktrees.find((item) => item.worktreeId === candidate.worktreeId);
       return peerWorktree?.projectId === worktree.projectId;
     });
@@ -362,7 +396,11 @@ export function ChatView({
       return next;
     });
 
-  const sendToHost = async (text: string, attachments: ComposerAttachment[]): Promise<boolean> => {
+  const sendToHost = async (
+    text: string,
+    attachments: ComposerAttachment[],
+    options: { permissionMode?: PermissionMode; note?: string } = {},
+  ): Promise<boolean> => {
     setError(undefined);
     // The first message to an agent that took the chat over brings it the conversation so far. The chat
     // shows the message alone.
@@ -379,7 +417,7 @@ export function ChatView({
         : undefined;
     // With other agents in the chat, the chat's own agent also reads what they said since its last reply.
     const missed = !takeover && guests.length > 0 ? missedBy(chainIds, roomMessages) : [];
-    const brief =
+    const roomContext =
       takeover ??
       (missed.length > 0
         ? roomBrief({
@@ -391,6 +429,8 @@ export function ChatView({
             nameOf: speakerName,
           })
         : undefined);
+    const brief = [options.note, roomContext].filter(Boolean).join("\n\n") || undefined;
+    const mode = options.permissionMode ?? permissionMode;
     try {
       const response = await dispatch({
         protocolVersion: 1,
@@ -402,7 +442,7 @@ export function ChatView({
           text,
           ...(model ? { model } : {}),
           ...(reasoningEffort ? { reasoningEffort } : {}),
-          ...(permissionSwitch && permissionMode !== threadMode ? { permissionMode } : {}),
+          ...(permissionSwitch && mode !== threadMode ? { permissionMode: mode } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
           ...(brief ? { context: brief } : {}),
         },
@@ -539,7 +579,12 @@ export function ChatView({
     () =>
       roomAnimals(
         [
-          { id: thread.threadId, provider: thread.provider, name: thread.name },
+          {
+            id: thread.threadId,
+            provider: thread.provider,
+            name: thread.name,
+            animal: hostAnimal,
+          },
           ...guests.map((guest) => ({ id: guest.threadId, provider: guest.provider, name: guest.name })),
           ...chain.slice(0, -1).map((entry) => ({ id: entry.threadId, provider: entry.provider, name: entry.name })),
           ...helpers.map((helper) =>
@@ -550,7 +595,7 @@ export function ChatView({
         ],
         teammates,
       ),
-    [thread, guests, chain, helpers, teammates],
+    [thread, guests, chain, helpers, teammates, hostAnimal],
   );
   const animalOf = (id: string, provider: string): Animal => animals.get(id) ?? defaultAnimal(provider);
   const people = useMemo((): RoomPerson[] => {
@@ -658,7 +703,7 @@ export function ChatView({
     ];
   };
   const [bringing, setBringing] = useState<string>();
-  const [insertRequest, setInsertRequest] = useState<{ text: string; nonce: number }>();
+  const [insertRequest, setInsertRequest] = useState<{ text: string; nonce: number; replace?: boolean }>();
   const callOut = (name: string) => setInsertRequest({ text: `@${name} `, nonce: Date.now() });
   const bringIn = async (
     request: GuestRequest,
@@ -828,6 +873,12 @@ export function ChatView({
    */
   const send = async (text: string, attachments: ComposerAttachment[]): Promise<boolean> => {
     setError(undefined);
+    // "/btw question" asks beside the chat instead of in it.
+    const aside = /^\/btw\b\s*/iu.exec(text.trim());
+    if (aside) {
+      openAside(text.trim().slice(aside[0].length));
+      return true;
+    }
     const callable = people.filter((person) => person.role !== "host" && !person.terminal);
     const saved = onBringIn
       ? teammates.filter(
@@ -838,7 +889,14 @@ export function ChatView({
       ...callable.map((person) => person.name),
       ...saved.map((entry) => entry.name),
     ]);
-    if (names.length === 0) return sendToHost(text, attachments);
+    if (names.length === 0) {
+      const note = editing
+        ? "The person edited their previous message. This message replaces it: follow this version, and undo or drop what you did for the earlier one where it no longer applies."
+        : undefined;
+      const sent = await sendToHost(text, attachments, note ? { note } : {});
+      if (sent) setEditing(undefined);
+      return sent;
+    }
     let sent = true;
     for (const called of names) {
       const target = callable.find((person) => agentNameKey(person.name) === agentNameKey(called));
@@ -894,6 +952,143 @@ export function ChatView({
       (person.status === "working" || person.status === "waiting" || person.status === "starting"),
   );
 
+  /* ---------- Plan, follow-ups, review, side questions ---------- */
+
+  // The agent's latest plan, from its todo list or plan updates, for the card above the message box.
+  const plan = useMemo(
+    () => activities.findLast((activity) => activity.todos && activity.todos.length > 0),
+    [activities],
+  );
+  const planKey = plan ? `${plan.activityId}:${plan.todos?.filter((todo) => todo.status === "completed").length}` : "";
+  const [hiddenPlan, setHiddenPlan] = useState<string>();
+  const showPlan = plan?.todos && hiddenPlan !== planKey && (working || plan.turnId === lastTurnId(messages));
+
+  // The last thing in the conversation, which decides what is offered after it.
+  const lastIndex = timeline.length - 1;
+  const lastItem = timeline[lastIndex];
+  const lastReplyIndex = useMemo(() => {
+    for (let index = timeline.length - 1; index >= 0; index -= 1) {
+      const item = timeline[index];
+      if (item?.kind !== "message") continue;
+      if (item.message.role === "user") return -1;
+      if (item.message.role === "assistant" && !isSwitchNotice(item.message) && !guestIds.has(item.message.threadId))
+        return index;
+    }
+    return -1;
+  }, [timeline, guestIds]);
+  const lastReply = lastReplyIndex >= 0 ? turns.replies.get(lastReplyIndex) : undefined;
+  const lastAsk = useMemo(() => messages.findLast((message) => message.role === "user")?.text ?? "", [messages]);
+  const settled = !working && queued.length === 0 && canSend;
+  const followUps = useMemo(() => (settled && lastReply ? followUpsIn(lastReply) : []), [settled, lastReply]);
+  const findings = useMemo(
+    () => (settled && lastReply && /\breview/iu.test(lastAsk) ? reviewFindings(lastReply) : []),
+    [settled, lastReply, lastAsk],
+  );
+  // A chat cut off mid-task, as when the app closed while the agent worked: its last word is the person's,
+  // or a step never finished.
+  const cutOff =
+    resumable &&
+    !working &&
+    queued.length === 0 &&
+    (thread.status === "failed" ||
+      (lastItem?.kind === "message" && lastItem.message.role === "user") ||
+      (lastItem?.kind === "work" && lastItem.activities.some((activity) => activity.status === "running")));
+  // In read-only mode a finished reply is a plan; approving it lets the agent build it.
+  const [approvedAt, setApprovedAt] = useState<number>();
+  const planToApprove =
+    threadMode === "read-only" &&
+    settled &&
+    lastReplyIndex >= 0 &&
+    lastReplyIndex === lastIndex &&
+    approvedAt !== lastIndex;
+
+  // Editing the last message puts it back in the box; the next send replaces it.
+  const [editing, setEditing] = useState<string>();
+  const lastUserIndex = useMemo(() => {
+    for (let index = timeline.length - 1; index >= 0; index -= 1) {
+      const item = timeline[index];
+      if (item?.kind === "message" && item.message.role === "user") return index;
+    }
+    return -1;
+  }, [timeline]);
+  const editMessage = useCallback((message: ThreadMessageProjection) => {
+    setEditing(message.messageId);
+    setInsertRequest({ text: splitAttachedFiles(message.text).text, nonce: Date.now(), replace: true });
+  }, []);
+
+  // Branching: a new chat that carries the conversation up to a reply.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: personFor reads the people of this render.
+  const branchAt = useCallback(
+    (index: number) => {
+      if (!onBranch) return;
+      const upTo: ThreadMessageProjection[] = [];
+      for (const item of timeline.slice(0, index + 1)) {
+        if (
+          item.kind === "message" &&
+          (item.message.role === "user" || item.message.role === "assistant") &&
+          !isSwitchNotice(item.message)
+        )
+          upTo.push(item.message);
+      }
+      const context = takeoverContext({
+        branch: worktree?.branch ?? "the current branch",
+        messages: upTo,
+        nameOf: (message) => personFor(message.threadId).name,
+      });
+      if (context) onBranch({ from: displayTitle(messages), context });
+    },
+    [onBranch, timeline, worktree?.branch, messages],
+  );
+
+  // A side question: asked beside the chat, answered by a short read-only chat that never writes back.
+  const [aside, setAside] = useState<{ threadId?: string; starting: boolean; error?: string | undefined }>();
+  const asideRef = useRef(aside);
+  asideRef.current = aside;
+  const closeAside = useCallback(() => {
+    const threadIdOfAside = asideRef.current?.threadId;
+    if (threadIdOfAside) onCloseAside?.(threadIdOfAside);
+    setAside(undefined);
+  }, [onCloseAside]);
+  const askAside = async (question: string) => {
+    const current = asideRef.current;
+    if (current?.threadId) {
+      setAside({ ...current, error: undefined });
+      const ok = await queueTo(current.threadId, question, [], undefined);
+      if (!ok) setAside((value) => (value ? { ...value, error: "The question could not be sent." } : value));
+      return;
+    }
+    if (!onAskAside) return;
+    setAside({ starting: true });
+    const context = takeoverContext({
+      branch: worktree?.branch ?? "the current branch",
+      messages: roomMessages.filter((message) => message.role === "user" || message.role === "assistant"),
+      nameOf: speakerName,
+    });
+    const note =
+      "This is a side question about the conversation above. Answer it briefly. Do not change any files or run anything that changes state.";
+    const started = await onAskAside(question, [context, note].filter(Boolean).join("\n\n"));
+    setAside(
+      "error" in started ? { starting: false, error: started.error } : { starting: false, threadId: started.threadId },
+    );
+  };
+  const openAside = (question: string) => {
+    if (!onAskAside) return;
+    if (!asideRef.current) setAside({ starting: false });
+    if (question.trim()) void askAside(question.trim());
+  };
+  // Ctrl+; (Cmd+; on a Mac) opens a side question in the chat in focus.
+  useEffect(() => {
+    if (!active || !onAskAside) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === ";" && (event.ctrlKey || event.metaKey) && !event.altKey) {
+        event.preventDefault();
+        setAside((current) => current ?? { starting: false });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [active, onAskAside]);
+
   const renderItem = (index: number, withChanges: boolean) => {
     const item = timeline[index];
     if (!item) return null;
@@ -918,6 +1113,12 @@ export function ChatView({
               // A reply still being written has no Copy yet: it would copy half an answer.
               reply={working && index >= turns.latestStart ? undefined : turns.replies.get(index)}
               onTryWays={bestOf && canSend && !guestIds.has(item.message.threadId) ? tryWays : undefined}
+              onEdit={
+                index === lastUserIndex && settled && item.message.threadId === thread.threadId
+                  ? editMessage
+                  : undefined
+              }
+              onBranch={onBranch && !working ? branchAt : undefined}
             />
           </>
         )}
@@ -925,6 +1126,43 @@ export function ChatView({
       </Fragment>
     );
   };
+
+  // What waits on the person sits on the message box, above the workspace tab: the plan the agent keeps, a
+  // side question, and the go-ahead for a plan. The nearest to the box is the one to act on.
+  const sideChat = aside ? (
+    <SideChat
+      animal={hostAnimal}
+      threadId={aside.threadId}
+      starting={aside.starting}
+      error={aside.error}
+      onAsk={(question) => void askAside(question)}
+      onClose={closeAside}
+    />
+  ) : null;
+  const traySections =
+    (showPlan && plan?.todos) || sideChat || (planToApprove && !request) ? (
+      <>
+        {showPlan && plan?.todos ? (
+          <PlanCard todos={plan.todos} working={working} onDismiss={() => setHiddenPlan(planKey)} />
+        ) : null}
+        {sideChat}
+        {planToApprove && !request ? (
+          <PlanApproval
+            displayName={displayName}
+            canSwitch={permissionSwitch}
+            onApprove={() => {
+              setApprovedAt(lastIndex);
+              if (permissionSwitch) setPermissionMode("full-access");
+              void sendToHost("Go ahead with the plan.", [], permissionSwitch ? { permissionMode: "full-access" } : {});
+            }}
+            onChange={() => {
+              setApprovedAt(lastIndex);
+              setInsertRequest({ text: "Change the plan: ", nonce: Date.now(), replace: true });
+            }}
+          />
+        ) : null}
+      </>
+    ) : null;
 
   return (
     <div className="chat-view">
@@ -945,7 +1183,15 @@ export function ChatView({
           >
             <div className="chat-column">
               {timeline.length === 0 && earlyMessages.length === 0 ? (
-                <ChatStart provider={thread.provider} folder={project?.name} />
+                <>
+                  <ChatStart provider={thread.provider} folder={project?.name} animal={animals.get(thread.threadId)} />
+                  {canSend ? (
+                    <StartSuggestions
+                      folder={project?.name}
+                      onPick={(text) => setInsertRequest({ text, nonce: Date.now(), replace: true })}
+                    />
+                  ) : null}
+                </>
               ) : (
                 turns.rows.map((row) =>
                   row.kind === "item" ? (
@@ -965,6 +1211,24 @@ export function ChatView({
                 )
               )}
               {placedCheckpoints.unplaced.map(turnChanges)}
+              {findings.length > 0 ? (
+                <ReviewCard
+                  key={`review-${lastReplyIndex}`}
+                  findings={findings}
+                  onFixAll={() => void send("Fix all the findings from your review.", [])}
+                  onFixOne={(finding) =>
+                    void send(
+                      `Fix this finding from your review: ${finding.file}${finding.line ? `:${finding.line}` : ""} ${finding.text}`,
+                      [],
+                    )
+                  }
+                  onOpenFile={fileLinks ? openFile : undefined}
+                />
+              ) : null}
+              {followUps.length > 0 && findings.length === 0 ? (
+                <FollowUps items={followUps} onHere={(task) => void send(task, [])} onNewChat={onNewChatWithPrompt} />
+              ) : null}
+              {cutOff ? <ContinueRow onContinue={() => void sendToHost("Continue where you left off.", [])} /> : null}
               {earlyMessages.map((message, index) => (
                 <ChatMessage
                   key={message.messageId}
@@ -1079,16 +1343,28 @@ export function ChatView({
               {visibleError}
             </p>
           ) : null}
-          {resumable ? (
-            <p className={`chat-paused${thread.status === "failed" ? " is-failed" : ""}`} role="status">
-              <Icon name={thread.status === "failed" ? "alert" : "square"} size={12} />
-              <span>
-                {thread.status === "failed"
-                  ? `${thread.errorMessage ?? `${displayName} failed.`} Your next message starts it again in this conversation.`
-                  : `${displayName} is stopped. Your next message picks up where it left off.`}
-              </span>
+          {/* A stopped chat needs no note: the next message picks up where it left off. A failure says why. */}
+          {resumable && thread.status === "failed" && thread.errorMessage ? (
+            <p className="chat-paused is-failed" role="status">
+              <Icon name="alert" size={12} />
+              <span>{thread.errorMessage}</span>
             </p>
           ) : null}
+          {editing ? (
+            <p className="chat-editing" role="status">
+              <Icon name="pencil" size={11} />
+              <span>Editing your last message. Sending replaces it.</span>
+              <button type="button" onClick={() => setEditing(undefined)}>
+                Cancel
+              </button>
+            </p>
+          ) : null}
+          <PullRequestStrip
+            worktreeId={worktree?.worktreeId}
+            displayName={displayName}
+            onAsk={canSend ? (text) => void send(text, []) : undefined}
+          />
+          {ended && !resumable && traySections ? <div className="composer-tray is-loose">{traySections}</div> : null}
           {ended && !resumable ? (
             <div className={`chat-ended${thread.status === "failed" ? " is-failed" : ""}`} role="status">
               <Icon name={thread.status === "failed" ? "alert" : "square"} size={13} />
@@ -1124,6 +1400,7 @@ export function ChatView({
                 displayName={displayName}
                 provider={thread.provider}
                 branch={worktree?.branch ?? "this worktree"}
+                tray={traySections}
                 workspace={
                   worktree ? (
                     <WorkspaceBar
@@ -1133,6 +1410,7 @@ export function ChatView({
                       worktrees={projection.worktrees}
                       git={gitProject}
                       onMove={fresh ? onMoveChat : undefined}
+                      onAddFolder={fresh ? onAddFolder : undefined}
                     />
                   ) : undefined
                 }
@@ -1330,9 +1608,12 @@ const ChatWork = memo(function ChatWork({
   showChangedFiles: boolean;
   onOpenDiff(path?: string): void;
 }) {
+  // The plan has its own card above the message box, so its updates are not steps.
+  const steps = useMemo(() => item.activities.filter((activity) => !activity.todos), [item.activities]);
+  if (steps.length === 0 && !(showChangedFiles && item.changedFiles.length > 0)) return null;
   return (
     <div className="chat-work">
-      <WorkSteps activities={item.activities} onOpenFile={onOpenDiff} />
+      {steps.length > 0 ? <WorkSteps activities={steps} onOpenFile={onOpenDiff} /> : null}
       {showChangedFiles && item.changedFiles.length > 0 ? (
         <ChangedFiles files={item.changedFiles} onOpenDiff={onOpenDiff} />
       ) : null}
@@ -1415,11 +1696,13 @@ function UserMessage({
   index,
   links,
   onTryWays,
+  onEdit,
 }: {
   message: ThreadMessageProjection;
   index: number;
   links: FileLinks | undefined;
   onTryWays?: ((message: ThreadMessageProjection, index: number) => void) | undefined;
+  onEdit?: ((message: ThreadMessageProjection) => void) | undefined;
 }) {
   const typed = splitAttachedFiles(message.text);
   const uploads = message.attachments ?? [];
@@ -1445,6 +1728,16 @@ function UserMessage({
           >
             Try N ways
           </Button>
+        ) : null}
+        {onEdit && typed.text ? (
+          <IconButton
+            label="Edit message"
+            tooltip="Edit and send again"
+            icon="pencil"
+            size="xs"
+            iconSize={12}
+            onClick={() => onEdit(message)}
+          />
         ) : null}
         {typed.text ? (
           <IconButton
@@ -1523,10 +1816,12 @@ function AssistantMessage({
   message,
   links,
   reply,
+  onBranch,
 }: {
   message: ThreadMessageProjection;
   links: FileLinks | undefined;
   reply: string | undefined;
+  onBranch?: (() => void) | undefined;
 }) {
   const [copyState, copy] = useCopyFeedback();
   return (
@@ -1542,6 +1837,16 @@ function AssistantMessage({
             iconSize={12}
             onClick={() => copy(reply)}
           />
+          {onBranch ? (
+            <IconButton
+              label="Branch from here"
+              tooltip="New chat from here: it carries the conversation up to this reply"
+              icon="branch"
+              size="xs"
+              iconSize={12}
+              onClick={onBranch}
+            />
+          ) : null}
         </div>
       ) : null}
     </article>
@@ -1555,6 +1860,8 @@ const ChatMessage = memo(function ChatMessage({
   source,
   reply,
   onTryWays,
+  onEdit,
+  onBranch,
 }: {
   message: ThreadMessageProjection;
   /** Position in the timeline, which places the message among the saved turns. */
@@ -1564,9 +1871,13 @@ const ChatMessage = memo(function ChatMessage({
   /** The turn's whole reply, on its last part only, which offers to copy it. */
   reply?: string | undefined;
   onTryWays?: ((message: ThreadMessageProjection, index: number) => void) | undefined;
+  /** Puts the person's last message back in the box to change and send again. */
+  onEdit?: ((message: ThreadMessageProjection) => void) | undefined;
+  /** Starts a new chat with the conversation up to this reply. */
+  onBranch?: ((index: number) => void) | undefined;
 }) {
   if (message.role === "user") {
-    return <UserMessage message={message} index={index} links={links} onTryWays={onTryWays} />;
+    return <UserMessage message={message} index={index} links={links} onTryWays={onTryWays} onEdit={onEdit} />;
   }
   if (message.role === "agent") {
     return (
@@ -1580,7 +1891,14 @@ const ChatMessage = memo(function ChatMessage({
     );
   }
   if (message.role === "system") return <p className="chat-system">{message.text}</p>;
-  return <AssistantMessage message={message} links={links} reply={reply} />;
+  return (
+    <AssistantMessage
+      message={message}
+      links={links}
+      reply={reply}
+      onBranch={onBranch ? () => onBranch(index) : undefined}
+    />
+  );
 });
 function sourceLabel(projection: RuntimeProjection, sourceThreadId: ThreadId | undefined): string {
   const thread = projection.threads.find((candidate) => candidate.threadId === sourceThreadId);
@@ -1665,10 +1983,19 @@ function SignInNotice({
  * header says so, and a message sent meanwhile waits until it is up.
  */
 /** The empty chat: the agent's mark and one question, so the first thing to do is type the task. */
-export function ChatStart({ provider, folder }: { provider: string; folder: string | undefined }) {
+export function ChatStart({
+  provider,
+  folder,
+  animal,
+}: {
+  provider: string;
+  folder: string | undefined;
+  /** The chat's own animal, which stays when the chat moves to another agent. */
+  animal?: Animal | undefined;
+}) {
   return (
     <div className="chat-start">
-      <ProviderMark provider={provider} size={28} />
+      {animal ? <AnimalAvatar animal={animal} size={44} /> : <ProviderMark provider={provider} size={28} />}
       <h2 className="chat-start-title">
         What should we work on
         {folder ? (
@@ -1681,4 +2008,16 @@ export function ChatStart({ provider, folder }: { provider: string; folder: stri
       </h2>
     </div>
   );
+}
+
+/** The turn the conversation is on: the latest turn any message belongs to. */
+function lastTurnId(messages: readonly ThreadMessageProjection[]): string | undefined {
+  return messages.findLast((message) => message.turnId)?.turnId;
+}
+
+/** A short name for the chat, from its first message, for the chats branched from it. */
+function displayTitle(messages: readonly ThreadMessageProjection[]): string {
+  const first = messages.find((message) => message.role === "user" && message.text.trim())?.text.trim() ?? "a chat";
+  const line = splitAttachedFiles(first).text.split(/\r?\n/u)[0]?.trim() || "a chat";
+  return line.length > 60 ? `${line.slice(0, 59)}…` : line;
 }

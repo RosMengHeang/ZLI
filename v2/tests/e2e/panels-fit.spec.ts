@@ -8,6 +8,7 @@ import {
   type DesktopFixture,
   launchDesktop,
   openCreateWorktree,
+  openNewAgentOptions,
   togglePanel,
 } from "./desktop-fixtures.js";
 
@@ -30,7 +31,7 @@ test("shrinks the side panel and terminal drawer to fit a smaller window", async
     const worktree = page.getByRole("button", { name: /fit/iu }).first();
     await expect(worktree).toContainText("Ready", { timeout: 30_000 });
     await worktree.click();
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();

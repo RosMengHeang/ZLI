@@ -11,6 +11,7 @@ import {
   type DesktopFixture,
   launchDesktop,
   openCreateWorktree,
+  openNewAgentOptions,
   togglePanel,
   V2_ROOT,
 } from "./desktop-fixtures.js";
@@ -69,7 +70,7 @@ test("annotates the page, sends the annotations to a chat agent in one message, 
     await expect(worktree).toContainText("Ready", { timeout: 30_000 });
     await worktree.click();
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
@@ -194,7 +195,9 @@ test("annotates the page, sends the annotations to a chat agent in one message, 
     await expect(sent).toBeVisible();
     await expect(sent.getByRole("button", { name: "Show", exact: true })).toBeVisible();
 
-    await expect(page.getByText(/Mock response: Please apply these 3 design annotations/u)).toBeVisible({
+    await expect(
+      page.locator(".chat-log").getByText(/Mock response: Please apply these 3 design annotations/u),
+    ).toBeVisible({
       timeout: 20_000,
     });
     // Pictures sent with a message show as thumbnails that open full size.

@@ -468,6 +468,14 @@ function normalizeNotification(
   }
   if (typeof threadId !== "string" || typeof turnId !== "string") return undefined;
   if (method === "turn/started") return { type: "turn.started", providerThreadId: threadId, providerTurnId: turnId };
+  // Codex keeps its plan outside the tool calls; it reads as one plan call per turn that each update replaces.
+  if (method === "turn/plan/updated" && Array.isArray(params.plan))
+    return {
+      type: "tool.updated",
+      providerThreadId: threadId,
+      providerTurnId: turnId,
+      tool: { callId: `plan-${turnId}`, name: "update_plan", input: { todos: params.plan }, status: "completed" },
+    };
   if (method === "item/agentMessage/delta")
     return {
       type: "assistant.delta",
