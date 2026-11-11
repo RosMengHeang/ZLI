@@ -5,14 +5,15 @@ import { DevServerChip } from "../devservers/DevServers.js";
 import type { ShortcutId } from "../settings/appSettings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
-import { Kbd } from "../ui/Kbd.js";
-import { MenuButton, type MenuItem } from "../ui/Menu.js";
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { useShortcuts } from "./keybindings.js";
 
-/** The side panels. A pull request opens from its agent, so it has no button in the top bar. */
-export type SidePane = "files" | "browser" | "mobile" | "review" | "huddle" | "pullRequest";
-type ToolbarPane = Exclude<SidePane, "pullRequest">;
+/**
+ * The side panels. A pull request opens from its agent, so it is not in the picker; the picker itself is the
+ * launcher, what the right panel shows before a panel is chosen.
+ */
+export type SidePane = "files" | "browser" | "mobile" | "review" | "huddle" | "pullRequest" | "sideChat" | "launcher";
+export type ToolbarPane = Exclude<SidePane, "pullRequest" | "sideChat" | "launcher">;
 
 export const sidePaneLabel: Record<SidePane, string> = {
   files: "Files",
@@ -21,9 +22,11 @@ export const sidePaneLabel: Record<SidePane, string> = {
   review: "Changes",
   huddle: "Huddle",
   pullRequest: "Pull request",
+  sideChat: "Side chat",
+  launcher: "Panels",
 };
 
-const sidePaneIcon: Record<ToolbarPane, IconName> = {
+export const sidePaneIcon: Record<ToolbarPane, IconName> = {
   files: "folderTree",
   browser: "globe",
   mobile: "smartphone",
@@ -31,8 +34,8 @@ const sidePaneIcon: Record<ToolbarPane, IconName> = {
   huddle: "users",
 };
 
-/** What each panel is for, said under its name in the Tools menu. */
-const sidePaneDetail: Record<ToolbarPane, string> = {
+/** What each panel is for, said under its name in the panel picker. */
+export const sidePaneDetail: Record<ToolbarPane, string> = {
   files: "Browse and open the worktree's files",
   browser: "A browser beside the chat, for the app you are building",
   mobile: "Phone emulators and simulators",
@@ -59,12 +62,10 @@ export function Topbar({
   onNewAgent,
   onOpenIssues,
   onToggleDrawer,
-  onToggleSidePane,
-  onOpenPalette,
+  onTogglePanels,
   devServers = [],
   onOpenDevServer,
   updateNotice,
-  mobileAvailable = false,
   showTerminal = true,
 }: {
   sidebarOpen: boolean;
@@ -78,21 +79,16 @@ export function Topbar({
   /** Opens the issue list for the project in view. */
   onOpenIssues?(): void;
   onToggleDrawer(): void;
-  onToggleSidePane(pane: SidePane): void;
-  onOpenPalette(): void;
+  /** Opens the right panel on the panel picker, or closes whatever it shows. */
+  onTogglePanels(): void;
   /** Servers the selected worktree's terminals are running, newest first. */
   devServers?: readonly DevServerProjection[];
   onOpenDevServer?(url: string): void;
   /** The update pill, shown before the panel toggles. */
   updateNotice?: ReactNode;
-  /** The Mobile panel exists only in the desktop app, which runs the emulators and simulators. */
-  mobileAvailable?: boolean;
   /** Off when the person works in chat only, so the terminal stays out of the way. */
   showTerminal?: boolean;
 }) {
-  const panes: readonly ToolbarPane[] = mobileAvailable
-    ? ["files", "browser", "mobile", "review", "huddle"]
-    : ["files", "browser", "review", "huddle"];
   const shortcuts = useShortcuts();
   return (
     <header className="topbar">
@@ -129,8 +125,8 @@ export function Topbar({
         <IconButton label="Issues" tooltip="Start from an issue" icon="issue" onClick={onOpenIssues} />
       ) : null}
       {/*
-        Every panel sits in one Tools menu, named and explained, rather than as a row of bare icons. The
-        panel that is open keeps a button beside it, so closing it is one click.
+        The top bar keeps two switches: the terminal at the bottom and the panel on the right. The right one
+        opens on a picker of every panel, each with a key, so nothing hides behind a menu.
       */}
       <fieldset className="topbar-tools" aria-label="Panels">
         {showTerminal ? (
@@ -142,50 +138,14 @@ export function Topbar({
             onClick={onToggleDrawer}
           />
         ) : null}
-        {sidePane && sidePane !== "pullRequest" ? (
-          <ToolToggle
-            label={sidePaneLabel[sidePane]}
-            icon={sidePaneIcon[sidePane]}
-            shortcut={shortcuts[sidePaneShortcut[sidePane]]}
-            active
-            onClick={() => onToggleSidePane(sidePane)}
-          />
-        ) : null}
-        <MenuButton
-          className="topbar-tools-menu"
-          label="Tools"
-          tooltip="Files, Changes, Browser, and more"
-          icon="grid"
-          size="sm"
-          iconSize={14}
-          items={() =>
-            panes.map(
-              (pane): MenuItem => ({
-                id: pane,
-                label: sidePaneLabel[pane],
-                icon: sidePaneIcon[pane],
-                title: sidePaneDetail[pane],
-                shortcut: shortcuts[sidePaneShortcut[pane]],
-                checked: sidePane === pane,
-                run: () => onToggleSidePane(pane),
-              }),
-            )
-          }
-        >
-          <span className="topbar-tools-label">Tools</span>
-        </MenuButton>
+        <ToolToggle
+          label="Right panel"
+          icon="panelRight"
+          tooltip={sidePane ? `Hide ${sidePaneLabel[sidePane].toLowerCase()}` : "Open a panel"}
+          active={sidePane !== undefined}
+          onClick={onTogglePanels}
+        />
       </fieldset>
-      <button
-        className="command-trigger"
-        type="button"
-        onClick={onOpenPalette}
-        aria-label="Open command palette"
-        aria-keyshortcuts={ariaShortcut(shortcuts.palette)}
-      >
-        <Icon name="search" size={13} />
-        <span className="command-trigger-label">Search</span>
-        <Kbd shortcut={shortcuts.palette} />
-      </button>
     </header>
   );
 }
@@ -195,12 +155,14 @@ function ToolToggle({
   label,
   icon,
   shortcut,
+  tooltip,
   active,
   onClick,
 }: {
   label: string;
   icon: IconName;
   shortcut?: string;
+  tooltip?: string;
   active: boolean;
   onClick(): void;
 }) {
@@ -210,7 +172,7 @@ function ToolToggle({
       type="button"
       aria-label={label}
       aria-pressed={active}
-      data-tooltip={`${active ? "Hide" : "Show"} ${label.toLowerCase()}`}
+      data-tooltip={tooltip ?? `${active ? "Hide" : "Show"} ${label.toLowerCase()}`}
       data-shortcut={shortcut ? shortcutText(shortcut) : undefined}
       aria-keyshortcuts={shortcut ? ariaShortcut(shortcut) : undefined}
       onClick={onClick}

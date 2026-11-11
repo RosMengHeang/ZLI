@@ -144,7 +144,10 @@ import {
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
+import { launcherItems as buildLauncherItems } from "./launcherItems.js";
 import { type ChatFolder, NoProjectChat } from "./NoProjectChat.js";
+import { PanelLauncher } from "./PanelLauncher.js";
+import { PanelTabs } from "./PanelTabs.js";
 import {
   DisconnectedState,
   GridEmptyState,
@@ -152,7 +155,11 @@ import {
   ProjectEmptyNotice,
   RuntimeLoadingState,
 } from "./ShellStates.js";
-import { type SidePane, sidePaneLabel, Topbar } from "./Topbar.js";
+import { type SidePane, sidePaneIcon, sidePaneLabel, Topbar } from "./Topbar.js";
+
+/** The icon on a panel's tab. */
+const panelIcon = (pane: Exclude<SidePane, "launcher">) =>
+  pane === "pullRequest" ? "pullRequest" : pane === "sideChat" ? "message" : sidePaneIcon[pane];
 
 import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
 import { WorktreeDialog } from "./WorktreeDialog.js";
@@ -198,7 +205,9 @@ function WorkspaceApp() {
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
   /** The huddle tab in view in the Huddle panel. */
   const [huddleId, setHuddleId] = useState<string>();
-  const [panelWidth, setPanelWidth] = usePanelWidth(sidePane ?? "files");
+  const [panelWidth, setPanelWidth] = usePanelWidth(
+    sidePane && sidePane !== "launcher" && sidePane !== "sideChat" ? sidePane : "files",
+  );
   const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
   const [workspaceBodyRef, workspaceSpace] = useWorkspaceSpace();
   // The remembered sizes stay as chosen; a smaller window only shrinks what is shown, so they return when it grows.
@@ -568,6 +577,30 @@ function WorkspaceApp() {
 
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
   // The right-panel switch: closed, it opens on the picker; open, it closes whatever is showing.
+  // The panels opened so far, one tab each in the right panel, in the order they were opened.
+  const [panelTabs, setPanelTabs] = useState<Exclude<SidePane, "launcher">[]>([]);
+  const lastPane = useRef<SidePane | undefined>(undefined);
+  useEffect(() => {
+    if (!sidePane || sidePane === "launcher") return;
+    lastPane.current = sidePane;
+    setPanelTabs((tabs) => (tabs.includes(sidePane) ? tabs : [...tabs, sidePane]));
+  }, [sidePane]);
+  /** Opens the right panel on the tab in use last, or on the picker when no tab is open. */
+  const togglePanels = () =>
+    setSidePane((current) => {
+      if (current) return undefined;
+      const last = lastPane.current;
+      return last && last !== "launcher" && panelTabs.includes(last) ? last : "launcher";
+    });
+  const closePanelTab = (pane: SidePane) => {
+    const index = panelTabs.indexOf(pane as Exclude<SidePane, "launcher">);
+    const rest = panelTabs.filter((tab) => tab !== pane);
+    setPanelTabs(rest);
+    if (sidePane === pane) setSidePane(rest[Math.min(index, rest.length - 1)]);
+  };
+  // The side chat in the right panel: the chat in view draws its side question into this element.
+  const [sideChatSlot, setSideChatSlot] = useState<HTMLElement | null>(null);
+  const sideChatAvailable = !!activeSession?.thread;
   // Zoomed far in, the window is too narrow to keep the sidebar beside the work, so it starts hidden
   // there without changing the saved choice for wider windows.
   const narrow = useNarrowWindow();
@@ -585,6 +618,37 @@ function WorkspaceApp() {
   }, []);
   // Chat only keeps the terminal out of sight: its toggle and shortcut only close a drawer something else opened.
   const chatOnly = workStyleOf(settings.defaults) === "chat";
+  // The right panel's picker: every panel with one key, and a live line for what is going on in it for this
+  // worktree. The terminal opens at the bottom, so picking it closes the picker; Chat only leaves it out.
+  const contextWorktreeId = contextWorktree?.worktreeId;
+  const contextPullRequest = contextWorktreeId ? pullRequests.get(contextWorktreeId)?.status : undefined;
+  const launcherItems = buildLauncherItems(
+    {
+      mobileAvailable,
+      showTerminal: !chatOnly,
+      drawerOpen: workbench.drawerOpen,
+      review: projection?.reviews?.find((review) => review.worktreeId === contextWorktreeId),
+      uncommittedFiles: contextPullRequest?.uncommittedFiles,
+      runningTerminals:
+        projection?.terminals.filter(
+          (terminal) =>
+            terminal.worktreeId === contextWorktreeId &&
+            (terminal.status === "running" || terminal.status === "starting"),
+        ).length ?? 0,
+      devServers: contextDevServers,
+      pullRequest: contextPullRequest?.pullRequest,
+      activeHuddles: projection?.huddles?.filter((huddle) => !huddle.archived).length ?? 0,
+      sideChat: sideChatAvailable,
+    },
+    {
+      open: (pane) => setSidePane(pane),
+      openTerminal: () => {
+        updateWorkbench((state) => ({ ...state, drawerOpen: true }));
+        setSidePane(undefined);
+      },
+      openDevServer: (url) => openDevServer(url),
+    },
+  );
   const toggleDrawer = () =>
     updateWorkbench((state) => (chatOnly && !state.drawerOpen ? state : { ...state, drawerOpen: !state.drawerOpen }));
   const openSettings = (section: SettingsSection = "agents") => {
@@ -2609,11 +2673,9 @@ function WorkspaceApp() {
             onNewAgent={() => openNewAgent()}
             onOpenIssues={() => openIssues(contextProject)}
             onToggleDrawer={toggleDrawer}
-            onToggleSidePane={toggleSidePane}
-            onOpenPalette={() => setPaletteOpen(true)}
+            onTogglePanels={togglePanels}
             devServers={contextDevServers}
             onOpenDevServer={openDevServer}
-            mobileAvailable={mobileAvailable}
             updateNotice={
               <>
                 <ReviewNotesPill worktree={contextWorktree} onShowAgent={showAgent} />
@@ -2771,6 +2833,9 @@ function WorkspaceApp() {
                             onNewChatWithPrompt={(text) => newChatWithPrompt(session, text)}
                             onAskAside={(question, context) => askAside(session, question, context)}
                             onCloseAside={closeAside}
+                            sideChatSlot={
+                              session.sessionId === activeSession?.sessionId ? (sideChatSlot ?? undefined) : undefined
+                            }
                           />
                         ))}
                       </div>
@@ -2797,7 +2862,20 @@ function WorkspaceApp() {
                     aria-label={`${sidePaneLabel[sidePane]} panel`}
                     style={{ width: shownPanelWidth }}
                   >
-                    {sidePane === "files" ? (
+                    <PanelTabs
+                      tabs={panelTabs.map((pane) => ({ id: pane, label: sidePaneLabel[pane], icon: panelIcon(pane) }))}
+                      active={sidePane}
+                      items={launcherItems}
+                      onSelect={(pane) => setSidePane(pane as SidePane)}
+                      onClose={(pane) => closePanelTab(pane as SidePane)}
+                    />
+                    {sidePane === "launcher" ? (
+                      <PanelLauncher
+                        title={contextWorktree?.branch ?? contextProject?.name}
+                        items={launcherItems}
+                        onClose={() => setSidePane(undefined)}
+                      />
+                    ) : sidePane === "files" ? (
                       <Suspense fallback={<LoadingFilesPane />}>
                         <FilesPane
                           worktree={files.worktree}
@@ -2829,6 +2907,14 @@ function WorkspaceApp() {
                         onOpenChanges={() => setSidePane("review")}
                         onShowAgent={showAgent}
                       />
+                    ) : sidePane === "sideChat" ? (
+                      <div className="side-chat-panel">
+                        {sideChatAvailable ? (
+                          <div className="side-chat-slot" ref={setSideChatSlot} />
+                        ) : (
+                          <p className="side-chat-panel-empty">Open a chat to ask a side question about it.</p>
+                        )}
+                      </div>
                     ) : sidePane === "huddle" ? (
                       <HuddlePane
                         projection={projection}

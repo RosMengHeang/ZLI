@@ -455,21 +455,21 @@ export async function git(cwd: string, args: string[]): Promise<string> {
 }
 
 /**
- * Shows or hides a side panel the way a person does: the open panel has its own button in the top bar,
- * and every panel is in the Tools menu.
+ * Shows or hides a side panel the way a person does: the right-panel switch in the top bar closes what is
+ * open, and opens on a picker that lists every panel.
  */
 export async function togglePanel(page: Page, name: string): Promise<void> {
-  const open = page.locator(".topbar-tools").getByRole("button", { name, exact: true });
-  if (await open.isVisible()) {
-    await open.click();
+  const toggle = page.locator(".topbar-tools").getByRole("button", { name: "Right panel", exact: true });
+  const panel = page.locator(".tool-panel");
+  if (await page.getByRole("complementary", { name: `${name} panel`, exact: true }).isVisible()) {
+    await toggle.click();
     return;
   }
-  await page.getByRole("button", { name: "Tools", exact: true }).click();
+  if (!(await panel.isVisible())) await toggle.click();
+  await panel.getByRole("button", { name: "Add a panel", exact: true }).click();
   await page
-    .locator('[role="menu"]')
-    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
-    .filter({ hasText: new RegExp(`^${name}`, "u") })
-    .first()
+    .getByRole("menu", { name: "Add a panel" })
+    .getByRole("menuitem", { name: new RegExp(`^${name}`, "u") })
     .click();
 }
 

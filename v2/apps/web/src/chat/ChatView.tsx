@@ -22,6 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { isSelectableProvider, listedDiscoveries, providerDisplayName, signInCommand } from "../agent/providers.js";
 import { type FileLinks, useFileIndexContext, useFileLinks } from "../files/FileIndex.js";
@@ -108,6 +109,7 @@ export function ChatView({
   onNewChatWithPrompt,
   onAskAside,
   onCloseAside,
+  sideChatSlot,
   active,
 }: {
   projection: RuntimeProjection;
@@ -145,6 +147,8 @@ export function ChatView({
     | undefined;
   /** Ends a side question and removes its chat. */
   onCloseAside?: ((threadId: string) => void) | undefined;
+  /** The right panel is showing the side chat: the side question is drawn there instead of on the message box. */
+  sideChatSlot?: HTMLElement | undefined;
   active?: boolean;
 }) {
   const { bridge, dispatch } = useRuntime();
@@ -1129,23 +1133,26 @@ export function ChatView({
 
   // What waits on the person sits on the message box, above the workspace tab: the plan the agent keeps, a
   // side question, and the go-ahead for a plan. The nearest to the box is the one to act on.
-  const sideChat = aside ? (
-    <SideChat
-      animal={hostAnimal}
-      threadId={aside.threadId}
-      starting={aside.starting}
-      error={aside.error}
-      onAsk={(question) => void askAside(question)}
-      onClose={closeAside}
-    />
-  ) : null;
+  // With the side chat open in the right panel, the side question lives there, ready before anything is asked.
+  const sideChat =
+    aside || sideChatSlot ? (
+      <SideChat
+        animal={hostAnimal}
+        threadId={aside?.threadId}
+        starting={aside?.starting ?? false}
+        error={aside?.error}
+        onAsk={(question) => void askAside(question)}
+        onClose={closeAside}
+      />
+    ) : null;
+  const trayAside = sideChatSlot ? null : sideChat;
   const traySections =
-    (showPlan && plan?.todos) || sideChat || (planToApprove && !request) ? (
+    (showPlan && plan?.todos) || trayAside || (planToApprove && !request) ? (
       <>
         {showPlan && plan?.todos ? (
           <PlanCard todos={plan.todos} working={working} onDismiss={() => setHiddenPlan(planKey)} />
         ) : null}
-        {sideChat}
+        {trayAside}
         {planToApprove && !request ? (
           <PlanApproval
             displayName={displayName}
@@ -1364,6 +1371,7 @@ export function ChatView({
             displayName={displayName}
             onAsk={canSend ? (text) => void send(text, []) : undefined}
           />
+          {sideChatSlot && sideChat ? createPortal(sideChat, sideChatSlot) : null}
           {ended && !resumable && traySections ? <div className="composer-tray is-loose">{traySections}</div> : null}
           {ended && !resumable ? (
             <div className={`chat-ended${thread.status === "failed" ? " is-failed" : ""}`} role="status">

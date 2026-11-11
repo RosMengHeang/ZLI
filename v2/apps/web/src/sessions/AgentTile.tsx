@@ -90,6 +90,7 @@ export function AgentTile({
   onNewChatWithPrompt,
   onAskAside,
   onCloseAside,
+  sideChatSlot,
   accountLabel,
   onNewChat,
   canCarryContext = false,
@@ -148,6 +149,8 @@ export function AgentTile({
     | ((question: string, context: string | undefined) => Promise<{ threadId: string } | { error: string }>)
     | undefined;
   onCloseAside?: ((threadId: string) => void) | undefined;
+  /** The right panel is showing the side chat: the side question is drawn there instead of on the message box. */
+  sideChatSlot?: HTMLElement | undefined;
   /** Shown only when the agent runs under a saved account rather than the usual login. */
   accountLabel?: string | undefined;
   /** Starts another chat in this tile. Absent where a chat cannot start, such as a worktree still being set up. */
@@ -648,6 +651,7 @@ export function AgentTile({
             onNewChatWithPrompt={onNewChatWithPrompt}
             onAskAside={onAskAside}
             onCloseAside={onCloseAside}
+            sideChatSlot={sideChatSlot}
             active={active}
           />
         ) : (

@@ -240,7 +240,42 @@ describe("AppShell", () => {
       browserAction?.click();
     });
     expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
-    expect(button(container, "Browser")?.classList.contains("is-active")).toBe(true);
+    expect(button(container, "Right panel")?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("opens the right panel on a picker, and a panel's key opens it", async () => {
+    const container = await render(makeBridge(projection));
+    await act(async () => button(container, "Right panel")?.click());
+    expect(container.querySelector(".panel-launcher")?.textContent).toContain("Nothing waiting");
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true }));
+    });
+    expect(container.querySelector('[aria-label="Files panel"]')).not.toBeNull();
+    await act(async () => button(container, "Right panel")?.click());
+    expect(container.querySelector(".tool-panel")).toBeNull();
+  });
+
+  it("keeps each panel opened as a tab, adds more from the plus, and reopens on the last one", async () => {
+    const container = await render(makeBridge(projection));
+    await act(async () => button(container, "Right panel")?.click());
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true }));
+    });
+    await act(async () => button(container, "Add a panel")?.click());
+    const menu = container.querySelector('[role="menu"][aria-label="Add a panel"]');
+    expect(menu?.textContent).toContain("Changes");
+    await act(async () => {
+      menu?.dispatchEvent(new KeyboardEvent("keydown", { key: "b", bubbles: true, cancelable: true }));
+    });
+    const tabs = () => [...container.querySelectorAll('.panel-tabs [role="tab"]')].map((tab) => tab.textContent);
+    expect(tabs()).toEqual(["Files", "Browser"]);
+    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    await act(async () => button(container, "Right panel")?.click());
+    await act(async () => button(container, "Right panel")?.click());
+    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    await act(async () => button(container, "Close Browser")?.click());
+    expect(tabs()).toEqual(["Files"]);
+    expect(container.querySelector('[aria-label="Files panel"]')).not.toBeNull();
   });
 
   it("opens the Browser panel when an agent opens a page", async () => {
@@ -250,7 +285,7 @@ describe("AppShell", () => {
       revealListener?.({ browserTabId: "00000000-0000-4000-8000-000000000021", worktreeId });
     });
     expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
-    expect(button(container, "Browser")?.classList.contains("is-active")).toBe(true);
+    expect(button(container, "Right panel")?.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("filters palette commands and closes the palette before opening help", async () => {

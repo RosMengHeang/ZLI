@@ -44,9 +44,9 @@ test("changes New agent defaults, branch names, and shortcuts from Settings", as
 
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
-    // Chat only keeps the terminal out of sight; the panels are in one Tools menu.
+    // Chat only keeps the terminal out of sight; the panels open from the right-panel switch.
     await expect(page.locator(".topbar-tools").getByRole("button", { name: "Terminal", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Tools", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Right panel", exact: true })).toBeVisible();
 
     // In Chat the new-agent shortcut opens a chat at once; the dialog with every option is in the palette.
     await page.keyboard.press("Control+Shift+Y");

@@ -46,14 +46,6 @@
 .topbar-tools .tool-toggle:hover { color: var(--zli-text); }
 .topbar-tools .tool-toggle.is-active { background: var(--zli-active); color: var(--zli-text); }
 .topbar-tools .toolbar-divider { height: 14px; margin: 0 var(--zli-space-1); }
-.command-trigger {
-  display: flex; align-items: center; gap: var(--zli-space-2); width: 220px; height: var(--zli-control-md); margin-left: var(--zli-space-1-5); padding: 0 var(--zli-space-1) 0 var(--zli-space-2-5);
-  border: 0; border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-dim);
-  cursor: pointer; font-size: var(--zli-text-sm); text-align: left;
-  transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
-}
-.command-trigger-label { flex: 1; }
-.command-trigger:hover { background: var(--zli-active); color: var(--zli-muted); }
 
 /* ---------- Notices ---------- */
 /* Notices take the island shape so they read as part of the workbench, not a strip across the window. */
@@ -98,10 +90,6 @@
 @media (max-width: 1240px) {
   .pane-detail { display: none; }
 }
-@media (max-width: 1080px) {
-  .command-trigger { width: var(--zli-control-md); justify-content: center; padding: 0; }
-  .command-trigger-label, .command-trigger .kbd-group { display: none; }
-}
 /* Zoomed far in, the bar keeps every button and drops the New agent label, which stays its accessible name. */
 @media (max-width: 720px) {
   .topbar-new-agent-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -111,3 +99,80 @@
   .topbar-context { display: none; }
   .topbar-tools { overflow-x: auto; scrollbar-width: none; }
 }
+
+/* ---------- The panel picker ---------- */
+/* The right panel before a panel is chosen. It reads as a glance at the worktree, not a menu: the branch on top,
+   then one row per panel whose second line says what is happening in it now. A dot on the icon marks a row with
+   something in it, coloured by what it wants: blue to review, green running, red broken. Rows with nothing going
+   on stay grey, so the eye lands on the live ones first. The list sits in the upper third, where the eye starts. */
+.panel-launcher { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; padding: clamp(24px, 16vh, 140px) var(--zli-space-4) var(--zli-space-6); }
+.panel-launcher-head, .panel-launcher-list, .panel-launcher-foot { width: 100%; max-width: 360px; margin-inline: auto; }
+.panel-launcher-head { margin-bottom: var(--zli-space-3); padding: 0 var(--zli-space-2); }
+.panel-launcher-head h2 { margin: 0; overflow: hidden; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.panel-launcher-head p { margin: 3px 0 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.panel-launcher-list { display: flex; flex-direction: column; gap: 1px; margin-block: 0; padding: 0; list-style: none; }
+.panel-launcher-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); padding: 6px var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.panel-launcher-item:hover { background: var(--zli-hover); }
+.panel-launcher-item:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.panel-launcher-icon { position: relative; display: inline-grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-dim); transition: color var(--zli-duration-fast) var(--zli-ease); }
+.panel-launcher-item:hover .panel-launcher-icon { color: var(--zli-text); }
+/* The live dot: on the icon's corner, ringed in the panel colour so it reads at any size. */
+.panel-launcher-item:is(.is-accent, .is-green, .is-red) .panel-launcher-icon { color: var(--zli-text); }
+.panel-launcher-item:is(.is-accent, .is-green, .is-red) .panel-launcher-icon::after { position: absolute; top: -2px; right: -2px; width: 7px; height: 7px; border: 2px solid var(--zli-surface); border-radius: 50%; background: var(--dot); content: ""; }
+.panel-launcher-item.is-accent { --dot: var(--zli-accent); }
+.panel-launcher-item.is-green { --dot: var(--zli-green); }
+.panel-launcher-item.is-red { --dot: var(--zli-red); }
+.panel-launcher-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.panel-launcher-label { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; line-height: 18px; }
+.panel-launcher-detail { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.panel-launcher-item.is-accent .panel-launcher-detail { color: var(--zli-muted); }
+.panel-launcher-item.is-green .panel-launcher-detail { color: var(--zli-green); }
+.panel-launcher-item.is-red .panel-launcher-detail { color: var(--zli-red); }
+.panel-launcher-add { color: var(--zli-green); font-family: var(--zli-mono); font-size: 11px; }
+.panel-launcher-del { color: var(--zli-red); font-family: var(--zli-mono); font-size: 11px; }
+.panel-launcher-key { display: inline-grid; min-width: 20px; height: 20px; flex: 0 0 auto; place-items: center; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: 5px; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; opacity: .7; transition: opacity var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.panel-launcher-item:hover .panel-launcher-key { color: var(--zli-text); opacity: 1; }
+.panel-launcher-foot { margin-top: var(--zli-space-3); padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.panel-launcher-foot kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: 4px; font-family: var(--zli-mono); font-size: 10.5px; }
+
+/* ---------- The right panel's tabs ---------- */
+/* One tab per panel opened, then a plus that lists every panel. The tab in use is lifted onto a soft pill; the
+   others stay quiet text, and each shows its close mark only on hover or while in use. */
+.panel-tabs { position: relative; display: flex; height: 36px; flex: 0 0 auto; align-items: center; gap: 2px; padding: 0 6px; border-bottom: 1px solid var(--zli-border); }
+.panel-tabs-list { display: flex; min-width: 0; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.panel-tab { position: relative; display: flex; flex: 0 0 auto; align-items: center; height: 26px; border-radius: var(--zli-radius-md); color: var(--zli-dim); transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.panel-tab:hover { background: var(--zli-hover); color: var(--zli-muted); }
+.panel-tab.is-active { background: var(--zli-hover); color: var(--zli-text); }
+.panel-tab-name { display: flex; height: 100%; align-items: center; gap: 6px; padding: 0 4px 0 8px; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: var(--zli-text-xs); font-weight: 500; white-space: nowrap; }
+.panel-tab-name:focus-visible, .panel-tab-close:focus-visible, .panel-tabs-plus:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; border-radius: var(--zli-radius-md); }
+.panel-tab-close { display: inline-grid; width: 16px; height: 16px; margin-right: 4px; place-items: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--zli-dim); cursor: pointer; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.panel-tab:hover .panel-tab-close, .panel-tab.is-active .panel-tab-close, .panel-tab-close:focus-visible { opacity: 1; }
+.panel-tab-close:hover { background: var(--zli-border); color: var(--zli-text); }
+.panel-tabs-add { position: relative; flex: 0 0 auto; }
+.panel-tabs-plus { display: inline-grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); cursor: pointer; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.panel-tabs-plus:hover, .panel-tabs-plus[aria-expanded="true"] { background: var(--zli-hover); color: var(--zli-text); }
+
+/* The list behind the plus: icon, name, what is going on in it, and its key. */
+.panel-tabs .menu.panel-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: 272px; max-width: none; animation: panel-menu-in var(--zli-duration-fast) var(--zli-ease); }
+.panel-tabs-add:has(.panel-menu) { z-index: 20; }
+.panel-menu .panel-menu-item { height: 30px; }
+.panel-menu-icon { position: relative; display: inline-grid; width: 16px; flex: 0 0 auto; place-items: center; color: var(--zli-muted); }
+.panel-menu-item:is(.is-accent, .is-green, .is-red) .panel-menu-icon::after { position: absolute; top: -3px; right: -4px; width: 6px; height: 6px; border: 1.5px solid var(--zli-overlay); border-radius: 50%; background: var(--dot); content: ""; }
+.panel-menu-item.is-accent { --dot: var(--zli-accent); }
+.panel-menu-item.is-green { --dot: var(--zli-green); }
+.panel-menu-item.is-red { --dot: var(--zli-red); }
+.panel-menu-live { min-width: 0; max-width: 130px; flex: 0 1 auto; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.panel-menu-item.is-green .panel-menu-live { color: var(--zli-green); }
+.panel-menu-item.is-red .panel-menu-live { color: var(--zli-red); }
+.panel-menu-key { min-width: 14px; flex: 0 0 auto; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; text-align: right; }
+@keyframes panel-menu-in { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .panel-tabs .menu.panel-menu { animation: none; } }
+
+/* The side chat as a panel: the side question fills it, the log growing above the box. */
+.side-chat-panel { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.side-chat-slot { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.side-chat-slot > .side-chat { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.side-chat-slot .side-chat-head { height: auto; padding: var(--zli-space-3) var(--zli-space-3) var(--zli-space-1); }
+.side-chat-slot .side-chat-log { max-height: none; flex: 1; padding-top: var(--zli-space-2); }
+.side-chat-slot .side-chat-form { margin-top: auto; }
+.side-chat-panel-empty { margin: auto; padding: var(--zli-space-6); color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: center; }
