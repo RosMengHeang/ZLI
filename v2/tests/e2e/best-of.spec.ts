@@ -9,6 +9,7 @@ import {
   type DesktopFixture,
   git,
   launchDesktop,
+  openNewAgentOptions,
   sendChatMessage,
 } from "./desktop-fixtures.js";
 
@@ -55,7 +56,7 @@ async function clickTryWays(message: Locator): Promise<void> {
 
 async function startChat(page: Page): Promise<void> {
   await expect(page.locator(".project-label")).toContainText("repo");
-  await page.locator(".sidebar-new-agent").click();
+  await openNewAgentOptions(page);
   const newAgent = page.getByRole("dialog", { name: "New agent" });
   await newAgent.getByText("Codex", { exact: true }).click();
   await newAgent.getByText("Chat", { exact: true }).click();
@@ -136,9 +137,13 @@ test("tries an earlier message several ways, starting from before it was sent", 
     const page = fixture.page;
     await startChat(page);
     await sendChatMessage(page, "[write notes.md] first change");
-    await expect(page.getByText("Mock response: [write notes.md] first change")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".chat-log").getByText("Mock response: [write notes.md] first change")).toBeVisible({
+      timeout: 30_000,
+    });
     await sendChatMessage(page, "[write other.md] second change");
-    await expect(page.getByText("Mock response: [write other.md] second change")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".chat-log").getByText("Mock response: [write other.md] second change")).toBeVisible({
+      timeout: 30_000,
+    });
     // Each turn's changes are saved just after it ends; until then Try N ways cannot know where to start.
     await expect(page.getByRole("region", { name: "Changes in this turn" })).toHaveCount(2, { timeout: 20_000 });
 

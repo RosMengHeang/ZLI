@@ -5,6 +5,7 @@ import {
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openNewAgentOptions,
   sendChatMessage,
 } from "./desktop-fixtures.js";
 
@@ -17,7 +18,7 @@ test("queues messages while an agent is busy, removes them, and steers with Send
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
@@ -41,7 +42,9 @@ test("queues messages while an agent is busy, removes them, and steers with Send
     await expect(queue.locator(".chat-queue-text")).toHaveText(["Update the docs"]);
 
     await approval.getByRole("button", { name: "Approve", exact: true }).click();
-    await expect(page.getByText("Mock response: Update the docs")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".chat-log").getByText("Mock response: Update the docs")).toBeVisible({
+      timeout: 20_000,
+    });
     await expect(queue).toHaveCount(0);
     await expect(page.getByText("Bump the version")).toHaveCount(0);
 
@@ -54,7 +57,9 @@ test("queues messages while an agent is busy, removes them, and steers with Send
     await expect(queueButton).toBeEnabled();
     await composer.press("Enter");
     await queue.getByRole("button", { name: "Send now: Change of plan, stop and fix the tests" }).click();
-    await expect(page.getByText("Mock response: Change of plan, stop and fix the tests")).toBeVisible({
+    await expect(
+      page.locator(".chat-log").getByText("Mock response: Change of plan, stop and fix the tests"),
+    ).toBeVisible({
       timeout: 20_000,
     });
     await expect(queue).toHaveCount(0);

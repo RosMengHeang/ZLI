@@ -3,7 +3,13 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  openNewAgentOptions,
+} from "./desktop-fixtures.js";
 
 test("notifies when a background agent finishes and lets people turn notifications off", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -26,7 +32,7 @@ test("notifies when a background agent finishes and lets people turn notificatio
       if (window) window.isFocused = () => false;
     });
 
-    await page.keyboard.press(`${mod}+n`);
+    await openNewAgentOptions(page);
     const dialog = page.getByRole("dialog", { name: "New agent" });
     await dialog.getByText("Codex", { exact: true }).click();
     await dialog.getByText("Chat", { exact: true }).click();

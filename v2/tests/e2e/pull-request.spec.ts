@@ -10,6 +10,7 @@ import {
   git,
   launchDesktop,
   openCreateWorktree,
+  openNewAgentOptions,
   togglePanel,
 } from "./desktop-fixtures.js";
 
@@ -209,7 +210,7 @@ test("shows a pull request's checks and sends a failed check's log to an agent",
     await expect(worktree).toContainText("Ready", { timeout: 30_000 });
     await worktree.click();
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
@@ -234,8 +235,8 @@ test("shows a pull request's checks and sends a failed check's log to an agent",
     await expect(send).toHaveCount(0);
     await expect(page.getByText(/Mock response: The CI check/u)).toBeVisible({ timeout: 20_000 });
 
-    // The sidebar shows the same pull request on the branch row the agent sits under.
-    await expect(page.locator(".worktree-group-row", { hasText: "checks" })).toContainText("#7", { timeout: 30_000 });
+    // The sidebar shows the same pull request on the branch line of the agent's card.
+    await expect(page.locator(".session-branch", { hasText: "checks" })).toContainText("#7", { timeout: 30_000 });
   } finally {
     if (fixture) await closeDesktop(fixture);
   }
@@ -321,7 +322,7 @@ test("reads a pull request's review comments and sends the picked ones to an age
     await expect(worktree).toContainText("Ready", { timeout: 30_000 });
     await worktree.click();
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();

@@ -9,6 +9,7 @@ import {
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openNewAgentOptions,
   togglePanel,
   V2_ROOT,
 } from "./desktop-fixtures.js";
@@ -51,7 +52,7 @@ test("runs a huddle where agents and the person talk, assign work, and pin a dec
     await expect(page.getByRole("status").filter({ hasText: "Runtime connected" })).toBeVisible();
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.keyboard.press(`${mod}+n`);
+    await openNewAgentOptions(page);
     const dialog = page.getByRole("dialog", { name: "New agent" });
     await dialog.getByText("Codex", { exact: true }).click();
     await dialog.getByText("Chat", { exact: true }).click();

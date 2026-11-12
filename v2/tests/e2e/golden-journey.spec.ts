@@ -13,6 +13,7 @@ import {
   git,
   launchDesktop,
   openCreateWorktree,
+  openNewAgentOptions,
   togglePanel,
 } from "./desktop-fixtures.js";
 
@@ -80,7 +81,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await expect(page.getByRole("log", { name: "Terminal output" })).toContainText(`ZLI_DEV_READY ${terminalPort}`, {
       timeout: 20_000,
     });
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await expect(newAgent.getByRole("radio", { name: /Codex/u })).toBeChecked();
@@ -94,7 +95,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     await expect(composer).toBeEnabled({ timeout: 20_000 });
     await composer.fill("inspect workspace");
     await page.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(page.getByText("Mock response: inspect workspace")).toBeVisible();
+    await expect(page.locator(".chat-log").getByText("Mock response: inspect workspace")).toBeVisible();
 
     await togglePanel(page, "Browser");
     await page.getByRole("textbox", { name: "Browser URL" }).fill(`http://127.0.0.1:${browserPort}`);
@@ -187,9 +188,11 @@ test("completes the workspace, provider, browser, review, and restoration journe
         { timeout: 30_000 },
       )
       .toBe("ready");
-    // The worktree has an agent, so the sidebar lists the agent under a row for its branch.
-    await expect(fixture.page.locator(".worktree-group-row", { hasText: "e2e" })).toBeVisible({ timeout: 30_000 });
-    await expect(fixture.page.getByText("Mock response: inspect workspace")).toBeVisible({ timeout: 20_000 });
+    // The worktree has an agent, so the sidebar names its branch on the agent's card.
+    await expect(fixture.page.locator(".session-branch", { hasText: "e2e" })).toBeVisible({ timeout: 30_000 });
+    await expect(fixture.page.locator(".chat-log").getByText("Mock response: inspect workspace")).toBeVisible({
+      timeout: 20_000,
+    });
     await togglePanel(fixture.page, "Browser");
     await expect(fixture.page.getByRole("heading", { name: "ZLI fixture" })).toBeVisible({ timeout: 20_000 });
   } finally {

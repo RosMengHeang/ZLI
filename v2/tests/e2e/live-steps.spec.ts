@@ -5,6 +5,7 @@ import {
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openNewAgentOptions,
   sendChatMessage,
 } from "./desktop-fixtures.js";
 
@@ -17,7 +18,7 @@ test("shows each step live between the reply's text, and stops a turn from the c
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();

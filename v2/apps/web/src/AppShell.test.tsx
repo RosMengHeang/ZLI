@@ -181,6 +181,22 @@ async function render(bridge: ZliBridge) {
   return container;
 }
 
+/** New chat opens a chat at once; the dialog with every option is New agent with options in the palette. */
+async function openNewAgentOptions(container: HTMLElement) {
+  await act(async () => {
+    openPalette();
+  });
+  const search = container.querySelector<HTMLInputElement>('input[aria-label="Search commands"]');
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(search, "options");
+    search?.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    button(container, "New agent with options")?.click();
+  });
+}
+
 function button(container: HTMLElement, name: string): HTMLButtonElement | undefined {
   return [...container.querySelectorAll("button")].find(
     (candidate) => candidate.getAttribute("aria-label") === name || candidate.textContent?.trim() === name,
@@ -192,11 +208,17 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+/** Opens the command palette with its shortcut, the way it opens now that the top bar has no Search button. */
+function openPalette() {
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true, cancelable: true }),
+  );
+}
+
 describe("AppShell", () => {
   it("shows the project, an empty agent board, and a terminal drawer on demand", async () => {
     const container = await render(makeBridge(projection));
     expect(container.querySelector(".project-label")?.textContent).toContain("repo");
-    expect(container.querySelector(".sidebar-heading")?.textContent).toBe("Projects");
     expect(container.textContent).toContain("main");
     expect(container.textContent).toContain("No agents on the board");
     expect(container.querySelector('[aria-label="Terminal panel"]')).toBeNull();
@@ -210,7 +232,7 @@ describe("AppShell", () => {
   it("provides a keyboard-accessible command palette with working pane actions", async () => {
     const container = await render(makeBridge(projection));
     await act(async () => {
-      container.querySelector<HTMLButtonElement>(".command-trigger")?.click();
+      openPalette();
     });
     const browserAction = button(container, "Focus browser");
     expect(browserAction).not.toBeUndefined();
@@ -234,7 +256,7 @@ describe("AppShell", () => {
   it("filters palette commands and closes the palette before opening help", async () => {
     const container = await render(makeBridge(projection));
     await act(async () => {
-      container.querySelector<HTMLButtonElement>(".command-trigger")?.click();
+      openPalette();
     });
     const input = container.querySelector<HTMLInputElement>('input[aria-label="Search commands"]');
     expect(input).not.toBeNull();
@@ -281,19 +303,19 @@ describe("AppShell", () => {
       onPopOuts: () => () => undefined,
     };
     const mobile = { ...withoutPopOut, popOut } as unknown as MobileBridge;
-    const openPalette = async (container: HTMLElement) =>
+    const showPalette = async (_container: HTMLElement) =>
       act(async () => {
-        container.querySelector<HTMLButtonElement>(".command-trigger")?.click();
+        openPalette();
       });
 
     const plain = await render({ ...makeBridge(projection), mobile: withoutPopOut as unknown as MobileBridge });
-    await openPalette(plain);
+    await showPalette(plain);
     expect(button(plain, "Focus mobile")).not.toBeUndefined();
     expect(button(plain, "Pop out mobile device")).toBeUndefined();
     document.body.replaceChildren();
 
     const container = await render({ ...makeBridge(projection), mobile });
-    await openPalette(container);
+    await showPalette(container);
     await act(async () => {
       button(container, "Pop out mobile device")?.click();
     });
@@ -305,9 +327,7 @@ describe("AppShell", () => {
   it("starts a new agent CLI in a terminal tile in the chosen worktree", async () => {
     const dispatched: unknown[] = [];
     const container = await render(makeBridge(discovered, dispatched));
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
-    });
+    await openNewAgentOptions(container);
     const dialog = container.querySelector('[role="dialog"][aria-label="New agent"]');
     expect(dialog).not.toBeNull();
     const claude = dialog?.querySelector<HTMLInputElement>('input[value="claude-code"]');
@@ -346,9 +366,7 @@ describe("AppShell", () => {
   it("does not start an agent when the person does not let agents work in the project", async () => {
     const dispatched: unknown[] = [];
     const container = await render(makeBridge(discovered, dispatched));
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
-    });
+    await openNewAgentOptions(container);
     await act(async () => {
       button(container, "Start agent")?.click();
     });
@@ -552,7 +570,7 @@ describe("AppShell", () => {
     const container = await render(bridge);
     const runFromPalette = async () => {
       await act(async () => {
-        container.querySelector<HTMLButtonElement>(".command-trigger")?.click();
+        openPalette();
       });
       await act(async () => {
         button(container, "Test (kit)")?.click();
@@ -677,7 +695,7 @@ describe("Project boards", () => {
       container.querySelector<HTMLButtonElement>('section[aria-label="repo"] .session-row')?.click(),
     );
     expect(shown(container)).toEqual([ids.a1, ids.b1]);
-    await act(async () => container.querySelector<HTMLButtonElement>(".command-trigger")?.click());
+    await act(async () => openPalette());
     const command = button(container, "Show only this project");
     expect(command?.textContent).toContain("CtrlShiftP");
     await act(async () => command?.click());
@@ -762,7 +780,7 @@ describe("Add project", () => {
     expect(container.querySelector(".board-project-notice")?.textContent).toContain("No agents in guider-crm yet.");
     const section = container.querySelector<HTMLElement>('.sidebar-project[aria-label="guider-crm"]');
     expect(section?.textContent).toContain("No agents yet.");
-    expect(section?.querySelector('[aria-label="New agent in guider-crm"]')?.classList.contains("is-shown")).toBe(true);
+    expect(section?.querySelector('[aria-label="New chat in guider-crm"]')?.classList.contains("is-shown")).toBe(true);
 
     const startOne = section ? button(section, "Start an agent in guider-crm") : undefined;
     expect(startOne?.textContent).toBe("Start one");
@@ -780,7 +798,7 @@ describe("Add project", () => {
     expect(container.querySelector(".board-project-notice")).toBeNull();
     expect(
       container
-        .querySelector('.sidebar-project[aria-label="guider-crm"] [aria-label="New agent in guider-crm"]')
+        .querySelector('.sidebar-project[aria-label="guider-crm"] [aria-label="New chat in guider-crm"]')
         ?.classList.contains("is-shown"),
     ).toBe(true);
   });
@@ -930,8 +948,10 @@ describe("Settings", () => {
     expect(dialog("Settings")).toBeNull();
     await press(window, { key: "n", code: "KeyN", ctrlKey: true });
     expect(dialog("New agent")).toBeNull();
+    // The new keys open a new chat at once, like the New chat button.
     await press(window, { key: "N", code: "KeyN", ctrlKey: true, shiftKey: true });
-    expect(dialog("New agent")).not.toBeNull();
+    expect(dialog("New agent")).toBeNull();
+    expect(container.querySelector(".agent-tile")).not.toBeNull();
   });
 
   it("opens a new chat as a draft and starts its agent only with the first message", async () => {
@@ -987,7 +1007,7 @@ describe("Settings", () => {
     });
     expect(dialog("New agent")).toBeFalsy();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>(".command-trigger")?.click();
+      openPalette();
     });
     const search = container.querySelector<HTMLInputElement>('input[aria-label="Search commands"]');
     await setValue(search as HTMLInputElement, "options");
@@ -1009,9 +1029,7 @@ describe("Settings", () => {
 
   it("picks permissions in the New agent dialog, and Escape closes only the open list", async () => {
     const container = await render(makeBridge(discovered));
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
-    });
+    await openNewAgentOptions(container);
     const trigger = dialog("New agent")?.querySelector<HTMLButtonElement>('button[aria-label^="Permissions"]');
     await act(async () => trigger?.click());
     const list = () => document.querySelector('[role="listbox"][aria-label="Permissions"]');
@@ -1041,9 +1059,7 @@ describe("Settings", () => {
     expect(button(settings, "Reset repo to New agents")).not.toBeUndefined();
 
     await press(window, { key: "Escape", code: "Escape" });
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.click();
-    });
+    await openNewAgentOptions(container);
     const permissionPicker = dialog("New agent")?.querySelector(
       'button[aria-haspopup="listbox"][aria-label^="Permissions"]',
     );

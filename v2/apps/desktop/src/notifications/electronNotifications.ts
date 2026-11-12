@@ -1,6 +1,5 @@
-import { app, type BrowserWindow, ipcMain, Notification } from "electron";
-
 import type { RuntimeClient } from "@zli-v2/client-runtime";
+import { app, type BrowserWindow, ipcMain, type NativeImage, Notification, nativeImage } from "electron";
 
 import { AgentNotifier, type NotifierHost } from "./AgentNotifier.js";
 import { NotificationSettingsStore } from "./NotificationSettingsStore.js";
@@ -21,15 +20,18 @@ export async function registerAgentNotifications(options: {
   await store.load();
   // Electron drops click handlers of notifications that are garbage collected, so live ones are kept.
   const live = new Set<Notification>();
+  // The renderer draws each chat's animal; a notification about that chat wears it.
+  let faces = new Map<string, NativeImage>();
   const bringForward = () => {
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
   };
   const host: NotifierHost = {
-    show: ({ title, body, silent }, onClick) => {
+    show: ({ title, body, silent, sessionId }, onClick) => {
       if (!Notification.isSupported()) return;
-      const notification = new Notification({ title, body, silent });
+      const icon = sessionId ? faces.get(sessionId) : undefined;
+      const notification = new Notification({ title, body, silent, ...(icon ? { icon } : {}) });
       live.add(notification);
       if (live.size > MAX_LIVE_NOTIFICATIONS) {
         const oldest = live.values().next().value;
@@ -83,6 +85,18 @@ export async function registerAgentNotifications(options: {
     const next = await store.update(patch);
     notifier.settingsChanged();
     return next;
+  });
+  ipcMain.handle("zli:notifications:set-faces", (_event, input: unknown) => {
+    const raw = input && typeof input === "object" ? (input as { faces?: unknown }).faces : undefined;
+    const next = new Map<string, NativeImage>();
+    if (raw && typeof raw === "object") {
+      for (const [sessionId, icon] of Object.entries(raw).slice(0, 200)) {
+        if (typeof icon !== "string" || !icon.startsWith("data:image/png;base64,") || icon.length > 200_000) continue;
+        const image = nativeImage.createFromDataURL(icon);
+        if (!image.isEmpty()) next.set(sessionId, image);
+      }
+    }
+    faces = next;
   });
   ipcMain.handle("zli:notifications:set-viewing", (_event, input: unknown) => {
     const ids =

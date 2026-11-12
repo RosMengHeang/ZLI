@@ -8,6 +8,7 @@ import {
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openNewAgentOptions,
   sendChatMessage,
 } from "./desktop-fixtures.js";
 
@@ -44,7 +45,7 @@ test("runs a chat under an API key account picked in the New agent dialog", asyn
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByRole("button", { name: "Account: Usual login" }).click();

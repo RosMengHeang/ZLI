@@ -261,6 +261,13 @@ export const ThreadActivityConnector = z.object({
 });
 export type ThreadActivityConnector = z.infer<typeof ThreadActivityConnector>;
 
+/** One step of the plan an agent keeps while it works, such as Claude's todo list or Codex's plan. */
+export const ThreadActivityTodo = z.object({
+  text: z.string().min(1).max(500),
+  status: z.enum(["pending", "in_progress", "completed"]),
+});
+export type ThreadActivityTodo = z.infer<typeof ThreadActivityTodo>;
+
 /** One tool call inside a turn. Updates with the same activityId replace earlier ones. */
 export const ThreadActivityProjection = z.object({
   activityId: z.string().min(1).max(200),
@@ -282,5 +289,7 @@ export const ThreadActivityProjection = z.object({
   /** How much of the turn's reply had arrived when the call started, which places it inside the reply. */
   textOffset: z.number().int().min(0).max(100_000_000).optional(),
   connector: ThreadActivityConnector.optional(),
+  /** The agent's whole plan as of this call, for a call that writes its todo list or plan. */
+  todos: z.array(ThreadActivityTodo).max(100).optional(),
 });
 export type ThreadActivityProjection = z.infer<typeof ThreadActivityProjection>;

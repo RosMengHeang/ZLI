@@ -84,8 +84,6 @@
 .session-worktree-alert .worktree-actions { margin-left: 40px; }
 .session-row:hover { background: var(--zli-hover); }
 .session-row.is-active { background: var(--zli-active); }
-.session-row .provider-mark { color: var(--zli-dim); }
-.session-row:hover .provider-mark, .session-row.is-active .provider-mark { color: var(--zli-text); }
 .session-title { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-base); text-overflow: ellipsis; white-space: nowrap; }
 .session-row:hover .session-title, .session-row.is-active .session-title { color: var(--zli-text); }
 .session-background { color: var(--zli-dim); font-size: var(--zli-text-xs); }
@@ -269,7 +267,6 @@
 .shelf-row:hover { background: var(--zli-hover); }
 .shelf-row.is-active { background: var(--zli-active); }
 .shelf-row:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
-.shelf-row > .provider-mark { flex: 0 0 auto; margin-top: 3px; color: var(--zli-muted); }
 .shelf-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
 .shelf-line { display: flex; min-width: 0; align-items: baseline; gap: var(--zli-space-2); }
 .shelf-title { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
@@ -309,47 +306,134 @@
 .session-status.is-failed.is-seen { color: var(--zli-dim); font-weight: 400; }
 .session-status.is-failed.is-seen .dot { display: none; }
 
-/* ---------- Chat-first layout ---------- */
-/* New chat is the one raised control; adding a project is rarer, so it is an icon beside it. */
-.sidebar-primary { gap: var(--zli-space-2); padding-bottom: var(--zli-space-4); }
-.sidebar-primary-row { display: flex; align-items: center; gap: var(--zli-space-1); }
-.sidebar-primary-row .sidebar-new-agent { min-width: 0; flex: 1; }
-.sidebar-primary-row .sidebar-add-project { flex: 0 0 auto; width: var(--zli-control-lg); height: var(--zli-control-lg); color: var(--zli-muted); }
+/* ---------- Calm chat list ----------
+ * The sidebar stays quiet until something happens. Text is grey and white, one size of row, no borders or
+ * icons that do not say something. Colour appears only for news: a chat that needs the person (amber), one that
+ * failed (red), one that finished out of sight (a dot). The animals carry the personality, in one soft palette.
+ */
+
+/* New chat and search: two quiet rows, the same width and radius as the cards under them. */
+.sidebar-primary { gap: 2px; padding: var(--zli-space-1) var(--zli-space-2) var(--zli-space-4); }
+.sidebar-primary-row { display: flex; align-items: center; gap: 2px; }
+.sidebar-primary-row .sidebar-new-agent {
+  min-width: 0; flex: 1; height: 34px; gap: 10px; padding: 0 var(--zli-space-2) 0 11px;
+  border: 0; border-radius: 10px; background: transparent; box-shadow: none; color: var(--zli-text); font-weight: 500;
+}
+.sidebar-primary-row .sidebar-new-agent:hover { background: var(--zli-hover); }
+.sidebar-primary-row .sidebar-new-agent > svg { color: var(--zli-muted); }
+.sidebar-primary-row .sidebar-add-project { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px; color: var(--zli-dim); }
 .sidebar-primary-row .sidebar-add-project:hover { color: var(--zli-text); }
-.sidebar-search { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-control-md); padding: 0 var(--zli-space-2-5); border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-dim); cursor: text; transition: background-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
-.sidebar-search:focus-within { background: transparent; box-shadow: inset 0 0 0 1px var(--zli-border-hover); color: var(--zli-muted); }
+.sidebar-search {
+  display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 var(--zli-space-2) 0 12px;
+  border-radius: 10px; background: transparent; box-shadow: none; color: var(--zli-dim); cursor: text;
+  transition: background-color var(--zli-duration-fast) var(--zli-ease);
+}
+.sidebar-search:hover, .sidebar-search:focus-within { background: var(--zli-hover); }
 .sidebar-search > svg { flex: 0 0 auto; }
-.sidebar-search input { min-width: 0; flex: 1; height: 100%; padding: 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); }
+.sidebar-search input { min-width: 0; flex: 1; height: 100%; padding: 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: 13px; }
 .sidebar-search input::placeholder { color: var(--zli-dim); }
 .sidebar-search input::-webkit-search-cancel-button { cursor: pointer; }
 
-/* Projects read as quiet headings over their chats rather than as folders to open. */
-.project-label { height: 28px; font-size: var(--zli-text-sm); }
-.project-toggle > svg:first-child { width: 13px; height: 13px; }
-.project-name { color: var(--zli-muted); font-weight: 600; }
+/* Projects: a lantern in the project's colour, then the name. A heading, not a folder. */
+.sidebar-project + .sidebar-project { margin-top: var(--zli-space-5); }
+.project-label { height: 28px; margin-bottom: 2px; font-size: 12px; }
+.project-toggle { gap: 8px; padding-left: 10px; }
+.project-name { color: var(--zli-muted); font-size: 12.5px; font-weight: 600; }
 .project-label:hover .project-name { color: var(--zli-text); }
-.sidebar-project + .sidebar-project { margin-top: var(--zli-space-3); }
-.sidebar-heading { margin-top: var(--zli-space-1); }
+.sidebar-heading { margin: var(--zli-space-1) 0 2px; padding: 0 10px; color: var(--zli-dim); font-size: 12px; font-weight: 500; line-height: 24px; }
 
-/* A chat is one line: its agent, its title, its time. A second line appears only when there is news. */
-.session-row { height: 30px; padding-left: var(--zli-space-3); }
-.session-row.has-branch { height: 42px; }
-.session-row.has-state { height: 44px; }
-.session-row .provider-mark { flex: 0 0 auto; }
-.session-title { font-size: var(--zli-text-base); }
-.session-project { flex: 0 1 auto; max-width: 40%; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
-.session-line .session-project + .session-side, .session-line .session-title + .session-side { margin-left: auto; }
-.row-more { top: 15px; }
-.session-row.has-state ~ .row-more, .session-row.has-branch ~ .row-more { top: 15px; }
+/* Chat cards. One line when nothing is new: face, title, time. A second line only for news. */
+.sidebar-project > .session-list, .sidebar-pinned > .session-list, .sidebar-results > .session-list { display: flex; flex-direction: column; gap: 1px; }
+.session-row,
+.session-row.has-branch,
+.session-row.has-state,
+.session-row.has-branch.has-state {
+  height: auto; min-height: 36px; align-items: flex-start; gap: 10px; padding: 7px 10px 7px 8px;
+  border-radius: 10px; color: var(--zli-muted);
+}
+.session-row:hover { background: var(--zli-hover); }
+.session-row.is-active, .session-row.is-active:hover { background: var(--zli-active); box-shadow: none; }
+.session-face { position: relative; display: inline-grid; flex: 0 0 auto; place-items: center; margin-top: -1px; }
+.session-team { position: absolute; right: -6px; bottom: -4px; display: flex; flex-direction: row-reverse; }
+.session-team > .animal-avatar { margin-left: -5px; }
+.session-copy { min-width: 0; flex: 1; gap: 2px; padding-top: 2px; }
+.session-line { gap: var(--zli-space-2); }
+.session-row .session-title { color: var(--zli-muted); font-size: 13px; font-weight: 450; line-height: 18px; }
+.session-row:hover .session-title, .session-row.is-active .session-title, .session-row.is-unread .session-title { color: var(--zli-text); }
+.session-row.is-active .session-title, .session-row.is-unread .session-title { font-weight: 550; }
+.session-name { padding: 0 5px; border-radius: 4px; background: var(--zli-hover); color: var(--zli-muted); font-size: 11px; font-weight: 550; }
+.session-time { color: var(--zli-dim); font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: 1; }
+.session-status { font-size: 11.5px; font-weight: 500; }
+.session-status .dot { display: none; }
+.session-unread { width: 6px; height: 6px; flex: 0 0 6px; margin-right: 6px; border-radius: 50%; background: var(--zli-text); }
+.session-state { display: block; overflow: hidden; color: var(--zli-dim); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.session-row:hover .session-state, .session-row.is-active .session-state { color: var(--zli-muted); }
+.session-state.is-waiting, .session-row .session-state.is-waiting { color: var(--zli-amber); }
+.session-state.is-failed, .session-row .session-state.is-failed { color: var(--zli-red); }
+.session-branch { display: flex; min-width: 0; align-items: center; gap: 5px; margin-top: 1px; color: var(--zli-dim); line-height: 16px; }
+.session-branch > svg { flex: 0 0 auto; opacity: .8; }
+.session-branch .worktree-name { flex: 0 1 auto; color: var(--zli-dim); font-family: inherit; font-size: 12px; }
+.session-row:hover .session-branch .worktree-name, .session-row.is-active .session-branch .worktree-name { color: var(--zli-muted); }
+.session-branch .count { margin-left: auto; color: var(--zli-dim); font-size: 11.5px; }
+.row-more { top: 18px; right: 6px; }
+.session-row.has-state ~ .row-more, .session-row.has-branch ~ .row-more { top: 18px; }
+.session-entry.is-run .session-row { min-height: 30px; padding: 5px 8px; align-items: center; }
+.sub-agent-list { margin-left: 18px; }
+/* The agent behind the chat, as a small logo in the card's bottom right corner. On a one-line card it sits
+   after the time; on a card with news it drops to the corner under the time. */
+.session-agent { display: inline-grid; flex: 0 0 auto; place-items: center; align-self: center; width: 14px; height: 14px; color: var(--zli-dim); opacity: .7; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.session-row:hover .session-agent, .session-row.is-active .session-agent { opacity: 1; }
+.session-row:is(.has-state, .has-branch) .session-agent { position: absolute; right: 10px; bottom: 8px; }
+.session-row:is(.has-state, .has-branch) .session-copy { padding-right: 16px; }
+.session-entry:is(:has(> .session-row:hover), :has(> .row-more [aria-expanded="true"])) > .session-row:not(.has-state, .has-branch) .session-agent { visibility: hidden; }
 
-/* Chats in their own worktree hang off one row for its branch. */
-.worktree-row.worktree-group-row { height: 26px; padding-left: var(--zli-space-3); }
-.worktree-group > .session-list { margin-left: var(--zli-space-3); padding-left: var(--zli-space-1); border-left: 1px solid var(--zli-border); }
-.worktree-group > .session-list .session-row { padding-left: var(--zli-space-2); }
-.worktree-entry.worktree-group > .row-more { top: 13px; }
+/* Waiting on you: the one place with a tint, so news out of view is the first thing seen. */
+.sidebar-shelf { margin: 0 0 var(--zli-space-5); padding: 4px; border-radius: 12px; background: var(--zli-hover); box-shadow: none; }
+.shelf-head { height: 26px; padding: 0 4px 0 10px; }
+.shelf-heading { color: var(--zli-muted); font-size: 12px; font-weight: 550; }
+.shelf-row { align-items: flex-start; gap: 10px; padding: 7px 8px; border-radius: 9px; }
+.shelf-row:hover { background: var(--zli-active); }
+.shelf-row > .session-avatar { flex: 0 0 auto; margin-top: 0; }
+.shelf-title { font-size: 13px; font-weight: 550; }
+.shelf-reason { font-size: 12px; }
 
-.sidebar-pinned { margin-bottom: var(--zli-space-4); }
-.sidebar-pinned > .session-list { display: flex; flex-direction: column; gap: 1px; }
-.sidebar-results > .session-list { display: flex; flex-direction: column; gap: 1px; }
-.sidebar-results-empty { margin: 0; padding: 0 var(--zli-space-2-5); color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.sidebar-pinned { margin-bottom: var(--zli-space-5); }
+.sidebar-results-empty { margin: 0; padding: 0 10px; color: var(--zli-dim); font-size: 12px; line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .sidebar-results .session-row:focus-visible, .sidebar-scroll .session-row:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+
+/* ---------- Project lanterns ---------- */
+/* Hollow while nothing runs, lit while an agent in the project works, amber when something needs the person. */
+.project-lantern {
+  --lantern: hsl(var(--lantern-hue) 55% 68%);
+  position: relative; width: 10px; height: 10px; flex: 0 0 auto; margin: 0 3px 0 1px; border-radius: 50%;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--lantern) 75%, transparent);
+  transition: background-color var(--zli-duration-base) var(--zli-ease), box-shadow var(--zli-duration-base) var(--zli-ease);
+}
+.project-lantern.is-working { background: var(--lantern); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lantern) 22%, transparent); animation: lantern-glow 2.4s ease-in-out infinite; }
+.project-lantern.is-waiting { background: var(--zli-amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--zli-amber) 25%, transparent); }
+@keyframes lantern-glow {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--lantern) 18%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--lantern) 30%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .project-lantern.is-working { animation: none; } }
+.project-faces { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1px; padding: 0 4px; color: var(--zli-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.project-faces-more { margin-left: 3px; }
+.project-label:hover .project-faces { display: none; }
+
+/* ---------- The animal speaks ---------- */
+/* News comes out of the chat's animal as a small speech bubble under the title: the step it is on, its
+   question in amber, its failure in red, or the start of a reply the person has not read. */
+.session-row .session-state {
+  position: relative; display: block; width: fit-content; max-width: 100%; margin-top: 3px; padding: 2px 8px 3px;
+  border-radius: 3px 9px 9px 9px; background: var(--zli-hover); color: var(--zli-muted);
+  font-size: 11.5px; line-height: 16px;
+}
+.session-row.is-active .session-state, .session-row:hover .session-state { background: color-mix(in srgb, var(--zli-text) 9%, transparent); color: var(--zli-text); }
+.session-row .session-state.is-waiting { background: var(--zli-amber-soft); color: var(--zli-amber); }
+.session-row .session-state.is-failed { background: var(--zli-red-soft); color: var(--zli-red); }
+.session-row .session-state.is-said { color: var(--zli-muted); }
+
+/* Archived chats: folded at the bottom, quieter than the lists above. */
+.sidebar-archive { margin-top: var(--zli-space-2); }
+.sidebar-archive .session-row { opacity: .72; }
+.sidebar-archive .session-row:hover, .sidebar-archive .session-row.is-active { opacity: 1; }

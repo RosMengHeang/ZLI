@@ -37,6 +37,7 @@ describe("app settings", () => {
       customThemes: [],
       teammates: [],
       animateTeammates: true,
+      archiveMergedChats: true,
     });
   });
 

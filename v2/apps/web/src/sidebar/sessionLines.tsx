@@ -57,7 +57,7 @@ export function AskLine({ threadId, provider }: { threadId: string; provider: st
 }
 
 /** The opening of the agent's last reply, for a chat that finished while the person was elsewhere. */
-export function ReplyPreview({ threadId }: { threadId: string }) {
+export function ReplyPreview({ threadId, fallback = "Finished" }: { threadId: string; fallback?: string }) {
   const reply = useRuntimeSelector(
     useCallback(
       (value: RuntimeProjection | undefined) => {
@@ -67,5 +67,5 @@ export function ReplyPreview({ threadId }: { threadId: string }) {
       [threadId],
     ),
   );
-  return <>{reply || "Finished"}</>;
+  return <>{reply || fallback}</>;
 }

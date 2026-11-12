@@ -94,10 +94,7 @@ const project = (page: Page, name: string) => page.getByRole("region", { name, e
 const tile = (page: Page, name: string) => page.getByRole("region", { name: new RegExp(`^${name},`, "u") });
 
 async function startAgent(page: Page, projectName: string, name: string): Promise<void> {
-  await clickProjectAction(
-    project(page, projectName).locator(".project-label"),
-    page.getByRole("button", { name: `New agent in ${projectName}` }),
-  );
+  await fromProjectMenu(page, projectName, "New agent with options…");
   const dialog = page.getByRole("dialog", { name: "New agent" });
   await dialog.getByText("Codex", { exact: true }).click();
   await dialog.getByText("Chat", { exact: true }).click();

@@ -1,9 +1,10 @@
 import type { Account, ProjectProjection, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { huddlesOf, MAX_HUDDLE_MEMBERS, threadOccupiesWorktree } from "@zli-v2/contracts";
-import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
+import { CHAT_DRAG_TYPE, chatTranscript } from "../chat/chatDrag.js";
 import { fitHuddleName, liveHuddles, sessionAgentId } from "../huddle/huddles.js";
 import { useHuddleCommands } from "../huddle/useHuddleCommands.js";
 import { limitKey } from "../limits/limits.js";
@@ -13,8 +14,11 @@ import { ConfirmDialog } from "../review/ConfirmDialog.js";
 import { type PullRequestEntry, usePullRequestEntries } from "../review/pullRequestStore.js";
 import type { RunGroup, RunState } from "../sessions/bestOf.js";
 import { runStateLabel } from "../sessions/bestOf.js";
+import { setChatArchived, useArchivedChats } from "../sessions/chatArchive.js";
+import { useChatTitlesVersion } from "../sessions/chatTitles.js";
 import {
   type AgentSession,
+  conversationThreads,
   relativeTime,
   sessionAgentName,
   sessionParents,
@@ -27,6 +31,7 @@ import { groupFinished } from "../sessions/useRunStates.js";
 import type { SettingsSection } from "../settings/SettingsDialog.js";
 import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
+import { assignChatAnimals } from "../teammates/chatAnimals.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
@@ -34,6 +39,7 @@ import { Menu, type MenuAction, MenuButton, type MenuItem, type MenuRequest } fr
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
+import { SessionAvatar } from "./SessionAvatar.js";
 import { SidebarPlanLimits } from "./SidebarUsageStrip.js";
 import { AskLine, LiveStep, ReplyPreview } from "./sessionLines.js";
 import { useSidebarCollapsed } from "./sidebarLayout.js";
@@ -130,6 +136,8 @@ type Props = {
   onRenameSession?: ((session: AgentSession) => void) | undefined;
   onSelectWorktree(worktree: WorktreeProjection): void;
   onNewAgent(project?: ProjectProjection): void;
+  /** The New agent dialog with every option, for this project: agent, view, worktree and name. */
+  onNewAgentOptions?: ((project: ProjectProjection) => void) | undefined;
   onOpenProject(): void;
   onCreateWorktree(project?: ProjectProjection): void;
   /** Removes a project from ZLI, leaving its folder on disk. Resolves to what went wrong, if anything. */
@@ -170,7 +178,7 @@ const noOlder: ReadonlySet<string> = new Set();
 
 export function Sidebar({
   projection,
-  sessions,
+  sessions: allSessions,
   activeSessionId,
   backgroundSessionIds,
   activeWorktreeId,
@@ -182,6 +190,7 @@ export function Sidebar({
   onRenameSession,
   onSelectWorktree,
   onNewAgent,
+  onNewAgentOptions,
   onOpenProject,
   onCreateWorktree,
   onRemoveProject,
@@ -216,11 +225,31 @@ export function Sidebar({
   const [huddleMenu, setHuddleMenu] = useState<MenuRequest>();
   const huddleCommands = useHuddleCommands();
   const layout = useSidebarCollapsed();
+  // Archived chats leave their project's list for the Archived section at the bottom.
+  const archivedIds = useArchivedChats();
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const sessions = useMemo(
+    () => allSessions.filter((session) => !archivedIds.has(session.sessionId)),
+    [allSessions, archivedIds],
+  );
+  const archivedChats = useMemo(
+    () => allSessions.filter((session) => archivedIds.has(session.sessionId)),
+    [allSessions, archivedIds],
+  );
   // An agent brought into a chat answers inside that chat, so its replies are read there, not flagged here.
   const ownChats = useMemo(() => sessions.filter((session) => !session.thread?.joins), [sessions]);
+  // Every chat gets an animal the first time it is listed, picked so the chats around it look different.
+  const chatOrder = [...sessions]
+    .sort((left, right) => (left.createdAt ?? "").localeCompare(right.createdAt ?? ""))
+    .map((session) => session.sessionId)
+    .join(" ");
+  useEffect(() => {
+    if (chatOrder) assignChatAnimals(chatOrder.split(" "));
+  }, [chatOrder]);
   const { unread, clear: clearUnread } = useUnread(ownChats, activeSessionId, projection !== undefined);
   /** Projects whose older chats the person unfolded. */
   const [olderOpen, setOlderOpen] = useState<ReadonlySet<string>>(noOlder);
+  useChatTitlesVersion();
   const [now, setNow] = useState(() => Date.now());
   const prEntries = usePullRequestEntries();
   const projects = projection?.projects ?? [];
@@ -513,7 +542,10 @@ export function Sidebar({
 
   /** What a project's "..." menu, and a right-click on its row, offers. */
   const projectMenuItems = (project: ProjectProjection): MenuItem[] => [
-    { label: "New agent", icon: "agentNew", run: () => onNewAgent(project) },
+    { label: "New chat", icon: "squarePen", run: () => onNewAgent(project) },
+    ...(onNewAgentOptions
+      ? [{ label: "New agent with options…", icon: "agentNew" as const, run: () => onNewAgentOptions(project) }]
+      : []),
     {
       label: "New worktree",
       icon: "branch",
@@ -758,6 +790,15 @@ export function Sidebar({
         });
       }
     }
+    if (session.mode === "chat") {
+      const archived = archivedIds.has(session.sessionId);
+      items.push({
+        label: archived ? "Unarchive chat" : "Archive chat",
+        icon: "bookmark",
+        title: archived ? undefined : "Move this chat to Archived at the bottom of the sidebar",
+        run: () => setChatArchived(session.sessionId, !archived),
+      });
+    }
     if (stoppable)
       items.push({
         label: "Stop agent",
@@ -815,7 +856,9 @@ export function Sidebar({
     const agentName = sessionAgentName(session);
     const runName = runIndex === undefined ? title : `Run ${runIndex}`;
     const name = agentName ? `${agentName}, ${runName}` : runName;
-    const branchLine = runIndex === undefined && !grouped && worktree && info;
+    // The project's own folder needs no branch line; a worktree of its own names it once, on its first chat.
+    const branchLine =
+      runIndex === undefined && !grouped && showWorktreeAlert && worktree && worktree.kind !== "checkout" && info;
     // A live agent says what it is doing, or what it asked, on a line of its own.
     const live =
       runIndex === undefined && session.thread && (session.status === "working" || session.status === "waiting")
@@ -832,14 +875,41 @@ export function Sidebar({
       (child) => child.sessionId !== session.sessionId && !ancestors.has(child.sessionId),
     );
     const below = subAgents.length > 0 ? new Set([...ancestors, session.sessionId]) : ancestors;
+    // Agents brought into the chat talk inside it, so they show as faces on its card rather than rows of their own.
+    const guests = subAgents.filter((child) => child.thread?.joins !== undefined);
+    const helpers = subAgents.filter((child) => child.thread?.joins === undefined);
+    // The card's second line says what matters now: what the chat is doing, what it asks, why it failed, or
+    // the last thing it said.
+    const lastWord =
+      !live && !failure && runIndex === undefined && isUnread && session.thread ? session.thread : undefined;
     return (
       <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
         <button
-          className={`session-row${active ? " is-active" : ""}${branchLine ? " has-branch" : ""}${live ? " has-state" : ""}${isUnread ? " is-unread" : ""}`}
+          className={`session-row${active ? " is-active" : ""}${branchLine ? " has-branch" : ""}${live || failure || lastWord ? " has-state" : ""}${isUnread ? " is-unread" : ""}`}
           type="button"
           aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}${isUnread ? ", unread" : ""}`}
           aria-current={active ? "true" : undefined}
           onClick={() => onSelectSession(session)}
+          // A chat dragged onto a message box goes along with the next message as context.
+          draggable={session.mode === "chat" && session.thread ? true : undefined}
+          onDragStart={
+            session.mode === "chat" && session.thread
+              ? (event) => {
+                  const chain = new Set(
+                    conversationThreads(session.thread as NonNullable<typeof session.thread>, session.threads).map(
+                      (entry) => entry.threadId,
+                    ),
+                  );
+                  const said = (projection?.messages ?? []).filter((message) => chain.has(message.threadId));
+                  event.dataTransfer.setData(
+                    CHAT_DRAG_TYPE,
+                    JSON.stringify({ title, transcript: chatTranscript(title, said) }),
+                  );
+                  event.dataTransfer.setData("text/plain", title);
+                  event.dataTransfer.effectAllowed = "copy";
+                }
+              : undefined
+          }
           onContextMenu={(event) =>
             openContextMenu(event, "Agent actions", () =>
               sessionMenuItems(session, stoppable, runIndex === undefined ? worktree : undefined, subAgents),
@@ -847,7 +917,23 @@ export function Sidebar({
           }
           title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}${parentName ? `\nStarted by ${parentName}` : ""}${failure ? `\n${failure}` : ""}`}
         >
-          <ProviderMark provider={session.provider} size={14} />
+          <span className="session-face">
+            <SessionAvatar
+              session={session}
+              size={runIndex === undefined ? 22 : 18}
+              quietStart={session.mode === "chat"}
+            />
+            {guests.length > 0 ? (
+              <span
+                className="session-team"
+                title={guests.map((guest) => sessionAgentName(guest) ?? "Agent").join(", ")}
+              >
+                {guests.slice(0, 3).map((guest) => (
+                  <SessionAvatar key={guest.sessionId} session={guest} size={13} />
+                ))}
+              </span>
+            ) : null}
+          </span>
           <span className="session-copy">
             <span className="session-line">
               {agentName ? <span className="session-name">{agentName}</span> : null}
@@ -872,7 +958,7 @@ export function Sidebar({
                       <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
                     </>
                   )
-                ) : (
+                ) : live && session.status === "working" ? null : (
                   <span
                     // A failure the person has already opened stays labelled, without the red that calls for a look.
                     className={`session-status is-${runStatus === "running" ? "working" : (runStatus ?? session.status)}${runStatus === undefined && session.status === "failed" && !isUnread ? " is-seen" : ""}`}
@@ -888,8 +974,16 @@ export function Sidebar({
                 {session.status === "waiting" ? (
                   <AskLine threadId={live.threadId} provider={session.provider} />
                 ) : (
-                  <LiveStep threadId={live.threadId} turnId={live.activeTurnId} />
+                  <span className="shimmer-text">
+                    <LiveStep threadId={live.threadId} turnId={live.activeTurnId} />
+                  </span>
                 )}
+              </span>
+            ) : failure ? (
+              <span className="session-state is-failed">{failure}</span>
+            ) : lastWord ? (
+              <span className="session-state is-said">
+                <ReplyPreview threadId={lastWord.threadId} />
               </span>
             ) : null}
             {branchLine ? (
@@ -909,6 +1003,11 @@ export function Sidebar({
               </span>
             ) : null}
           </span>
+          {runIndex === undefined ? (
+            <span className="session-agent" aria-hidden="true">
+              <ProviderMark provider={session.provider} size={12} />
+            </span>
+          ) : null}
         </button>
         <span className="row-more">
           <MenuButton
@@ -927,75 +1026,13 @@ export function Sidebar({
         {groups?.map((group) => (
           <div key={group.groupId}>{renderGroup(group, projectWorktrees)}</div>
         ))}
-        {subAgents.length > 0 ? (
+        {helpers.length > 0 ? (
           <ul className="session-list sub-agent-list" aria-label={`Sub-agents of ${agentName ?? title}`}>
-            {subAgents.map((child) =>
+            {helpers.map((child) =>
               renderSession(child, projectWorktrees, groupsBySource.get(child.sessionId), undefined, false, below),
             )}
           </ul>
         ) : null}
-      </li>
-    );
-  };
-
-  /**
-   * Chats in a worktree list under one row for its branch, so the branch, its pull request, and its changed
-   * files are said once, above the chats working on them.
-   */
-  const renderBranchGroup = (
-    worktree: WorktreeProjection,
-    members: readonly AgentSession[],
-    projectWorktrees: readonly WorktreeProjection[],
-  ) => {
-    const info = worktreeInfo(worktree);
-    return (
-      <li className="worktree-entry worktree-group" key={`branch-${worktree.worktreeId}`}>
-        <button
-          className="worktree-row worktree-group-row"
-          type="button"
-          onClick={() => onSelectWorktree(worktree)}
-          title={[worktree.path, worktree.status === "failed" ? worktree.errorMessage : undefined, info.setupProblem]
-            .filter(Boolean)
-            .join("\n")}
-        >
-          <Icon name="branch" size={11} />
-          <span className="worktree-name">{worktree.branch}</span>
-          <span className="worktree-meta">
-            <WorktreeTrack entry={prEntries.get(worktree.worktreeId)} branch={worktree.branch} />
-            <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
-            {worktree.status === "ready" && !info.badge ? null : (
-              <span className={`worktree-status${info.statusClass}`}>{info.statusText}</span>
-            )}
-            {info.changed ? (
-              <span className="count" title={`${info.changed} changed files`}>
-                {info.changed}
-              </span>
-            ) : null}
-          </span>
-        </button>
-        <span className="row-more">
-          <MenuButton
-            label="Worktree actions"
-            tooltip="More"
-            size="xs"
-            items={() => worktreeMenuItems(worktree, info)}
-          />
-        </span>
-        {worktreeNote(worktree, info)}
-        {renderWorktreeFixes(worktree, info)}
-        <ul className="session-list">
-          {members.map((member) =>
-            renderSession(
-              member,
-              projectWorktrees,
-              groupsBySource.get(member.sessionId),
-              undefined,
-              false,
-              noAncestors,
-              true,
-            ),
-          )}
-        </ul>
       </li>
     );
   };
@@ -1107,7 +1144,7 @@ export function Sidebar({
                 aria-label={`${title}, ${said}${project ? `, in ${project.name}` : ""}`}
                 onClick={() => onSelectSession(session)}
               >
-                <ProviderMark provider={session.provider} size={14} />
+                <SessionAvatar session={session} size={24} />
                 <span className="shelf-copy">
                   <span className="shelf-line">
                     <span className="shelf-title">{title}</span>
@@ -1150,10 +1187,9 @@ export function Sidebar({
             className="btn btn-secondary sidebar-new-agent"
             type="button"
             onClick={() => onNewAgent()}
-            disabled={projects.length === 0}
             aria-keyshortcuts={ariaShortcut(newAgentShortcut)}
           >
-            <Icon name="agentNew" size={16} />
+            <Icon name="squarePen" size={15} />
             <span>New chat</span>
             <Kbd shortcut={newAgentShortcut} />
           </button>
@@ -1198,15 +1234,14 @@ export function Sidebar({
       <div className="sidebar-scroll" onKeyDown={moveBetweenChats}>
         {projects.length === 0 ? (
           <div className="sidebar-empty">
-            <p>
-              Add a Git repository to start. Each agent gets its own terminal, and its own worktree if you want one.
-            </p>
+            <p>No projects yet. Start a chat and pick its folder when you send, or add a project here.</p>
           </div>
         ) : searching ? (
           renderSearch()
         ) : (
           <>
-            {shelf.length > 0 ? renderShelf() : null}
+            {/* With one project every chat is already in view, so the shelf would only repeat it. */}
+            {shelf.length > 0 && listedProjects.length > 1 ? renderShelf() : null}
             {pinnedChats.length > 0 ? (
               <section className="sidebar-pinned" aria-label="Pinned chats">
                 <h2 className="sidebar-heading">Pinned</h2>
@@ -1231,7 +1266,6 @@ export function Sidebar({
                 </ul>
               </section>
             ) : null}
-            <h2 className="sidebar-heading">Projects</h2>
             {listedProjects.map((project) => {
               const projectWorktrees = worktrees.filter((worktree) => worktree.projectId === project.projectId);
               const worktreeIds = new Set<string>(projectWorktrees.map((worktree) => worktree.worktreeId));
@@ -1281,7 +1315,6 @@ export function Sidebar({
               const olderShown = olderOpen.has(project.projectId);
               const folded = new Set(older.length >= 2 && !olderShown ? older.map((session) => session.sessionId) : []);
               const shown = top.filter((session) => !folded.has(session.sessionId));
-              const grouped = new Set<string>();
               const alerted = new Set<string>();
               const firstForWorktree = (session: AgentSession) => {
                 if (alerted.has(session.worktreeId)) return false;
@@ -1313,39 +1346,29 @@ export function Sidebar({
                         aria-label={`${project.name}${pinned ? ", pinned" : ""}, ${open ? "collapse" : "expand"}`}
                         onClick={() => layout.toggleProject(project.projectId)}
                       >
-                        <Icon name={open ? "folderOpen" : "folder"} size={14} />
+                        <ProjectLantern name={project.name} state={waiting ? "waiting" : busy ? "working" : "idle"} />
                         <span className="project-name">{project.name}</span>
                         {pinned ? <Icon name="pin" size={11} className="project-pin" aria-hidden="true" /> : null}
                         <Icon name="chevronRight" size={11} className="project-chevron" />
                       </button>
                     )}
                     {open || agentCount === 0 ? null : (
+                      // Folded, the project shows who is inside: the faces of its newest chats.
                       <span
-                        className={`project-summary${waiting ? " is-waiting" : busy ? " is-working" : ""}`}
-                        title={`${agentCount === 1 ? "1 agent" : `${agentCount} agents`}, ${projectWorktrees.length === 1 ? "1 worktree" : `${projectWorktrees.length} worktrees`}`}
+                        className="project-faces"
+                        title={`${agentCount === 1 ? "1 chat" : `${agentCount} chats`}, ${projectWorktrees.length === 1 ? "1 worktree" : `${projectWorktrees.length} worktrees`}`}
                       >
-                        {waiting || busy ? <span className="dot" aria-hidden="true" /> : null}
-                        {agentCount}
+                        {top.slice(0, 3).map((session) => (
+                          <SessionAvatar key={session.sessionId} session={session} size={15} quietStart />
+                        ))}
+                        {agentCount > 3 ? <span className="project-faces-more">+{agentCount - 3}</span> : null}
+                        <span className="sr-only">{agentCount}</span>
                       </span>
                     )}
                     <IconButton
-                      className="project-action"
-                      label="Create worktree"
-                      tooltip={
-                        project.git === false
-                          ? "Worktrees need Git. This folder is not a Git repository."
-                          : "New worktree"
-                      }
-                      icon="branch"
-                      size="xs"
-                      iconSize={13}
-                      disabled={project.git === false}
-                      onClick={() => onCreateWorktree(project)}
-                    />
-                    <IconButton
                       className={`project-action${empty || project.projectId === currentProjectId ? " is-shown" : ""}`}
-                      label={`New agent in ${project.name}`}
-                      tooltip="New agent here"
+                      label={`New chat in ${project.name}`}
+                      tooltip="New chat here"
                       icon="agentNew"
                       size="xs"
                       iconSize={13}
@@ -1376,19 +1399,7 @@ export function Sidebar({
                       ) : (
                         <ul className="session-list">
                           {shown.map((session) => {
-                            const worktree = projectWorktrees.find((entry) => entry.worktreeId === session.worktreeId);
-                            // Chats in a worktree of their own sit under one row for its branch, which
-                            // carries the pull request and the changed files. Chats on the project's own
-                            // checkout list straight under the project.
-                            if (worktree && worktree.kind !== "checkout") {
-                              if (grouped.has(session.worktreeId)) return null;
-                              grouped.add(session.worktreeId);
-                              return renderBranchGroup(
-                                worktree,
-                                shown.filter((entry) => entry.worktreeId === session.worktreeId),
-                                projectWorktrees,
-                              );
-                            }
+                            // Every chat is one card. A chat in a worktree of its own names its branch on the card.
                             return renderSession(
                               session,
                               projectWorktrees,
@@ -1396,7 +1407,6 @@ export function Sidebar({
                               undefined,
                               firstForWorktree(session),
                               noAncestors,
-                              true,
                             );
                           })}
                           {runGroups
@@ -1487,6 +1497,40 @@ export function Sidebar({
                 ) : null}
               </section>
             ) : null}
+            {archivedChats.length > 0 ? (
+              <section className="sidebar-more sidebar-archive" aria-label="Archived chats">
+                <button
+                  className="sidebar-more-toggle"
+                  type="button"
+                  aria-expanded={archiveOpen}
+                  onClick={() => setArchiveOpen((value) => !value)}
+                >
+                  <Icon name="chevronRight" size={11} className="sidebar-more-chevron" />
+                  Archived · {archivedChats.length}
+                </button>
+                {archiveOpen ? (
+                  <ul className="session-list">
+                    {archivedChats.map((session) =>
+                      renderSession(
+                        session,
+                        worktrees.filter((worktree) =>
+                          worktrees.some(
+                            (entry) =>
+                              entry.worktreeId === session.worktreeId && entry.projectId === worktree.projectId,
+                          ),
+                        ),
+                        undefined,
+                        undefined,
+                        false,
+                        noAncestors,
+                        false,
+                        true,
+                      ),
+                    )}
+                  </ul>
+                ) : null}
+              </section>
+            ) : null}
           </>
         )}
       </div>
@@ -1554,5 +1598,22 @@ export function Sidebar({
       {renderProjectConfirm()}
       {huddleMenu ? <Menu request={huddleMenu} onClose={() => setHuddleMenu(undefined)} /> : null}
     </aside>
+  );
+}
+
+/**
+ * A project's lantern: a small ring in the project's own colour that says how the project is doing. Hollow
+ * while nothing runs, lit and softly glowing while an agent in it works, amber when something in it needs
+ * the person.
+ */
+function ProjectLantern({ name, state }: { name: string; state: "idle" | "working" | "waiting" }) {
+  let hash = 0;
+  for (const character of name) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
+  return (
+    <span
+      className={`project-lantern is-${state}`}
+      style={{ "--lantern-hue": hash % 360 } as CSSProperties}
+      aria-hidden="true"
+    />
   );
 }

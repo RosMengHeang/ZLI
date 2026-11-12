@@ -1,6 +1,11 @@
 import { posix, win32 } from "node:path";
 
-import { MCP_CATALOG, type ThreadActivityConnector, type ThreadActivityKind } from "@zli-v2/contracts";
+import {
+  MCP_CATALOG,
+  type ThreadActivityConnector,
+  type ThreadActivityKind,
+  type ThreadActivityTodo,
+} from "@zli-v2/contracts";
 
 /** A provider-neutral view of one tool call, as parsed from a CLI's structured stream. */
 export type ToolCallUpdate = {
@@ -25,6 +30,7 @@ export type ProviderActivity = {
   lines?: LineCounts;
   command?: string;
   connector?: ThreadActivityConnector;
+  todos?: ThreadActivityTodo[];
 };
 
 const MAX_TITLE = 500;
@@ -87,6 +93,18 @@ const LIST_NAMES = new Set(["ls", "list", "listdir"]);
 /** Converts one tool-call update into the projected activity shape. Never throws on unknown input. */
 export function toolActivity(update: ToolCallUpdate, cwd?: string): ProviderActivity {
   const input = update.input ?? {};
+  // A call that writes the agent's todo list or plan is its plan, not a step to list.
+  const todos = todoItems(update.name, input);
+  if (todos) {
+    const done = todos.filter((todo) => todo.status === "completed").length;
+    return {
+      activityId: update.callId,
+      kind: "tool",
+      title: `Plan: ${done} of ${todos.length} done`,
+      status: update.status,
+      todos,
+    };
+  }
   const kind = classifyTool(update.name, input);
   const files =
     kind === "file-read" || kind === "file-edit" ? toolPaths(input).map((path) => displayPath(path, cwd)) : [];
@@ -113,6 +131,56 @@ export function toolActivity(update: ToolCallUpdate, cwd?: string): ProviderActi
     ...(command && command !== title ? { command: clip(command, MAX_COMMAND) } : {}),
     ...(connector ? { connector } : {}),
   };
+}
+
+const TODO_STATUS: Readonly<Record<string, ThreadActivityTodo["status"]>> = {
+  pending: "pending",
+  todo: "pending",
+  notstarted: "pending",
+  inprogress: "in_progress",
+  active: "in_progress",
+  running: "in_progress",
+  completed: "completed",
+  complete: "completed",
+  done: "completed",
+  cancelled: "completed",
+};
+
+/**
+ * The plan in a todo-writing call: Claude's and Droid's TodoWrite ({ todos: [{ content, status }] }), Cursor's
+ * todo_write, Codex's plan ({ todos: [{ step, status }] }), or a Droid list written as text lines such as
+ * "1. [completed] Read the tests". Undefined for any other call.
+ */
+export function todoItems(name: string, input: Record<string, unknown>): ThreadActivityTodo[] | undefined {
+  const tokens = nameTokens(name);
+  if (!tokens.includes("todo") && !tokens.includes("todos") && !tokens.includes("plan")) return undefined;
+  const raw = input.todos ?? input.plan ?? input.items;
+  const entries: ThreadActivityTodo[] = [];
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const record = entry as Record<string, unknown>;
+      const text = [record.content, record.step, record.text, record.title, record.description].find(
+        (value): value is string => typeof value === "string" && value.trim().length > 0,
+      );
+      if (!text) continue;
+      const status =
+        TODO_STATUS[
+          String(record.status ?? "pending")
+            .toLowerCase()
+            .replace(/[^a-z]/gu, "")
+        ] ?? "pending";
+      entries.push({ text: clip(firstLine(text) ?? text, 500), status });
+    }
+  } else if (typeof raw === "string") {
+    for (const line of raw.split(/\r?\n/u)) {
+      const match = /^\s*(?:\d+[.)]|[-*])?\s*\[([a-z_ -]+)\]\s*(.+)$/iu.exec(line);
+      if (!match?.[2]) continue;
+      const status = TODO_STATUS[(match[1] ?? "").toLowerCase().replace(/[^a-z]/gu, "")] ?? "pending";
+      entries.push({ text: clip(match[2].trim(), 500), status });
+    }
+  }
+  return entries.length > 0 ? entries.slice(0, 100) : undefined;
 }
 
 /** connect_service from the built-in zli server, bare (Cursor), as zli.connect_service (Codex), or mcp__zli__ (Claude). */

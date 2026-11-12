@@ -88,6 +88,8 @@ export type AppSettings = {
   teammates: Teammate[];
   /** The animal avatars move while their agent works. Off keeps them still. */
   animateTeammates: boolean;
+  /** A chat moves to Archived once its branch's pull request merges or closes. */
+  archiveMergedChats: boolean;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -101,6 +103,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   customThemes: [],
   teammates: [],
   animateTeammates: true,
+  archiveMergedChats: true,
 };
 
 const modes: readonly SessionMode[] = ["terminal", "chat"];
@@ -195,6 +198,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     customThemes,
     teammates: parseTeammates(value.teammates),
     animateTeammates: value.animateTeammates !== false,
+    archiveMergedChats: value.archiveMergedChats !== false,
   };
 }
 

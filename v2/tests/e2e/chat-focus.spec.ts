@@ -1,9 +1,15 @@
 import { expect, type Page, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  openNewAgentOptions,
+} from "./desktop-fixtures.js";
 
 async function startChat(page: Page, name: string) {
-  await page.locator(".sidebar-new-agent").click();
+  await openNewAgentOptions(page);
   const dialog = page.getByRole("dialog", { name: "New agent" });
   await dialog.getByText("Codex", { exact: true }).click();
   await dialog.getByText("Chat", { exact: true }).click();

@@ -476,10 +476,6 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
 
 /* ---------- Conversation ---------- */
 .chat-stage { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; }
-/* The pinned environment card sits over the top right corner of the tile; a wide tile moves the chat clear of it. */
-@container tile (min-width: 1000px) {
-  .tile-body:has(.env-card) .chat-view { padding-right: 296px; }
-}
 /* New parts of a reply ease in as they arrive instead of popping. */
 .chat-message-assistant .markdown > * { animation: zli-fade-in var(--zli-duration-base) var(--zli-ease) both; }
 .chat-reply-foot { display: flex; height: 24px; align-items: center; margin: 2px 0 -6px -5px; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
@@ -626,3 +622,170 @@ span.room-person-chip { color: var(--zli-muted); }
 
 .mention-option { display: flex; flex-direction: row; align-items: center; gap: var(--zli-space-2); }
 .mention-option-copy { display: flex; min-width: 0; flex-direction: column; }
+
+/* The first chat before any project. It is the same chat as any other; the folder tab is the way in. */
+.no-project-start { gap: var(--zli-space-3); animation: no-project-rise 420ms cubic-bezier(.22, 1, .36, 1) both; }
+.no-project-start .chat-start-title { margin-top: var(--zli-space-1); }
+/* The one soft light in the screen sits behind the animal, in its own colour. */
+.no-project-face { position: relative; display: grid; place-items: center; width: 96px; height: 96px; }
+.no-project-face::before {
+  position: absolute; inset: 0; border-radius: 50%; content: "";
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--face) 26%, transparent), transparent);
+}
+.no-project-face > .animal-avatar { position: relative; }
+.no-project-face.is-fox { --face: #e8956a; } .no-project-face.is-owl { --face: #a795ec; }
+.no-project-face.is-otter { --face: #6cc4a4; } .no-project-face.is-cat { --face: #7ea8ee; }
+.no-project-face.is-panda { --face: #eeece6; } .no-project-face.is-penguin { --face: #82c4e6; }
+.no-project-face.is-bear { --face: #e3b36e; } .no-project-face.is-rabbit { --face: #ec97be; }
+.no-project-face.is-frog { --face: #9ccc78; } .no-project-face.is-chick { --face: #ebd173; }
+.no-project-hint { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: center; }
+.no-project-hint-folder { color: var(--zli-text); font-weight: 550; }
+.composer-workspace-item.is-unset { color: var(--zli-text); }
+.composer-workspace-item.is-unset > svg:first-child { color: var(--zli-accent); }
+.no-project-agent { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.folder-menu { width: 380px; }
+.folder-menu .picker-option { align-items: center; }
+.folder-menu .picker-option-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-menu-when { flex: 0 0 auto; margin-left: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+@keyframes no-project-rise { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .no-project-start { animation: none; } }
+
+/* ---------- Picking up, editing, branching ---------- */
+.chat-continue { display: flex; align-items: center; gap: var(--zli-space-2); margin: var(--zli-space-2) 0; }
+.chat-continue-line { height: 1px; flex: 1; background: var(--zli-border); }
+.chat-editing { display: flex; align-items: center; gap: var(--zli-space-1-5); margin: 0 0 var(--zli-space-1-5); padding: 0 var(--zli-space-1); color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.chat-editing > svg { color: var(--zli-accent); }
+.chat-editing > button { margin-left: auto; padding: 0 6px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); font: inherit; cursor: pointer; }
+.chat-editing > button:hover { background: var(--zli-hover); color: var(--zli-text); }
+.chat-branched { display: flex; align-items: center; justify-content: center; gap: var(--zli-space-1-5); margin: 0 auto var(--zli-space-4); color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
+.chat-branched > svg { flex: 0 0 auto; }
+.chat-branched > span { min-width: 0; }
+.chat-branched-from { color: var(--zli-muted); font-weight: 600; }
+
+/* ---------- Suggestions ---------- */
+/* What the last reply suggests doing next: rows, not buttons, so they read as part of the reply. */
+.follow-ups { display: flex; flex-direction: column; gap: 2px; margin: var(--zli-space-1) 0 var(--zli-space-3); }
+.follow-up { display: flex; align-items: center; gap: var(--zli-space-2); min-height: 32px; padding: 0 4px 0 var(--zli-space-2-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-sm); transition: border-color var(--zli-duration-fast) var(--zli-ease); }
+.follow-up:hover { border-color: var(--zli-border-hover); color: var(--zli-text); }
+.follow-up > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.follow-up-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.follow-up-actions { display: flex; flex: 0 0 auto; gap: 2px; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.follow-up:hover .follow-up-actions, .follow-up:focus-within .follow-up-actions { opacity: 1; }
+
+/* Three ways to begin under an empty chat's question. */
+.start-ideas { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--zli-space-2); margin: var(--zli-space-4) auto auto; }
+.chat-start:has(+ .start-ideas) { margin-bottom: 0; }
+.start-idea { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); height: 30px; padding: 0 var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-pill); background: transparent; color: var(--zli-muted); font: inherit; font-size: var(--zli-text-sm); cursor: pointer; transition: border-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.start-idea:hover { border-color: var(--zli-border-hover); color: var(--zli-text); }
+.start-idea > svg { color: var(--zli-dim); }
+
+/* ---------- Review findings ---------- */
+.review-card { margin: var(--zli-space-2) 0 var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
+.review-card-head { display: flex; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-2) var(--zli-space-2) var(--zli-space-2) var(--zli-space-3); border-bottom: 1px solid var(--zli-border); color: var(--zli-text); }
+.review-card-head > svg { color: var(--zli-dim); }
+.review-card-title { flex: 1; font-size: var(--zli-text-sm); font-weight: 600; }
+.review-file { padding: var(--zli-space-1-5) var(--zli-space-2) var(--zli-space-2); }
+.review-file + .review-file { border-top: 1px solid var(--zli-border); }
+.review-file-name { display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); cursor: pointer; }
+.review-file-name:hover:not(:disabled) { background: var(--zli-hover); }
+.review-file-name:disabled { cursor: default; }
+.review-file > ul { display: flex; flex-direction: column; margin: 2px 0 0; padding: 0; list-style: none; }
+.review-finding { display: flex; align-items: flex-start; gap: var(--zli-space-2); padding: 4px 6px; border-radius: var(--zli-radius-sm); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: 18px; }
+.review-finding:hover { background: var(--zli-hover); color: var(--zli-text); }
+.review-finding-line { min-width: 28px; flex: 0 0 auto; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: 18px; text-align: right; }
+.review-finding-text { min-width: 0; flex: 1; }
+.review-finding-actions { display: flex; flex: 0 0 auto; gap: 2px; opacity: 0; }
+.review-finding:hover .review-finding-actions, .review-finding:focus-within .review-finding-actions { opacity: 1; }
+
+/* ---------- The branch's pull request ---------- */
+.pr-strip { display: flex; align-items: center; gap: var(--zli-space-2); min-height: 32px; margin: 0 0 var(--zli-space-2); padding: 0 4px 0 var(--zli-space-2-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.pr-strip > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.pr-strip.is-passed > svg, .pr-strip.is-merged > svg { color: var(--zli-green); }
+.pr-strip.is-failed > svg { color: var(--zli-red); }
+.pr-strip-title { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 6px; padding: 0; border: 0; background: transparent; color: var(--zli-text); font: inherit; cursor: pointer; text-align: left; }
+.pr-strip-title:hover .pr-strip-name { text-decoration: underline; text-underline-offset: 2px; }
+.pr-strip-number { flex: 0 0 auto; color: var(--zli-dim); font-variant-numeric: tabular-nums; }
+.pr-strip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-strip-checks { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.pr-strip.is-failed .pr-strip-checks { color: var(--zli-red); }
+
+/* ---------- The tray on the message box ---------- */
+/* What waits on the person docks on top of the workspace tab, the same width, so the plan, a side question,
+   and an approval read as part of the message box rather than more conversation. It stays put while the
+   conversation scrolls, and scrolls on its own past half the window. Quiet by design: one surface, hairline
+   dividers inset from the edges, grey type, and colour only where it carries state. */
+.composer-tray { display: flex; max-height: min(50vh, 440px); flex-direction: column; margin: 0 var(--zli-space-3); overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--zli-border); border-bottom: 0; border-radius: 14px 14px 0 0; background: color-mix(in srgb, var(--zli-raised) 25%, var(--zli-surface)); scrollbar-width: thin; }
+.composer-tray > * { position: relative; }
+.composer-tray > * + *::before { position: absolute; top: 0; right: var(--zli-space-3); left: var(--zli-space-3); height: 1px; background: var(--zli-border); content: ""; }
+.composer-shell.has-tray .composer-workspace { border-radius: 0; }
+.composer-shell.has-tray:not(.has-workspace) .composer-tray { margin-bottom: -16px; padding-bottom: 16px; }
+.composer-tray.is-loose { margin: 0 0 var(--zli-space-2); border-bottom: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); }
+/* A section arrives with a short rise so the eye catches the new thing above the box; nothing loops. */
+.composer-tray > * { animation: tray-in var(--zli-duration-base) var(--zli-ease) both; }
+@keyframes tray-in { from { opacity: 0; transform: translateY(3px); } }
+
+/* One header grammar for every section: title, meta, then the controls on the right. */
+.tray-head { display: flex; min-height: 34px; align-items: center; gap: var(--zli-space-1); padding: 0 6px; }
+.tray-title { flex: 0 0 auto; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
+.tray-meta { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- The agent's plan ---------- */
+/* One tick per step on the right shows how far it is at a glance, the way a progress bar would without the
+   bar. Open, the steps read as a plain checklist: a check when done, a turning ring on the step in hand, an
+   empty ring for the rest. */
+.plan-card-toggle { display: flex; min-width: 0; height: 28px; flex: 1; align-items: center; gap: var(--zli-space-2); padding: 0 6px 0 8px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.plan-card-toggle:hover { background: var(--zli-hover); }
+.plan-card-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.plan-card-done { flex: 0 0 auto; color: var(--zli-green); }
+.plan-card-now { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.plan-card-steps { display: inline-flex; flex: 0 0 auto; gap: 3px; }
+.plan-card-tick { width: 10px; height: 3px; border-radius: 2px; background: var(--zli-border-strong); transition: background-color var(--zli-duration-base) var(--zli-ease); }
+.plan-card-tick.is-completed { background: var(--zli-muted); }
+.plan-card-tick.is-in_progress { background: var(--zli-accent); }
+.plan-card.is-done .plan-card-tick { background: var(--zli-green); opacity: .7; }
+.plan-card-count { min-width: 26px; flex: 0 0 auto; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+.plan-card-chevron { flex: 0 0 auto; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.plan-card-toggle[aria-expanded="true"] .plan-card-chevron { transform: rotate(180deg); }
+.plan-card-list { display: flex; flex-direction: column; margin: 0; padding: 0 var(--zli-space-3) var(--zli-space-2) 14px; list-style: none; }
+.plan-step { display: flex; align-items: flex-start; gap: 10px; padding: 3px 0; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: 20px; }
+.plan-step-mark { display: inline-grid; width: 14px; height: 14px; flex: 0 0 auto; margin-top: 3px; place-items: center; border: 1.5px solid var(--zli-border-strong); border-radius: 50%; }
+.plan-step.is-in_progress { color: var(--zli-text); }
+.plan-step.is-in_progress .plan-step-mark { border-color: color-mix(in srgb, var(--zli-accent) 30%, transparent); border-top-color: var(--zli-accent); animation: plan-turn .9s linear infinite; }
+@keyframes plan-turn { to { transform: rotate(360deg); } }
+.plan-step.is-completed .plan-step-mark { border: 0; color: var(--zli-green); }
+.plan-step.is-completed .plan-step-text { color: var(--zli-dim); }
+/* The ring only turns while the agent is on that step, and stops with the turn. */
+.plan-card.is-done .plan-step-mark { animation: none; }
+
+/* ---------- A side question ---------- */
+/* Asked and answered inside the tray, so the conversation stays in view above it. The answer area grows to a
+   few lines, then scrolls. */
+.side-chat-head { padding-left: var(--zli-space-3); }
+.side-chat-head .animal-avatar { flex: 0 0 auto; margin-right: 2px; }
+.side-chat-head .tray-meta::before { margin-right: 6px; content: "·"; }
+.side-chat-log { display: flex; max-height: 200px; flex-direction: column; gap: var(--zli-space-2); overflow-y: auto; padding: 2px var(--zli-space-3) var(--zli-space-2); scrollbar-width: thin; }
+.side-chat-ask { align-self: flex-end; max-width: 85%; margin: 0; padding: 3px 10px; border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-text); font-size: var(--zli-text-sm); white-space: pre-wrap; }
+.side-chat-answer { color: var(--zli-text); font-size: var(--zli-text-sm); }
+.side-chat-answer .markdown > :first-child { margin-top: 0; }
+.side-chat-answer .markdown > :last-child { margin-bottom: 0; }
+.side-chat-thinking { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.side-chat-form { display: flex; align-items: center; gap: var(--zli-space-1-5); margin: 0 var(--zli-space-2) var(--zli-space-2); padding: 2px 3px 2px var(--zli-space-2-5); border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px transparent; transition: box-shadow var(--zli-duration-fast) var(--zli-ease); }
+.side-chat-form:focus-within { box-shadow: inset 0 0 0 1px var(--zli-border-hover); }
+.side-chat-form > textarea { min-height: 20px; max-height: 96px; flex: 1; resize: none; padding: 5px 0; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); line-height: 20px; field-sizing: content; }
+.side-chat-form > textarea:focus { outline: none; }
+.side-chat-form > textarea::placeholder { color: var(--zli-dim); }
+
+/* ---------- Approving a plan ---------- */
+/* The one decision in the tray, so it alone carries the accent, on its button. */
+.plan-approval { display: flex; align-items: center; gap: var(--zli-space-1-5); padding: 6px 6px 6px var(--zli-space-3); }
+.plan-approval-copy { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: var(--zli-space-2); }
+.plan-approval-title { flex: 0 0 auto; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
+.plan-approval-detail { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.plan-approval > .btn { flex: 0 0 auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-tray > *, .plan-step.is-in_progress .plan-step-mark { animation: none; }
+}
+
+/* While the tray holds something, the invitation above it steps back; Bring in stays. */
+.chat-dock:has(.composer-tray) .room-bar-hint { visibility: hidden; }

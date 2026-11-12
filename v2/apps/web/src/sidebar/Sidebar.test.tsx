@@ -162,18 +162,19 @@ describe("Sidebar primary actions", () => {
     expect(container.querySelector('input[aria-label="Find a chat"]')).not.toBeNull();
     expect(addProjectButtons(container)).toHaveLength(1);
     const newAgent = container.querySelector<HTMLButtonElement>(".sidebar-new-agent");
-    expect(newAgent?.classList.contains("btn-secondary")).toBe(true);
     expect(newAgent?.disabled).toBe(false);
-    expect(container.querySelector(".sidebar-heading")?.textContent).toBe("Projects");
+    // Projects are headings with their initials, so no "Projects" label sits over them.
+    expect(container.querySelector(".sidebar-heading")).toBeNull();
   });
 
-  it("keeps Add project at the top of an empty sidebar and New chat off until a project exists", async () => {
+  it("keeps Add project at the top of an empty sidebar, and New chat open before any project", async () => {
     const { container } = await mount({ ...projection([]), projects: [] });
     expect(primaryLabels(container)).toEqual(["New chat", "Add project"]);
     expect(container.querySelector('input[aria-label="Find a chat"]')).toBeNull();
     expect(addProjectButtons(container)).toHaveLength(1);
     expect(container.querySelector(".sidebar-heading")).toBeNull();
-    expect(container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.disabled).toBe(true);
+    // A chat opens before any project; its folder tab adds the first one.
+    expect(container.querySelector<HTMLButtonElement>(".sidebar-new-agent")?.disabled).toBe(false);
   });
 });
 
@@ -186,7 +187,7 @@ describe("Sidebar next step in an empty project", () => {
     status: "ready",
     kind: "checkout",
   };
-  const newAgentButton = (root: ParentNode) => root.querySelector('[aria-label="New agent in repo"]');
+  const newAgentButton = (root: ParentNode) => root.querySelector('[aria-label="New chat in repo"]');
 
   it("offers Start one in a project with no agents, and keeps its New agent button in view", async () => {
     const onNewAgent = vi.fn();
@@ -198,7 +199,7 @@ describe("Sidebar next step in an empty project", () => {
     await act(async () => startOne.click());
     expect(onNewAgent).toHaveBeenCalledWith(expect.objectContaining({ projectId }));
     expect(newAgentButton(container)?.classList.contains("is-shown")).toBe(true);
-    expect(newAgentButton(container)?.getAttribute("data-tooltip")).toBe("New agent here");
+    expect(newAgentButton(container)?.getAttribute("data-tooltip")).toBe("New chat here");
   });
 
   it("shows no hint once the project has an agent, and New agent stays in view only while it is current", async () => {
@@ -341,16 +342,15 @@ describe("Sidebar projects", () => {
       ]),
       { sessions: [agent(featureId)] },
     );
-    const group = container.querySelector(".worktree-group") as HTMLElement;
-    expect(group.querySelector(".worktree-group-row .worktree-name")?.textContent).toBe("feat/login");
-    expect(group.querySelector(".worktree-group-row .worktree-status")).toBeNull();
-    const row = group.querySelector(".session-row");
-    expect(row?.classList.contains("has-branch")).toBe(false);
-    expect(row?.querySelector(".session-branch")).toBeNull();
+    // The chat is one card that names its worktree's branch on a quiet second line.
+    const row = container.querySelector(".session-row");
+    expect(row?.classList.contains("has-branch")).toBe(true);
+    expect(row?.querySelector(".session-branch .worktree-name")?.textContent).toBe("feat/login");
+    expect(row?.querySelector(".worktree-status")).toBeNull();
     expect(container.querySelector(".worktree-toggle")?.textContent).toBe("1 worktree without agents");
   });
 
-  it("lists chats on the project's checkout straight under it, and chats in a worktree under its branch", async () => {
+  it("names a worktree's branch on its newest chat only, and leaves chats on the checkout to one line", async () => {
     const chat = (sessionId: string, worktreeId: string, createdAt: string): AgentSession => ({
       ...agent(worktreeId),
       sessionId,
@@ -368,17 +368,13 @@ describe("Sidebar projects", () => {
           chat("a", checkoutId, "2025-01-03T00:00:00.000Z"),
           chat("b", featureId, "2025-01-02T00:00:00.000Z"),
           chat("c", checkoutId, "2025-01-01T00:00:00.000Z"),
+          chat("d", featureId, "2024-12-31T00:00:00.000Z"),
         ],
       },
     );
-    const groups = [...container.querySelectorAll(".worktree-group")];
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.querySelector(".worktree-group-row .worktree-name")?.textContent).toBe("feat/login");
-    expect(groups[0]?.querySelectorAll(".session-row")).toHaveLength(1);
-    // The two chats on the checkout need no branch: they list under the project, one line each.
-    const loose = [...container.querySelectorAll(".session-row")].filter((row) => !groups[0]?.contains(row));
-    expect(loose).toHaveLength(2);
-    expect(loose.some((row) => row.querySelector(".session-branch"))).toBe(false);
+    const branches = [...container.querySelectorAll(".session-branch .worktree-name")].map((name) => name.textContent);
+    expect(branches).toEqual(["feat/login"]);
+    expect(container.querySelectorAll(".session-row")).toHaveLength(4);
   });
 
   it("folds quiet chats past the newest five into one row that opens", async () => {
@@ -411,19 +407,34 @@ describe("Sidebar projects", () => {
     window.localStorage.setItem("zli.sidebar.unread", JSON.stringify(["done"]));
     const onSelectSession = vi.fn();
     const base = { ...agent(checkoutId), mode: "chat" as const };
-    const { container } = await mount(
-      projection([
-        { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
-      ]),
+    const current = projection([
+      { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
+    ]);
+    // With one project every chat is in view already, so the shelf shows once there are two.
+    current.projects = [
+      ...current.projects,
+      { projectId: ProjectId.parse("00000000-0000-4000-8000-000000000020"), path: "/work/api", name: "api" },
+    ];
+    current.worktrees = [
+      ...current.worktrees,
       {
-        sessions: [
-          { ...base, sessionId: "done", status: "ready" },
-          { ...base, sessionId: "asks", status: "waiting" },
-          { ...base, sessionId: "busy", status: "working" },
-        ],
-        onSelectSession,
-      },
-    );
+        worktreeId: WorktreeId.parse("00000000-0000-4000-8000-000000000021"),
+        projectId: ProjectId.parse("00000000-0000-4000-8000-000000000020"),
+        path: "/work/api",
+        branch: "main",
+        status: "ready",
+        kind: "checkout",
+      } as (typeof current.worktrees)[number],
+    ];
+    const { container } = await mount(current, {
+      sessions: [
+        { ...agent(WorktreeId.parse("00000000-0000-4000-8000-000000000021")), sessionId: "api-chat", status: "ready" },
+        { ...base, sessionId: "done", status: "ready" },
+        { ...base, sessionId: "asks", status: "waiting" },
+        { ...base, sessionId: "busy", status: "working" },
+      ],
+      onSelectSession,
+    });
     const shelf = container.querySelector('[aria-label="Waiting on you"]') as HTMLElement;
     expect([...shelf.querySelectorAll(".shelf-row")].map((row) => row.getAttribute("aria-label"))).toEqual([
       "New chat, needs your answer, in repo",
@@ -520,8 +531,8 @@ describe("Sidebar projects", () => {
       ]),
       { sessions: [agent(featureId)], onWorktreeAction },
     );
-    const entry = container.querySelector(".worktree-group") as HTMLElement;
-    expect(entry.querySelector(".worktree-group-row .worktree-status")?.textContent).toBe("Failed");
+    const entry = container.querySelector(".session-entry") as HTMLElement;
+    expect(entry.querySelector(".session-branch .worktree-status")?.textContent).toBe("Failed");
     expect(entry.textContent).toContain("Branch already exists.");
     await act(async () => button(entry, "Retry").click());
     expect(onWorktreeAction).toHaveBeenCalledWith(expect.objectContaining({ worktreeId: featureId }), "retry");
@@ -531,7 +542,12 @@ describe("Sidebar projects", () => {
   it("creates a worktree from the project row", async () => {
     const onCreateWorktree = vi.fn();
     const { container } = await mount(projection([]), { onCreateWorktree });
-    await act(async () => button(container, "Create worktree").click());
+    await openMenu(container, "repo actions");
+    await act(async () =>
+      [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')]
+        .find((item) => item.textContent === "New worktree")
+        ?.click(),
+    );
     expect(onCreateWorktree).toHaveBeenCalledWith(expect.objectContaining({ projectId }));
   });
 
@@ -700,11 +716,11 @@ describe("Sidebar projects", () => {
 
   it("offers pin and edit on right-click, but not in the ... menu", async () => {
     const { container } = await mount(projection([]));
-    expect(await rightClick(container)).toEqual(["Pin", "Edit", "New agent", "New worktree", "Remove project"]);
+    expect(await rightClick(container)).toEqual(["Pin", "Edit", "New chat", "New worktree", "Remove project"]);
     await act(async () => document.body.dispatchEvent(new Event("pointerdown")));
     await act(async () => button(container, "repo actions").click());
     expect([...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((item) => item.textContent)).toEqual([
-      "New agent",
+      "New chat",
       "New worktree",
       "Remove project",
     ]);
@@ -754,7 +770,7 @@ describe("Sidebar projects", () => {
       { sessions: [agent(featureId)], projectAgentActions },
     );
     expect(await openMenu(container, "repo actions")).toEqual([
-      "New agent",
+      "New chat",
       "New worktree",
       "Show only this project",
       "Open all agents",

@@ -9,6 +9,7 @@ import {
   type DesktopFixture,
   launchDesktop,
   openCreateWorktree,
+  openNewAgentOptions,
   sendChatMessage,
   togglePanel,
 } from "./desktop-fixtures.js";
@@ -105,13 +106,15 @@ test("adds selected lines to the agent chat and sends them with the next message
   try {
     fixture = await launchDesktop(repo, root);
     const page = fixture.page;
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
     await newAgent.getByRole("button", { name: "Start agent" }).click();
     await sendChatMessage(page, "Look at the code");
-    await expect(page.getByText(/Mock response: Look at the code/u)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".chat-log").getByText(/Mock response: Look at the code/u)).toBeVisible({
+      timeout: 30_000,
+    });
 
     const worktreePath = await page.evaluate(async () => {
       const projection = await window.zli?.runtime.getProjection();
@@ -143,7 +146,12 @@ test("adds selected lines to the agent chat and sends them with the next message
     await expect(composer).toBeFocused();
     await composer.fill("What are these?");
     await composer.press("Enter");
-    await expect(page.getByText(/Mock response: .*src\/math\.ts/u).first()).toBeVisible({ timeout: 20_000 });
+    await expect(
+      page
+        .locator(".chat-log")
+        .getByText(/Mock response: .*src\/math\.ts/u)
+        .first(),
+    ).toBeVisible({ timeout: 20_000 });
     await expect(page.locator(".md-code").last()).toContainText("export const three = 3;");
     await expect(attachments).toHaveCount(0);
   } finally {

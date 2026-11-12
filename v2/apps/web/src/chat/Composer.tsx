@@ -33,6 +33,7 @@ import type { AgentChoice } from "./agentModels.js";
 import { fileName, parentName, withAttachedFiles } from "./attachedFiles.js";
 import { type BestOfAgentOption, BestOfPopover } from "./BestOfPopover.js";
 import { ImageViewer } from "./ChatImage.js";
+import { CHAT_DRAG_TYPE, readDraggedChat } from "./chatDrag.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
 import { EffortSlider } from "./EffortSlider.js";
 import { FileBadge } from "./FileBadge.js";
@@ -132,6 +133,7 @@ export function Composer({
   provider,
   branch,
   workspace,
+  tray,
   disabled,
   queues = false,
   models,
@@ -164,13 +166,16 @@ export function Composer({
   /** Who "@" offers: the chat's other members and saved teammates. Empty turns the list off. */
   mentions?: readonly MentionOption[] | undefined;
   /** Puts text such as "@Owl " at the start of the message box; a new nonce asks again. */
-  insertRequest?: { text: string; nonce: number } | undefined;
+  /** Text to put in the message box. replace swaps the draft for it, as editing a sent message does. */
+  insertRequest?: { text: string; nonce: number; replace?: boolean } | undefined;
   displayName: string;
   /** The agent's provider. Its mark stands for the default model. */
   provider?: string | undefined;
   branch: string;
   /** The tab above the message box that says, and before the first message changes, where the agent works. */
   workspace?: ReactNode;
+  /** What waits on the person, docked above the workspace tab: the plan, a side question, an approval. */
+  tray?: ReactNode;
   disabled: boolean;
   /** The agent is busy, so a submitted message waits in its queue. */
   queues?: boolean;
@@ -269,7 +274,7 @@ export function Composer({
   useEffect(() => {
     if (!insertRequest) return;
     const text = insertRequest.text;
-    setDraft((current) => text + current.replace(/^@\S+\s*/u, ""));
+    setDraft((current) => (insertRequest.replace ? text : text + current.replace(/^@\S+\s*/u, "")));
     requestAnimationFrame(() => {
       const textarea = textareaRef.current;
       if (!textarea) return;
@@ -342,7 +347,7 @@ export function Composer({
     if (added.length > 0) setImages((existing) => [...existing, ...added]);
   };
 
-  const addPastedText = (text: string) => {
+  const addPastedText = (text: string, label?: string) => {
     setError(undefined);
     if (textByteLength(text) > MAX_TEXT_ATTACHMENT_BYTES) {
       setError("Pasted text is larger than 10 MB.");
@@ -359,7 +364,7 @@ export function Composer({
         {
           kind: "text",
           id: `pasted-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          name: `pasted-text-${number}.txt`,
+          name: label ?? `pasted-text-${number}.txt`,
           text,
           lines: lineCount(text),
         },
@@ -535,11 +540,26 @@ export function Composer({
     addPastedText(pasted);
   };
 
-  const carriesFiles = (event: DragEvent) => [...event.dataTransfer.types].includes("Files");
+  // Files from the computer, or a chat dragged from the sidebar, which goes along as context.
+  const carriesFiles = (event: DragEvent) =>
+    [...event.dataTransfer.types].some((type) => type === "Files" || type === CHAT_DRAG_TYPE);
 
   const onDrop = (event: DragEvent<HTMLFormElement>) => {
     dragDepth.current = 0;
     setDragging(false);
+    if ([...event.dataTransfer.types].includes(CHAT_DRAG_TYPE)) {
+      const chat = readDraggedChat(event.dataTransfer);
+      if (!chat) return;
+      event.preventDefault();
+      const slug =
+        chat.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/gu, "-")
+          .replace(/^-|-$/gu, "")
+          .slice(0, 40) || "chat";
+      addPastedText(chat.transcript, `chat-${slug}.md`);
+      return;
+    }
     const files = [...event.dataTransfer.files];
     if (files.length === 0) return;
     event.preventDefault();
@@ -547,7 +567,8 @@ export function Composer({
   };
 
   return (
-    <div className={`composer-shell${workspace ? " has-workspace" : ""}`}>
+    <div className={`composer-shell${workspace ? " has-workspace" : ""}${tray ? " has-tray" : ""}`}>
+      {tray ? <div className="composer-tray">{tray}</div> : null}
       {workspace}
       <form
         className={`composer prompt-anchor${dragging ? " is-dragging" : ""}`}
@@ -571,7 +592,7 @@ export function Composer({
         {dragging ? (
           <div className="composer-drop" aria-hidden="true">
             <Icon name="paperclip" size={16} />
-            Drop files to attach them
+            Drop to attach
           </div>
         ) : null}
         {preview ? <ImageViewer source={preview} onClose={() => setPreview(undefined)} /> : null}
@@ -633,7 +654,7 @@ export function Composer({
                       <Icon name="fileText" size={14} />
                     </span>
                     <span className="composer-attachment-label">
-                      <span>Pasted text</span>
+                      <span>{image.name.startsWith("pasted-text-") ? "Pasted text" : image.name}</span>
                       <span className="composer-attachment-meta">
                         {image.lines === 1 ? "1 line" : `${image.lines.toLocaleString()} lines`}
                       </span>

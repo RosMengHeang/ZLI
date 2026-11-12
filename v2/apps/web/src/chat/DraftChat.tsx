@@ -4,7 +4,11 @@ import { useState } from "react";
 import { providerDisplayName } from "../agent/providers.js";
 import type { ChatPlace } from "../sessions/launch.js";
 import type { PendingLaunch } from "../sessions/sessions.js";
+import { useChatAnimal } from "../teammates/chatAnimals.js";
+import { Icon } from "../ui/Icon.js";
 import { accountPlan, otherAgents } from "./agentModels.js";
+import { chatBranch } from "./branches.js";
+import { StartSuggestions } from "./ChatExtras.js";
 import { ChatStart } from "./ChatView.js";
 import { Composer, type ComposerAttachment } from "./Composer.js";
 import { reasoningLevels } from "./reasoning.js";
@@ -33,6 +37,7 @@ export function DraftChat({
   active,
   onChange,
   onMove,
+  onAddFolder,
   onSend,
 }: {
   projection: RuntimeProjection;
@@ -41,6 +46,7 @@ export function DraftChat({
   active: boolean;
   onChange(change: DraftChange): void;
   onMove(place: ChatPlace): Promise<string | undefined>;
+  onAddFolder?: (() => Promise<string | undefined>) | undefined;
   /** Resolves with a message when the agent could not start. */
   onSend(message: DraftMessage): Promise<string | undefined>;
 }) {
@@ -55,12 +61,30 @@ export function DraftChat({
     (chosenEffort && reasoning.levels.includes(chosenEffort) ? chosenEffort : undefined) ?? startingEffort;
   const project = projection.projects.find((candidate) => candidate.projectId === worktree.projectId);
   const name = providerDisplayName(provider, projection.providers);
+  const face = useChatAnimal(launch.sessionId);
+  const [branch] = useState(() => chatBranch(launch.sessionId));
+  const [insertRequest, setInsertRequest] = useState<{ text: string; nonce: number; replace?: boolean }>();
 
   return (
     <div className="chat-view">
       <div className="chat-log" role="log" aria-label="Agent conversation">
         <div className="chat-column">
-          <ChatStart provider={provider} folder={project?.name} />
+          {branch ? (
+            <p className="chat-branched" role="note">
+              <Icon name="branch" size={12} />
+              <span>
+                Branched from <span className="chat-branched-from">{branch.from}</span>. The agent gets that
+                conversation with your first message.
+              </span>
+            </p>
+          ) : null}
+          <ChatStart provider={provider} folder={project?.name} animal={face} />
+          {branch ? null : (
+            <StartSuggestions
+              folder={project?.name}
+              onPick={(text) => setInsertRequest({ text, nonce: Date.now(), replace: true })}
+            />
+          )}
         </div>
       </div>
       <div className="chat-dock">
@@ -71,6 +95,7 @@ export function DraftChat({
             </p>
           ) : null}
           <Composer
+            insertRequest={insertRequest}
             displayName={name}
             provider={provider}
             branch={worktree.branch}
@@ -82,6 +107,7 @@ export function DraftChat({
                 worktrees={projection.worktrees}
                 git={project?.git !== false}
                 onMove={onMove}
+                onAddFolder={onAddFolder}
               />
             }
             disabled={false}

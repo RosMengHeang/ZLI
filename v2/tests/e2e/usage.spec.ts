@@ -5,6 +5,7 @@ import {
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openNewAgentOptions,
   sendChatMessage,
 } from "./desktop-fixtures.js";
 
@@ -17,13 +18,15 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
     await newAgent.getByRole("button", { name: "Start agent" }).click();
     await sendChatMessage(page, "[usage] summarize the repo");
-    await expect(page.getByText("Mock response: [usage] summarize the repo")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".chat-log").getByText("Mock response: [usage] summarize the repo")).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(page.locator(".composer-context [aria-hidden]")).toHaveText("7% context");
 
     const limits = page.getByRole("button", { name: "Plan limits", exact: true });

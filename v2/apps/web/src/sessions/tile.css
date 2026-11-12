@@ -144,3 +144,8 @@ button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-of
 .env-commit-message { width: 100%; }
 .env-commit-actions { display: flex; align-items: center; gap: var(--zli-space-1-5); }
 .env-commit-actions > .btn-primary { flex: 1; justify-content: center; }
+
+/* A chat title renames in place. */
+.tile-title.is-editable { margin: -1px -4px; padding: 1px 4px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; font: inherit; font-size: var(--zli-text-base); font-weight: 600; cursor: text; text-align: left; }
+.tile-title.is-editable:hover { background: var(--zli-hover); color: var(--zli-text); }
+.tile-title-input { min-width: 120px; max-width: 360px; height: 24px; flex: 0 1 280px; padding: 0 6px; border: 1px solid var(--zli-focus); border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-text); font: inherit; font-size: var(--zli-text-base); font-weight: 600; outline: none; }

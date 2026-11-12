@@ -10,6 +10,7 @@ import { HuddleHeldPill, TileHuddleChip, useHuddleEntries } from "../huddle/Tile
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { setupProgress, worktreeSetup } from "../setup/setup.js";
+import { useChatAnimal } from "../teammates/chatAnimals.js";
 import { LazyTerminalView } from "../terminal/LazyTerminalView.js";
 import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -19,6 +20,7 @@ import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { StopButton } from "../ui/StopButton.js";
 import type { RunPosition } from "./bestOf.js";
+import { customChatTitle, setChatTitle, useChatTitlesVersion } from "./chatTitles.js";
 import { EnvironmentButton } from "./EnvironmentButton.js";
 import type { ChatPlace } from "./launch.js";
 import {
@@ -76,6 +78,7 @@ export function AgentTile({
   onOpenPullRequest,
   onDraftChange,
   onDraftMove,
+  onAddFolder,
   onDraftSend,
   onOpenConnectors,
   run,
@@ -83,6 +86,10 @@ export function AgentTile({
   onBringIn,
   onOpenAgent,
   onManageTeammates,
+  onBranch,
+  onNewChatWithPrompt,
+  onAskAside,
+  onCloseAside,
   accountLabel,
   onNewChat,
   canCarryContext = false,
@@ -121,6 +128,8 @@ export function AgentTile({
   /** A draft chat's settings changed before its first message. */
   onDraftChange?: ((change: DraftChange) => void) | undefined;
   onDraftMove?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
+  /** Opens the folder picker and adds the folder as a project, for the chat's project menu. */
+  onAddFolder?: (() => Promise<string | undefined>) | undefined;
   /** Starts a draft chat's agent with its first message. */
   onDraftSend?: ((message: DraftMessage) => Promise<string | undefined>) | undefined;
   /** Opens Settings at a connector, for a chat that needs one. */
@@ -133,6 +142,12 @@ export function AgentTile({
   /** Shows another agent's own tile, found by its thread or terminal id. */
   onOpenAgent?: ((agentId: string) => void) | undefined;
   onManageTeammates?: (() => void) | undefined;
+  onBranch?: ((branch: { from: string; context: string }) => void) | undefined;
+  onNewChatWithPrompt?: ((text: string) => void) | undefined;
+  onAskAside?:
+    | ((question: string, context: string | undefined) => Promise<{ threadId: string } | { error: string }>)
+    | undefined;
+  onCloseAside?: ((threadId: string) => void) | undefined;
   /** Shown only when the agent runs under a saved account rather than the usual login. */
   accountLabel?: string | undefined;
   /** Starts another chat in this tile. Absent where a chat cannot start, such as a worktree still being set up. */
@@ -156,10 +171,37 @@ export function AgentTile({
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [envCardOpen, setEnvCardOpen] = useState(readEnvCardOpen);
+  const face = useChatAnimal(session.sessionId);
+  const [envCardOpen, setEnvCardOpen] = useState(false);
   const [cardHost, setCardHost] = useState<HTMLDivElement | null>(null);
+  // The environment card floats over the chat, so a click elsewhere or Escape puts it away. Clicks in the
+  // menus it opens (branches, editors) and on its own button are its own.
+  useEffect(() => {
+    if (!envCardOpen || !cardHost) return;
+    const own = (target: EventTarget | null) =>
+      target instanceof Element &&
+      (cardHost.contains(target) ||
+        target.closest(
+          '[aria-label="Environment"], .popover, .picker-menu, .search-list, [role="menu"], [role="listbox"], [role="dialog"]',
+        ) !== null);
+    const onPointerDown = (event: PointerEvent) => {
+      if (!own(event.target)) setEnvCardOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEnvCardOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [envCardOpen, cardHost]);
   const displayName = providerDisplayName(session.provider, projection.providers);
+  useChatTitlesVersion();
   const title = sessionTitle(session, projection.messages, projection.providers);
+  const chatKey = session.thread ? (session.thread.sessionId ?? session.thread.threadId) : undefined;
+  const [editingTitle, setEditingTitle] = useState(false);
   const agentName = sessionAgentName(session);
   const branch = worktree?.branch ?? "worktree";
   const terminal = session.terminal;
@@ -252,6 +294,22 @@ export function AgentTile({
     onError: setError,
   });
   const moreItems: MenuEntry[] = [
+    ...(mode === "chat" && chatKey
+      ? [
+          { id: "rename-chat", label: "Rename chat", icon: "pencil" as const, run: () => setEditingTitle(true) },
+          ...(customChatTitle(chatKey)
+            ? [
+                {
+                  id: "auto-title",
+                  label: "Title from first message",
+                  icon: "reload" as const,
+                  title: "Go back to the title the chat's first message gives it",
+                  run: () => setChatTitle(chatKey, ""),
+                },
+              ]
+            : []),
+        ]
+      : []),
     ...(mode === "chat" && onHandoff
       ? [{ id: "handoff", label: "Continue with another agent", icon: "handoff" as const, run: onHandoff }]
       : []),
@@ -328,13 +386,36 @@ export function AgentTile({
           </button>
         ) : null}
         {onOpenHuddle ? <TileHuddleChip huddles={memberOf} onOpen={onOpenHuddle} /> : null}
-        <span className="tile-title" title={title}>
-          {title}
-        </span>
-        <span className="tile-branch" title={worktree?.path}>
-          <Icon name="branch" size={11} />
-          <span>{branch}</span>
-        </span>
+        {mode === "chat" && chatKey && editingTitle ? (
+          <ChatTitleEditor
+            title={title}
+            onDone={(next) => {
+              setEditingTitle(false);
+              if (next !== undefined && next !== title) setChatTitle(chatKey, next);
+            }}
+          />
+        ) : mode === "chat" && chatKey ? (
+          <button
+            type="button"
+            className="tile-title is-editable"
+            title={`${title}. Click to rename`}
+            aria-label={`Rename chat: ${title}`}
+            onClick={() => setEditingTitle(true)}
+          >
+            {title}
+          </button>
+        ) : (
+          <span className="tile-title" title={title}>
+            {title}
+          </span>
+        )}
+        {/* A chat's message box already shows its folder and branch, so the header does not repeat them. */}
+        {mode === "chat" ? null : (
+          <span className="tile-branch" title={worktree?.path}>
+            <Icon name="branch" size={11} />
+            <span>{branch}</span>
+          </span>
+        )}
         {accountLabel ? (
           <span className="tile-account" title={`Account: ${accountLabel}`}>
             <Icon name="user" size={11} />
@@ -372,10 +453,7 @@ export function AgentTile({
                   ? {
                       open: envCardOpen,
                       host: cardHost,
-                      onOpenChange: (open) => {
-                        setEnvCardOpen(open);
-                        writeEnvCardOpen(open);
-                      },
+                      onOpenChange: setEnvCardOpen,
                     }
                   : undefined
               }
@@ -487,6 +565,7 @@ export function AgentTile({
               active={active}
               onChange={onDraftChange}
               onMove={onDraftMove}
+              onAddFolder={onAddFolder}
               onSend={onDraftSend}
             />
           ) : session.pending.mode === "chat" && worktree?.status === "ready" ? (
@@ -494,6 +573,7 @@ export function AgentTile({
             <div className="tile-chat-start">
               <ChatStart
                 provider={session.provider}
+                animal={face}
                 folder={projection.projects.find((project) => project.projectId === worktree.projectId)?.name}
               />
             </div>
@@ -558,11 +638,16 @@ export function AgentTile({
             onHandoff={onHandoff}
             onSwitchAgent={onSwitchAgent}
             onMoveChat={onMoveChat}
+            onAddFolder={onAddFolder}
             onOpenConnectors={onOpenConnectors}
             onStartRuns={onStartRuns}
             onBringIn={onBringIn}
             onOpenAgent={onOpenAgent}
             onManageTeammates={onManageTeammates}
+            onBranch={onBranch}
+            onNewChatWithPrompt={onNewChatWithPrompt}
+            onAskAside={onAskAside}
+            onCloseAside={onCloseAside}
             active={active}
           />
         ) : (
@@ -587,27 +672,40 @@ export function AgentTile({
   );
 }
 
-const ENV_CARD_KEY = "zli.envCard.v1";
-
-/**
- * Whether chat tiles pin the environment card. It starts hidden, since it floats over the conversation and would cover
- * a reply on a small window; opening it in one tile opens it in all.
- */
-function readEnvCardOpen(): boolean {
-  try {
-    return window.localStorage.getItem(ENV_CARD_KEY) === "open";
-  } catch {
-    return false;
-  }
-}
-
-function writeEnvCardOpen(open: boolean): void {
-  try {
-    window.localStorage.setItem(ENV_CARD_KEY, open ? "open" : "closed");
-  } catch {
-    // Storage can be unavailable; the choice still holds in this tile.
-  }
-}
-
 /** States a chat tile leaves unsaid. The composer already takes messages while the agent starts. */
-const quietInChat: ReadonlySet<string> = new Set(["preparing", "starting", "ready"]);
+// A stopped chat picks up where it left off with the next message, so being stopped is not news either.
+const quietInChat: ReadonlySet<string> = new Set(["preparing", "starting", "ready", "ended"]);
+
+/** The chat's title as a field, for renaming it in place. Enter keeps the name, Escape keeps the old one. */
+function ChatTitleEditor({ title, onDone }: { title: string; onDone(title: string | undefined): void }) {
+  const [value, setValue] = useState(title);
+  const done = useRef(false);
+  const finish = (next: string | undefined) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(next);
+  };
+  return (
+    <input
+      className="tile-title-input"
+      aria-label="Chat title"
+      // biome-ignore lint/a11y/noAutofocus: the field opens because the person clicked the title to rename it.
+      autoFocus
+      value={value}
+      maxLength={120}
+      onFocus={(event) => event.currentTarget.select()}
+      onChange={(event) => setValue(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          finish(value);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          finish(undefined);
+        }
+      }}
+      onBlur={() => finish(value)}
+    />
+  );
+}

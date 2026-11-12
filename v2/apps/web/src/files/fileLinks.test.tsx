@@ -37,6 +37,16 @@ describe("parseQuickOpenQuery", () => {
   });
 });
 
+describe("file references with a line range", () => {
+  it("opens a range such as app.ts:20-40 at its first line", () => {
+    const files = new Set(["src/app.ts"]);
+    const found = findFileReferences("see src/app.ts:20-40 for it", "C:/repo", files);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.location).toEqual({ path: "src/app.ts", line: 20 });
+    expect(parseFileReference("src/app.ts:7:3", "C:/repo", files)).toEqual({ path: "src/app.ts", line: 7, column: 3 });
+  });
+});
+
 describe("Markdown file links", () => {
   it("turns paths in inline code, links, and plain text into buttons that open the file", async () => {
     const open = vi.fn();

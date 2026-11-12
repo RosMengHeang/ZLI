@@ -3,8 +3,9 @@ import { expect, test } from "@playwright/test";
 import {
   closeDesktop,
   createGitFixture,
-  launchDesktop,
   type DesktopFixture,
+  launchDesktop,
+  openNewAgentOptions,
   sendChatMessage,
 } from "./desktop-fixtures.js";
 
@@ -17,7 +18,7 @@ test("shows approvals and questions in plain words and answers them from the cha
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
@@ -56,7 +57,7 @@ test("clears an open approval when the turn is stopped or ZLI restarts, so the c
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
@@ -75,7 +76,9 @@ test("clears an open approval when the turn is stopped or ZLI restarts, so the c
     await composer.fill("hello after stop");
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled({ timeout: 20_000 });
     await composer.press("Enter");
-    await expect(page.getByText("Mock response: hello after stop")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".chat-log").getByText("Mock response: hello after stop")).toBeVisible({
+      timeout: 20_000,
+    });
     await expect(page.getByRole("region", { name: "Queued messages" })).toHaveCount(0);
 
     await composer.fill("[approval] clean the build folder again");
@@ -104,7 +107,9 @@ test("clears an open approval when the turn is stopped or ZLI restarts, so the c
       .toEqual({ status: "stopped", requests: 0, attention: 0 });
     await page.reload();
     await expect(page.getByRole("status").filter({ hasText: "Runtime connected" })).toBeVisible();
-    await expect(page.getByText("Mock response: hello after stop")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".chat-log").getByText("Mock response: hello after stop")).toBeVisible({
+      timeout: 20_000,
+    });
     await expect(approval).toHaveCount(0);
     await expect(attention).toHaveCount(0);
   } finally {

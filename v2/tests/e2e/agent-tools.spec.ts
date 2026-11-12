@@ -11,6 +11,7 @@ import {
   type DesktopFixture,
   git,
   launchDesktop,
+  openNewAgentOptions,
   V2_ROOT,
 } from "./desktop-fixtures.js";
 
@@ -128,14 +129,13 @@ test("lets agents list, start, read, and message each other with the zli command
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
   let fixture: DesktopFixture | undefined;
-  const mod = process.platform === "darwin" ? "Meta" : "Control";
   const zli = zliIn(root);
   try {
     fixture = await launchDesktop(repo, root);
     const { page } = fixture;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.keyboard.press(`${mod}+n`);
+    await openNewAgentOptions(page);
     const dialog = page.getByRole("dialog", { name: "New agent" });
     await dialog.getByText("Codex", { exact: true }).click();
     await dialog.getByText("Chat", { exact: true }).click();

@@ -17,6 +17,8 @@ type Option = {
   disabled?: boolean;
   mono?: boolean;
   place?: ChatPlace;
+  /** An action in place of a place, such as opening a folder that is not a project yet. */
+  run?: () => void;
 };
 
 type Group = { label?: string; options: Option[] };
@@ -38,6 +40,7 @@ export function WorkspaceBar({
   worktrees,
   git,
   onMove,
+  onAddFolder,
 }: {
   project: ProjectProjection | undefined;
   projects: readonly ProjectProjection[];
@@ -46,6 +49,8 @@ export function WorkspaceBar({
   /** The project is a Git repository, so it has branches. */
   git: boolean;
   onMove?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
+  /** Opens the system folder picker and adds the folder as a project. The new project's id, or undefined. */
+  onAddFolder?: (() => Promise<string | undefined>) | undefined;
 }) {
   const [open, setOpen] = useState<"folder" | "branch">();
   const [moving, setMoving] = useState(false);
@@ -79,6 +84,26 @@ export function WorkspaceBar({
         place: { kind: "project", projectId: candidate.projectId },
       })),
     },
+    ...(onAddFolder
+      ? [
+          {
+            options: [
+              {
+                key: "add-folder",
+                label: "Open a folder…",
+                detail: "Any folder on this computer",
+                icon: <Icon name="folderPlus" size={14} />,
+                run: () => {
+                  setOpen(undefined);
+                  void onAddFolder().then((projectId) => {
+                    if (projectId && projectId !== worktree.projectId) void move({ kind: "project", projectId });
+                  });
+                },
+              },
+            ],
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -90,7 +115,7 @@ export function WorkspaceBar({
         title={worktree.path}
         menuLabel="Move this chat to another project"
         open={open === "folder"}
-        enabled={!!onMove && projects.length > 1 && !moving}
+        enabled={!!onMove && (projects.length > 1 || !!onAddFolder) && !moving}
         onOpen={(next) => setOpen(next ? "folder" : undefined)}
         groups={folderGroups}
         onPick={move}
@@ -402,6 +427,7 @@ function PlaceButton({
                         onClick={() => {
                           if (option.disabled) return;
                           if (option.current) close(true);
+                          else if (option.run) option.run();
                           else if (option.place) onPick(option.place);
                         }}
                       >

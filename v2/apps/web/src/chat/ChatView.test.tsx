@@ -229,7 +229,8 @@ describe("ChatView", () => {
   it("keeps the composer for a stopped chat that can resume, and offers New chat otherwise", async () => {
     const stopped = { ...thread, status: "stopped", providerSessionId: "conv-1" } as ThreadProjection;
     const resumable = await render(projectionWith({ threads: [stopped] }));
-    expect(resumable.container.querySelector(".chat-paused")?.textContent).toContain("picks up where it left off");
+    // A stopped chat says nothing about being stopped; the message box is the way on.
+    expect(resumable.container.querySelector(".chat-paused")).toBeNull();
     expect(resumable.container.querySelector('textarea[aria-label="Message Droid"]')).not.toBeNull();
     expect(button(resumable.container, "New chat")).toBeUndefined();
     document.body.replaceChildren();
@@ -660,7 +661,7 @@ describe("ChatView", () => {
       form?.dispatchEvent(event);
     };
     await act(async () => drag("dragenter"));
-    expect(container.querySelector(".composer-drop")?.textContent).toBe("Drop files to attach them");
+    expect(container.querySelector(".composer-drop")?.textContent).toBe("Drop to attach");
     await act(async () => drag("drop", [dropped, picked]));
     expect(container.querySelector(".composer-drop")).toBeNull();
     expect(textarea?.value).toBe("");
@@ -1073,5 +1074,76 @@ describe("ChatView context meter", () => {
     expect(meter?.querySelector(".sr-only")?.textContent).toBe(
       "85% of context used. 170k of 200k tokens in context after the last turn",
     );
+  });
+
+  it("pins the agent's plan over the message box and keeps it out of the steps", async () => {
+    const turnId = thread.activeTurnId as string;
+    const working = { ...thread, status: "working" } as ThreadProjection;
+    const { container } = await render(
+      projectionWith({
+        threads: [working],
+        messages: [
+          { messageId: "m1", threadId, turnId, role: "user", text: "Fix it" },
+        ] as RuntimeProjection["messages"],
+        activities: [
+          {
+            activityId: "plan",
+            threadId,
+            turnId,
+            kind: "tool",
+            title: "Plan: 1 of 2 done",
+            status: "completed",
+            todos: [
+              { text: "Read the code", status: "completed" },
+              { text: "Fix the bug", status: "in_progress" },
+            ],
+          },
+        ] as RuntimeProjection["activities"],
+      }),
+    );
+    const plan = container.querySelector(".plan-card");
+    expect(plan?.querySelector(".plan-card-count")?.textContent).toBe("1/2");
+    expect([...(plan?.querySelectorAll(".plan-step") ?? [])].map((step) => step.className)).toEqual([
+      "plan-step is-completed",
+      "plan-step is-in_progress",
+    ]);
+    expect(container.querySelector(".chat-log")?.textContent).not.toContain("Plan: 1 of 2 done");
+  });
+
+  it("offers Continue for a chat cut off mid-task, and sends it on", async () => {
+    const turnId = thread.activeTurnId as string;
+    const stopped = { ...thread, status: "stopped", providerSessionId: "conv-1" } as ThreadProjection;
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [stopped],
+        messages: [
+          { messageId: "m1", threadId, turnId, role: "user", text: "Build the page" },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    const resume = button(container, "Continue");
+    expect(resume).toBeDefined();
+    await act(async () => resume?.click());
+    expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", text: "Continue where you left off." });
+  });
+
+  it("lets the person edit their last message once the reply is in", async () => {
+    const turnId = thread.activeTurnId as string;
+    const idle = { ...thread, status: "idle" } as ThreadProjection;
+    const { container } = await render(
+      projectionWith({
+        threads: [idle],
+        messages: [
+          { messageId: "m1", threadId, turnId, role: "user", text: "Make it blue" },
+          { messageId: "m2", threadId, turnId, role: "assistant", text: "Done." },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    expect(button(container, "Continue")).toBeUndefined();
+    await act(async () => button(container, "Edit message")?.click());
+    await act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+    const box = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
+    expect(box?.value).toBe("Make it blue");
+    expect(container.querySelector(".chat-editing")?.textContent).toContain("Editing your last message");
   });
 });

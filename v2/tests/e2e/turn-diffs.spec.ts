@@ -8,6 +8,7 @@ import {
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openNewAgentOptions,
   sendChatMessage,
 } from "./desktop-fixtures.js";
 
@@ -20,13 +21,15 @@ test("shows the files a turn changed with their diff and restores them", async (
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
     await newAgent.getByRole("button", { name: "Start agent" }).click();
     await sendChatMessage(page, "[write notes.txt] add release notes");
-    await expect(page.getByText("Mock response: [write notes.txt] add release notes")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".chat-log").getByText("Mock response: [write notes.txt] add release notes")).toBeVisible(
+      { timeout: 30_000 },
+    );
 
     const worktreePath = await page.evaluate(async () => {
       const projection = await window.zli?.runtime.getProjection();

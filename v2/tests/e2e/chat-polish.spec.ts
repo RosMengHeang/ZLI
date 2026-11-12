@@ -8,6 +8,7 @@ import {
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openNewAgentOptions,
   sendChatMessage,
   togglePanel,
 } from "./desktop-fixtures.js";
@@ -22,7 +23,7 @@ test("folds file reads, previews HTML replies, attaches long pastes, and finds t
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.locator(".sidebar-new-agent").click();
+    await openNewAgentOptions(page);
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await newAgent.getByText("Codex", { exact: true }).click();
     await newAgent.getByText("Chat", { exact: true }).click();
@@ -58,7 +59,9 @@ test("folds file reads, previews HTML replies, attaches long pastes, and finds t
     await composer.fill("Summarize this log");
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
     await composer.press("Enter");
-    await expect(page.getByText(/Mock response: Summarize this log/u)).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".chat-log").getByText(/Mock response: Summarize this log/u)).toBeVisible({
+      timeout: 20_000,
+    });
     await expect(page.getByText(/Attached text the person pasted/u)).toBeVisible();
     await expect(page.locator(".chat-attachments")).toContainText("pasted-text-1.txt");
 
