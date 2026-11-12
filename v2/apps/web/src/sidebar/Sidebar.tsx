@@ -1,6 +1,6 @@
 import type { Account, ProjectProjection, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { huddlesOf, MAX_HUDDLE_MEMBERS, threadOccupiesWorktree } from "@zli-v2/contracts";
-import { type MouseEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
@@ -30,12 +30,14 @@ import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
-import { type MenuAction, Menu, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
+import { Menu, type MenuAction, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
 import { SidebarPlanLimits } from "./SidebarUsageStrip.js";
+import { AskLine, LiveStep, ReplyPreview } from "./sessionLines.js";
 import { useSidebarCollapsed } from "./sidebarLayout.js";
+import { useUnread } from "./unread.js";
 import "./sidebar.css";
 
 export type WorktreeAction = "retry" | "cancel" | "remove";
@@ -162,6 +164,10 @@ const noStates: ReadonlyMap<string, RunState> = new Map();
 /** How many projects without agents it takes before they fold into one row. */
 const FOLD_QUIET_PROJECTS = 3;
 
+/** A project lists this many chats; quiet ones past it fold into one row, so old chats never bury new ones. */
+const RECENT_CHATS = 5;
+const noOlder: ReadonlySet<string> = new Set();
+
 export function Sidebar({
   projection,
   sessions,
@@ -210,6 +216,9 @@ export function Sidebar({
   const [huddleMenu, setHuddleMenu] = useState<MenuRequest>();
   const huddleCommands = useHuddleCommands();
   const layout = useSidebarCollapsed();
+  const { unread, clear: clearUnread } = useUnread(sessions, activeSessionId, projection !== undefined);
+  /** Projects whose older chats the person unfolded. */
+  const [olderOpen, setOlderOpen] = useState<ReadonlySet<string>>(noOlder);
   const [now, setNow] = useState(() => Date.now());
   const prEntries = usePullRequestEntries();
   const projects = projection?.projects ?? [];
@@ -264,6 +273,8 @@ export function Sidebar({
   const quietProjects = fold ? quiet : [];
 
   const asideRef = useRef<HTMLElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
   const { expandProject } = layout;
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -726,6 +737,13 @@ export function Sidebar({
       const label = sessionAgentName(session) ? "Rename agent" : "Name agent";
       items.push({ label, icon: "pencil", run: () => onRenameSession(session) });
     }
+    const pinned = layout.chatPinned(session.sessionId);
+    items.push({
+      label: pinned ? "Unpin chat" : "Pin chat",
+      icon: "pin",
+      title: pinned ? undefined : "Keep this chat at the top of the sidebar",
+      run: () => layout.toggleChatPinned(session.sessionId),
+    });
     const agentId = onOpenHuddle ? sessionAgentId(session) : undefined;
     if (agentId) {
       const label = sessionAgentName(session) ?? sessionTitle(session, projection?.messages, projection?.providers);
@@ -770,6 +788,10 @@ export function Sidebar({
     showWorktreeAlert = false,
     /** Sessions above this one in the sub-agent tree, so bad data can't nest a row inside itself. */
     ancestors = noAncestors,
+    /** The row sits under its worktree's branch row, which already says where it works. */
+    grouped = false,
+    /** Listed outside its project, as in search results, so the row names the project. */
+    withProject = false,
   ) => {
     const worktree = projectWorktrees.find((entry) => entry.worktreeId === session.worktreeId);
     const info = worktree ? worktreeInfo(worktree) : undefined;
@@ -791,7 +813,15 @@ export function Sidebar({
     const agentName = sessionAgentName(session);
     const runName = runIndex === undefined ? title : `Run ${runIndex}`;
     const name = agentName ? `${agentName}, ${runName}` : runName;
-    const branchLine = runIndex === undefined && worktree && info;
+    const branchLine = runIndex === undefined && !grouped && worktree && info;
+    // A live agent says what it is doing, or what it asked, on a line of its own.
+    const live =
+      runIndex === undefined && session.thread && (session.status === "working" || session.status === "waiting")
+        ? session.thread
+        : undefined;
+    const isUnread = unread.has(session.sessionId);
+    const failure =
+      session.status === "failed" ? (session.thread?.errorMessage ?? session.pending?.errorMessage) : undefined;
     const parent = parents.get(session.sessionId);
     const parentName = parent
       ? (sessionAgentName(parent) ?? sessionTitle(parent, projection?.messages, projection?.providers))
@@ -803,9 +833,9 @@ export function Sidebar({
     return (
       <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
         <button
-          className={`session-row${active ? " is-active" : ""}${branchLine ? " has-branch" : ""}`}
+          className={`session-row${active ? " is-active" : ""}${branchLine ? " has-branch" : ""}${live ? " has-state" : ""}${isUnread ? " is-unread" : ""}`}
           type="button"
-          aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}`}
+          aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}${isUnread ? ", unread" : ""}`}
           aria-current={active ? "true" : undefined}
           onClick={() => onSelectSession(session)}
           onContextMenu={(event) =>
@@ -813,7 +843,7 @@ export function Sidebar({
               sessionMenuItems(session, stoppable, runIndex === undefined ? worktree : undefined, subAgents),
             )
           }
-          title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}${parentName ? `\nStarted by ${parentName}` : ""}`}
+          title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}${parentName ? `\nStarted by ${parentName}` : ""}${failure ? `\n${failure}` : ""}`}
         >
           <ProviderMark provider={session.provider} size={14} />
           <span className="session-copy">
@@ -827,23 +857,39 @@ export function Sidebar({
                   <span className="session-title">{worktree?.branch ?? provider}</span>
                 </>
               )}
+              {withProject && runIndex === undefined ? (
+                <span className="session-project">{projectOf(session)?.name}</span>
+              ) : null}
               <span className="session-side">
                 {quiet ? (
                   background ? (
                     <span className="session-background">Background</span>
                   ) : (
-                    <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+                    <>
+                      {isUnread ? <span className="session-unread" aria-hidden="true" /> : null}
+                      <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+                    </>
                   )
                 ) : (
                   <span
-                    className={`session-status is-${runStatus === "running" ? "working" : (runStatus ?? session.status)}`}
+                    // A failure the person has already opened stays labelled, without the red that calls for a look.
+                    className={`session-status is-${runStatus === "running" ? "working" : (runStatus ?? session.status)}${runStatus === undefined && session.status === "failed" && !isUnread ? " is-seen" : ""}`}
                   >
                     <span className="dot" aria-hidden="true" />
-                    {status}
+                    <span className="session-status-label">{status}</span>
                   </span>
                 )}
               </span>
             </span>
+            {live ? (
+              <span className={`session-state is-${session.status}`}>
+                {session.status === "waiting" ? (
+                  <AskLine threadId={live.threadId} provider={session.provider} />
+                ) : (
+                  <LiveStep threadId={live.threadId} turnId={live.activeTurnId} />
+                )}
+              </span>
+            ) : null}
             {branchLine ? (
               <span className="session-branch">
                 <Icon name="branch" size={10} />
@@ -890,6 +936,201 @@ export function Sidebar({
     );
   };
 
+  /**
+   * Chats in a worktree list under one row for its branch, so the branch, its pull request, and its changed
+   * files are said once, above the chats working on them.
+   */
+  const renderBranchGroup = (
+    worktree: WorktreeProjection,
+    members: readonly AgentSession[],
+    projectWorktrees: readonly WorktreeProjection[],
+  ) => {
+    const info = worktreeInfo(worktree);
+    return (
+      <li className="worktree-entry worktree-group" key={`branch-${worktree.worktreeId}`}>
+        <button
+          className="worktree-row worktree-group-row"
+          type="button"
+          onClick={() => onSelectWorktree(worktree)}
+          title={[worktree.path, worktree.status === "failed" ? worktree.errorMessage : undefined, info.setupProblem]
+            .filter(Boolean)
+            .join("\n")}
+        >
+          <Icon name="branch" size={11} />
+          <span className="worktree-name">{worktree.branch}</span>
+          <span className="worktree-meta">
+            <WorktreeTrack entry={prEntries.get(worktree.worktreeId)} branch={worktree.branch} />
+            <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
+            {worktree.status === "ready" && !info.badge ? null : (
+              <span className={`worktree-status${info.statusClass}`}>{info.statusText}</span>
+            )}
+            {info.changed ? (
+              <span className="count" title={`${info.changed} changed files`}>
+                {info.changed}
+              </span>
+            ) : null}
+          </span>
+        </button>
+        <span className="row-more">
+          <MenuButton
+            label="Worktree actions"
+            tooltip="More"
+            size="xs"
+            items={() => worktreeMenuItems(worktree, info)}
+          />
+        </span>
+        {worktreeNote(worktree, info)}
+        {renderWorktreeFixes(worktree, info)}
+        <ul className="session-list">
+          {members.map((member) =>
+            renderSession(
+              member,
+              projectWorktrees,
+              groupsBySource.get(member.sessionId),
+              undefined,
+              false,
+              noAncestors,
+              true,
+            ),
+          )}
+        </ul>
+      </li>
+    );
+  };
+
+  const projectOf = (session: AgentSession) => {
+    const worktree = worktrees.find((entry) => entry.worktreeId === session.worktreeId);
+    return projects.find((entry) => entry.projectId === worktree?.projectId);
+  };
+  const pinnedChats = sessions.filter((session) => layout.chatPinned(session.sessionId));
+
+  // Typing in the search box lists every chat it matches, from all projects, newest first.
+  const needle = query.trim().toLowerCase();
+  const searching = needle.length > 0;
+  const matches = searching
+    ? sessions
+        .filter((session) => !runIds.has(session.sessionId))
+        .filter((session) => {
+          const worktree = worktrees.find((entry) => entry.worktreeId === session.worktreeId);
+          return [
+            sessionTitle(session, projection?.messages, projection?.providers),
+            sessionAgentName(session),
+            providerDisplayName(session.provider, projection?.providers),
+            projectOf(session)?.name,
+            worktree?.branch,
+          ].some((field) => field?.toLowerCase().includes(needle));
+        })
+        .sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""))
+    : [];
+  const renderSearch = () => (
+    <section className="sidebar-results" aria-label="Chats found">
+      <h2 className="sidebar-heading">
+        {matches.length === 0 ? "No chats found" : matches.length === 1 ? "1 chat" : `${matches.length} chats`}
+      </h2>
+      {matches.length === 0 ? (
+        <p className="sidebar-results-empty">
+          Nothing matches “{query.trim()}” in a chat title, agent, project, or branch.
+        </p>
+      ) : (
+        <ul className="session-list">
+          {matches.map((session) => {
+            const projectId = projectOf(session)?.projectId;
+            return renderSession(
+              session,
+              worktrees.filter((worktree) => worktree.projectId === projectId),
+              undefined,
+              undefined,
+              false,
+              noAncestors,
+              false,
+              true,
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+
+  /** Up and Down move between the chats in the list, so the keyboard can walk it without Tab. */
+  const moveBetweenChats = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const target = event.target as HTMLElement;
+    if (!target.matches(".session-row, .shelf-row")) return;
+    const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(".session-row, .shelf-row")];
+    const index = rows.indexOf(target as HTMLButtonElement);
+    const next = rows[event.key === "ArrowDown" ? index + 1 : index - 1];
+    event.preventDefault();
+    if (next) next.focus();
+    else if (event.key === "ArrowUp") searchRef.current?.focus();
+  };
+
+  // Agents that asked for something, and chats that finished or failed out of view, from every project.
+  const shelf = sessions
+    .filter((session) => session.status === "waiting" || unread.has(session.sessionId))
+    .sort(
+      (left, right) =>
+        Number(right.status === "waiting") - Number(left.status === "waiting") ||
+        (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""),
+    );
+  const renderShelf = () => (
+    <section className="sidebar-shelf" aria-label="Waiting on you">
+      <div className="shelf-head">
+        <h2 className="shelf-heading">Waiting on you</h2>
+        <span className="shelf-count">{shelf.length}</span>
+        {unread.size > 0 ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="shelf-clear"
+            tooltip="Mark finished chats as seen"
+            onClick={clearUnread}
+          >
+            Clear
+          </Button>
+        ) : null}
+      </div>
+      <ul className="shelf-list">
+        {shelf.map((session) => {
+          const worktree = worktrees.find((entry) => entry.worktreeId === session.worktreeId);
+          const project = projects.find((entry) => entry.projectId === worktree?.projectId);
+          const title = sessionAgentName(session) ?? sessionTitle(session, projection?.messages, projection?.providers);
+          const tone = session.status === "waiting" ? "waiting" : session.status === "failed" ? "failed" : "done";
+          const said = { waiting: "needs your answer", failed: "failed", done: "finished" }[tone];
+          const threadId = session.thread?.threadId;
+          return (
+            <li key={session.sessionId}>
+              <button
+                className={`shelf-row is-${tone}${session.sessionId === activeSessionId ? " is-active" : ""}`}
+                type="button"
+                aria-label={`${title}, ${said}${project ? `, in ${project.name}` : ""}`}
+                onClick={() => onSelectSession(session)}
+              >
+                <ProviderMark provider={session.provider} size={14} />
+                <span className="shelf-copy">
+                  <span className="shelf-line">
+                    <span className="shelf-title">{title}</span>
+                    {project ? <span className="shelf-project">{project.name}</span> : null}
+                  </span>
+                  <span className="shelf-reason">
+                    {tone === "waiting" && threadId ? (
+                      <AskLine threadId={threadId} provider={session.provider} />
+                    ) : tone === "failed" ? (
+                      (session.thread?.errorMessage ?? session.pending?.errorMessage ?? "Failed")
+                    ) : threadId ? (
+                      <ReplyPreview threadId={threadId} />
+                    ) : (
+                      "Finished"
+                    )}
+                  </span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+
   return (
     <aside className="sidebar" aria-label="Projects and agents" ref={asideRef}>
       <div className="sidebar-top">
@@ -902,31 +1143,92 @@ export function Sidebar({
         </span>
       </div>
       <div className="sidebar-primary">
-        <button className="btn btn-ghost sidebar-add-project" type="button" onClick={onOpenProject}>
-          <Icon name="folderPlus" size={16} />
-          <span>Add project</span>
-        </button>
-        <button
-          className="btn btn-secondary sidebar-new-agent"
-          type="button"
-          onClick={() => onNewAgent()}
-          disabled={projects.length === 0}
-          aria-keyshortcuts={ariaShortcut(newAgentShortcut)}
-        >
-          <Icon name="agentNew" size={16} />
-          <span>New agent</span>
-          <Kbd shortcut={newAgentShortcut} />
-        </button>
+        <div className="sidebar-primary-row">
+          <button
+            className="btn btn-secondary sidebar-new-agent"
+            type="button"
+            onClick={() => onNewAgent()}
+            disabled={projects.length === 0}
+            aria-keyshortcuts={ariaShortcut(newAgentShortcut)}
+          >
+            <Icon name="agentNew" size={16} />
+            <span>New chat</span>
+            <Kbd shortcut={newAgentShortcut} />
+          </button>
+          <IconButton
+            className="sidebar-add-project"
+            label="Add project"
+            tooltip="Add project"
+            icon="folderPlus"
+            onClick={onOpenProject}
+          />
+        </div>
+        {projects.length > 0 ? (
+          <label className="sidebar-search">
+            <Icon name="search" size={13} />
+            <input
+              ref={searchRef}
+              type="search"
+              placeholder="Find a chat"
+              aria-label="Find a chat"
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setQuery("");
+                  return;
+                }
+                if (event.key === "ArrowDown" || event.key === "Enter") {
+                  const first = asideRef.current?.querySelector<HTMLButtonElement>(
+                    ".sidebar-scroll .session-row, .sidebar-scroll .shelf-row",
+                  );
+                  if (!first) return;
+                  event.preventDefault();
+                  if (event.key === "Enter") first.click();
+                  else first.focus();
+                }
+              }}
+            />
+          </label>
+        ) : null}
       </div>
-      <div className="sidebar-scroll">
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the chat buttons inside. */}
+      <div className="sidebar-scroll" onKeyDown={moveBetweenChats}>
         {projects.length === 0 ? (
           <div className="sidebar-empty">
             <p>
               Add a Git repository to start. Each agent gets its own terminal, and its own worktree if you want one.
             </p>
           </div>
+        ) : searching ? (
+          renderSearch()
         ) : (
           <>
+            {shelf.length > 0 ? renderShelf() : null}
+            {pinnedChats.length > 0 ? (
+              <section className="sidebar-pinned" aria-label="Pinned chats">
+                <h2 className="sidebar-heading">Pinned</h2>
+                <ul className="session-list">
+                  {pinnedChats.map((session) => {
+                    const projectWorktrees = worktrees.filter((worktree) =>
+                      worktrees.some(
+                        (entry) => entry.worktreeId === session.worktreeId && entry.projectId === worktree.projectId,
+                      ),
+                    );
+                    return renderSession(
+                      session,
+                      projectWorktrees,
+                      undefined,
+                      undefined,
+                      false,
+                      noAncestors,
+                      false,
+                      true,
+                    );
+                  })}
+                </ul>
+              </section>
+            ) : null}
             <h2 className="sidebar-heading">Projects</h2>
             {listedProjects.map((project) => {
               const projectWorktrees = worktrees.filter((worktree) => worktree.projectId === project.projectId);
@@ -956,6 +1258,28 @@ export function Sidebar({
                       worktreeInfo(worktree).needsAttention,
                   );
               const empty = projectSessions.length === 0;
+              // Sub-agents and best-of runs list under the chat they came from, in this project too.
+              // Pinned chats list once, at the top of the sidebar.
+              const top = projectSessions.filter(
+                (session) =>
+                  !runIds.has(session.sessionId) &&
+                  !parents.has(session.sessionId) &&
+                  !layout.chatPinned(session.sessionId),
+              );
+              // Past the newest few, a chat folds away once nothing about it asks to be seen.
+              const older = top.filter(
+                (session, index) =>
+                  index >= RECENT_CHATS &&
+                  (session.status === "ready" || session.status === "ended" || session.status === "failed") &&
+                  session.sessionId !== activeSessionId &&
+                  !unread.has(session.sessionId) &&
+                  !subAgentsOf.has(session.sessionId) &&
+                  !groupsBySource.has(session.sessionId),
+              );
+              const olderShown = olderOpen.has(project.projectId);
+              const folded = new Set(older.length >= 2 && !olderShown ? older.map((session) => session.sessionId) : []);
+              const shown = top.filter((session) => !folded.has(session.sessionId));
+              const grouped = new Set<string>();
               const alerted = new Set<string>();
               const firstForWorktree = (session: AgentSession) => {
                 if (alerted.has(session.worktreeId)) return false;
@@ -1049,16 +1373,28 @@ export function Sidebar({
                         </p>
                       ) : (
                         <ul className="session-list">
-                          {projectSessions.map((session) => {
-                            if (runIds.has(session.sessionId)) return null;
-                            // A sub-agent lists under the agent that started it, which is in this project too.
-                            if (parents.has(session.sessionId)) return null;
+                          {shown.map((session) => {
+                            const worktree = projectWorktrees.find((entry) => entry.worktreeId === session.worktreeId);
+                            // Chats in a worktree of their own sit under one row for its branch, which
+                            // carries the pull request and the changed files. Chats on the project's own
+                            // checkout list straight under the project.
+                            if (worktree && worktree.kind !== "checkout") {
+                              if (grouped.has(session.worktreeId)) return null;
+                              grouped.add(session.worktreeId);
+                              return renderBranchGroup(
+                                worktree,
+                                shown.filter((entry) => entry.worktreeId === session.worktreeId),
+                                projectWorktrees,
+                              );
+                            }
                             return renderSession(
                               session,
                               projectWorktrees,
                               groupsBySource.get(session.sessionId),
                               undefined,
                               firstForWorktree(session),
+                              noAncestors,
+                              true,
                             );
                           })}
                           {runGroups
@@ -1074,6 +1410,25 @@ export function Sidebar({
                             ))}
                         </ul>
                       )}
+                      {older.length >= 2 ? (
+                        <div className="worktree-heading">
+                          <button
+                            className="older-toggle"
+                            type="button"
+                            aria-expanded={olderShown}
+                            onClick={() =>
+                              setOlderOpen((current) => {
+                                const next = new Set(current);
+                                if (!next.delete(project.projectId)) next.add(project.projectId);
+                                return next;
+                              })
+                            }
+                          >
+                            <Icon name="chevronRight" size={11} className="worktree-toggle-chevron" />
+                            {olderShown ? "Hide older chats" : `${older.length} older chats`}
+                          </button>
+                        </div>
+                      ) : null}
                       {idle.length > 0 ? (
                         <div className="worktree-heading">
                           <button
