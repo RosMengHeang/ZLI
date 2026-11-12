@@ -166,10 +166,15 @@ describe("ChatView with more than one agent", () => {
     expect(sent.context).toContain("## User\n\nAdd a login page");
   });
 
-  it("brings any installed agent in from the team bar, named after the animal it wears", async () => {
+  it("brings any installed agent in from the + menu, named after the animal it wears", async () => {
     const onBringIn = vi.fn(async () => ({ threadId: guestId }));
     const { container } = await render(projectionWith(), { onBringIn });
-    await act(async () => button(container, "Bring in an agent")?.click());
+    // Bring in sits in the message box's + menu while the agent is alone in the chat.
+    await act(async () => button(container, "Add files and more")?.click());
+    const bring = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) =>
+      node.textContent?.includes("Bring in an agent"),
+    );
+    await act(async () => bring?.click());
     const item = [...document.querySelectorAll('[role="menuitem"]')].find((node) =>
       node.textContent?.includes("Codex"),
     );

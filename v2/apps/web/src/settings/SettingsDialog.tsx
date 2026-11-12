@@ -469,6 +469,12 @@ function AgentDefaults({
       </SettingGroup>
       <SettingGroup title="Chats">
         <Switch
+          label="Show several chats at once"
+          hint="Open chats share the screen side by side. Off shows one chat at a time; pick another from the sidebar."
+          checked={settings.severalChats}
+          onChange={(checked) => updateAppSettings((current) => ({ ...current, severalChats: checked }))}
+        />
+        <Switch
           label="Archive chats when their pull request merges"
           hint="The chat moves to Archived at the bottom of the sidebar once its pull request merges or closes. Unarchive it from there."
           checked={settings.archiveMergedChats}

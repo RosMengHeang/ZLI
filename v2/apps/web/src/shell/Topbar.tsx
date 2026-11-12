@@ -1,5 +1,5 @@
 import type { DevServerProjection, ProjectProjection, WorktreeProjection } from "@zli-v2/contracts";
-import type { ReactNode } from "react";
+import { type ReactNode, useLayoutEffect, useRef } from "react";
 
 import { DevServerChip } from "../devservers/DevServers.js";
 import type { ShortcutId } from "../settings/appSettings.js";
@@ -53,6 +53,7 @@ export const sidePaneShortcut = {
 
 export function Topbar({
   sidebarOpen,
+  sidebarButton = true,
   project,
   worktree,
   hasProjects,
@@ -69,6 +70,8 @@ export function Topbar({
   showTerminal = true,
 }: {
   sidebarOpen: boolean;
+  /** Off when the layout puts Show sidebar and New agent somewhere else. */
+  sidebarButton?: boolean;
   project: ProjectProjection | undefined;
   worktree: WorktreeProjection | undefined;
   hasProjects: boolean;
@@ -90,9 +93,22 @@ export function Topbar({
   showTerminal?: boolean;
 }) {
   const shortcuts = useShortcuts();
+  // In the columns layout the bar floats over the top-right corner; the headers under it keep its width clear.
+  const bar = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const element = bar.current;
+    const shell = element?.closest<HTMLElement>(".app-shell");
+    if (!element || !shell || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() =>
+      shell.style.setProperty("--zli-topbar-width", `${element.offsetWidth}px`),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <header className="topbar">
-      {sidebarOpen ? null : (
+    <header className="topbar" ref={bar}>
+      {sidebarOpen || !sidebarButton ? null : (
         <IconButton label="Show sidebar" icon="panelLeft" shortcut={shortcuts.toggleSidebar} onClick={onShowSidebar} />
       )}
       <div className="topbar-context">
@@ -110,13 +126,13 @@ export function Topbar({
             </span>
           </>
         ) : (
-          <span className="topbar-project is-empty">{hasProjects ? "No worktree selected" : "No project open"}</span>
+          <span className="topbar-project is-empty">{hasProjects ? "" : "No project open"}</span>
         )}
         {worktree && onOpenDevServer ? <DevServerChip devServers={devServers} onOpen={onOpenDevServer} /> : null}
       </div>
       <span className="topbar-spacer" />
       {updateNotice}
-      {sidebarOpen || !hasProjects ? null : (
+      {sidebarOpen || !sidebarButton || !hasProjects ? null : (
         <Button variant="ghost" size="sm" icon="agentNew" shortcut={shortcuts.newAgent} onClick={onNewAgent}>
           <span className="topbar-new-agent-label">New agent</span>
         </Button>

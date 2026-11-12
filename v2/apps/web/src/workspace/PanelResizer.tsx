@@ -1,13 +1,15 @@
 import type { KeyboardEvent, PointerEvent } from "react";
 import { useState } from "react";
 
-export type PanelId = "files" | "review" | "browser" | "mobile" | "huddle" | "pullRequest";
+/** "panel" is the right panel's one width, kept whichever tab shows; the others name older per-panel sizes. */
+export type PanelId = "panel" | "files" | "review" | "browser" | "mobile" | "huddle" | "pullRequest";
 
 const STORAGE_PREFIX = "zli.toolPanelWidth.";
 export const MIN_PANEL_WIDTH = 320;
 const STEP = 24;
 /** Files needs room for the tree beside the editor; the others read fine narrower. */
 const DEFAULT_WIDTHS: Record<PanelId, number> = {
+  panel: 560,
   files: 640,
   browser: 560,
   mobile: 440,

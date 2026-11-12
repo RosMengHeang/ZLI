@@ -25,6 +25,13 @@ export function PanelTabs({
   const [menuOpen, setMenuOpen] = useState(false);
   const addRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Tabs shorten their names before the strip scrolls; when it does, the tab in use stays in sight.
+  useEffect(() => {
+    if (!active) return;
+    listRef.current?.querySelector(".panel-tab.is-active")?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [active]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -73,21 +80,24 @@ export function PanelTabs({
 
   return (
     <div className="panel-tabs">
-      <div className="panel-tabs-list" role="tablist" aria-label="Open panels">
+      <div className="panel-tabs-list" role="tablist" aria-label="Open panels" ref={listRef}>
         {tabs.map((tab) => (
           <div key={tab.id} className={`panel-tab${tab.id === active ? " is-active" : ""}`}>
             <button
               type="button"
               role="tab"
               className="panel-tab-name"
+              title={tab.label}
               aria-selected={tab.id === active}
               onClick={() => onSelect(tab.id)}
               onAuxClick={(event) => {
                 if (event.button === 1) onClose(tab.id);
               }}
             >
-              <Icon name={tab.icon} size={13} />
-              <span>{tab.label}</span>
+              <span className="panel-tab-icon">
+                <Icon name={tab.icon} size={13} />
+              </span>
+              <span className="panel-tab-label">{tab.label}</span>
             </button>
             <button
               type="button"
@@ -95,7 +105,7 @@ export function PanelTabs({
               aria-label={`Close ${tab.label}`}
               onClick={() => onClose(tab.id)}
             >
-              <Icon name="x" size={11} />
+              <Icon name="x" size={12} />
             </button>
           </div>
         ))}

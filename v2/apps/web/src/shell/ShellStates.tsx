@@ -24,17 +24,17 @@ export function GridEmptyState({
 }) {
   const scratch = onScratchChat ? (
     <Button size="lg" icon="scratch" onClick={onScratchChat}>
-      Scratch chat
+      Chat without a project
     </Button>
   ) : null;
-  const newAgentShortcut = useShortcut("newAgent");
+  const newChatShortcut = useShortcut("newChat");
   if (projection.projects.length === 0) {
     return (
       <EmptyState
         size="large"
         icon="folderOpen"
         title="Add a project to start"
-        detail="Pick a Git repository folder. Agents run side by side in it, each in its own terminal. For a quick question, a scratch chat needs no project."
+        detail="Pick a folder with your code, and chat with an agent about it. For a quick question, a chat needs no project."
       >
         <Button variant="primary" size="lg" icon="folderPlus" onClick={onOpenProject}>
           Add project
@@ -48,15 +48,15 @@ export function GridEmptyState({
       <EmptyState
         size="large"
         icon="folderOpen"
-        title={`No agents in ${project.name} yet`}
+        title={`No chats in ${project.name} yet`}
         detail={
           closedCount > 0
-            ? "Start one here, or pick an agent in the sidebar to bring it back."
-            : "Start an agent in a terminal or a chat. Run several at once, each in its own worktree or in the current checkout."
+            ? "Start one here, or pick a chat in the sidebar to open it again."
+            : "Ask an agent to build, fix, or explain something in this project."
         }
       >
-        <Button variant="primary" size="lg" icon="agentNew" shortcut={newAgentShortcut} onClick={onNewAgent}>
-          New agent
+        <Button variant="primary" size="lg" icon="squarePen" shortcut={newChatShortcut} onClick={onNewAgent}>
+          New chat
         </Button>
         {scratch}
       </EmptyState>
@@ -65,16 +65,16 @@ export function GridEmptyState({
   return (
     <EmptyState
       size="large"
-      icon="grid"
-      title="No agents on the board"
+      icon="message"
+      title="No chat open"
       detail={
         closedCount > 0
-          ? "Pick an agent in the sidebar to bring it back, or start another one."
-          : "Start an agent in a terminal or a chat. Run several at once, each in its own worktree or in the current checkout."
+          ? "Pick a chat in the sidebar to open it, or start a new one."
+          : "Ask an agent to build, fix, or explain something in your project."
       }
     >
-      <Button variant="primary" size="lg" icon="agentNew" shortcut={newAgentShortcut} onClick={onNewAgent}>
-        New agent
+      <Button variant="primary" size="lg" icon="squarePen" shortcut={newChatShortcut} onClick={onNewAgent}>
+        New chat
       </Button>
       {scratch}
     </EmptyState>
@@ -94,9 +94,9 @@ export function ProjectEmptyNotice({
   return (
     <div className="banner banner-info board-project-notice" role="status">
       <Icon name="folderOpen" size={14} />
-      <span className="banner-message">No agents in {project.name} yet.</span>
-      <Button variant="primary" size="sm" icon="agentNew" onClick={onNewAgent}>
-        New agent
+      <span className="banner-message">No chats in {project.name} yet.</span>
+      <Button variant="primary" size="sm" icon="squarePen" onClick={onNewAgent}>
+        New chat
       </Button>
       <IconButton label="Dismiss" icon="x" size="sm" onClick={onDismiss} />
     </div>

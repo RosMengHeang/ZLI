@@ -53,6 +53,8 @@ export type DesktopLaunchOptions = {
   env?: Record<string, string>;
   /** Answers yes when the app asks to let agents work in the project. On unless a test checks that question. */
   trustAgents?: boolean;
+  /** Puts every open agent on screen side by side, for tests about the board rather than one chat. */
+  severalChats?: boolean;
 };
 
 /** Sends a message from the chat composer of a newly started Codex agent once it is ready. */
@@ -242,6 +244,15 @@ export async function launchDesktop(
       // A relaunch in the same test keeps the profile of the launch before it, which can leave the sidebar hidden.
       if (await showSidebar.isVisible()) await showSidebar.click();
       await runtime.waitFor({ state: "visible" });
+      if (options.severalChats) {
+        await page.evaluate(() => {
+          const key = "zli.settings.v1";
+          const settings = JSON.parse(window.localStorage.getItem(key) ?? "{}") as Record<string, unknown>;
+          window.localStorage.setItem(key, JSON.stringify({ ...settings, severalChats: true }));
+        });
+        await page.reload();
+        await runtime.waitFor({ state: "visible" });
+      }
       return { app, page, root, repo };
     } catch (error) {
       // A launched app that never showed its window would otherwise outlive the test and stall worker shutdown.

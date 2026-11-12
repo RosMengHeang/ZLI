@@ -96,7 +96,8 @@ export function RoomBar({
   personItems(person: RoomPerson): MenuItem[];
 }) {
   const others = people.filter((person) => person.role !== "host");
-  if (others.length === 0 && !bringInItems) return null;
+  // Alone, the chat's agent needs no bar: Bring in sits in the message box's + menu.
+  if (others.length === 0 && !bringing) return null;
   return (
     <section className="room-bar" aria-label="Who is in this chat">
       {others.length > 0 ? (
@@ -124,15 +125,13 @@ export function RoomBar({
             </li>
           ))}
         </ul>
-      ) : (
-        <span className="room-bar-hint">Need a second opinion? Bring another agent into this chat.</span>
-      )}
+      ) : null}
       {bringing ? (
         <span className="room-bar-joining shimmer-text" role="status">
           {bringing} is joining
         </span>
       ) : null}
-      {bringInItems ? (
+      {bringInItems && others.length > 0 ? (
         <MenuButton
           className="room-bring"
           label="Bring in an agent"

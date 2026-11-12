@@ -62,6 +62,7 @@ export function AgentTile({
   active,
   maximized,
   canMaximize,
+  closable = true,
   onFocus,
   onToggleMaximize,
   onStop,
@@ -108,6 +109,8 @@ export function AgentTile({
   active: boolean;
   maximized: boolean;
   canMaximize: boolean;
+  /** Off when the chat fills the board alone: the sidebar switches chats, so there is nothing to close. */
+  closable?: boolean | undefined;
   onFocus(): void;
   onToggleMaximize(): void;
   onStop(): void;
@@ -518,7 +521,7 @@ export function AgentTile({
               onClick={onToggleMaximize}
             />
           ) : null}
-          <IconButton label="Close tile" icon="x" size="sm" iconSize={14} onClick={onClose} />
+          {closable ? <IconButton label="Close tile" icon="x" size="sm" iconSize={14} onClick={onClose} /> : null}
         </span>
       </header>
       <div className="tile-body">

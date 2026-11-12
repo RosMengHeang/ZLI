@@ -192,8 +192,8 @@ describe("Sidebar next step in an empty project", () => {
   it("offers Start one in a project with no agents, and keeps its New agent button in view", async () => {
     const onNewAgent = vi.fn();
     const { container } = await mount(projection([checkout]), { onNewAgent });
-    expect(container.querySelector(".sidebar-project .sidebar-note")?.textContent).toBe("No agents yet. Start one");
-    const startOne = button(container, "Start an agent in repo");
+    expect(container.querySelector(".sidebar-project .sidebar-note")?.textContent).toBe("No chats yet. Start one");
+    const startOne = button(container, "Start a chat in repo");
     expect(startOne.textContent).toBe("Start one");
     expect(startOne.type).toBe("button");
     await act(async () => startOne.click());
@@ -205,8 +205,8 @@ describe("Sidebar next step in an empty project", () => {
   it("shows no hint once the project has an agent, and New agent stays in view only while it is current", async () => {
     const sessions = [agent(checkoutId)];
     const other = await mount(projection([checkout]), { sessions });
-    expect(other.container.textContent).not.toContain("No agents yet.");
-    expect(has(other.container, "Start an agent in repo")).toBe(false);
+    expect(other.container.textContent).not.toContain("No chats yet.");
+    expect(has(other.container, "Start a chat in repo")).toBe(false);
     expect(newAgentButton(other.container)?.classList.contains("is-shown")).toBe(false);
     await other.unmount();
     document.body.replaceChildren();
@@ -219,7 +219,7 @@ describe("Sidebar next step in an empty project", () => {
     window.localStorage.setItem("zli.sidebar.collapsed", JSON.stringify({ projects: [projectId] }));
     const { container } = await mount(projection([checkout]), { selectedProjectId: projectId });
     expect(button(container, "repo, collapse").getAttribute("aria-expanded")).toBe("true");
-    expect(has(container, "Start an agent in repo")).toBe(true);
+    expect(has(container, "Start a chat in repo")).toBe(true);
     expect(parseSidebarCollapsed(window.localStorage.getItem("zli.sidebar.collapsed")).projects).toEqual([]);
   });
 });
@@ -242,7 +242,7 @@ describe("Sidebar projects", () => {
     expect(more.getAttribute("aria-expanded")).toBe("false");
 
     await act(async () => more.click());
-    await act(async () => button(container, "Start an agent in docs").click());
+    await act(async () => button(container, "Start a chat in docs").click());
     expect(onNewAgent).toHaveBeenCalledWith(expect.objectContaining({ name: "docs" }));
   });
 
@@ -271,12 +271,12 @@ describe("Sidebar projects", () => {
     const first = await mount(current);
     const toggle = button(first.container, "repo, collapse");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(first.container.textContent).toContain("No agents yet.");
+    expect(first.container.textContent).toContain("No chats yet.");
     expect(first.container.querySelector(".worktree-heading")).not.toBeNull();
 
     await act(async () => toggle.click());
     expect(button(first.container, "repo, expand").getAttribute("aria-expanded")).toBe("false");
-    expect(first.container.textContent).not.toContain("No agents yet.");
+    expect(first.container.textContent).not.toContain("No chats yet.");
     expect(first.container.querySelector(".worktree-heading")).toBeNull();
     expect(first.container.querySelector(".project-summary")).toBeNull();
     await first.unmount();

@@ -103,7 +103,7 @@ test("finds the project from past sessions and opens a fresh chat in it", async 
     // Only the project in use is listed; the other three wait folded under one row.
     const sidebar = page.getByRole("complementary", { name: "Projects and agents" });
     await expect(sidebar.getByRole("button", { name: "3 more projects" })).toBeVisible();
-    await expect(sidebar.getByRole("button", { name: "Start an agent in api" })).toHaveCount(0);
+    await expect(sidebar.getByRole("button", { name: "Start a chat in api" })).toHaveCount(0);
     await shot(page, "4-landed-chat");
   } finally {
     if (fixture) await closeDesktop(fixture);

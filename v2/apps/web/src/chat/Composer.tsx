@@ -162,6 +162,7 @@ export function Composer({
   bestOf,
   active = false,
   draftKey,
+  moreAddItems,
 }: {
   /** Who "@" offers: the chat's other members and saved teammates. Empty turns the list off. */
   mentions?: readonly MentionOption[] | undefined;
@@ -223,6 +224,8 @@ export function Composer({
   active?: boolean | undefined;
   /** Keeps the unsent text for this chat when its message box is replaced. */
   draftKey?: string | undefined;
+  /** More for the + menu from the chat around the box, such as bringing in another agent. */
+  moreAddItems?: readonly Exclude<MenuEntry, "separator">[] | undefined;
 }) {
   const [draft, setDraft] = useState(() => (draftKey ? (drafts.get(draftKey) ?? "") : ""));
   useEffect(() => {
@@ -514,6 +517,7 @@ export function Composer({
           },
         ]
       : []),
+    ...(moreAddItems && moreAddItems.length > 0 ? (["separator", ...moreAddItems] as MenuEntry[]) : []),
     "separator",
     {
       id: "prompts",
@@ -779,7 +783,7 @@ export function Composer({
             mentions.length > 0
               ? `Message ${displayName}, or type @ to call a teammate`
               : workspace
-                ? `Ask ${displayName} anything. Type / for saved prompts`
+                ? `Ask ${displayName} anything`
                 : `Ask ${displayName} to change ${branch}`
           }
           aria-label={`Message ${displayName}`}
