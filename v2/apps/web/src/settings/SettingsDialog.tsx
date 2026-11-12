@@ -43,12 +43,14 @@ import { MobileAccessSection } from "./MobileAccessSection.js";
 import { MobileSection } from "./MobileSection.js";
 import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
 import { SkillsSection } from "./SkillsSection.js";
+import { TeammatesSection } from "./TeammatesSection.js";
 import { UsageSection } from "./UsageSection.js";
 import "./settings.css";
 
 export type SettingsSection =
   | "agents"
   | "agentMessages"
+  | "teammates"
   | "accounts"
   | "usage"
   | "projects"
@@ -89,6 +91,13 @@ const sections: readonly SectionEntry[] = [
     icon: "message",
     group: "Agents",
     keywords: "zli other agents projects reach cross-project talk send",
+  },
+  {
+    id: "teammates",
+    label: "Teammates",
+    icon: "users",
+    group: "Agents",
+    keywords: "bring in mention @ avatar animal reviewer second opinion chat",
   },
   { id: "accounts", label: "Accounts", icon: "user", group: "Agents", keywords: "sign in api key login" },
   { id: "usage", label: "Usage", icon: "gauge", group: "Agents", keywords: "plan limits sidebar quota subscription" },
@@ -313,6 +322,7 @@ export function SettingsDialog({
           >
             {section === "agents" ? <AgentDefaults projection={projection} onRunSetup={onRunSetup} /> : null}
             {section === "agentMessages" ? <AgentMessagesSection /> : null}
+            {section === "teammates" ? <TeammatesSection projection={projection} /> : null}
             {section === "accounts" ? (
               <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
             ) : null}

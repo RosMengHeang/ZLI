@@ -118,6 +118,11 @@ export const ThreadProjection = z.object({
    * shows both as one conversation.
    */
   continues: ThreadId.optional(),
+  /**
+   * The chat this agent was brought into by the person. Its replies show inside that chat, beside the
+   * chat's own agent, and the person talks to it there by name.
+   */
+  joins: ThreadId.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),
   updatedAt: z.string().datetime({ offset: true }).optional(),
 });

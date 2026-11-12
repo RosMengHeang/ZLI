@@ -1,13 +1,15 @@
-import type {
-  PermissionMode,
-  RuntimeProjection,
-  ThreadActivityProjection,
-  ThreadCheckpoint,
-  ThreadId,
-  ThreadMessageProjection,
-  ThreadProjection,
-  ThreadQueuedMessage,
-  WorktreeProjection,
+import {
+  agentNameKey,
+  isListedThreadStatus,
+  type PermissionMode,
+  type RuntimeProjection,
+  type ThreadActivityProjection,
+  type ThreadCheckpoint,
+  type ThreadId,
+  type ThreadMessageProjection,
+  type ThreadProjection,
+  type ThreadQueuedMessage,
+  type WorktreeProjection,
 } from "@zli-v2/contracts";
 import {
   Fragment,
@@ -26,15 +28,28 @@ import { type FileLinks, useFileIndexContext, useFileLinks } from "../files/File
 import { useCopyFeedback } from "../review/links.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
-import { entriesForThread, entriesForThreads, shallowArrayEqual } from "../runtime/runtimeStore.js";
+import { entriesForThread, entriesForThreads, entriesInOrder, shallowArrayEqual } from "../runtime/runtimeStore.js";
 import { forkPointAfter, type RunAgent, type RunStart } from "../sessions/bestOf.js";
 import { takeoverContext } from "../sessions/handoff.js";
 import type { ChatPlace } from "../sessions/launch.js";
 import { buildTimeline, conversationThreads, type TimelineItem } from "../sessions/sessions.js";
+import { useAppSettings } from "../settings/appSettings.js";
+import { AnimalAvatar } from "../teammates/AnimalAvatar.js";
+import {
+  ANIMALS,
+  type Animal,
+  animalLabel,
+  defaultAnimal,
+  freeAgentName,
+  leadingMentions,
+  roomAnimals,
+  teammateNamed,
+} from "../teammates/teammates.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Collapse } from "../ui/Collapse.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import type { MenuItem } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
 import { discoverProviders } from "../welcome/welcomeClient.js";
@@ -47,8 +62,11 @@ import { ConnectorCard } from "./ConnectorCard.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
 import { FileBadge } from "./FileBadge.js";
 import { Markdown } from "./Markdown.js";
+import type { MentionOption } from "./MentionPicker.js";
 import { RequestCard } from "./RequestCard.js";
+import { RoomBar, RoomLive, type RoomPerson, RoomSpeaker } from "./RoomParts.js";
 import { reasoningLevels } from "./reasoning.js";
+import { mergeRoomTimeline, missedBy, roomBrief, roomGuests, roomHelpers, runningStep } from "./room.js";
 import { isSwitchNotice, switchNotice } from "./switchNotice.js";
 import { TurnChanges } from "./TurnChanges.js";
 import { TurnRail } from "./TurnRail.js";
@@ -68,6 +86,9 @@ export function ChatView({
   onMoveChat,
   onOpenConnectors,
   onStartRuns,
+  onBringIn,
+  onOpenAgent,
+  onManageTeammates,
   active,
 }: {
   projection: RuntimeProjection;
@@ -87,6 +108,12 @@ export function ChatView({
   onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Starts best-of runs from this chat. Absent where runs cannot start, such as a scratch chat. */
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
+  /** Starts another agent inside this chat. Absent where agents cannot start from here, such as a scratch chat. */
+  onBringIn?: ((request: GuestRequest) => Promise<{ threadId: string } | { error: string }>) | undefined;
+  /** Shows an agent's own chat or terminal, found by its thread or terminal id. */
+  onOpenAgent?: ((agentId: string) => void) | undefined;
+  /** Opens Settings at the saved teammates. */
+  onManageTeammates?: (() => void) | undefined;
   active?: boolean;
 }) {
   const { bridge, dispatch } = useRuntime();
@@ -161,8 +188,39 @@ export function ChatView({
   // Every turn of the conversation keeps its file changes and its point to try again from, whichever
   // agent ran it.
   const chainKey = earlierKey ? `${earlierKey} ${threadId}` : threadId;
+  // The agents the person brought into this chat talk in it, so the chat reads as one room.
+  const { teammates } = useAppSettings();
+  const chainIds = useMemo(() => new Set(chain.map((entry) => entry.threadId)), [chain]);
+  const guests = useMemo(() => roomGuests(chainIds, projection.threads), [chainIds, projection.threads]);
+  const guestIds = useMemo(() => new Set(guests.map((guest) => guest.threadId)), [guests]);
+  const guestKey = guests.map((guest) => guest.threadId).join(" ");
+  const roomKey = guestKey ? `${chainKey} ${guestKey}` : chainKey;
+  const roomMessages = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesInOrder(value?.messages, roomKey), [roomKey]),
+    shallowArrayEqual,
+  );
+  const guestActivities = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.activities, guestKey), [guestKey]),
+    shallowArrayEqual,
+  );
+  const helpers = useMemo(
+    () => roomHelpers(new Set([...chainIds, ...guestIds]), projection.threads, projection.terminals),
+    [chainIds, guestIds, projection.threads, projection.terminals],
+  );
+  const helperKey = helpers.flatMap((helper) => (helper.kind === "chat" ? [helper.id] : [])).join(" ");
+  const helperActivities = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.activities, helperKey), [helperKey]),
+    shallowArrayEqual,
+  );
+  const guestRequest = useRuntimeSelector(
+    useCallback(
+      (value: RuntimeProjection | undefined) =>
+        guestKey ? value?.requests?.find((candidate) => guestKey.split(" ").includes(candidate.threadId)) : undefined,
+      [guestKey],
+    ),
+  );
   const checkpoints = useRuntimeSelector(
-    useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.checkpoints, chainKey), [chainKey]),
+    useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.checkpoints, roomKey), [roomKey]),
     shallowArrayEqual,
   );
   const earlierMessages = useRuntimeSelector(
@@ -177,7 +235,7 @@ export function ChatView({
     shallowArrayEqual,
   );
   const previousTimeline = useRef<readonly TimelineItem[]>([]);
-  const timeline = useMemo(() => {
+  const ownTimeline = useMemo(() => {
     const items: TimelineItem[] = [];
     let before: (typeof chain)[number] | undefined;
     for (const entry of chain) {
@@ -193,8 +251,14 @@ export function ChatView({
     return items;
   }, [chain, threadId, messages, activities, earlierMessages, earlierActivities, projection.providers]);
   useEffect(() => {
-    previousTimeline.current = timeline;
-  }, [timeline]);
+    previousTimeline.current = ownTimeline;
+  }, [ownTimeline]);
+  const timeline = useMemo(() => {
+    if (guests.length === 0) return ownTimeline;
+    const order = new Map(roomMessages.map((message, index) => [message.messageId, index]));
+    const guestSaid = roomMessages.filter((message) => guestIds.has(message.threadId) && message.role !== "system");
+    return mergeRoomTimeline(ownTimeline, guestSaid, order);
+  }, [ownTimeline, guests.length, roomMessages, guestIds]);
   const turns = useMemo(() => groupTurns(timeline), [timeline]);
   const fileLinks = useFileLinks(worktree?.worktreeId, messages.length);
   const latestOpenDiff = useRef(onOpenDiff);
@@ -298,7 +362,7 @@ export function ChatView({
       return next;
     });
 
-  const send = async (text: string, attachments: ComposerAttachment[]): Promise<boolean> => {
+  const sendToHost = async (text: string, attachments: ComposerAttachment[]): Promise<boolean> => {
     setError(undefined);
     // The first message to an agent that took the chat over brings it the conversation so far. The chat
     // shows the message alone.
@@ -313,6 +377,20 @@ export function ChatView({
             },
           })
         : undefined;
+    // With other agents in the chat, the chat's own agent also reads what they said since its last reply.
+    const missed = !takeover && guests.length > 0 ? missedBy(chainIds, roomMessages) : [];
+    const brief =
+      takeover ??
+      (missed.length > 0
+        ? roomBrief({
+            name: displayName,
+            joining: false,
+            others: guests.map(nameOfThread),
+            branch: worktree?.branch ?? "the current branch",
+            missed,
+            nameOf: speakerName,
+          })
+        : undefined);
     try {
       const response = await dispatch({
         protocolVersion: 1,
@@ -326,7 +404,7 @@ export function ChatView({
           ...(reasoningEffort ? { reasoningEffort } : {}),
           ...(permissionSwitch && permissionMode !== threadMode ? { permissionMode } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
-          ...(takeover ? { context: takeover } : {}),
+          ...(brief ? { context: brief } : {}),
         },
       });
       if (response?.accepted === false) {
@@ -430,7 +508,7 @@ export function ChatView({
     onRestart();
   };
 
-  const step = useMemo(() => (working ? currentStep(timeline) : undefined), [working, timeline]);
+  const step = useMemo(() => (working ? currentStep(ownTimeline) : undefined), [working, ownTimeline]);
   // A running step already shimmers in the list, so the line under it only says that work goes on.
   const liveLabel = thread.status === "waiting" ? `${displayName} is waiting for you` : step ? "Working" : "Thinking";
   const visibleError = error;
@@ -453,6 +531,369 @@ export function ChatView({
     });
   };
 
+  // The room: who is in this chat, the animal each one wears, and how the person calls them.
+  function nameOfThread(entry: ThreadProjection): string {
+    return entry.name ?? providerDisplayName(entry.provider, projection.providers);
+  }
+  const animals = useMemo(
+    () =>
+      roomAnimals(
+        [
+          { id: thread.threadId, provider: thread.provider, name: thread.name },
+          ...guests.map((guest) => ({ id: guest.threadId, provider: guest.provider, name: guest.name })),
+          ...chain.slice(0, -1).map((entry) => ({ id: entry.threadId, provider: entry.provider, name: entry.name })),
+          ...helpers.map((helper) =>
+            helper.kind === "chat"
+              ? { id: helper.id, provider: helper.thread.provider, name: helper.thread.name }
+              : { id: helper.id, provider: helper.terminal.agent?.provider ?? "", name: helper.terminal.name },
+          ),
+        ],
+        teammates,
+      ),
+    [thread, guests, chain, helpers, teammates],
+  );
+  const animalOf = (id: string, provider: string): Animal => animals.get(id) ?? defaultAnimal(provider);
+  const people = useMemo((): RoomPerson[] => {
+    const providerName = (provider: string) => providerDisplayName(provider, projection.providers);
+    const stepOf = (list: readonly ThreadActivityProjection[], id: string) =>
+      runningStep(list.filter((activity) => activity.threadId === id));
+    return [
+      {
+        id: thread.threadId,
+        name: displayName,
+        agent: providerName(thread.provider),
+        provider: thread.provider,
+        animal: animals.get(thread.threadId) ?? defaultAnimal(thread.provider),
+        status: thread.status,
+        step,
+        role: "host",
+      },
+      ...guests.map(
+        (guest): RoomPerson => ({
+          id: guest.threadId,
+          name: guest.name ?? providerName(guest.provider),
+          agent: providerName(guest.provider),
+          provider: guest.provider,
+          animal: animals.get(guest.threadId) ?? defaultAnimal(guest.provider),
+          status: guest.status,
+          step: guest.status === "working" ? stepOf(guestActivities, guest.threadId) : undefined,
+          role: "guest",
+        }),
+      ),
+      ...helpers.map((helper): RoomPerson => {
+        if (helper.kind === "chat") {
+          return {
+            id: helper.id,
+            name: helper.thread.name ?? providerName(helper.thread.provider),
+            agent: providerName(helper.thread.provider),
+            provider: helper.thread.provider,
+            animal: animals.get(helper.id) ?? defaultAnimal(helper.thread.provider),
+            status: helper.thread.status,
+            step: helper.thread.status === "working" ? stepOf(helperActivities, helper.id) : undefined,
+            role: "helper",
+          };
+        }
+        const provider = helper.terminal.agent?.provider ?? "";
+        const status = helper.terminal.status;
+        return {
+          id: helper.id,
+          name: helper.terminal.name ?? providerName(provider),
+          agent: providerName(provider),
+          provider,
+          animal: animals.get(helper.id) ?? defaultAnimal(provider),
+          status: status === "running" ? "working" : status === "starting" ? "starting" : "stopped",
+          step: undefined,
+          role: "helper",
+          terminal: true,
+        };
+      }),
+    ];
+  }, [thread, displayName, step, guests, helpers, animals, guestActivities, helperActivities, projection.providers]);
+  const personFor = (threadId: string): RoomPerson => {
+    const known = people.find((person) => person.id === threadId);
+    if (known) return known;
+    const earlier = chain.find((entry) => entry.threadId === threadId) ?? thread;
+    return {
+      id: earlier.threadId,
+      name: nameOfThread(earlier),
+      agent: providerDisplayName(earlier.provider, projection.providers),
+      provider: earlier.provider,
+      animal: animalOf(earlier.threadId, earlier.provider),
+      status: "stopped",
+      step: undefined,
+      role: "host",
+    };
+  };
+  function speakerName(message: ThreadMessageProjection): string {
+    return personFor(message.threadId).name;
+  }
+  // With more than one agent talking, each run of replies opens with who is speaking.
+  const speakerAt = useMemo(() => {
+    const starts = new Set<number>();
+    if (guests.length === 0) return starts;
+    let last: string | undefined;
+    timeline.forEach((item, index) => {
+      if (item.kind !== "message") return;
+      const { role, threadId: writer } = item.message;
+      if (role === "user") {
+        last = undefined;
+        return;
+      }
+      if (role !== "assistant" || isSwitchNotice(item.message)) return;
+      if (writer !== last) starts.add(index);
+      last = writer;
+    });
+    return starts;
+  }, [timeline, guests.length]);
+
+  const projectAgentNames = () => {
+    const projectId = worktree?.projectId;
+    const inProject = (worktreeId: string) =>
+      projection.worktrees.find((entry) => entry.worktreeId === worktreeId)?.projectId === projectId;
+    return [
+      ...projection.threads
+        .filter((entry) => inProject(entry.worktreeId) && isListedThreadStatus(entry.status))
+        .map((entry) => entry.name),
+      ...projection.terminals.filter((entry) => entry.agent && inProject(entry.worktreeId)).map((entry) => entry.name),
+    ];
+  };
+  const [bringing, setBringing] = useState<string>();
+  const [insertRequest, setInsertRequest] = useState<{ text: string; nonce: number }>();
+  const callOut = (name: string) => setInsertRequest({ text: `@${name} `, nonce: Date.now() });
+  const bringIn = async (
+    request: GuestRequest,
+    announce: boolean,
+  ): Promise<{ threadId: string; name: string } | undefined> => {
+    if (!onBringIn) return undefined;
+    setError(undefined);
+    const name = freeAgentName(request.name, projectAgentNames());
+    setBringing(name);
+    const result = await onBringIn({ ...request, name });
+    setBringing(undefined);
+    if ("error" in result) {
+      setError(result.error);
+      return undefined;
+    }
+    if (announce) callOut(name);
+    return { threadId: result.threadId, name };
+  };
+  const nextAnimal = (provider: string): Animal => {
+    const taken = new Set(animals.values());
+    const preferred = defaultAnimal(provider);
+    return taken.has(preferred) ? (ANIMALS.find((animal) => !taken.has(animal)) ?? preferred) : preferred;
+  };
+  const presentNames = new Set(
+    people.filter((person) => person.role !== "host").map((person) => agentNameKey(person.name)),
+  );
+  const bringInItems =
+    onBringIn && canSend && worktree
+      ? (): MenuItem[] => {
+          const items: MenuItem[] = [];
+          const saved = teammates.filter((teammate) => !presentNames.has(agentNameKey(teammate.name)));
+          if (saved.length > 0) {
+            items.push({ heading: "Your teammates" });
+            for (const teammate of saved) {
+              items.push({
+                id: `teammate-${teammate.id}`,
+                label: teammate.name,
+                media: <AnimalAvatar animal={teammate.animal} provider={teammate.provider} size={20} />,
+                title: `${providerDisplayName(teammate.provider, projection.providers)}${teammate.model ? `, ${teammate.model}` : ""}`,
+                run: () =>
+                  void bringIn(
+                    {
+                      provider: teammate.provider,
+                      name: teammate.name,
+                      ...(teammate.model ? { model: teammate.model } : {}),
+                      ...(teammate.permissionMode ? { permissionMode: teammate.permissionMode } : {}),
+                    },
+                    true,
+                  ),
+              });
+            }
+          }
+          const agents = listedDiscoveries(projection.providers).filter(
+            (entry) => entry.status === "found" && isSelectableProvider(entry.provider),
+          );
+          if (agents.length > 0) {
+            items.push({ heading: saved.length > 0 ? "Or any agent" : "Any agent" });
+            for (const entry of agents) {
+              const animal = nextAnimal(entry.provider);
+              items.push({
+                id: `agent-${entry.provider}`,
+                label: entry.displayName,
+                media: <AnimalAvatar animal={animal} provider={entry.provider} size={20} />,
+                title: `Joins as ${animalLabel[animal]}`,
+                run: () => void bringIn({ provider: entry.provider, name: animalLabel[animal] }, true),
+              });
+            }
+          }
+          if (onManageTeammates) {
+            items.push({ separator: true });
+            items.push({
+              id: "teammates",
+              label: teammates.length > 0 ? "Edit teammates" : "Save a teammate",
+              icon: "users",
+              run: onManageTeammates,
+            });
+          }
+          return items;
+        }
+      : undefined;
+  const personItems = (person: RoomPerson): MenuItem[] => {
+    const items: MenuItem[] = [];
+    if (!person.terminal) {
+      items.push({ id: "call", label: `Message ${person.name}`, icon: "message", run: () => callOut(person.name) });
+    }
+    if (onOpenAgent) {
+      items.push({
+        id: "open",
+        label: person.terminal ? `Open ${person.name}'s terminal` : `Open ${person.name}'s own chat`,
+        icon: "externalLink",
+        run: () => onOpenAgent(person.id),
+      });
+    }
+    if (person.status !== "stopped" && person.status !== "failed") {
+      items.push({
+        id: "stop",
+        label: `Stop ${person.name}`,
+        icon: "square",
+        tone: "danger",
+        run: () =>
+          void run(
+            person.terminal
+              ? { type: "terminal.stop", terminalId: person.id }
+              : { type: "thread.stop", threadId: person.id },
+          ),
+      });
+    }
+    return items;
+  };
+  const mentions = useMemo((): MentionOption[] => {
+    const inChat = people
+      .filter((person) => person.role !== "host" && !person.terminal)
+      .map((person) => ({
+        name: person.name,
+        animal: person.animal,
+        provider: person.provider,
+        detail: `${person.agent} · ${person.role === "helper" ? "helper" : "in this chat"}`,
+      }));
+    const present = new Set(inChat.map((option) => agentNameKey(option.name)));
+    const saved = onBringIn
+      ? teammates
+          .filter((teammate) => !present.has(agentNameKey(teammate.name)))
+          .map((teammate) => ({
+            name: teammate.name,
+            animal: teammate.animal,
+            provider: teammate.provider,
+            detail: `${providerDisplayName(teammate.provider, projection.providers)} · joins when you send`,
+          }))
+      : [];
+    return [...inChat, ...saved];
+  }, [people, teammates, onBringIn, projection.providers]);
+
+  const queueTo = async (
+    targetId: string,
+    text: string,
+    attachments: ComposerAttachment[],
+    context: string | undefined,
+  ): Promise<boolean> => {
+    try {
+      const response = await dispatch({
+        protocolVersion: 1,
+        commandId: makeCommandId(),
+        command: {
+          type: "thread.queue",
+          queueId: makeCommandId(),
+          threadId: targetId,
+          text,
+          ...(attachments.length > 0 ? { attachments } : {}),
+          ...(context ? { context } : {}),
+        },
+      });
+      if (response?.accepted === false) {
+        setError(response.error.message);
+        return false;
+      }
+      stickToBottom.current = true;
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The message could not be sent.");
+      return false;
+    }
+  };
+
+  /**
+   * A message that opens with @Name goes to that member of the chat, or brings the saved teammate of that name
+   * in first. Anything else goes to the chat's own agent.
+   */
+  const send = async (text: string, attachments: ComposerAttachment[]): Promise<boolean> => {
+    setError(undefined);
+    const callable = people.filter((person) => person.role !== "host" && !person.terminal);
+    const saved = onBringIn
+      ? teammates.filter(
+          (teammate) => !callable.some((person) => agentNameKey(person.name) === agentNameKey(teammate.name)),
+        )
+      : [];
+    const { names } = leadingMentions(text, [
+      ...callable.map((person) => person.name),
+      ...saved.map((entry) => entry.name),
+    ]);
+    if (names.length === 0) return sendToHost(text, attachments);
+    let sent = true;
+    for (const called of names) {
+      const target = callable.find((person) => agentNameKey(person.name) === agentNameKey(called));
+      let targetId = target?.id;
+      let name = target?.name ?? called;
+      let joining = false;
+      let instructions = teammateNamed(teammates, name)?.instructions;
+      if (!target) {
+        const teammate = teammateNamed(teammates, called);
+        if (!teammate) continue;
+        const started = await bringIn(
+          {
+            provider: teammate.provider,
+            name: teammate.name,
+            ...(teammate.model ? { model: teammate.model } : {}),
+            ...(teammate.permissionMode ? { permissionMode: teammate.permissionMode } : {}),
+          },
+          false,
+        );
+        if (!started) {
+          sent = false;
+          continue;
+        }
+        targetId = started.threadId;
+        name = started.name;
+        joining = true;
+        instructions = teammate.instructions;
+      } else if (target.role === "guest") {
+        joining = !roomMessages.some((message) => message.threadId === target.id && message.role === "user");
+      }
+      if (!targetId) continue;
+      const id = targetId;
+      const context =
+        target?.role === "helper"
+          ? undefined
+          : roomBrief({
+              name,
+              joining,
+              others: people.filter((person) => person.id !== id && !person.terminal).map((person) => person.name),
+              branch: worktree?.branch ?? "the current branch",
+              missed: missedBy(new Set([id]), roomMessages),
+              nameOf: speakerName,
+              instructions,
+            });
+      sent = (await queueTo(id, text, attachments, context)) && sent;
+    }
+    return sent;
+  };
+  const guestOfRequest = guestRequest ? guests.find((guest) => guest.threadId === guestRequest.threadId) : undefined;
+  const busyPeople = people.filter(
+    (person) =>
+      person.role !== "host" &&
+      (person.status === "working" || person.status === "waiting" || person.status === "starting"),
+  );
+
   const renderItem = (index: number, withChanges: boolean) => {
     const item = timeline[index];
     if (!item) return null;
@@ -467,15 +908,18 @@ export function ChatView({
             <span className="chat-switch-line" aria-hidden="true" />
           </div>
         ) : (
-          <ChatMessage
-            message={item.message}
-            index={index}
-            links={fileLinks}
-            source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
-            // A reply still being written has no Copy yet: it would copy half an answer.
-            reply={working && index >= turns.latestStart ? undefined : turns.replies.get(index)}
-            onTryWays={bestOf && canSend ? tryWays : undefined}
-          />
+          <>
+            {speakerAt.has(index) ? <RoomSpeaker person={personFor(item.message.threadId)} /> : null}
+            <ChatMessage
+              message={item.message}
+              index={index}
+              links={fileLinks}
+              source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
+              // A reply still being written has no Copy yet: it would copy half an answer.
+              reply={working && index >= turns.latestStart ? undefined : turns.replies.get(index)}
+              onTryWays={bestOf && canSend && !guestIds.has(item.message.threadId) ? tryWays : undefined}
+            />
+          </>
         )}
         {withChanges ? placedCheckpoints.after.get(index)?.map(turnChanges) : null}
       </Fragment>
@@ -535,6 +979,13 @@ export function ChatView({
               ) : working ? (
                 <WorkingStatus label={liveLabel} live={!step && thread.status !== "waiting"} />
               ) : null}
+              {busyPeople.map((person) => (
+                <RoomLive
+                  key={person.id}
+                  person={person}
+                  onOpen={person.role === "helper" && onOpenAgent ? () => onOpenAgent(person.id) : undefined}
+                />
+              ))}
             </div>
           </div>
           <TurnRail prompts={turns.prompts} logRef={logRef} />
@@ -560,6 +1011,31 @@ export function ChatView({
               }
               onAnswer={(answers) =>
                 run({ type: "thread.user-input", threadId: thread.threadId, requestId: request.requestId, answers })
+              }
+            />
+          ) : null}
+          {guestRequest && guestOfRequest ? (
+            <RequestCard
+              key={guestRequest.requestId}
+              request={guestRequest}
+              provider={guestOfRequest.provider}
+              displayName={nameOfThread(guestOfRequest)}
+              waitingCount={1}
+              onRespond={(decision) =>
+                run({
+                  type: "thread.respond",
+                  threadId: guestRequest.threadId,
+                  requestId: guestRequest.requestId,
+                  decision,
+                })
+              }
+              onAnswer={(answers) =>
+                run({
+                  type: "thread.user-input",
+                  threadId: guestRequest.threadId,
+                  requestId: guestRequest.requestId,
+                  answers,
+                })
               }
             />
           ) : null}
@@ -639,51 +1115,56 @@ export function ChatView({
               </Button>
             </div>
           ) : (
-            <Composer
-              capture={bridge?.capture}
-              displayName={displayName}
-              provider={thread.provider}
-              branch={worktree?.branch ?? "this worktree"}
-              workspace={
-                worktree ? (
-                  <WorkspaceBar
-                    project={project}
-                    projects={projection.projects}
-                    worktree={worktree}
-                    worktrees={projection.worktrees}
-                    git={gitProject}
-                    onMove={fresh ? onMoveChat : undefined}
-                  />
-                ) : undefined
-              }
-              disabled={false}
-              queues={busy}
-              models={models}
-              model={model}
-              modelLocked={modelLocked && !switchable}
-              onModelChange={modelLocked && switchable ? (next) => switchAgent(thread.provider, next) : setModel}
-              carriesOver={switchable && !fresh}
-              agentName={agentName}
-              agentPlan={discovery?.status === "found" ? accountPlan(discovery.login) : undefined}
-              otherAgents={others}
-              onAgentChange={switchable ? switchAgent : undefined}
-              reasoningLevels={reasoning.levels}
-              defaultReasoning={startingReasoning ?? reasoning.defaultLevel}
-              reasoningEffort={reasoningEffort}
-              onReasoningEffortChange={setChosenReasoning}
-              permissionMode={permissionMode}
-              onPermissionModeChange={permissionSwitch ? setPermissionMode : undefined}
-              projectId={worktree?.projectId}
-              context={context}
-              references={references}
-              onRemoveReference={(id) => removeCodeReference(thread.threadId, id)}
-              onReferencesSent={() => clearCodeReferences(thread.threadId)}
-              onSubmit={send}
-              onStop={working ? stopTurn : undefined}
-              bestOf={bestOf}
-              active={active}
-              draftKey={thread.sessionId ?? thread.threadId}
-            />
+            <>
+              <RoomBar people={people} bringInItems={bringInItems} bringing={bringing} personItems={personItems} />
+              <Composer
+                mentions={mentions}
+                insertRequest={insertRequest}
+                capture={bridge?.capture}
+                displayName={displayName}
+                provider={thread.provider}
+                branch={worktree?.branch ?? "this worktree"}
+                workspace={
+                  worktree ? (
+                    <WorkspaceBar
+                      project={project}
+                      projects={projection.projects}
+                      worktree={worktree}
+                      worktrees={projection.worktrees}
+                      git={gitProject}
+                      onMove={fresh ? onMoveChat : undefined}
+                    />
+                  ) : undefined
+                }
+                disabled={false}
+                queues={busy}
+                models={models}
+                model={model}
+                modelLocked={modelLocked && !switchable}
+                onModelChange={modelLocked && switchable ? (next) => switchAgent(thread.provider, next) : setModel}
+                carriesOver={switchable && !fresh}
+                agentName={agentName}
+                agentPlan={discovery?.status === "found" ? accountPlan(discovery.login) : undefined}
+                otherAgents={others}
+                onAgentChange={switchable ? switchAgent : undefined}
+                reasoningLevels={reasoning.levels}
+                defaultReasoning={startingReasoning ?? reasoning.defaultLevel}
+                reasoningEffort={reasoningEffort}
+                onReasoningEffortChange={setChosenReasoning}
+                permissionMode={permissionMode}
+                onPermissionModeChange={permissionSwitch ? setPermissionMode : undefined}
+                projectId={worktree?.projectId}
+                context={context}
+                references={references}
+                onRemoveReference={(id) => removeCodeReference(thread.threadId, id)}
+                onReferencesSent={() => clearCodeReferences(thread.threadId)}
+                onSubmit={send}
+                onStop={working ? stopTurn : undefined}
+                bestOf={bestOf}
+                active={active}
+                draftKey={thread.sessionId ?? thread.threadId}
+              />
+            </>
           )}
           {peers.length > 0 && selectedPeerId && !ended ? (
             <details className="chat-peer">
@@ -884,6 +1365,14 @@ export function placeCheckpoints(
   }
   return { after, unplaced, turns: new Set(checkpoints.map((checkpoint) => checkpoint.turnId)) };
 }
+
+/** An agent the person brings into a chat: which agent, its name there, and optionally its model and access. */
+export type GuestRequest = {
+  provider: string;
+  name: string;
+  model?: string;
+  permissionMode?: PermissionMode;
+};
 
 export type StartRunsRequest = {
   prompt: string;

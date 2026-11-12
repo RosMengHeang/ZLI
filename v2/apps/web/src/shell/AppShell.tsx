@@ -19,7 +19,7 @@ import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "..
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
-import type { StartRunsRequest } from "../chat/ChatView.js";
+import type { GuestRequest, StartRunsRequest } from "../chat/ChatView.js";
 import { forkWorktree } from "../chat/checkpointClient.js";
 import { addCodeReference } from "../chat/codeReferences.js";
 import type { DraftChange, DraftMessage } from "../chat/DraftChat.js";
@@ -1623,6 +1623,56 @@ function WorkspaceApp() {
    * Moves a chat that has not started to another folder, worktree, or branch. The agent's working folder is
    * fixed once it starts, so the empty chat is removed and the same agent opens a new one in the new place.
    */
+  /**
+   * Brings another agent into a chat. It starts in the chat's worktree, beside the chat's own agent, and talks
+   * in that chat, so it gets no tile of its own until the person opens it.
+   */
+  const bringIntoChat = async (
+    session: AgentSession,
+    request: GuestRequest,
+  ): Promise<{ threadId: string } | { error: string }> => {
+    const current = projectionRef.current;
+    const host = session.thread;
+    const worktree = findWorktree(session.worktreeId);
+    if (!current || !host || !worktree) return { error: "The worktree for this chat is gone." };
+    if (worktree.status !== "ready") return { error: "The worktree is not ready yet." };
+    const provider = request.provider;
+    if (!isSelectableProvider(provider)) return { error: "This agent is not supported." };
+    const sessionId = makeCommandId();
+    const threadId = makeCommandId();
+    updateWorkbench((state) => ({ ...state, closed: [...state.closed, sessionId] }));
+    const accountId = launchAccountId(accounts, provider, undefined);
+    const failure = await startSessionAgent(dispatch, current, {
+      provider,
+      mode: "chat",
+      permissionMode: request.permissionMode ?? host.permissionMode ?? "full-access",
+      ...(request.model ? { model: request.model } : {}),
+      ...(accountId ? { accountId } : {}),
+      name: request.name,
+      joins: host.threadId,
+      startedBy: host.threadId,
+      sessionId,
+      threadId,
+      worktreeId: worktree.worktreeId,
+      cwd: worktree.path,
+    });
+    if (failure) {
+      updateWorkbench((state) => ({ ...state, closed: state.closed.filter((id) => id !== sessionId) }));
+      return { error: failure };
+    }
+    return { threadId };
+  };
+
+  /** Shows the tile of the agent with this thread or terminal id. */
+  const openAgent = (agentId: string) => {
+    const session = sessionsRef.current.find(
+      (candidate) =>
+        candidate.terminal?.terminalId === agentId ||
+        (candidate.threads ?? (candidate.thread ? [candidate.thread] : [])).some((entry) => entry.threadId === agentId),
+    );
+    if (session) focusSession(session);
+  };
+
   const moveChat = async (session: AgentSession, place: ChatPlace): Promise<string | undefined> => {
     const current = projectionRef.current;
     if (!current) return "The runtime is not connected.";
@@ -2481,6 +2531,9 @@ function WorkspaceApp() {
                                 ? undefined
                                 : (request) => startRuns(session, request)
                             }
+                            onBringIn={session.thread ? (request) => bringIntoChat(session, request) : undefined}
+                            onOpenAgent={openAgent}
+                            onManageTeammates={() => setSettingsSection("teammates")}
                           />
                         ))}
                       </div>

@@ -35,6 +35,8 @@ describe("app settings", () => {
       sidebarLimits: { enabled: false, hidden: ["codex"] },
       theme: "midnight",
       customThemes: [],
+      teammates: [],
+      animateTeammates: true,
     });
   });
 

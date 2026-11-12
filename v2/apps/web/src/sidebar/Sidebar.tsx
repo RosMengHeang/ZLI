@@ -1,6 +1,6 @@
 import type { Account, ProjectProjection, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { huddlesOf, MAX_HUDDLE_MEMBERS, threadOccupiesWorktree } from "@zli-v2/contracts";
-import { type KeyboardEvent, type MouseEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
@@ -216,7 +216,9 @@ export function Sidebar({
   const [huddleMenu, setHuddleMenu] = useState<MenuRequest>();
   const huddleCommands = useHuddleCommands();
   const layout = useSidebarCollapsed();
-  const { unread, clear: clearUnread } = useUnread(sessions, activeSessionId, projection !== undefined);
+  // An agent brought into a chat answers inside that chat, so its replies are read there, not flagged here.
+  const ownChats = useMemo(() => sessions.filter((session) => !session.thread?.joins), [sessions]);
+  const { unread, clear: clearUnread } = useUnread(ownChats, activeSessionId, projection !== undefined);
   /** Projects whose older chats the person unfolded. */
   const [olderOpen, setOlderOpen] = useState<ReadonlySet<string>>(noOlder);
   const [now, setNow] = useState(() => Date.now());

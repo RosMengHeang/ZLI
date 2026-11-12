@@ -8,6 +8,7 @@ import { DEFAULT_THEME, isThemeId } from "@zli-v2/ui/themes";
 import { useSyncExternalStore } from "react";
 
 import type { SessionMode } from "../sessions/sessions.js";
+import { parseTeammates, type Teammate } from "../teammates/teammates.js";
 import { type CustomTheme, parseCustomThemes } from "../theme/customThemes.js";
 
 const STORAGE_KEY = "zli.settings.v1";
@@ -83,6 +84,10 @@ export type AppSettings = {
   theme: string;
   /** Themes the person made in the theme editor. */
   customThemes: CustomTheme[];
+  /** Saved teammates, brought into a chat from its team bar or called with @Name. */
+  teammates: Teammate[];
+  /** The animal avatars move while their agent works. Off keeps them still. */
+  animateTeammates: boolean;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -94,6 +99,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sidebarLimits: { enabled: false, hidden: [] },
   theme: DEFAULT_THEME,
   customThemes: [],
+  teammates: [],
+  animateTeammates: true,
 };
 
 const modes: readonly SessionMode[] = ["terminal", "chat"];
@@ -186,6 +193,8 @@ export function parseAppSettings(raw: string | null): AppSettings {
     ...(typeof value.onboardedAt === "string" && value.onboardedAt ? { onboardedAt: value.onboardedAt } : {}),
     theme: knownTheme(value.theme, customThemes) ? value.theme : DEFAULT_THEME,
     customThemes,
+    teammates: parseTeammates(value.teammates),
+    animateTeammates: value.animateTeammates !== false,
   };
 }
 

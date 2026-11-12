@@ -2,7 +2,7 @@ import { huddlesOf, type RpcResponse, type RuntimeProjection, type WorktreeProje
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
-import { ChatStart, ChatView, type StartRunsRequest } from "../chat/ChatView.js";
+import { ChatStart, ChatView, type GuestRequest, type StartRunsRequest } from "../chat/ChatView.js";
 import { type DraftChange, DraftChat, type DraftMessage } from "../chat/DraftChat.js";
 import { useFileLinks } from "../files/FileIndex.js";
 import { HUDDLE_AGENT_DRAG_TYPE, sessionAgentId, typingHeldCount } from "../huddle/huddles.js";
@@ -80,6 +80,9 @@ export function AgentTile({
   onOpenConnectors,
   run,
   onStartRuns,
+  onBringIn,
+  onOpenAgent,
+  onManageTeammates,
   accountLabel,
   onNewChat,
   canCarryContext = false,
@@ -125,6 +128,11 @@ export function AgentTile({
   /** Where this agent sits in a best-of run that is still being compared. */
   run?: RunPosition | undefined;
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
+  /** Starts another agent inside this tile's chat. */
+  onBringIn?: ((request: GuestRequest) => Promise<{ threadId: string } | { error: string }>) | undefined;
+  /** Shows another agent's own tile, found by its thread or terminal id. */
+  onOpenAgent?: ((agentId: string) => void) | undefined;
+  onManageTeammates?: (() => void) | undefined;
   /** Shown only when the agent runs under a saved account rather than the usual login. */
   accountLabel?: string | undefined;
   /** Starts another chat in this tile. Absent where a chat cannot start, such as a worktree still being set up. */
@@ -552,6 +560,9 @@ export function AgentTile({
             onMoveChat={onMoveChat}
             onOpenConnectors={onOpenConnectors}
             onStartRuns={onStartRuns}
+            onBringIn={onBringIn}
+            onOpenAgent={onOpenAgent}
+            onManageTeammates={onManageTeammates}
             active={active}
           />
         ) : (

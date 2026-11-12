@@ -36,6 +36,7 @@ import { ImageViewer } from "./ChatImage.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
 import { EffortSlider } from "./EffortSlider.js";
 import { FileBadge } from "./FileBadge.js";
+import { type MentionOption, useMentionPicker } from "./MentionPicker.js";
 import {
   attachmentOnlyMessage,
   isLongPaste,
@@ -122,7 +123,11 @@ function readBase64(file: Blob): Promise<string> {
   });
 }
 
+const NO_MENTIONS: readonly MentionOption[] = [];
+
 export function Composer({
+  mentions = NO_MENTIONS,
+  insertRequest,
   displayName,
   provider,
   branch,
@@ -156,6 +161,10 @@ export function Composer({
   active = false,
   draftKey,
 }: {
+  /** Who "@" offers: the chat's other members and saved teammates. Empty turns the list off. */
+  mentions?: readonly MentionOption[] | undefined;
+  /** Puts text such as "@Owl " at the start of the message box; a new nonce asks again. */
+  insertRequest?: { text: string; nonce: number } | undefined;
   displayName: string;
   /** The agent's provider. Its mark stands for the default model. */
   provider?: string | undefined;
@@ -254,6 +263,20 @@ export function Composer({
     [sharedPrompts.prompts, personalPrompts, pluginPrompts],
   );
   const picker = usePromptPicker({ draft, setDraft, prompts });
+  const mention = useMentionPicker({ draft, setDraft, textareaRef, options: mentions });
+  const insertNonce = insertRequest?.nonce;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only a new request inserts, not a new text.
+  useEffect(() => {
+    if (!insertRequest) return;
+    const text = insertRequest.text;
+    setDraft((current) => text + current.replace(/^@\S+\s*/u, ""));
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    });
+  }, [insertNonce]);
   const imagesRef = useRef(images);
   imagesRef.current = images;
   const others = onAgentChange ? otherAgents : NO_AGENTS;
@@ -667,6 +690,7 @@ export function Composer({
             })}
           </ul>
         ) : null}
+        {mention.list}
         <PromptList
           picker={picker}
           emptyHint="No saved prompts yet."
@@ -703,10 +727,16 @@ export function Composer({
         <textarea
           ref={textareaRef}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            mention.trackCaret(event);
+          }}
+          onSelect={mention.trackCaret}
           onPaste={onPaste}
           {...picker.inputProps}
+          {...mention.inputProps}
           onKeyDown={(event) => {
+            if (mention.onKeyDown(event)) return;
             if (picker.onKeyDown(event)) return;
             if (
               bestOf &&
@@ -725,9 +755,11 @@ export function Composer({
             }
           }}
           placeholder={
-            workspace
-              ? `Ask ${displayName} anything. Type / for saved prompts`
-              : `Ask ${displayName} to change ${branch}`
+            mentions.length > 0
+              ? `Message ${displayName}, or type @ to call a teammate`
+              : workspace
+                ? `Ask ${displayName} anything. Type / for saved prompts`
+                : `Ask ${displayName} to change ${branch}`
           }
           aria-label={`Message ${displayName}`}
           rows={2}
