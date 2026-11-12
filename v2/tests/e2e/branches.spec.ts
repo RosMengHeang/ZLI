@@ -5,11 +5,12 @@ import { expect, test } from "@playwright/test";
 
 import {
   closeDesktop,
-  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   git,
   launchDesktop,
+  openCreateWorktree,
+  togglePanel,
 } from "./desktop-fixtures.js";
 
 test("creates, switches, renames, and deletes branches from the Changes panel", async () => {
@@ -40,7 +41,7 @@ test("creates, switches, renames, and deletes branches from the Changes panel", 
     await git(worktreePath, ["add", "two.txt"]);
     await git(worktreePath, ["commit", "-m", "Two"]);
 
-    await page.getByRole("button", { name: "Changes", exact: true }).click();
+    await togglePanel(page, "Changes");
     await expect(page.getByRole("button", { name: "Push, 1 to push" })).toBeVisible({ timeout: 30_000 });
 
     // A new branch, checked out at once; the sidebar follows the worktree onto it.

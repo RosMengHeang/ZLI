@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
+import { closeDesktop, type DesktopFixture, launchDesktop, togglePanel } from "./desktop-fixtures.js";
 
 test("shows a folder without Git in Files and opens it in another app", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -16,7 +16,7 @@ test("shows a folder without Git in Files and opens it in another app", async ()
   try {
     fixture = await launchDesktop(folder, root);
     const page = fixture.page;
-    await page.getByRole("button", { name: "Files", exact: true }).click();
+    await togglePanel(page, "Files");
     const panel = page.getByRole("complementary", { name: "Files panel" });
     await expect(panel.getByText("Pick a project folder")).toBeVisible({ timeout: 10_000 });
     await panel.getByRole("button", { name: "Show plain", exact: true }).click();

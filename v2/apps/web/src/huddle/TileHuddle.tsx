@@ -37,7 +37,8 @@ export function TileHuddleChip({
  * The tile's Add to huddle menu: each live huddle, checked while the agent is in it, and a new huddle
  * with just this agent. Picking a checked huddle takes the agent out of it.
  */
-export function HuddleMenuButton({
+/** The huddles an agent can join or leave, and a new one with it, as menu items. */
+export function useHuddleEntries({
   projection,
   agentId,
   agentLabel,
@@ -45,12 +46,14 @@ export function HuddleMenuButton({
   onError,
 }: {
   projection: RuntimeProjection;
-  agentId: string;
+  /** Without an agent id there is nothing to add to a huddle, and the list is empty. */
+  agentId: string | undefined;
   agentLabel: string;
   onOpen(huddleId: string): void;
   onError(message: string | undefined): void;
-}) {
+}): MenuEntry[] {
   const commands = useHuddleCommands();
+  if (!agentId) return [];
   const live = liveHuddles(projection);
   const memberOf = new Set(huddlesOf(projection, agentId).map((huddle) => huddle.huddleId));
   const run = async (command: Record<string, unknown>) => {
@@ -87,6 +90,11 @@ export function HuddleMenuButton({
         })(),
     },
   ];
+  return items;
+}
+
+export function HuddleMenuButton(props: Parameters<typeof useHuddleEntries>[0]) {
+  const items = useHuddleEntries(props);
   return (
     <MenuButton
       label="Add to huddle"

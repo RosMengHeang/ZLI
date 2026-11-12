@@ -18,6 +18,7 @@ import {
   type LaunchDefaults,
   resolveLaunchDefaults,
   useAppSettings,
+  workStyleOf,
 } from "../settings/appSettings.js";
 import { Button } from "../ui/Button.js";
 import { type ChoiceOption, ChoiceSegmented, FormSection, ProviderOptions } from "../ui/Choice.js";
@@ -90,7 +91,9 @@ export function NewAgentDialog({
   const [projectId, setProjectId] = useState(initialProject?.projectId ?? projection.projects[0]?.projectId);
   const [initial] = useState(() => launchStart(listed, resolveLaunchDefaults(settings, projectId, last)));
   const [provider, setProvider] = useState<ListedProviderKind | undefined>(initial.provider);
-  const [mode, setMode] = useState<SessionMode>(initial.mode ?? "terminal");
+  // Chat only, set in Settings, means every new agent is a chat and the dialog does not ask.
+  const chatOnly = workStyleOf(settings.defaults) === "chat";
+  const [mode, setMode] = useState<SessionMode>(chatOnly ? "chat" : (initial.mode ?? "terminal"));
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(initial.permissionMode ?? "supervised");
   const [model, setModel] = useState(initial.model ?? "");
   const [showMissing, setShowMissing] = useState(false);
@@ -359,15 +362,17 @@ export function NewAgentDialog({
             ) : null}
           </FormSection>
 
-          <FormSection label="View" hint={viewHint[mode]}>
-            <ChoiceSegmented<SessionMode>
-              name="agent-mode"
-              label="View"
-              value={mode}
-              options={viewOptions}
-              onChange={setMode}
-            />
-          </FormSection>
+          {chatOnly ? null : (
+            <FormSection label="View" hint={viewHint[mode]}>
+              <ChoiceSegmented<SessionMode>
+                name="agent-mode"
+                label="View"
+                value={mode}
+                options={viewOptions}
+                onChange={setMode}
+              />
+            </FormSection>
+          )}
 
           <FormSection
             label="Workspace"

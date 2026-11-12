@@ -452,3 +452,22 @@ export async function git(cwd: string, args: string[]): Promise<string> {
   const result = await execFileAsync("git", args, { cwd, windowsHide: true });
   return result.stdout.trim();
 }
+
+/**
+ * Shows or hides a side panel the way a person does: the open panel has its own button in the top bar,
+ * and every panel is in the Tools menu.
+ */
+export async function togglePanel(page: Page, name: string): Promise<void> {
+  const open = page.locator(".topbar-tools").getByRole("button", { name, exact: true });
+  if (await open.isVisible()) {
+    await open.click();
+    return;
+  }
+  await page.getByRole("button", { name: "Tools", exact: true }).click();
+  await page
+    .locator('[role="menu"]')
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: new RegExp(`^${name}`, "u") })
+    .first()
+    .click();
+}

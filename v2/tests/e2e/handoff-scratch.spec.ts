@@ -27,7 +27,8 @@ test("hands a chat to another agent, starts a scratch chat, and attaches a windo
     await expect(page.getByText(/Mock response: Fix the login form/u)).toBeVisible({ timeout: 30_000 });
 
     const firstTile = page.locator(".agent-tile").first();
-    await firstTile.getByRole("button", { name: "Continue with another agent" }).click();
+    await firstTile.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Continue with another agent" }).click();
     const handoff = page.getByRole("dialog", { name: "Continue with another agent" });
     await expect(handoff.getByRole("region", { name: "Opening message preview" })).toContainText(
       "Continue: Fix the login form",

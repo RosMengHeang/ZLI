@@ -150,7 +150,7 @@ const modeOptions: readonly PickerOption<WorkStyle>[] = [
 ];
 
 const workStyleHint: Record<WorkStyle, string> = {
-  chat: "Messages, a work log, and changed files.",
+  chat: "Chat only: messages, a work log, and changed files. The terminal stays out of sight.",
   terminal: "The agent's own CLI, as it runs in your shell.",
   "chat-terminal": "Chat, with the terminal drawer open under it for your own commands.",
 };

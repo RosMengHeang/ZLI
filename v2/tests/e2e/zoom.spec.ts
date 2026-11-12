@@ -9,6 +9,7 @@ import {
   type DesktopFixture,
   launchDesktop,
   openCreateWorktree,
+  togglePanel,
 } from "./desktop-fixtures.js";
 
 test("zooms the app between 50% and 300% without the layout scrolling sideways", async () => {
@@ -127,9 +128,8 @@ test("keeps the browser page on its pane when the app is zoomed", async () => {
     await newAgent.getByText("Chat", { exact: true }).click();
     await newAgent.getByRole("button", { name: "Start agent" }).click();
     await expect(page.getByRole("textbox", { name: "Message Codex" })).toBeEnabled({ timeout: 20_000 });
-
-    const browserToggle = page.getByRole("button", { name: "Browser", exact: true });
-    if (!(await page.getByRole("complementary", { name: "Browser panel" }).isVisible())) await browserToggle.click();
+    if (!(await page.getByRole("complementary", { name: "Browser panel" }).isVisible()))
+      await togglePanel(page, "Browser");
     await page.getByRole("textbox", { name: "Browser URL" }).fill(`http://127.0.0.1:${port}`);
     await page.getByRole("button", { name: "Open", exact: true }).click();
     await expect(page.getByRole("heading", { name: "ZLI fixture" })).toBeVisible({ timeout: 20_000 });

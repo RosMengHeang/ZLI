@@ -4,7 +4,14 @@ import { promisify } from "node:util";
 
 import { expect, type Page, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop, V2_ROOT } from "./desktop-fixtures.js";
+import {
+  closeDesktop,
+  createGitFixture,
+  type DesktopFixture,
+  launchDesktop,
+  togglePanel,
+  V2_ROOT,
+} from "./desktop-fixtures.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -62,7 +69,7 @@ test("runs a huddle where agents and the person talk, assign work, and pin a dec
     const helperTile = page.getByRole("region", { name: /^Helper,/u });
     await expect(helperTile.getByText(/^Mock response/u).first()).toBeVisible({ timeout: 20_000 });
 
-    await page.getByRole("button", { name: "Huddle", exact: true }).click();
+    await togglePanel(page, "Huddle");
     const pane = page.getByRole("region", { name: "Huddle", exact: true });
     await pane.getByRole("button", { name: "New huddle" }).click();
     await pane.getByRole("textbox", { name: "Huddle name" }).fill("Login plan");
@@ -140,14 +147,14 @@ async function idleWorktreePath(page: Page): Promise<string> {
 async function addToHuddle(page: Page, agent: string, huddle: string): Promise<void> {
   // A sub-agent's tile also names its starter, so match the tile's own label.
   const tile = page.getByRole("region", { name: new RegExp(`^${agent},`, "u") });
-  await tile.getByRole("button", { name: "Add to huddle" }).click();
+  await tile.getByRole("button", { name: "More actions" }).click();
   // The menu can open over the title bar. Playwright's clicks skip the window's drag region, so check that the
   // menu opts out of it rather than trusting the click below.
-  const menu = page.getByRole("menu", { name: "Add to huddle" });
+  const menu = page.getByRole("menu", { name: "More actions" });
   await expect
     .poll(() =>
       menu.evaluate((list) => getComputedStyle(list.closest(".menu") ?? list).getPropertyValue("-webkit-app-region")),
     )
     .toBe("no-drag");
-  await page.getByRole("menuitemcheckbox", { name: huddle }).click();
+  await page.getByRole("menuitemcheckbox", { name: `Huddle: ${huddle}` }).click();
 }

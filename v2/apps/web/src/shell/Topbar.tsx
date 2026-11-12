@@ -6,6 +6,7 @@ import type { ShortcutId } from "../settings/appSettings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { Kbd } from "../ui/Kbd.js";
+import { MenuButton, type MenuItem } from "../ui/Menu.js";
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { useShortcuts } from "./keybindings.js";
 
@@ -28,6 +29,15 @@ const sidePaneIcon: Record<ToolbarPane, IconName> = {
   mobile: "smartphone",
   review: "diff",
   huddle: "users",
+};
+
+/** What each panel is for, said under its name in the Tools menu. */
+const sidePaneDetail: Record<ToolbarPane, string> = {
+  files: "Browse and open the worktree's files",
+  browser: "A browser beside the chat, for the app you are building",
+  mobile: "Phone emulators and simulators",
+  review: "Review, stage, and commit the agent's changes",
+  huddle: "Agents talking to each other in one thread",
 };
 
 export const sidePaneShortcut = {
@@ -55,6 +65,7 @@ export function Topbar({
   onOpenDevServer,
   updateNotice,
   mobileAvailable = false,
+  showTerminal = true,
 }: {
   sidebarOpen: boolean;
   project: ProjectProjection | undefined;
@@ -76,6 +87,8 @@ export function Topbar({
   updateNotice?: ReactNode;
   /** The Mobile panel exists only in the desktop app, which runs the emulators and simulators. */
   mobileAvailable?: boolean;
+  /** Off when the person works in chat only, so the terminal stays out of the way. */
+  showTerminal?: boolean;
 }) {
   const panes: readonly ToolbarPane[] = mobileAvailable
     ? ["files", "browser", "mobile", "review", "huddle"]
@@ -115,25 +128,52 @@ export function Topbar({
       {hasProjects && onOpenIssues ? (
         <IconButton label="Issues" tooltip="Start from an issue" icon="issue" onClick={onOpenIssues} />
       ) : null}
+      {/*
+        Every panel sits in one Tools menu, named and explained, rather than as a row of bare icons. The
+        panel that is open keeps a button beside it, so closing it is one click.
+      */}
       <fieldset className="topbar-tools" aria-label="Panels">
-        <ToolToggle
-          label="Terminal"
-          icon="terminal"
-          shortcut={shortcuts.toggleDrawer}
-          active={drawerOpen}
-          onClick={onToggleDrawer}
-        />
-        <span className="toolbar-divider" aria-hidden="true" />
-        {panes.map((pane) => (
+        {showTerminal ? (
           <ToolToggle
-            key={pane}
-            label={sidePaneLabel[pane]}
-            icon={sidePaneIcon[pane]}
-            shortcut={shortcuts[sidePaneShortcut[pane]]}
-            active={sidePane === pane}
-            onClick={() => onToggleSidePane(pane)}
+            label="Terminal"
+            icon="terminal"
+            shortcut={shortcuts.toggleDrawer}
+            active={drawerOpen}
+            onClick={onToggleDrawer}
           />
-        ))}
+        ) : null}
+        {sidePane && sidePane !== "pullRequest" ? (
+          <ToolToggle
+            label={sidePaneLabel[sidePane]}
+            icon={sidePaneIcon[sidePane]}
+            shortcut={shortcuts[sidePaneShortcut[sidePane]]}
+            active
+            onClick={() => onToggleSidePane(sidePane)}
+          />
+        ) : null}
+        <MenuButton
+          className="topbar-tools-menu"
+          label="Tools"
+          tooltip="Files, Changes, Browser, and more"
+          icon="grid"
+          size="sm"
+          iconSize={14}
+          items={() =>
+            panes.map(
+              (pane): MenuItem => ({
+                id: pane,
+                label: sidePaneLabel[pane],
+                icon: sidePaneIcon[pane],
+                title: sidePaneDetail[pane],
+                shortcut: shortcuts[sidePaneShortcut[pane]],
+                checked: sidePane === pane,
+                run: () => onToggleSidePane(pane),
+              }),
+            )
+          }
+        >
+          <span className="topbar-tools-label">Tools</span>
+        </MenuButton>
       </fieldset>
       <button
         className="command-trigger"

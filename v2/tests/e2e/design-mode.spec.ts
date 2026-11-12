@@ -11,6 +11,7 @@ import {
   type DesktopFixture,
   launchDesktop,
   openCreateWorktree,
+  togglePanel,
   V2_ROOT,
 } from "./desktop-fixtures.js";
 
@@ -74,9 +75,8 @@ test("annotates the page, sends the annotations to a chat agent in one message, 
     await newAgent.getByText("Chat", { exact: true }).click();
     await newAgent.getByRole("button", { name: "Start agent" }).click();
     await expect(page.getByRole("textbox", { name: "Message Codex" })).toBeEnabled({ timeout: 20_000 });
-
-    const browserToggle = page.getByRole("button", { name: "Browser", exact: true });
-    if (!(await page.getByRole("complementary", { name: "Browser panel" }).isVisible())) await browserToggle.click();
+    if (!(await page.getByRole("complementary", { name: "Browser panel" }).isVisible()))
+      await togglePanel(page, "Browser");
     await page.getByRole("textbox", { name: "Browser URL" }).fill(pageUrl);
     await page.getByRole("button", { name: "Open", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Design fixture" })).toBeVisible({ timeout: 20_000 });
