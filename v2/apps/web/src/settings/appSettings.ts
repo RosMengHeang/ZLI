@@ -23,7 +23,24 @@ export type LaunchDefaults = {
   mode?: SessionMode;
   permissionMode?: PermissionMode;
   model?: string;
+  /** With the chat view, also opens the terminal drawer so a shell sits under the chat. */
+  withTerminal?: boolean;
 };
+
+/** The three ways the person can like to work, as Settings and the welcome flow show them. */
+export type WorkStyle = "chat" | "terminal" | "chat-terminal";
+
+export function workStyleOf(defaults: Pick<LaunchDefaults, "mode" | "withTerminal">): WorkStyle | undefined {
+  if (defaults.mode === "chat") return defaults.withTerminal ? "chat-terminal" : "chat";
+  return defaults.mode;
+}
+
+export function withWorkStyle<T extends LaunchDefaults>(defaults: T, style: WorkStyle | undefined): T {
+  const { mode: _mode, withTerminal: _withTerminal, ...rest } = defaults;
+  if (!style) return rest as T;
+  if (style === "terminal") return { ...rest, mode: "terminal" } as T;
+  return { ...rest, mode: "chat", ...(style === "chat-terminal" ? { withTerminal: true } : {}) } as T;
+}
 
 export type ShortcutId =
   | "palette"
@@ -60,6 +77,8 @@ export type AppSettings = {
   shortcuts: Partial<Record<ShortcutId, string>>;
   fileTreePosition: FileTreePosition;
   sidebarLimits: SidebarLimits;
+  /** When the person finished or skipped the welcome flow. Unset shows it on a fresh install. */
+  onboardedAt?: string;
   /** The color theme of every ZLI window: a built-in theme id or the id of one in customThemes. */
   theme: string;
   /** Themes the person made in the theme editor. */
@@ -112,6 +131,7 @@ function parseDefaults(value: unknown): LaunchDefaults {
       ? { permissionMode: value.permissionMode as PermissionMode }
       : {}),
     ...(model ? { model } : {}),
+    ...(value.mode === "chat" && value.withTerminal === true ? { withTerminal: true } : {}),
   };
 }
 
@@ -163,6 +183,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     shortcuts,
     fileTreePosition: value.fileTreePosition === "left" ? "left" : "right",
     sidebarLimits: parseSidebarLimits(value.sidebarLimits),
+    ...(typeof value.onboardedAt === "string" && value.onboardedAt ? { onboardedAt: value.onboardedAt } : {}),
     theme: knownTheme(value.theme, customThemes) ? value.theme : DEFAULT_THEME,
     customThemes,
   };
@@ -223,11 +244,14 @@ export function resolveLaunchDefaults(
     (layer): layer is LaunchDefaults => layer !== undefined,
   );
   const providerLayer = layers.find((layer) => layer.provider !== undefined);
-  const mode = layers.find((layer) => layer.mode !== undefined)?.mode;
+  // The terminal drawer belongs to the layer that chose the view, so a project's Chat is not widened.
+  const modeLayer = layers.find((layer) => layer.mode !== undefined);
+  const mode = modeLayer?.mode;
   const permissionMode = layers.find((layer) => layer.permissionMode !== undefined)?.permissionMode;
   return {
     ...(providerLayer?.provider ? { provider: providerLayer.provider } : {}),
     ...(mode ? { mode } : {}),
+    ...(mode === "chat" && modeLayer?.withTerminal ? { withTerminal: true } : {}),
     ...(permissionMode ? { permissionMode } : {}),
     ...(providerLayer?.model ? { model: providerLayer.model } : {}),
   };

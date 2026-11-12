@@ -1,6 +1,7 @@
 import {
   appendCheckpoint,
   appendThreadMessage,
+  importThread,
   applyHuddleEvent,
   deliverAgentMessage,
   deriveSharedProjectContexts,
@@ -368,6 +369,13 @@ export class ProjectionStore {
         };
         break;
       }
+      case "thread.imported":
+        this.#projection = {
+          ...current,
+          ...importThread(current, event.thread, event.messages),
+          lastSequence: envelope.sequence,
+        };
+        break;
       case "thread.start.requested":
         this.#projection = {
           ...current,

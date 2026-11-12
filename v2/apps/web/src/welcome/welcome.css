@@ -1,0 +1,173 @@
+/*
+ * Welcome setup takes the whole window, like a native app's first launch. The window's own canvas, one
+ * centered column, and a bar of actions at the bottom; rows are split by hairlines rather than boxed in
+ * cards, so the page reads as a calm list. The only blue is the primary button and the chosen view.
+ * Dials: ENERGY 1 / RHYTHM 2 / MOTION 2, as in DESIGN.md.
+ */
+.dialog-backdrop:has(> .welcome-screen) { padding: 0; background: var(--zli-canvas); backdrop-filter: none; }
+.dialog.welcome-screen {
+  width: 100vw; max-width: none; height: 100vh; max-height: none; border: 0; border-radius: 0;
+  background: var(--zli-canvas); box-shadow: none; animation: none;
+}
+
+/* Matches the app's top bar: same height, draggable, clear of the window controls. */
+.welcome-bar {
+  display: flex; flex: 0 0 auto; align-items: center; height: var(--zli-bar-height);
+  padding: 0 calc(var(--zli-space-3) + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)) 0 max(var(--zli-space-4), env(titlebar-area-x, 0px));
+  -webkit-app-region: drag;
+}
+.welcome-bar button { -webkit-app-region: no-drag; }
+.welcome-brand { display: inline-flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.welcome-skip {
+  margin-left: auto; padding: var(--zli-space-1) var(--zli-space-2); border: 0; border-radius: var(--zli-radius-xs); background: none;
+  color: var(--zli-dim); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); transition: color var(--zli-duration-fast) var(--zli-ease);
+}
+.welcome-skip:hover:not(:disabled) { color: var(--zli-text); }
+.welcome-skip:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+
+.welcome-stage:focus { outline: none; }
+.welcome-stage { min-height: 0; flex: 1 1 auto; overflow: auto; scrollbar-gutter: stable both-edges; }
+.welcome-column { width: min(600px, 100% - 48px); margin: clamp(32px, 9vh, 96px) auto var(--zli-space-10); }
+
+/* ---------- Heading ---------- */
+.welcome-head { display: flex; flex-direction: column; margin-bottom: var(--zli-space-8); }
+.welcome-step-count { margin-bottom: var(--zli-space-3); color: var(--zli-dim); font-size: var(--zli-text-sm); font-variant-numeric: tabular-nums; }
+/* Larger than the app's 20px ceiling on purpose: this is the one screen that has a single message to give. */
+.welcome-title { margin: 0; color: var(--zli-text); font-size: 28px; font-weight: 650; letter-spacing: -.025em; line-height: 1.15; }
+.welcome-lede { margin: var(--zli-space-2-5) 0 0; max-width: 520px; color: var(--zli-muted); font-size: var(--zli-text-md); line-height: var(--zli-leading-relaxed); }
+.welcome-loading { display: flex; align-items: center; gap: var(--zli-space-2); margin: 0 0 var(--zli-space-4); color: var(--zli-muted); font-size: var(--zli-text-base); }
+
+/* ---------- Rows ---------- */
+.welcome-rows { margin: 0; padding: 0; border-top: 1px solid var(--zli-border-strong); list-style: none; }
+.welcome-row { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-3-5, 14px); min-height: 64px; padding: var(--zli-space-3) var(--zli-space-1); border-bottom: 1px solid var(--zli-border-strong); }
+.welcome-mark {
+  display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; border-radius: var(--zli-radius-md);
+  background: var(--zli-raised); box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border); color: var(--zli-muted);
+}
+.welcome-row-copy { display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; gap: 3px; }
+.welcome-row-title { display: flex; align-items: center; gap: var(--zli-space-2); overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.welcome-row-detail { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.welcome-row-detail.is-mono, .welcome-row-detail code { font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-ligatures: none; }
+.welcome-row-detail code { color: var(--zli-muted); user-select: all; }
+.welcome-row.is-missing .welcome-row-title { color: var(--zli-muted); }
+.welcome-row.is-missing .welcome-mark { opacity: .6; }
+.welcome-ready { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-green); font-size: var(--zli-text-sm); }
+.welcome-ready::before { width: 6px; height: 6px; border-radius: 50%; background: currentColor; content: ""; }
+.welcome-tag {
+  padding: 1px var(--zli-space-1-5); border-radius: var(--zli-radius-xs); box-shadow: inset 0 0 0 1px var(--zli-border-strong);
+  color: var(--zli-muted); font-size: var(--zli-text-2xs); font-weight: 500;
+}
+
+.welcome-row.is-action { padding: 0; }
+.welcome-row-button {
+  display: flex; width: 100%; align-items: center; gap: 14px; min-height: 64px; padding: var(--zli-space-3) var(--zli-space-1);
+  border: 0; background: none; color: inherit; cursor: pointer; font: inherit; text-align: left;
+}
+.welcome-row-button .welcome-row-title { font-weight: 500; }
+.welcome-row-button:hover:not(:disabled) .welcome-mark { color: var(--zli-text); box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border-hover); }
+.welcome-row-button:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; border-radius: var(--zli-radius-sm); }
+
+.welcome-under { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-3); margin-top: var(--zli-space-4); }
+.welcome-under-note { margin: var(--zli-space-4) 0 0; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.welcome-under-note.is-warning { color: var(--zli-amber); }
+.welcome-link {
+  display: inline-flex; align-items: center; gap: var(--zli-space-1-5); padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: none;
+  color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); transition: color var(--zli-duration-fast) var(--zli-ease);
+}
+.welcome-link:hover:not(:disabled) { color: var(--zli-text); }
+.welcome-link:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+
+/* ---------- Projects ---------- */
+.welcome-row.is-folder { flex-direction: column; align-items: stretch; gap: 0; padding: 0; }
+.welcome-folder-head { display: flex; min-height: 64px; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-3) var(--zli-space-1); }
+.welcome-folder-pick { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: 14px; cursor: pointer; }
+.welcome-check { width: 15px; height: 15px; flex: 0 0 15px; margin: 0 var(--zli-space-2-5) 0 var(--zli-space-2); accent-color: var(--zli-accent); cursor: pointer; }
+.welcome-check:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.welcome-count {
+  display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-control-md); padding: 0 var(--zli-space-2);
+  border: 0; border-radius: var(--zli-radius-sm); background: none; color: var(--zli-dim); cursor: pointer; font: inherit; font-size: var(--zli-text-sm);
+  font-variant-numeric: tabular-nums; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
+}
+.welcome-count:hover { background: var(--zli-hover); color: var(--zli-text); }
+.welcome-count:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 0; }
+.welcome-chats { margin: 0 0 var(--zli-space-3) 37px; padding: var(--zli-space-1) 0; border-left: 1px solid var(--zli-border-strong); list-style: none; }
+.welcome-chat { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2-5); height: 32px; padding: 0 var(--zli-space-2) 0 var(--zli-space-3); border-radius: var(--zli-radius-sm); cursor: pointer; }
+.welcome-chat:hover:not(.is-disabled) { background: var(--zli-hover); }
+.welcome-chat .welcome-check { margin: 0; }
+.welcome-chat.is-disabled { cursor: default; }
+.welcome-chat-title { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); text-overflow: ellipsis; white-space: nowrap; }
+.welcome-chat.is-disabled .welcome-chat-title { color: var(--zli-dim); }
+.welcome-chat-meta { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+
+/* ---------- How you work ---------- */
+.welcome-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-4); }
+.welcome-choice {
+  position: relative; display: flex; min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--zli-border-strong);
+  border-radius: var(--zli-radius-lg); background: var(--zli-surface); cursor: pointer;
+  transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease);
+}
+.welcome-choice:hover { border-color: var(--zli-border-hover); }
+.welcome-choice:has(input:checked) { border-color: var(--zli-accent-line); background: var(--zli-raised); }
+.welcome-choice:has(input:focus-visible) { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.welcome-choice input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.welcome-choice-copy { display: flex; flex-direction: column; gap: var(--zli-space-1-5); padding: var(--zli-space-4) var(--zli-space-10) var(--zli-space-5) var(--zli-space-5); }
+.welcome-choice-title { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-lg); font-weight: 600; letter-spacing: -.01em; }
+.welcome-choice-detail { color: var(--zli-muted); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); }
+.welcome-radio {
+  position: absolute; top: var(--zli-space-4); right: var(--zli-space-4); width: 16px; height: 16px; border-radius: 50%;
+  background: var(--zli-canvas); box-shadow: inset 0 0 0 1px var(--zli-border-hover);
+  transition: box-shadow var(--zli-duration-fast) var(--zli-ease);
+}
+.welcome-choice:has(input:checked) .welcome-radio { box-shadow: inset 0 0 0 5px var(--zli-accent); }
+
+/* The two tile bodies at a small size, on the canvas, so each card shows what it opens. */
+.welcome-preview {
+  display: flex; height: 172px; flex-direction: column; gap: var(--zli-space-2); overflow: hidden;
+  padding: var(--zli-space-5) var(--zli-space-10) var(--zli-space-3) var(--zli-space-5); border-bottom: 1px solid var(--zli-border);
+  background: var(--zli-canvas); font-size: var(--zli-text-2xs); line-height: 1.45;
+}
+.preview-bubble {
+  align-self: flex-end; max-width: 80%; padding: var(--zli-space-1) var(--zli-space-2-5); border-radius: var(--zli-radius-md);
+  background: var(--zli-raised); box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border); color: var(--zli-text);
+}
+.preview-step { display: flex; align-items: center; gap: var(--zli-space-1); color: var(--zli-dim); }
+.preview-step > svg { color: var(--zli-green); }
+.preview-step b { color: var(--zli-muted); font-family: var(--zli-mono); font-weight: 400; }
+.preview-plus { color: var(--zli-green); font-family: var(--zli-mono); }
+.preview-minus { color: var(--zli-red); font-family: var(--zli-mono); }
+.preview-reply { color: var(--zli-text); }
+.preview-composer {
+  display: flex; align-items: center; gap: var(--zli-space-1-5); margin-top: auto; padding: var(--zli-space-1-5) var(--zli-space-2-5);
+  border-radius: var(--zli-radius-md); background: var(--zli-raised); box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border); color: var(--zli-dim);
+}
+.welcome-preview.is-terminal { gap: 3px; font-family: var(--zli-mono); font-variant-ligatures: none; }
+.preview-line { overflow: hidden; color: var(--zli-text); text-overflow: ellipsis; white-space: nowrap; }
+.preview-line.is-dim { color: var(--zli-dim); }
+.preview-line:first-child { margin-bottom: var(--zli-space-1); }
+.preview-prompt { color: var(--zli-muted); }
+.preview-cursor { display: inline-block; width: 6px; height: 11px; margin-left: 4px; vertical-align: -2px; background: var(--zli-muted); }
+
+/* ---------- Bottom bar ---------- */
+.welcome-actions-bar {
+  display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); height: 68px;
+  padding: 0 var(--zli-space-6); border-top: 1px solid var(--zli-border);
+}
+.welcome-dots { display: flex; align-items: center; gap: var(--zli-space-1-5); margin: 0; padding: 0; list-style: none; }
+.welcome-dots li { width: 6px; height: 6px; border-radius: 3px; background: var(--zli-border-hover); transition: width var(--zli-duration-base) var(--zli-ease), background-color var(--zli-duration-base) var(--zli-ease); }
+.welcome-dots li.is-done { background: var(--zli-muted); }
+.welcome-dots li.is-current { width: 20px; background: var(--zli-text); }
+.welcome-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.welcome-note { min-width: 0; flex: 1; overflow: hidden; padding: 0 var(--zli-space-3); color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.welcome-error { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-red-ink); white-space: normal; }
+.welcome-actions-bar .btn { min-width: 84px; justify-content: center; }
+
+@media (max-width: 640px) {
+  .welcome-choices { grid-template-columns: minmax(0, 1fr); }
+  .welcome-title { font-size: 24px; }
+  .welcome-actions-bar { padding: 0 var(--zli-space-4); }
+  .welcome-note { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-dots li, .welcome-choice, .welcome-radio { transition: none; }
+}

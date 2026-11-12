@@ -13,6 +13,7 @@ import {
 } from "@zli-v2/contracts";
 import { CodexAppServerClient } from "@zli-v2/provider-codex";
 import { AccountStore } from "./accounts/AccountStore.js";
+import { AgentHistoryScanner } from "./import/AgentHistoryScanner.js";
 import {
   type BrowserToolConfig,
   browserToolConfigFromEnv,
@@ -306,6 +307,8 @@ export async function startRuntime(options: {
     plugins,
     accounts,
     limits: planLimits,
+    history: new AgentHistoryScanner({ home: userHome, env: process.env }),
+    refreshProviders: () => providerService.discoverProviders(true),
   });
   // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
   await worktreeSetup.reconcile();

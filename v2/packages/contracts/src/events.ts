@@ -4,6 +4,7 @@ import { BrowserTabProjection } from "./browser.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
+import { MAX_IMPORTED_MESSAGES } from "./history.js";
 import { HuddleEvent } from "./huddles.js";
 import {
   BrowserTabId,
@@ -92,6 +93,12 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("terminal.stop.requested"), terminalId: TerminalId }),
   /** No name means the name was cleared. */
   z.object({ type: z.literal("terminal.renamed"), terminalId: TerminalId, name: AgentName.optional() }),
+  /** A past chat read from an agent CLI's own files. It starts stopped, and the next message resumes it. */
+  z.object({
+    type: z.literal("thread.imported"),
+    thread: ThreadProjection,
+    messages: z.array(ThreadMessageProjection).max(MAX_IMPORTED_MESSAGES),
+  }),
   z.object({
     type: z.literal("thread.start.requested"),
     thread: ThreadProjection,
