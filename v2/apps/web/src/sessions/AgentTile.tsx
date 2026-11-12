@@ -589,12 +589,15 @@ export function AgentTile({
 
 const ENV_CARD_KEY = "zli.envCard.v1";
 
-/** Whether chat tiles pin the environment card. It starts shown, and closing it in one tile closes it in all. */
+/**
+ * Whether chat tiles pin the environment card. It starts hidden, since it floats over the conversation and would cover
+ * a reply on a small window; opening it in one tile opens it in all.
+ */
 function readEnvCardOpen(): boolean {
   try {
-    return window.localStorage.getItem(ENV_CARD_KEY) !== "closed";
+    return window.localStorage.getItem(ENV_CARD_KEY) === "open";
   } catch {
-    return true;
+    return false;
   }
 }
 
