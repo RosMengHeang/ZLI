@@ -38,6 +38,8 @@ describe("app settings", () => {
       teammates: [],
       animateTeammates: true,
       archiveMergedChats: true,
+      severalChats: false,
+      layout: "columns",
     });
   });
 
@@ -61,6 +63,12 @@ describe("app settings", () => {
     expect(DEFAULT_SETTINGS.fileTreePosition).toBe("right");
     expect(parseAppSettings(JSON.stringify({ fileTreePosition: "left" })).fileTreePosition).toBe("left");
     expect(parseAppSettings(JSON.stringify({ fileTreePosition: "right" })).fileTreePosition).toBe("right");
+  });
+
+  it("starts in the columns layout and keeps classic once chosen", () => {
+    expect(parseAppSettings(null).layout).toBe("columns");
+    expect(parseAppSettings(JSON.stringify({ layout: "classic" })).layout).toBe("classic");
+    expect(parseAppSettings(JSON.stringify({ layout: "grid" })).layout).toBe("columns");
   });
 
   it("prefers project settings, then general defaults, then the last launch", () => {

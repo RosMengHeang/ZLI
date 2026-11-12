@@ -131,7 +131,7 @@ test("lets agents list, start, read, and message each other with the zli command
   let fixture: DesktopFixture | undefined;
   const zli = zliIn(root);
   try {
-    fixture = await launchDesktop(repo, root);
+    fixture = await launchDesktop(repo, root, { severalChats: true });
     const { page } = fixture;
     await expect(page.locator(".project-label")).toContainText("repo");
 
@@ -212,7 +212,7 @@ test("finds an agent in another project by name once the person allows it", asyn
   const zli = zliIn(root);
   let fixture: DesktopFixture | undefined;
   try {
-    fixture = await launchDesktop(repo, root);
+    fixture = await launchDesktop(repo, root, { severalChats: true });
     const { page } = fixture;
     await twoProjects(page, root, repo, zli);
 
@@ -246,7 +246,7 @@ test("keeps an unanswered question open, asks again once Settings change back, a
   const zli = zliIn(root);
   let fixture: DesktopFixture | undefined;
   try {
-    fixture = await launchDesktop(repo, root, { env: { ZLI_TEST_REACH_WAIT_MS: "2000" } });
+    fixture = await launchDesktop(repo, root, { env: { ZLI_TEST_REACH_WAIT_MS: "2000" }, severalChats: true });
     const { page } = fixture;
     const web = await twoProjects(page, root, repo, zli);
     const ask = page.getByRole("dialog", { name: "Let agents reach other projects" });

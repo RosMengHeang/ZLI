@@ -53,6 +53,8 @@ export type DesktopLaunchOptions = {
   env?: Record<string, string>;
   /** Answers yes when the app asks to let agents work in the project. On unless a test checks that question. */
   trustAgents?: boolean;
+  /** Puts every open agent on screen side by side, for tests about the board rather than one chat. */
+  severalChats?: boolean;
 };
 
 /** Sends a message from the chat composer of a newly started Codex agent once it is ready. */
@@ -242,6 +244,15 @@ export async function launchDesktop(
       // A relaunch in the same test keeps the profile of the launch before it, which can leave the sidebar hidden.
       if (await showSidebar.isVisible()) await showSidebar.click();
       await runtime.waitFor({ state: "visible" });
+      if (options.severalChats) {
+        await page.evaluate(() => {
+          const key = "zli.settings.v1";
+          const settings = JSON.parse(window.localStorage.getItem(key) ?? "{}") as Record<string, unknown>;
+          window.localStorage.setItem(key, JSON.stringify({ ...settings, severalChats: true }));
+        });
+        await page.reload();
+        await runtime.waitFor({ state: "visible" });
+      }
       return { app, page, root, repo };
     } catch (error) {
       // A launched app that never showed its window would otherwise outlive the test and stall worker shutdown.
@@ -455,21 +466,21 @@ export async function git(cwd: string, args: string[]): Promise<string> {
 }
 
 /**
- * Shows or hides a side panel the way a person does: the open panel has its own button in the top bar,
- * and every panel is in the Tools menu.
+ * Shows or hides a side panel the way a person does: the right-panel switch in the top bar closes what is
+ * open, and opens on a picker that lists every panel.
  */
 export async function togglePanel(page: Page, name: string): Promise<void> {
-  const open = page.locator(".topbar-tools").getByRole("button", { name, exact: true });
-  if (await open.isVisible()) {
-    await open.click();
+  const toggle = page.locator(".topbar-tools").getByRole("button", { name: "Right panel", exact: true });
+  const panel = page.locator(".tool-panel");
+  if (await page.getByRole("complementary", { name: `${name} panel`, exact: true }).isVisible()) {
+    await toggle.click();
     return;
   }
-  await page.getByRole("button", { name: "Tools", exact: true }).click();
+  if (!(await panel.isVisible())) await toggle.click();
+  await panel.getByRole("button", { name: "Add a panel", exact: true }).click();
   await page
-    .locator('[role="menu"]')
-    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
-    .filter({ hasText: new RegExp(`^${name}`, "u") })
-    .first()
+    .getByRole("menu", { name: "Add a panel" })
+    .getByRole("menuitem", { name: new RegExp(`^${name}`, "u") })
     .click();
 }
 

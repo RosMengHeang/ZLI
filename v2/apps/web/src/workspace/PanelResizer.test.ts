@@ -16,6 +16,7 @@ describe("clampPanelWidth", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1440 });
     expect(defaultPanelWidth("files")).toBe(640);
     expect(defaultPanelWidth("review")).toBe(520);
+    expect(defaultPanelWidth("panel")).toBe(560);
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
     expect(defaultPanelWidth("files")).toBe(461);
   });

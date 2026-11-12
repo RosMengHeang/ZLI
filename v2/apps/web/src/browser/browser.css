@@ -7,9 +7,10 @@
 .browser-tab > button:first-child span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-tab > button:first-child svg { color: var(--zli-dim); }
 .browser-tab-close { margin-right: var(--zli-space-1); }
-.browser-toolbar { display: flex; align-items: center; gap: var(--zli-space-1-5); height: 44px; flex: 0 0 auto; padding: 0 var(--zli-space-2); border-bottom: 1px solid var(--zli-border); }
+/* A narrow panel wraps the toolbar onto a second row instead of squeezing the address under its buttons. */
+.browser-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1) var(--zli-space-1-5); min-height: 44px; flex: 0 0 auto; padding: 6px var(--zli-space-2); border-bottom: 1px solid var(--zli-border); }
 .browser-controls { display: flex; gap: 0; }
-.browser-address { position: relative; display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); }
+.browser-address { position: relative; display: flex; min-width: 0; flex: 1 1 200px; align-items: center; gap: var(--zli-space-1-5); }
 .browser-address-icon { position: absolute; left: var(--zli-space-2-5); display: inline-flex; color: var(--zli-dim); pointer-events: none; }
 .browser-address input { height: var(--zli-control-md); min-width: 0; flex: 1; padding: 0 var(--zli-space-2-5) 0 30px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); outline: none; background: var(--zli-well); color: var(--zli-text); font-size: var(--zli-text-sm); transition: border-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
 .browser-address input:hover { border-color: var(--zli-border-hover); }
@@ -19,7 +20,7 @@
 .browser-device-bar > .btn:last-child { margin-left: auto; }
 .browser-surface { position: relative; min-height: 0; flex: 1; overflow: hidden; background: var(--zli-canvas); }
 .browser-empty { min-height: 100%; }
-.browser-annotate-hint { display: block; min-width: 0; flex: 1; height: var(--zli-control-md); padding: 0 var(--zli-space-2-5); overflow: hidden; line-height: var(--zli-control-md); text-overflow: ellipsis; border-radius: var(--zli-radius-md); background: var(--zli-accent-soft); color: var(--zli-muted); font-size: var(--zli-text-sm); white-space: nowrap; }
+.browser-annotate-hint { display: block; min-width: 0; flex: 1 1 200px; height: var(--zli-control-md); padding: 0 var(--zli-space-2-5); overflow: hidden; line-height: var(--zli-control-md); text-overflow: ellipsis; border-radius: var(--zli-radius-md); background: var(--zli-accent-soft); color: var(--zli-muted); font-size: var(--zli-text-sm); white-space: nowrap; }
 .browser-annotate-hint b { color: var(--zli-accent); font-weight: 600; }
 .browser-annotate-toggle.is-on { background: var(--zli-accent-soft); color: var(--zli-accent); }
 .browser-annotate-send > .agent-send-main { gap: var(--zli-space-1-5); }

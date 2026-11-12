@@ -144,7 +144,10 @@ import {
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
+import { launcherItems as buildLauncherItems } from "./launcherItems.js";
 import { type ChatFolder, NoProjectChat } from "./NoProjectChat.js";
+import { PanelLauncher } from "./PanelLauncher.js";
+import { PanelTabs } from "./PanelTabs.js";
 import {
   DisconnectedState,
   GridEmptyState,
@@ -152,7 +155,11 @@ import {
   ProjectEmptyNotice,
   RuntimeLoadingState,
 } from "./ShellStates.js";
-import { type SidePane, sidePaneLabel, Topbar } from "./Topbar.js";
+import { type SidePane, sidePaneIcon, sidePaneLabel, Topbar } from "./Topbar.js";
+
+/** The icon on a panel's tab. */
+const panelIcon = (pane: Exclude<SidePane, "launcher">) =>
+  pane === "pullRequest" ? "pullRequest" : pane === "sideChat" ? "message" : sidePaneIcon[pane];
 
 import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
 import { WorktreeDialog } from "./WorktreeDialog.js";
@@ -184,6 +191,9 @@ export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) 
   );
 }
 
+/** The narrowest the chat gets while the right panel is open beside it. */
+const MIN_CHAT_WIDTH = Math.max(MIN_GRID_WIDTH, 440);
+
 function WorkspaceApp() {
   const { bridge, dispatch } = useRuntime();
   const projection = useShellProjection();
@@ -198,12 +208,14 @@ function WorkspaceApp() {
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
   /** The huddle tab in view in the Huddle panel. */
   const [huddleId, setHuddleId] = useState<string>();
-  const [panelWidth, setPanelWidth] = usePanelWidth(sidePane ?? "files");
+  // One width for the right panel: switching tabs keeps it where it was dragged to.
+  const [panelWidth, setPanelWidth] = usePanelWidth("panel");
   const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
   const [workspaceBodyRef, workspaceSpace] = useWorkspaceSpace();
   // The remembered sizes stay as chosen; a smaller window only shrinks what is shown, so they return when it grows.
+  // The right panel gives way before the chat beside it gets too narrow to read.
   const panelMax = workspaceSpace
-    ? roomBesideGrid(workspaceSpace.width - workspaceSpace.gutter, MIN_PANEL_WIDTH, MIN_GRID_WIDTH)
+    ? roomBesideGrid(workspaceSpace.width - workspaceSpace.gutter, MIN_PANEL_WIDTH, MIN_CHAT_WIDTH)
     : Number.POSITIVE_INFINITY;
   const drawerMax = workspaceSpace
     ? roomBesideGrid(workspaceSpace.height - workspaceSpace.gutter, MIN_DRAWER_HEIGHT, MIN_GRID_HEIGHT)
@@ -326,7 +338,11 @@ function WorkspaceApp() {
   const runStates = useRunStates(workbench.groups, sessions);
   const activeSession = tiles.find((session) => session.sessionId === workbench.activeSessionId);
   const maximized = tiles.find((session) => session.sessionId === workbench.maximizedSessionId);
-  const visibleTiles = maximized ? [maximized] : tiles;
+  // One chat fills the board unless the person asked for several side by side; the sidebar switches between them.
+  // Terminal work keeps its board of agents.
+  const severalOnScreen = settings.severalChats || workStyleOf(settings.defaults) === "terminal";
+  const shownAlone = severalOnScreen ? undefined : (activeSession ?? tiles.at(-1));
+  const visibleTiles = maximized ? [maximized] : shownAlone ? [shownAlone] : tiles;
   const findWorktree = useCallback(
     (worktreeId: string | undefined) => projection?.worktrees.find((worktree) => worktree.worktreeId === worktreeId),
     [projection?.worktrees],
@@ -568,6 +584,30 @@ function WorkspaceApp() {
 
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
   // The right-panel switch: closed, it opens on the picker; open, it closes whatever is showing.
+  // The panels opened so far, one tab each in the right panel, in the order they were opened.
+  const [panelTabs, setPanelTabs] = useState<Exclude<SidePane, "launcher">[]>([]);
+  const lastPane = useRef<SidePane | undefined>(undefined);
+  useEffect(() => {
+    if (!sidePane || sidePane === "launcher") return;
+    lastPane.current = sidePane;
+    setPanelTabs((tabs) => (tabs.includes(sidePane) ? tabs : [...tabs, sidePane]));
+  }, [sidePane]);
+  /** Opens the right panel on the tab in use last, or on the picker when no tab is open. */
+  const togglePanels = () =>
+    setSidePane((current) => {
+      if (current) return undefined;
+      const last = lastPane.current;
+      return last && last !== "launcher" && panelTabs.includes(last) ? last : "launcher";
+    });
+  const closePanelTab = (pane: SidePane) => {
+    const index = panelTabs.indexOf(pane as Exclude<SidePane, "launcher">);
+    const rest = panelTabs.filter((tab) => tab !== pane);
+    setPanelTabs(rest);
+    if (sidePane === pane) setSidePane(rest[Math.min(index, rest.length - 1)]);
+  };
+  // The side chat in the right panel: the chat in view draws its side question into this element.
+  const [sideChatSlot, setSideChatSlot] = useState<HTMLElement | null>(null);
+  const sideChatAvailable = !!activeSession?.thread;
   // Zoomed far in, the window is too narrow to keep the sidebar beside the work, so it starts hidden
   // there without changing the saved choice for wider windows.
   const narrow = useNarrowWindow();
@@ -585,6 +625,37 @@ function WorkspaceApp() {
   }, []);
   // Chat only keeps the terminal out of sight: its toggle and shortcut only close a drawer something else opened.
   const chatOnly = workStyleOf(settings.defaults) === "chat";
+  // The right panel's picker: every panel with one key, and a live line for what is going on in it for this
+  // worktree. The terminal opens at the bottom, so picking it closes the picker; Chat only leaves it out.
+  const contextWorktreeId = contextWorktree?.worktreeId;
+  const contextPullRequest = contextWorktreeId ? pullRequests.get(contextWorktreeId)?.status : undefined;
+  const launcherItems = buildLauncherItems(
+    {
+      mobileAvailable,
+      showTerminal: !chatOnly,
+      drawerOpen: workbench.drawerOpen,
+      review: projection?.reviews?.find((review) => review.worktreeId === contextWorktreeId),
+      uncommittedFiles: contextPullRequest?.uncommittedFiles,
+      runningTerminals:
+        projection?.terminals.filter(
+          (terminal) =>
+            terminal.worktreeId === contextWorktreeId &&
+            (terminal.status === "running" || terminal.status === "starting"),
+        ).length ?? 0,
+      devServers: contextDevServers,
+      pullRequest: contextPullRequest?.pullRequest,
+      activeHuddles: projection?.huddles?.filter((huddle) => !huddle.archived).length ?? 0,
+      sideChat: sideChatAvailable,
+    },
+    {
+      open: (pane) => setSidePane(pane),
+      openTerminal: () => {
+        updateWorkbench((state) => ({ ...state, drawerOpen: true }));
+        setSidePane(undefined);
+      },
+      openDevServer: (url) => openDevServer(url),
+    },
+  );
   const toggleDrawer = () =>
     updateWorkbench((state) => (chatOnly && !state.drawerOpen ? state : { ...state, drawerOpen: !state.drawerOpen }));
   const openSettings = (section: SettingsSection = "agents") => {
@@ -2540,9 +2611,45 @@ function WorkspaceApp() {
   const handoffWorktree = handoffSession ? findWorktree(handoffSession.worktreeId) : undefined;
   const compareGroup = workbench.groups.find((group) => group.groupId === compareGroupId);
 
+  const columnsLayout = settings.layout === "columns";
+  // In the columns layout the top bar floats over the column headers, so it comes last in the page: the
+  // window takes its later drag areas over earlier ones, and the bar's buttons must win to take clicks.
+  const topbar = (
+    <Topbar
+      sidebarOpen={sidebarOpen}
+      sidebarButton={!columnsLayout}
+      project={contextWorktree ? contextProject : undefined}
+      worktree={contextWorktree}
+      hasProjects={hasProjects}
+      drawerOpen={workbench.drawerOpen}
+      showTerminal={!chatOnly}
+      sidePane={sidePane}
+      onShowSidebar={toggleSidebar}
+      onNewAgent={() => openNewAgent()}
+      onOpenIssues={() => openIssues(contextProject)}
+      onToggleDrawer={toggleDrawer}
+      onTogglePanels={togglePanels}
+      devServers={contextDevServers}
+      onOpenDevServer={openDevServer}
+      updateNotice={
+        <>
+          <ReviewNotesPill worktree={contextWorktree} onShowAgent={showAgent} />
+          <UpdatePill
+            status={updates.status}
+            onRestart={restartToUpdate}
+            onOpenRelease={() => void updates.openReleasePage()}
+            onOpenSettings={() => openSettings("updates")}
+          />
+        </>
+      }
+    />
+  );
+
   return (
     <FileIndexProvider onOpenFile={openFile}>
-      <div className={`app-shell${sidebarOpen ? "" : " is-sidebar-hidden"}`}>
+      <div
+        className={`app-shell${sidebarOpen ? "" : " is-sidebar-hidden"}${columnsLayout ? " is-columns" : ""}${sidePane ? " has-panel" : ""}`}
+      >
         {sidebarOpen ? (
           <Sidebar
             projection={projection}
@@ -2597,35 +2704,7 @@ function WorkspaceApp() {
           />
         ) : null}
         <main className="main-workspace">
-          <Topbar
-            sidebarOpen={sidebarOpen}
-            project={contextWorktree ? contextProject : undefined}
-            worktree={contextWorktree}
-            hasProjects={hasProjects}
-            drawerOpen={workbench.drawerOpen}
-            showTerminal={!chatOnly}
-            sidePane={sidePane}
-            onShowSidebar={toggleSidebar}
-            onNewAgent={() => openNewAgent()}
-            onOpenIssues={() => openIssues(contextProject)}
-            onToggleDrawer={toggleDrawer}
-            onToggleSidePane={toggleSidePane}
-            onOpenPalette={() => setPaletteOpen(true)}
-            devServers={contextDevServers}
-            onOpenDevServer={openDevServer}
-            mobileAvailable={mobileAvailable}
-            updateNotice={
-              <>
-                <ReviewNotesPill worktree={contextWorktree} onShowAgent={showAgent} />
-                <UpdatePill
-                  status={updates.status}
-                  onRestart={restartToUpdate}
-                  onOpenRelease={() => void updates.openReleasePage()}
-                  onOpenSettings={() => openSettings("updates")}
-                />
-              </>
-            }
-          />
+          {columnsLayout ? null : topbar}
           {notice ? (
             <div className={`banner banner-${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
               <Icon name={notice.tone === "danger" ? "alert" : "check"} size={14} />
@@ -2701,7 +2780,8 @@ function WorkspaceApp() {
                             worktree={findWorktree(session.worktreeId)}
                             active={session.sessionId === activeSession?.sessionId}
                             maximized={maximized?.sessionId === session.sessionId}
-                            canMaximize={tiles.length > 1}
+                            canMaximize={severalOnScreen && tiles.length > 1}
+                            closable={severalOnScreen || session.mode !== "chat"}
                             onFocus={() => focusSession(session)}
                             onToggleMaximize={() =>
                               updateWorkbench((state) => ({
@@ -2771,6 +2851,9 @@ function WorkspaceApp() {
                             onNewChatWithPrompt={(text) => newChatWithPrompt(session, text)}
                             onAskAside={(question, context) => askAside(session, question, context)}
                             onCloseAside={closeAside}
+                            sideChatSlot={
+                              session.sessionId === activeSession?.sessionId ? (sideChatSlot ?? undefined) : undefined
+                            }
                           />
                         ))}
                       </div>
@@ -2797,7 +2880,29 @@ function WorkspaceApp() {
                     aria-label={`${sidePaneLabel[sidePane]} panel`}
                     style={{ width: shownPanelWidth }}
                   >
-                    {sidePane === "files" ? (
+                    <PanelTabs
+                      tabs={panelTabs.map((pane) => ({ id: pane, label: sidePaneLabel[pane], icon: panelIcon(pane) }))}
+                      active={sidePane}
+                      items={launcherItems}
+                      onSelect={(pane) => setSidePane(pane as SidePane)}
+                      onClose={(pane) => closePanelTab(pane as SidePane)}
+                    />
+                    {panelTabs.includes("sideChat") ? (
+                      <div className="side-chat-panel" hidden={sidePane !== "sideChat"}>
+                        {sideChatAvailable ? (
+                          <div className="side-chat-slot" ref={setSideChatSlot} />
+                        ) : (
+                          <p className="side-chat-panel-empty">Open a chat to ask a side question about it.</p>
+                        )}
+                      </div>
+                    ) : null}
+                    {sidePane === "launcher" ? (
+                      <PanelLauncher
+                        title={contextWorktree?.branch ?? contextProject?.name}
+                        items={launcherItems}
+                        onClose={() => setSidePane(undefined)}
+                      />
+                    ) : sidePane === "files" ? (
                       <Suspense fallback={<LoadingFilesPane />}>
                         <FilesPane
                           worktree={files.worktree}
@@ -2829,7 +2934,7 @@ function WorkspaceApp() {
                         onOpenChanges={() => setSidePane("review")}
                         onShowAgent={showAgent}
                       />
-                    ) : sidePane === "huddle" ? (
+                    ) : sidePane === "sideChat" ? null : sidePane === "huddle" ? (
                       <HuddlePane
                         projection={projection}
                         selectedId={huddleId}
@@ -2861,6 +2966,25 @@ function WorkspaceApp() {
               ) : null}
             </div>
           )}
+          {columnsLayout ? topbar : null}
+          {columnsLayout && !sidebarOpen ? (
+            <div className="columns-lead">
+              <IconButton
+                label="Show sidebar"
+                icon="panelLeft"
+                shortcut={shortcuts.toggleSidebar}
+                onClick={toggleSidebar}
+              />
+              {hasProjects ? (
+                <IconButton
+                  label="New chat"
+                  icon="squarePen"
+                  shortcut={shortcuts.newAgent}
+                  onClick={() => openNewAgent()}
+                />
+              ) : null}
+            </div>
+          ) : null}
         </main>
         {paletteOpen ? <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} /> : null}
         {quickOpen && contextWorktree ? (

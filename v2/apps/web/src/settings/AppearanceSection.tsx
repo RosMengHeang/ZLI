@@ -11,7 +11,7 @@ import {
 import { openThemeEditor, THEME_LIMIT_MESSAGE } from "../theme/themeEditorStore.js";
 import { Button } from "../ui/Button.js";
 import { MenuButton } from "../ui/Menu.js";
-import { updateAppSettings, useAppSettings } from "./appSettings.js";
+import { updateAppSettings, useAppSettings, type WindowLayout } from "./appSettings.js";
 import { SectionHeader } from "./SectionHeader.js";
 import "./appearance.css";
 
@@ -103,6 +103,27 @@ function ThemeTile({
   );
 }
 
+const layouts: readonly { id: WindowLayout; name: string; hint: string }[] = [
+  { id: "columns", name: "Columns", hint: "Chat, panels, and sidebar sit side by side, each with its own header." },
+  { id: "classic", name: "Classic", hint: "A top bar over the chat and the panel, each in its own rounded box." },
+];
+
+/** A tiny window in the layout's shape: flush columns with one header row, or a top bar over boxes. */
+function LayoutPreview({ layout }: { layout: WindowLayout }) {
+  return (
+    <span className={`layout-preview is-${layout}`} aria-hidden="true">
+      <span className="layout-preview-sidebar" />
+      <span className="layout-preview-main">
+        {layout === "classic" ? <span className="layout-preview-bar" /> : null}
+        <span className="layout-preview-panes">
+          <span className="layout-preview-pane" />
+          <span className="layout-preview-pane is-side" />
+        </span>
+      </span>
+    </span>
+  );
+}
+
 export function AppearanceSection() {
   const settings = useAppSettings();
   const name = useId();
@@ -130,6 +151,29 @@ export function AppearanceSection() {
         <div className="theme-tiles" role="radiogroup" aria-labelledby={`${name}-themes`}>
           {builtIn.map((theme) => (
             <ThemeTile key={theme.id} theme={theme} name={name} checked={current.id === theme.id} />
+          ))}
+        </div>
+      </section>
+
+      <section className="appearance-block" aria-labelledby={`${name}-layout`}>
+        <h4 id={`${name}-layout`} className="appearance-heading">
+          Layout
+        </h4>
+        <div className="theme-tiles" role="radiogroup" aria-labelledby={`${name}-layout`}>
+          {layouts.map((layout) => (
+            <div key={layout.id} className="theme-tile">
+              <label className="theme-tile-pick" data-tooltip={layout.hint}>
+                <input
+                  type="radio"
+                  name={`${name}-layout`}
+                  value={layout.id}
+                  checked={settings.layout === layout.id}
+                  onChange={() => updateAppSettings((current) => ({ ...current, layout: layout.id }))}
+                />
+                <LayoutPreview layout={layout.id} />
+                <span className="theme-tile-name">{layout.name}</span>
+              </label>
+            </div>
           ))}
         </div>
       </section>

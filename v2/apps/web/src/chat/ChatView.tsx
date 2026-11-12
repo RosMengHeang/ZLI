@@ -22,6 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { isSelectableProvider, listedDiscoveries, providerDisplayName, signInCommand } from "../agent/providers.js";
 import { type FileLinks, useFileIndexContext, useFileLinks } from "../files/FileIndex.js";
@@ -50,7 +51,7 @@ import { Button, IconButton } from "../ui/Button.js";
 import { Collapse } from "../ui/Collapse.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
-import type { MenuItem } from "../ui/Menu.js";
+import { Menu, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
 import { discoverProviders } from "../welcome/welcomeClient.js";
@@ -108,6 +109,7 @@ export function ChatView({
   onNewChatWithPrompt,
   onAskAside,
   onCloseAside,
+  sideChatSlot,
   active,
 }: {
   projection: RuntimeProjection;
@@ -145,6 +147,8 @@ export function ChatView({
     | undefined;
   /** Ends a side question and removes its chat. */
   onCloseAside?: ((threadId: string) => void) | undefined;
+  /** The right panel is showing the side chat: the side question is drawn there instead of on the message box. */
+  sideChatSlot?: HTMLElement | undefined;
   active?: boolean;
 }) {
   const { bridge, dispatch } = useRuntime();
@@ -730,6 +734,9 @@ export function ChatView({
   const presentNames = new Set(
     people.filter((person) => person.role !== "host").map((person) => agentNameKey(person.name)),
   );
+  // Bring in opens from the + menu of the message box, anchored to the + button that opened it.
+  const [bringMenu, setBringMenu] = useState<MenuRequest>();
+  const [peerOpen, setPeerOpen] = useState(false);
   const bringInItems =
     onBringIn && canSend && worktree
       ? (): MenuItem[] => {
@@ -1129,23 +1136,26 @@ export function ChatView({
 
   // What waits on the person sits on the message box, above the workspace tab: the plan the agent keeps, a
   // side question, and the go-ahead for a plan. The nearest to the box is the one to act on.
-  const sideChat = aside ? (
-    <SideChat
-      animal={hostAnimal}
-      threadId={aside.threadId}
-      starting={aside.starting}
-      error={aside.error}
-      onAsk={(question) => void askAside(question)}
-      onClose={closeAside}
-    />
-  ) : null;
+  // With the side chat open in the right panel, the side question lives there, ready before anything is asked.
+  const sideChat =
+    aside || sideChatSlot ? (
+      <SideChat
+        animal={hostAnimal}
+        threadId={aside?.threadId}
+        starting={aside?.starting ?? false}
+        error={aside?.error}
+        onAsk={(question) => void askAside(question)}
+        onClose={closeAside}
+      />
+    ) : null;
+  const trayAside = sideChatSlot ? null : sideChat;
   const traySections =
-    (showPlan && plan?.todos) || sideChat || (planToApprove && !request) ? (
+    (showPlan && plan?.todos) || trayAside || (planToApprove && !request) ? (
       <>
         {showPlan && plan?.todos ? (
           <PlanCard todos={plan.todos} working={working} onDismiss={() => setHiddenPlan(planKey)} />
         ) : null}
-        {sideChat}
+        {trayAside}
         {planToApprove && !request ? (
           <PlanApproval
             displayName={displayName}
@@ -1364,6 +1374,7 @@ export function ChatView({
             displayName={displayName}
             onAsk={canSend ? (text) => void send(text, []) : undefined}
           />
+          {sideChatSlot && sideChat ? createPortal(sideChat, sideChatSlot) : null}
           {ended && !resumable && traySections ? <div className="composer-tray is-loose">{traySections}</div> : null}
           {ended && !resumable ? (
             <div className={`chat-ended${thread.status === "failed" ? " is-failed" : ""}`} role="status">
@@ -1393,7 +1404,44 @@ export function ChatView({
           ) : (
             <>
               <RoomBar people={people} bringInItems={bringInItems} bringing={bringing} personItems={personItems} />
+              {bringMenu ? <Menu request={bringMenu} onClose={() => setBringMenu(undefined)} /> : null}
               <Composer
+                moreAddItems={[
+                  ...(bringInItems
+                    ? [
+                        {
+                          id: "bring-in",
+                          label: "Bring in an agent",
+                          icon: "users" as const,
+                          detail: "Another agent or a teammate joins this chat",
+                          run: () => {
+                            const anchor =
+                              document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+                            const rect = anchor?.getBoundingClientRect();
+                            setBringMenu({
+                              x: rect?.left ?? 0,
+                              y: (rect?.bottom ?? 0) + 4,
+                              align: "start",
+                              anchor,
+                              label: "Bring in an agent",
+                              items: bringInItems(),
+                            });
+                          },
+                        },
+                      ]
+                    : []),
+                  ...(peers.length > 0 && selectedPeerId
+                    ? [
+                        {
+                          id: "peer",
+                          label: "Message another agent",
+                          icon: "message" as const,
+                          detail: "Send a note to another chat in this project",
+                          run: () => setPeerOpen(true),
+                        },
+                      ]
+                    : []),
+                ]}
                 mentions={mentions}
                 insertRequest={insertRequest}
                 capture={bridge?.capture}
@@ -1444,12 +1492,12 @@ export function ChatView({
               />
             </>
           )}
-          {peers.length > 0 && selectedPeerId && !ended ? (
-            <details className="chat-peer">
-              <summary>
-                <Icon name="chevronRight" size={12} />
-                Message another agent in this project
-              </summary>
+          {peerOpen && peers.length > 0 && selectedPeerId && !ended ? (
+            <section className="chat-peer" aria-label="Message another agent">
+              <header className="chat-peer-head">
+                <span>Message another agent</span>
+                <IconButton label="Close" icon="x" size="xs" onClick={() => setPeerOpen(false)} />
+              </header>
               <form
                 aria-label="Send to another agent"
                 onSubmit={(event) => {
@@ -1480,7 +1528,7 @@ export function ChatView({
                   Send to agent
                 </Button>
               </form>
-            </details>
+            </section>
           ) : null}
         </div>
       </div>

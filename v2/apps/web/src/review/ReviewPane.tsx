@@ -18,8 +18,8 @@ import { Picker } from "../ui/Picker.js";
 import { Segmented } from "../ui/Segmented.js";
 import { BranchMenu } from "./BranchMenu.js";
 import { branchOptions, defaultBranchOf, trackDescription, useBranches } from "./branches.js";
-import { changeTotals, type StageState, stageStateOf } from "./changes.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
+import { changeTotals, type StageState, stageStateOf } from "./changes.js";
 import { DiffView } from "./DiffView.js";
 import { MergeBranchDialog } from "./MergeBranchDialog.js";
 import { PullRequestSection } from "./PullRequestSection.js";
@@ -445,14 +445,14 @@ export function ReviewPane({
             detail={`Refresh to compare with ${baseRef || "the base branch"}.`}
           />
         )
-      ) : (
+      ) : review.files.length === 0 && !conflicted ? null : (
         <div className="review-body">
           <div className="review-summary-row">
             <div className={`review-summary${conflicted ? " is-conflicted" : ""}`} role="status">
               {conflicted
                 ? `${review.conflictFiles.length} conflict${review.conflictFiles.length === 1 ? "" : "s"} need attention.`
                 : review.files.length === 0
-                  ? "Working tree is clean."
+                  ? "Nothing to review."
                   : `${plural(review.files.length, "changed file")}${stagedCount > 0 ? `, ${stagedCount} staged` : ""}`}
             </div>
             {anyUnstaged ? (
@@ -584,7 +584,38 @@ export function ReviewPane({
           <span>{review.errorMessage}</span>
         </p>
       )}
-      {worktree && review ? (
+      {worktree && review && review.files.length === 0 && !conflicted ? (
+        <div className="review-clean">
+          <EmptyState
+            icon="check"
+            title="Nothing to review"
+            detail={`No changes against ${baseRef || "the base branch"}.`}
+          />
+          <div className="review-actions is-clean">
+            <StashSection
+              worktreeId={worktree.worktreeId}
+              hasChanges={hasLocalChanges}
+              disabled={changing || busy}
+              onChanged={(text) => void change(async () => undefined, text)}
+            />
+            <PullRequestSection
+              worktree={worktree}
+              base={targetTouched ? targetRef.trim() || undefined : undefined}
+              checkKey={prCheckKey}
+              onCommitFirst={() => commitRef.current?.focus()}
+              onShowAgent={onShowAgent}
+              onMerged={(result) => {
+                setNotice(
+                  result.branchDeleted
+                    ? `Merged #${result.pullRequest.number} and deleted ${worktree.branch} on origin.`
+                    : `Merged #${result.pullRequest.number} on GitHub.`,
+                );
+                void branchState.reload();
+              }}
+            />
+          </div>
+        </div>
+      ) : worktree && review ? (
         <div className="review-actions">
           <StashSection
             worktreeId={worktree.worktreeId}

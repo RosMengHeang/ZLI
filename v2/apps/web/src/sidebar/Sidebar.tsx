@@ -1003,7 +1003,7 @@ export function Sidebar({
               </span>
             ) : null}
           </span>
-          {runIndex === undefined ? (
+          {runIndex === undefined && session.mode !== "chat" ? (
             <span className="session-agent" aria-hidden="true">
               <ProviderMark provider={session.provider} size={12} />
             </span>
@@ -1386,11 +1386,11 @@ export function Sidebar({
                     <>
                       {empty ? (
                         <p className="sidebar-note">
-                          No agents yet.{" "}
+                          No chats yet.{" "}
                           <button
                             className="sidebar-note-action"
                             type="button"
-                            aria-label={`Start an agent in ${project.name}`}
+                            aria-label={`Start a chat in ${project.name}`}
                             onClick={() => onNewAgent(project)}
                           >
                             Start one
@@ -1481,7 +1481,7 @@ export function Sidebar({
                           className="sidebar-more-project"
                           type="button"
                           title={project.path}
-                          aria-label={`Start an agent in ${project.name}`}
+                          aria-label={`Start a chat in ${project.name}`}
                           onClick={() => onNewAgent(project)}
                           onContextMenu={(event) =>
                             openContextMenu(event, `${project.name} actions`, () => projectContextItems(project))

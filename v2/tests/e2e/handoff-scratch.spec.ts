@@ -15,7 +15,7 @@ test("hands a chat to another agent, starts a scratch chat, and attaches a windo
   let fixture: DesktopFixture | undefined;
   const palette = process.platform === "darwin" ? "Meta+k" : "Control+k";
   try {
-    fixture = await launchDesktop(repo, root);
+    fixture = await launchDesktop(repo, root, { severalChats: true });
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 

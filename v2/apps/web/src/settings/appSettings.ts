@@ -90,7 +90,13 @@ export type AppSettings = {
   animateTeammates: boolean;
   /** A chat moves to Archived once its branch's pull request merges or closes. */
   archiveMergedChats: boolean;
+  /** Several chats share the screen side by side. Off shows one at a time, switched from the sidebar. */
+  severalChats: boolean;
+  /** Columns: each column carries its own header on one row, no top bar. Classic: a top bar over separate panels. */
+  layout: WindowLayout;
 };
+
+export type WindowLayout = "columns" | "classic";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   defaults: {},
@@ -104,6 +110,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   teammates: [],
   animateTeammates: true,
   archiveMergedChats: true,
+  severalChats: false,
+  layout: "columns",
 };
 
 const modes: readonly SessionMode[] = ["terminal", "chat"];
@@ -199,6 +207,8 @@ export function parseAppSettings(raw: string | null): AppSettings {
     teammates: parseTeammates(value.teammates),
     animateTeammates: value.animateTeammates !== false,
     archiveMergedChats: value.archiveMergedChats !== false,
+    severalChats: value.severalChats === true,
+    layout: value.layout === "classic" ? "classic" : "columns",
   };
 }
 

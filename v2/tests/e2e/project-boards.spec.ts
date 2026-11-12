@@ -26,7 +26,7 @@ test("swaps project boards and brings each back as it was, without stopping agen
   let fixture: DesktopFixture | undefined;
   const mod = process.platform === "darwin" ? "Meta" : "Control";
   try {
-    fixture = await launchDesktop(repo, root);
+    fixture = await launchDesktop(repo, root, { severalChats: true });
     const { page } = fixture;
     // Tiles from earlier runs live in localStorage and would crowd the grid.
     await page.evaluate(() => localStorage.removeItem("zli.workbench.v1"));

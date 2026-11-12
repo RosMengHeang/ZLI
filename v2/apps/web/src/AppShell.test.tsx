@@ -11,7 +11,7 @@ import {
 } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MobileBridge, ZliBridge } from "./runtime/bridge.js";
 import { DEFAULT_SETTINGS, updateAppSettings } from "./settings/appSettings.js";
 import { AppShell } from "./shell/AppShell.js";
@@ -220,7 +220,7 @@ describe("AppShell", () => {
     const container = await render(makeBridge(projection));
     expect(container.querySelector(".project-label")?.textContent).toContain("repo");
     expect(container.textContent).toContain("main");
-    expect(container.textContent).toContain("No agents on the board");
+    expect(container.textContent).toContain("No chat open");
     expect(container.querySelector('[aria-label="Terminal panel"]')).toBeNull();
     await act(async () => {
       button(container, "Terminal")?.click();
@@ -240,7 +240,42 @@ describe("AppShell", () => {
       browserAction?.click();
     });
     expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
-    expect(button(container, "Browser")?.classList.contains("is-active")).toBe(true);
+    expect(button(container, "Right panel")?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("opens the right panel on a picker, and a panel's key opens it", async () => {
+    const container = await render(makeBridge(projection));
+    await act(async () => button(container, "Right panel")?.click());
+    expect(container.querySelector(".panel-launcher")?.textContent).toContain("Nothing waiting");
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true }));
+    });
+    expect(container.querySelector('[aria-label="Files panel"]')).not.toBeNull();
+    await act(async () => button(container, "Right panel")?.click());
+    expect(container.querySelector(".tool-panel")).toBeNull();
+  });
+
+  it("keeps each panel opened as a tab, adds more from the plus, and reopens on the last one", async () => {
+    const container = await render(makeBridge(projection));
+    await act(async () => button(container, "Right panel")?.click());
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true }));
+    });
+    await act(async () => button(container, "Add a panel")?.click());
+    const menu = container.querySelector('[role="menu"][aria-label="Add a panel"]');
+    expect(menu?.textContent).toContain("Changes");
+    await act(async () => {
+      menu?.dispatchEvent(new KeyboardEvent("keydown", { key: "b", bubbles: true, cancelable: true }));
+    });
+    const tabs = () => [...container.querySelectorAll('.panel-tabs [role="tab"]')].map((tab) => tab.textContent);
+    expect(tabs()).toEqual(["Files", "Browser"]);
+    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    await act(async () => button(container, "Right panel")?.click());
+    await act(async () => button(container, "Right panel")?.click());
+    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    await act(async () => button(container, "Close Browser")?.click());
+    expect(tabs()).toEqual(["Files"]);
+    expect(container.querySelector('[aria-label="Files panel"]')).not.toBeNull();
   });
 
   it("opens the Browser panel when an agent opens a page", async () => {
@@ -250,7 +285,7 @@ describe("AppShell", () => {
       revealListener?.({ browserTabId: "00000000-0000-4000-8000-000000000021", worktreeId });
     });
     expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
-    expect(button(container, "Browser")?.classList.contains("is-active")).toBe(true);
+    expect(button(container, "Right panel")?.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("filters palette commands and closes the palette before opening help", async () => {
@@ -394,7 +429,7 @@ describe("AppShell", () => {
       button(container, "Keep running")?.click();
     });
     expect(container.querySelectorAll(".agent-tile")).toHaveLength(0);
-    expect(container.textContent).toContain("Pick an agent in the sidebar");
+    expect(container.textContent).toContain("Pick a chat in the sidebar");
     expect(container.querySelector(".session-row")?.getAttribute("aria-label")).toBe(
       "Claude Code, Claude Code, Ready, in the background",
     );
@@ -597,6 +632,8 @@ describe("AppShell", () => {
 });
 
 describe("Project boards", () => {
+  // Boards put several agents on screen at once.
+  beforeEach(() => updateAppSettings((current) => ({ ...current, severalChats: true })));
   const shopId = ProjectId.parse("00000000-0000-4000-8000-000000000020");
   const shopWorktreeId = WorktreeId.parse("00000000-0000-4000-8000-000000000021");
   const ids = {
@@ -777,12 +814,12 @@ describe("Add project", () => {
     await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
     expect(newAgentDialog()).toBeNull();
     expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
-    expect(container.querySelector(".board-project-notice")?.textContent).toContain("No agents in guider-crm yet.");
+    expect(container.querySelector(".board-project-notice")?.textContent).toContain("No chats in guider-crm yet.");
     const section = container.querySelector<HTMLElement>('.sidebar-project[aria-label="guider-crm"]');
-    expect(section?.textContent).toContain("No agents yet.");
+    expect(section?.textContent).toContain("No chats yet.");
     expect(section?.querySelector('[aria-label="New chat in guider-crm"]')?.classList.contains("is-shown")).toBe(true);
 
-    const startOne = section ? button(section, "Start an agent in guider-crm") : undefined;
+    const startOne = section ? button(section, "Start a chat in guider-crm") : undefined;
     expect(startOne?.textContent).toBe("Start one");
     await act(async () => startOne?.click());
     expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
@@ -806,12 +843,12 @@ describe("Add project", () => {
   it("names the added project on an empty board", async () => {
     const { bridge } = addingBridge(discovered);
     const container = await render(bridge);
-    expect(container.textContent).toContain("No agents on the board");
+    expect(container.textContent).toContain("No chat open");
     await clickAddProject(container);
     await vi.waitFor(() => expect(newAgentDialog()).not.toBeNull());
     await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
-    expect(container.querySelector(".empty-state-title")?.textContent).toBe("No agents in guider-crm yet");
-    expect(container.textContent).not.toContain("No agents on the board");
+    expect(container.querySelector(".empty-state-title")?.textContent).toBe("No chats in guider-crm yet");
+    expect(container.textContent).not.toContain("No chat open");
   });
 
   it("does nothing when the folder picker is cancelled", async () => {

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { closeDesktop, createGitFixture, launchDesktop, type DesktopFixture } from "./desktop-fixtures.js";
+import { closeDesktop, createGitFixture, type DesktopFixture, launchDesktop } from "./desktop-fixtures.js";
 
 test("provides a focused, keyboard-driven workbench shell", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
@@ -16,7 +16,7 @@ test("provides a focused, keyboard-driven workbench shell", async () => {
     await expect(palette.getByRole("button", { name: "Focus browser" })).toBeVisible();
     await expect(palette.getByRole("button", { name: "Focus agent" })).toHaveCount(0);
     await search.press("Enter");
-    await expect(fixture.page.getByRole("button", { name: "Browser", exact: true })).toHaveClass(/is-active/iu);
+    await expect(fixture.page.getByRole("complementary", { name: "Browser panel", exact: true })).toBeVisible();
 
     await fixture.page.keyboard.press(shortcut);
     await fixture.page.getByRole("textbox", { name: "Search commands" }).fill("help");

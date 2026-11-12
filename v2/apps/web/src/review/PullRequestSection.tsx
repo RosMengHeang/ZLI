@@ -110,6 +110,9 @@ export function PullRequestSection({
   const problem = linkError ?? error ?? status?.problem?.message;
   const canCreate = !!status && !status.problem && !error && pullRequest?.state !== "OPEN";
 
+  if (status?.problem?.code === "no_origin" && !linkError && !error) {
+    return <p className="review-pr-quiet">Pull requests show here once this repository is on GitHub.</p>;
+  }
   return (
     <fieldset className="review-pr">
       <legend className="sr-only">Pull request</legend>

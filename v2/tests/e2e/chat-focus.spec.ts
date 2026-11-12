@@ -31,17 +31,12 @@ test("switching to a chat agent puts the cursor in its message box", async () =>
     const beta = page.getByRole("textbox", { name: "Message Beta" });
     await expect(beta).toBeFocused();
 
-    await page
-      .getByRole("region", { name: /^Alpha,/u })
-      .locator(".tile-header")
-      .click();
+    // One chat fills the board; picking another in the sidebar shows it with the cursor in its box.
+    await page.locator(".session-row", { hasText: "Alpha" }).click();
     await expect(alpha).toBeFocused();
 
     await page.locator(".session-row", { hasText: "Beta" }).click();
     await expect(beta).toBeFocused();
-
-    await page.locator(".session-row", { hasText: "Alpha" }).click();
-    await expect(alpha).toBeFocused();
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

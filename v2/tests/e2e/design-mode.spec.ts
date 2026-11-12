@@ -60,7 +60,7 @@ test("annotates the page, sends the annotations to a chat agent in one message, 
   try {
     const port = await listen(server);
     const pageUrl = `http://127.0.0.1:${port}/`;
-    fixture = await launchDesktop(repo, root);
+    fixture = await launchDesktop(repo, root, { severalChats: true });
     const page = fixture.page;
     await openCreateWorktree(page);
     const createWorktree = page.getByRole("dialog", { name: "Create worktree" });

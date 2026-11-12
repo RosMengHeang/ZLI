@@ -241,3 +241,12 @@ span.review-file-check { cursor: default; }
 .pr-pane-check.is-skipped > svg { color: var(--zli-dim); }
 .pr-pane-check-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-pane-check-state { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+
+/* A clean worktree: one calm line in the middle, and only the stash and pull request rows below it. */
+.review-clean { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.review-clean > .empty-state { flex: 1; }
+.review-actions.is-clean { gap: var(--zli-space-1-5); }
+.review-pr-quiet { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+/* A narrow panel wraps the sync buttons under the branch picker instead of squeezing the branch name away. */
+.review-toolbar { flex-wrap: wrap; row-gap: var(--zli-space-1); }
+.review-toolbar > .inline-field { min-width: 0; flex: 1 1 200px; }
