@@ -8,7 +8,7 @@ import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
 import { FileCommand } from "./files.js";
 import { GitChangesCommand } from "./gitChanges.js";
-import { HistoryCommand, MAX_IMPORTED_MESSAGES } from "./history.js";
+import { HistoryCommand } from "./history.js";
 import { HuddleCommand } from "./huddles.js";
 import {
   AccountId,
@@ -40,6 +40,7 @@ import {
   ProviderKind,
   ReasoningEffort,
   ThreadActivityProjection,
+  ThreadAttachmentReadCommand,
   ThreadAttachmentUpload,
   ThreadMessageProjection,
   ThreadProjection,
@@ -158,6 +159,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     sessionId: SessionId.optional(),
     /** Omitted runs the provider's default account. */
     accountId: AccountId.optional(),
+    /** The thread of the same chat this one carries on, when the chat moves to another agent or model. */
+    continues: ThreadId.optional(),
   }),
   z.object({
     type: z.literal("thread.send"),
@@ -180,6 +183,11 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     reasoningEffort: ReasoningEffort.optional(),
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
+    /**
+     * The conversation so far, for an agent that takes over a chat from another one. The agent reads it
+     * before the message; the chat shows only the message.
+     */
+    context: z.string().min(1).max(200_000).optional(),
   }),
   z.object({ type: z.literal("thread.queue.remove"), threadId: ThreadId, queueId: z.string().min(1).max(200) }),
   /** Moves a queued message to the front and interrupts the running turn so it goes next. */
@@ -208,12 +216,6 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     errorMessage: z.string().min(1).optional(),
   }),
   z.object({ type: z.literal("thread.message"), message: ThreadMessageProjection }),
-  /** Internal: the runtime adds a past chat it read for history.import. */
-  z.object({
-    type: z.literal("thread.import"),
-    thread: ThreadProjection,
-    messages: z.array(ThreadMessageProjection).max(MAX_IMPORTED_MESSAGES),
-  }),
   /** Reported by the runtime once the agent CLI names its own session, so a later process can resume it. */
   z.object({
     type: z.literal("thread.provider-session"),
@@ -288,6 +290,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   /** A shell printed a local server address. The runtime records it for the terminal's worktree. */
   z.object({ type: z.literal("devserver.detected"), terminalId: TerminalId, url: z.string().min(1).max(2_000) }),
   z.object({ type: z.literal("devserver.stopped"), terminalId: TerminalId, port: DevServerProjection.shape.port }),
+  ThreadAttachmentReadCommand,
   ...FileCommand.options,
   ...PullRequestCommand.options,
   ...GitChangesCommand.options,

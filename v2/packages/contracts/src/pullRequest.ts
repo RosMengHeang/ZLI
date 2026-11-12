@@ -149,6 +149,17 @@ export type PullRequestReviewDecision = z.infer<typeof PullRequestReviewDecision
 
 export const PullRequestInfo = z.object({
   number: z.number().int().positive(),
+  /** The pull request's title on GitHub. Absent when only the link is known, as right after it was opened. */
+  title: z.string().min(1).max(500).optional(),
+  /** The description, as Markdown. The fields below are absent when only the link is known. */
+  body: z.string().max(100_000).optional(),
+  author: z.object({ login: z.string().min(1).max(100) }).optional(),
+  updatedAt: z.string().min(1).max(100).optional(),
+  baseRefName: z.string().min(1).max(500).optional(),
+  headRefName: z.string().min(1).max(500).optional(),
+  additions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional(),
+  changedFiles: z.number().int().nonnegative().optional(),
   url: z.string().url(),
   state: z.enum(["OPEN", "CLOSED", "MERGED"]),
   isDraft: z.boolean(),

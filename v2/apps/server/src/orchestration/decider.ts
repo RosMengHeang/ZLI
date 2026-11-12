@@ -107,7 +107,6 @@ export type DomainDecision = Extract<
       | "legacy.rollback.completed"
       | "legacy.operation.failed"
       | "terminal.status.changed"
-      | "thread.imported"
       | "thread.start.requested"
       | "thread.send.requested"
       | "thread.queued"
@@ -398,6 +397,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       }
       if (command.name !== undefined) assertAgentNameFree(projection, worktree.projectId, command.name);
       if (command.startedBy !== undefined) assertStartedBy(projection, worktree.projectId, command.startedBy);
+      if (command.continues !== undefined) assertContinues(projection, command.continues, command.worktreeId);
       return [
         {
           type: "thread.start.requested",
@@ -416,6 +416,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             ...(command.startedBy !== undefined ? { startedBy: command.startedBy } : {}),
             ...(command.sessionId ? { sessionId: command.sessionId } : {}),
             ...(command.accountId ? { accountId: command.accountId } : {}),
+            ...(command.continues !== undefined ? { continues: command.continues } : {}),
           },
         },
       ];
@@ -447,6 +448,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         ...(command.reasoningEffort ? { reasoningEffort: command.reasoningEffort } : {}),
         ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(command.context ? { context: command.context } : {}),
       };
       if (ended) {
         const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread.worktreeId);
@@ -566,23 +568,6 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           threadId: command.threadId,
           providerSessionId: command.providerSessionId,
         },
-      ];
-    }
-    case "thread.import": {
-      const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.thread.worktreeId);
-      if (!worktree) throw new DomainError("worktree_missing", `Worktree does not exist: ${command.thread.worktreeId}`);
-      if (projection.threads.some((thread) => thread.threadId === command.thread.threadId)) {
-        throw new DomainError("thread_exists", `Thread already exists: ${command.thread.threadId}`);
-      }
-      const resumed = command.thread.providerSessionId;
-      if (resumed && projection.threads.some((thread) => thread.providerSessionId === resumed)) {
-        throw new DomainError("thread_exists", "This chat is already in ZLI.");
-      }
-      if (command.messages.some((message) => message.threadId !== command.thread.threadId)) {
-        throw new DomainError("unsupported_command", "Imported messages must belong to the imported chat.");
-      }
-      return [
-        { type: "thread.imported", thread: { ...command.thread, status: "stopped" }, messages: command.messages },
       ];
     }
     case "thread.message":
@@ -962,6 +947,7 @@ function sendRequested(
     reasoningEffort?: string | undefined;
     permissionMode?: PermissionMode | undefined;
     attachments?: readonly ThreadAttachment[] | undefined;
+    context?: string | undefined;
   },
 ): Extract<DomainDecision, { type: "thread.send.requested" }> {
   const thread = projection.threads.find((entry) => entry.threadId === input.threadId);
@@ -977,7 +963,16 @@ function sendRequested(
       ? { permissionMode: input.permissionMode }
       : {}),
     ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
+    ...(input.context ? { context: input.context } : {}),
   };
+}
+
+/** A chat carries on a thread in the same worktree, so the conversation it shows stays in one place. */
+function assertContinues(projection: RuntimeProjection, threadId: string, worktreeId: string): void {
+  const earlier = projection.threads.find((thread) => thread.threadId === threadId);
+  if (!earlier) throw new DomainError("thread_missing", `Thread does not exist: ${threadId}`);
+  if (earlier.worktreeId !== worktreeId)
+    throw new DomainError("unsupported_command", "A chat can only carry on a conversation from the same worktree.");
 }
 
 function sendQueued(projection: RuntimeProjection, queued: ThreadQueuedMessage): DomainDecision[] {

@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AttachmentError, MAX_ATTACHMENT_BYTES, matchesMimeType, storeThreadAttachments } from "./attachments.js";
+import {
+  AttachmentError,
+  MAX_ATTACHMENT_BYTES,
+  matchesMimeType,
+  readThreadAttachment,
+  storeThreadAttachments,
+} from "./attachments.js";
 
 const threadId = "00000000-0000-4000-8000-000000000701";
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]);
@@ -18,6 +24,29 @@ async function tempRoot(): Promise<string> {
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+describe("readThreadAttachment", () => {
+  it("returns the bytes of a stored attachment", async () => {
+    const root = await tempRoot();
+    const [stored] = await storeThreadAttachments(root, threadId, [
+      { name: "shot.png", mimeType: "image/png", dataBase64: PNG.toString("base64") },
+    ]);
+    await expect(readThreadAttachment(stored)).resolves.toEqual({
+      name: "shot.png",
+      mimeType: "image/png",
+      size: PNG.length,
+      dataBase64: PNG.toString("base64"),
+    });
+  });
+
+  it("refuses a path no message recorded, and says when the file is gone", async () => {
+    await expect(readThreadAttachment(undefined)).rejects.toThrow("not part of the conversation");
+    const root = await tempRoot();
+    await expect(
+      readThreadAttachment({ name: "gone.png", mimeType: "image/png", path: join(root, "gone.png") }),
+    ).rejects.toThrow("gone.png is no longer on this computer.");
+  });
 });
 
 describe("storeThreadAttachments", () => {

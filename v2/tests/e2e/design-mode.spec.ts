@@ -7,10 +7,10 @@ import { expect, test } from "@playwright/test";
 
 import {
   closeDesktop,
-  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openCreateWorktree,
   V2_ROOT,
 } from "./desktop-fixtures.js";
 
@@ -197,8 +197,9 @@ test("annotates the page, sends the annotations to a chat agent in one message, 
     await expect(page.getByText(/Mock response: Please apply these 3 design annotations/u)).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.locator(".chat-attachments")).toContainText("element-1.png");
-    await expect(page.locator(".chat-attachments")).toContainText("region-3.png");
+    // Pictures sent with a message show as thumbnails that open full size.
+    await expect(page.getByRole("button", { name: "Open element-1.png" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open region-3.png" })).toBeVisible();
     await expect(panel).toHaveCount(0);
 
     // An agent in another worktree of the project can take the next annotations once it is picked.

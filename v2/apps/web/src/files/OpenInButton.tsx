@@ -93,7 +93,16 @@ export function AppMark({ app }: { app: OpenInApp }) {
 }
 
 /** Opens the worktree folder in an editor or another app; the arrow picks which one. Desktop only. */
-export function OpenInButton({ worktreeId, onError }: { worktreeId: string; onError(message: string): void }) {
+export function OpenInButton({
+  worktreeId,
+  onError,
+  row = false,
+}: {
+  worktreeId: string;
+  onError(message: string): void;
+  /** A full-width "Open in <app>" row with the app picker at its end, as in the environment card. */
+  row?: boolean;
+}) {
   const { bridge } = useRuntime();
   const openIn = bridge?.openIn;
   const [apps, setApps] = useState<OpenInApp[]>();
@@ -119,6 +128,46 @@ export function OpenInButton({ worktreeId, onError }: { worktreeId: string; onEr
     writePreferred(app.id);
     openIn.open(worktreeId, app.id).catch((cause: unknown) => onError(errorText(cause, app)));
   };
+
+  const openMenu = (anchor: HTMLElement) => {
+    if (menu) {
+      closeMenu();
+      return;
+    }
+    refresh();
+    const rect = anchor.getBoundingClientRect();
+    setMenu({
+      x: rect.right,
+      y: rect.bottom + GAP,
+      align: "end",
+      anchor,
+      label: "Open in",
+      items: openInMenuItems(apps, open),
+    });
+  };
+
+  if (row) {
+    return (
+      <div className="env-row open-in-row">
+        <button type="button" className="open-in-row-main" onClick={() => open(primary)}>
+          <AppMark app={primary} />
+          <span className="env-row-label">Open in {primary.name}</span>
+        </button>
+        <button
+          type="button"
+          className="open-in-row-more"
+          aria-label="Open in another app"
+          aria-haspopup="menu"
+          aria-expanded={!!menu}
+          data-tooltip={menu ? undefined : "Open in another app"}
+          onClick={(event) => openMenu(event.currentTarget)}
+        >
+          <Icon name="chevronDown" size={13} />
+        </button>
+        {menu ? <Menu request={menu} onClose={closeMenu} /> : null}
+      </div>
+    );
+  }
 
   return (
     <div className="open-in">

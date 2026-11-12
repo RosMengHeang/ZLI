@@ -4,7 +4,6 @@ import { BrowserTabProjection } from "./browser.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
-import { MAX_IMPORTED_MESSAGES } from "./history.js";
 import { HuddleEvent } from "./huddles.js";
 import {
   BrowserTabId,
@@ -93,12 +92,6 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("terminal.stop.requested"), terminalId: TerminalId }),
   /** No name means the name was cleared. */
   z.object({ type: z.literal("terminal.renamed"), terminalId: TerminalId, name: AgentName.optional() }),
-  /** A past chat read from an agent CLI's own files. It starts stopped, and the next message resumes it. */
-  z.object({
-    type: z.literal("thread.imported"),
-    thread: ThreadProjection,
-    messages: z.array(ThreadMessageProjection).max(MAX_IMPORTED_MESSAGES),
-  }),
   z.object({
     type: z.literal("thread.start.requested"),
     thread: ThreadProjection,
@@ -114,6 +107,8 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     reasoningEffort: ReasoningEffort.optional(),
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachment).max(8).optional(),
+    /** Read by the agent before the message, and not shown in the chat. */
+    context: z.string().min(1).max(200_000).optional(),
   }),
   z.object({ type: z.literal("thread.queued"), message: ThreadQueuedMessage }),
   z.object({ type: z.literal("thread.usage.recorded"), record: ThreadUsageRecord }),

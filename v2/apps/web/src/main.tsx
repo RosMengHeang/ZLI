@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import "@fontsource-variable/inter";
+// The optical-size cut: small UI text gets looser spacing and larger headings get tighter, on their own.
+import "@fontsource-variable/inter/opsz.css";
 import "@fontsource-variable/jetbrains-mono";
 import "@zli-v2/ui/tokens.css";
 import { rootView } from "./rootView.js";

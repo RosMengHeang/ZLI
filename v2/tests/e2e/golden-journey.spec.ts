@@ -7,12 +7,12 @@ import { expect, test } from "@playwright/test";
 import {
   closeApp,
   closeDesktop,
-  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   freePort,
   git,
   launchDesktop,
+  openCreateWorktree,
 } from "./desktop-fixtures.js";
 
 test("completes the workspace, provider, browser, review, and restoration journey", async () => {

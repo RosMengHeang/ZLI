@@ -44,8 +44,13 @@ test("changes New agent defaults, branch names, and shortcuts from Settings", as
 
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
-
+    // In Chat the new-agent shortcut opens a chat at once; the dialog with every option is in the palette.
     await page.keyboard.press("Control+Shift+Y");
+    await expect(page.getByRole("dialog", { name: "New agent" })).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: /^Message / }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Open command palette" }).click();
+    await page.getByRole("textbox", { name: "Search commands" }).fill("New agent with options");
+    await page.keyboard.press("Enter");
     const newAgent = page.getByRole("dialog", { name: "New agent" });
     await expect(newAgent).toBeVisible();
     await expect(newAgent.getByRole("radio", { name: /Codex/u })).toBeChecked();

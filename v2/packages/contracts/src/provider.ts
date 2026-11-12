@@ -44,6 +44,20 @@ export const ProviderModelOption = z.object({
 });
 export type ProviderModelOption = z.infer<typeof ProviderModelOption>;
 
+/**
+ * Who an installed agent CLI is signed in as, read from its own files. Left out when ZLI cannot tell,
+ * for example when the CLI keeps its login in the system keychain.
+ */
+export const AgentLogin = z.object({
+  status: z.enum(["signed-in", "signed-out"]),
+  /** How it pays: a subscription sign-in, or an API key from the environment or its auth file. */
+  method: z.enum(["subscription", "api-key"]).optional(),
+  email: z.string().min(3).max(320).optional(),
+  /** The subscription plan the CLI reports, such as "pro". */
+  plan: z.string().min(1).max(40).optional(),
+});
+export type AgentLogin = z.infer<typeof AgentLogin>;
+
 export const ProviderDiscovery = z.discriminatedUnion("status", [
   z.object({
     provider: ListedProviderKind,
@@ -54,6 +68,7 @@ export const ProviderDiscovery = z.discriminatedUnion("status", [
     models: z.array(ProviderModelOption).max(400).optional(),
     /** Levels for models that list none of their own, including the agent's default model. */
     reasoningEfforts: ReasoningEfforts.optional(),
+    login: AgentLogin.optional(),
   }),
   z.object({
     provider: ListedProviderKind,
@@ -98,6 +113,11 @@ export const ThreadProjection = z.object({
   providerSessionId: z.string().min(1).max(500).optional(),
   /** The account the agent runs under. Threads from before accounts existed have none. */
   accountId: AccountId.optional(),
+  /**
+   * The thread this one carries on, when the person moved the chat to another agent or model. The chat
+   * shows both as one conversation.
+   */
+  continues: ThreadId.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),
   updatedAt: z.string().datetime({ offset: true }).optional(),
 });
@@ -135,6 +155,25 @@ export const ThreadAttachment = z.object({
 });
 export type ThreadAttachment = z.infer<typeof ThreadAttachment>;
 
+/**
+ * Reads back a file that a message in the thread carried, so the chat can show it. The runtime
+ * answers directly, outside the event log, and only for a path one of the thread's messages recorded.
+ */
+export const ThreadAttachmentReadCommand = z.object({
+  type: z.literal("thread.attachment.read"),
+  threadId: ThreadId,
+  path: z.string().min(1).max(4_000),
+});
+export type ThreadAttachmentReadCommand = z.infer<typeof ThreadAttachmentReadCommand>;
+
+export const ThreadAttachmentData = z.object({
+  name: z.string().min(1).max(255),
+  mimeType: AttachmentMimeType,
+  size: z.number().int().nonnegative(),
+  dataBase64: z.string(),
+});
+export type ThreadAttachmentData = z.infer<typeof ThreadAttachmentData>;
+
 export const ThreadMessageProjection = z.object({
   messageId: z.string().min(1),
   threadId: ThreadId,
@@ -164,6 +203,11 @@ export const ThreadQueuedMessage = z.object({
   reasoningEffort: ReasoningEffort.optional(),
   permissionMode: PermissionMode.optional(),
   attachments: z.array(ThreadAttachment).max(8).optional(),
+  /**
+   * The conversation so far, for an agent that takes over a chat from another one. The agent reads it
+   * before the message; the chat shows only the message.
+   */
+  context: z.string().min(1).max(200_000).optional(),
   queuedAt: z.string().datetime({ offset: true }).optional(),
 });
 export type ThreadQueuedMessage = z.infer<typeof ThreadQueuedMessage>;

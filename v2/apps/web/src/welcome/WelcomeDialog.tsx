@@ -1,8 +1,14 @@
-import type { HistoryFolder, ProjectProjection, ProviderDiscovery, RuntimeProjection } from "@zli-v2/contracts";
+import type {
+  AgentLogin,
+  HistoryFolder,
+  ListedProviderKind,
+  ProjectProjection,
+  ProviderDiscovery,
+  RuntimeProjection,
+} from "@zli-v2/contracts";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { listedDiscoveries } from "../agent/providers.js";
-import { makeCommandId } from "../runtime/commandId.js";
 import { samePath } from "../sessions/launch.js";
 import type { NewAgentRequest } from "../sessions/NewAgentDialog.js";
 import { relativeTime } from "../sessions/sessions.js";
@@ -19,40 +25,36 @@ import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
 import {
-  chatKey,
+  agentReady,
+  allFolders,
   defaultAgent,
-  folderState,
-  type ImportPlan,
-  importableChats,
-  importPlan,
   installCommand,
   installPlatform,
-  landing,
+  landingPath,
+  planLabel,
   preselect,
-  sourceLabel,
-  toggleFolder,
+  selectedFolders,
+  signInCommand,
   WELCOME_STEPS,
   type WelcomeStep,
   welcomeAgents,
 } from "./welcome.js";
-import { type Dispatch, discoverProviders, importChat, scanHistory } from "./welcomeClient.js";
+import { type Dispatch, discoverProviders, scanHistory } from "./welcomeClient.js";
 import "./welcome.css";
 
 type Style = "chat" | "terminal";
-type Imported = { sessionId: string; projectId: string; lastActiveAt: string };
 
 /**
  * First-run setup. It takes the whole window, like a native app's first launch: one calm column, a
- * progress line and the actions at the bottom. Agents and past project folders are found on their own;
- * the only real choice is how new agents open.
+ * progress line and the actions at the bottom. Agents and the folders past agent sessions ran in are
+ * found on their own; the only real choice is how new agents open. Projects come in empty: the first
+ * agent starts a fresh session.
  */
 export function WelcomeDialog({
   projection,
   dispatch,
   pickFolder,
   registerProjectPath,
-  checkoutFor,
-  onImported,
   onStart,
   onDone,
 }: {
@@ -61,9 +63,6 @@ export function WelcomeDialog({
   /** Unset outside the desktop app, where there is no folder picker. */
   pickFolder: (() => Promise<string | undefined>) | undefined;
   registerProjectPath(path: string): Promise<{ project: ProjectProjection; existing: boolean } | { error: string }>;
-  checkoutFor(project: ProjectProjection): Promise<{ worktreeId: string } | { error: string }>;
-  /** Imported chats wait in the sidebar; `show` is the one to open on the board, if any. */
-  onImported(sessionIds: readonly string[], show?: { sessionId: string; projectId: string }): void;
   onStart(request: NewAgentRequest): Promise<string | undefined>;
   /** Finished or skipped. Either way the flow does not come back on its own. */
   onDone(): void;
@@ -76,7 +75,7 @@ export function WelcomeDialog({
   const [folders, setFolders] = useState<HistoryFolder[] | "loading" | { error: string }>("loading");
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [added, setAdded] = useState<ProjectProjection[]>([]);
-  const [progress, setProgress] = useState<{ done: number; total: number }>();
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const primary = useRef<HTMLButtonElement>(null);
   const stage = useRef<HTMLElement>(null);
@@ -87,15 +86,15 @@ export function WelcomeDialog({
     if (!refreshed.current && projection.providers) setProviders(listedDiscoveries(projection.providers));
   }, [projection.providers]);
 
-  const loadHistory = async (pick: boolean) => {
+  const loadHistory = async () => {
     setFolders("loading");
     const result = await scanHistory(dispatch);
     setFolders(result.ok ? result.value : { error: result.error });
-    if (pick && result.ok) setSelected(preselect(result.value));
+    if (result.ok) setSelected(preselect(result.value));
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the scan runs once, when setup opens.
   useEffect(() => {
-    void loadHistory(true);
+    void loadHistory();
   }, []);
 
   // Each step starts with focus on the page, so Tab reaches its controls in order and Enter moves on.
@@ -104,15 +103,16 @@ export function WelcomeDialog({
     stage.current?.focus();
   }, [step]);
 
-  const agent = defaultAgent(providers, readAppSettings().defaults.provider);
-  const ready = providers.filter((entry) => entry.status === "found");
+  // The agent new chats start with. Setup picks one, and the person can choose any other ready agent.
+  const [chosenAgent, setChosenAgent] = useState<ListedProviderKind>();
+  const agent = defaultAgent(providers, chosenAgent ?? readAppSettings().defaults.provider);
+  const installed = providers.filter((entry) => entry.status === "found");
+  const ready = installed.filter(agentReady);
   const index = WELCOME_STEPS.findIndex((candidate) => candidate.id === step);
-  const plan = Array.isArray(folders) ? importPlan(folders, selected) : [];
-  const chatCount = plan.reduce((count, folder) => count + folder.chats.length, 0);
+  const found = Array.isArray(folders) ? folders : [];
+  const picked = selectedFolders(found, selected);
   const projectCount =
-    plan.length +
-    added.filter((project) => !plan.some((folder) => folder.path.toLowerCase() === project.path.toLowerCase())).length;
-  const busy = progress !== undefined;
+    picked.length + added.filter((project) => !picked.some((folder) => samePath(folder.path, project.path))).length;
 
   const markDone = () => updateAppSettings((current) => ({ ...current, onboardedAt: new Date().toISOString() }));
   const skip = () => {
@@ -148,83 +148,46 @@ export function WelcomeDialog({
     );
     // A folder that was already found is ticked again rather than listed twice.
     const match = Array.isArray(folders) ? folders.find((folder) => samePath(folder.path, path)) : undefined;
-    if (match) setSelected((current) => new Set([...current, ...importableChats(match).map(chatKey)]));
-  };
-
-  const runImport = async (work: ImportPlan): Promise<{ imported: Imported[]; failed: number }> => {
-    const total = work.reduce((count, folder) => count + folder.chats.length, 0);
-    const active = new Map(
-      (Array.isArray(folders) ? folders : []).flatMap((folder) =>
-        folder.chats.map((chat) => [chatKey(chat), chat.lastActiveAt]),
-      ),
-    );
-    let done = 0;
-    let failed = 0;
-    const imported: Imported[] = [];
-    setProgress({ done, total });
-    for (const folder of work) {
-      const registered = await registerProjectPath(folder.path);
-      const checkout = "error" in registered ? registered : await checkoutFor(registered.project);
-      if ("error" in registered || "error" in checkout) {
-        failed += folder.chats.length;
-        done += folder.chats.length;
-        setProgress({ done, total });
-        continue;
-      }
-      for (const chat of folder.chats) {
-        const sessionId = makeCommandId();
-        const result = await importChat(dispatch, { ...chat, worktreeId: checkout.worktreeId, sessionId });
-        if (result.ok) {
-          imported.push({
-            sessionId,
-            projectId: registered.project.projectId,
-            lastActiveAt: active.get(chatKey(chat)) ?? "",
-          });
-        } else failed += 1;
-        done += 1;
-        setProgress({ done, total });
-      }
-    }
-    return { imported, failed };
+    if (match) setSelected((current) => new Set([...current, match.path]));
   };
 
   const finish = async () => {
     setError(undefined);
+    setBusy(true);
     saveChoices();
-    const { imported, failed } = plan.length > 0 ? await runImport(plan) : { imported: [], failed: 0 };
-    if (failed > 0 && imported.length === 0) {
-      setProgress(undefined);
-      setError(`${failed} ${failed === 1 ? "chat" : "chats"} could not be imported. Try again, or untick them.`);
-      await loadHistory(false);
+    const projects = [...added];
+    let failed = 0;
+    for (const folder of picked) {
+      if (projects.some((project) => samePath(project.path, folder.path))) continue;
+      const result = await registerProjectPath(folder.path);
+      if ("error" in result) failed += 1;
+      else projects.push(result.project);
+    }
+    if (failed > 0 && projects.length === 0) {
+      setBusy(false);
+      setError(`${failed} ${failed === 1 ? "folder" : "folders"} could not be added. Try again, or untick them.`);
       return;
     }
-    const target = landing({ style, added, imported });
-    onImported(
-      imported.map((entry) => entry.sessionId),
-      target.kind === "show" ? { sessionId: target.sessionId, projectId: target.projectId } : undefined,
-    );
-    if (target.kind === "start" && agent) {
-      const project =
-        added.find((candidate) => candidate.projectId === target.projectId) ??
-        projection.projects.find((candidate) => candidate.projectId === target.projectId);
-      if (project) {
-        const defaults = resolveLaunchDefaults(readAppSettings(), project.projectId);
-        const failure = await onStart({
-          project,
-          placement: { kind: "checkout" },
-          provider: agent.provider,
-          mode: style,
-          permissionMode: defaults.permissionMode ?? "supervised",
-          ...(defaults.provider === agent.provider && defaults.model ? { model: defaults.model } : {}),
-        });
-        if (failure) {
-          setProgress(undefined);
-          setError(failure);
-          return;
-        }
+    const path = landingPath(found, selected, added);
+    const project = path ? projects.find((candidate) => samePath(candidate.path, path)) : undefined;
+    if (project && agent) {
+      const defaults = resolveLaunchDefaults(readAppSettings(), project.projectId);
+      const failure = await onStart({
+        project,
+        placement: { kind: "checkout" },
+        provider: agent.provider,
+        mode: style,
+        draft: style === "chat",
+        permissionMode: defaults.permissionMode ?? "supervised",
+        ...(defaults.provider === agent.provider && defaults.model ? { model: defaults.model } : {}),
+      });
+      if (failure) {
+        setBusy(false);
+        setError(failure);
+        return;
       }
     }
-    setProgress(undefined);
+    setBusy(false);
     markDone();
     onDone();
   };
@@ -244,27 +207,31 @@ export function WelcomeDialog({
     setStep(WELCOME_STEPS[index - 1]?.id ?? "agents");
   };
 
-  const landingName = added.at(-1)?.name ?? plan.at(-1)?.name;
+  const landing = landingPath(found, selected, added);
+  const landingName = landing
+    ? (added.find((project) => samePath(project.path, landing))?.name ??
+      found.find((folder) => folder.path === landing)?.name)
+    : undefined;
   const note = error ? (
     <span className="welcome-error" role="alert">
       <Icon name="alert" size={13} />
       {error}
     </span>
-  ) : progress ? (
-    `Importing ${progress.done} of ${progress.total}…`
+  ) : busy ? (
+    "Adding projects…"
   ) : step === "agents" ? (
-    ready.length === 0 ? (
+    installed.length === 0 ? (
       "Install an agent, then check again."
+    ) : ready.length === 0 ? (
+      `Sign in to ${installed[0]?.displayName ?? "an agent"} to use it, then check again.`
+    ) : ready.length < installed.length ? (
+      `${ready.length} ready · ${signedOutNames(installed)} ${installed.length - ready.length === 1 ? "needs" : "need"} to sign in`
     ) : (
       `${ready.length} ${ready.length === 1 ? "agent" : "agents"} ready`
     )
   ) : step === "projects" && agent ? (
     landingName ? (
-      added.length > 0 || style === "terminal" ? (
-        `Opens ${agent.displayName} in ${landingName}`
-      ) : (
-        `Opens your newest chat in ${landingName}`
-      )
+      `Opens ${agent.displayName} in ${landingName}`
     ) : (
       "Add a project any time from the sidebar"
     )
@@ -303,6 +270,7 @@ export function WelcomeDialog({
             <AgentsStep
               providers={providers}
               agent={agent}
+              onPick={setChosenAgent}
               dispatch={dispatch}
               onRefreshed={(value) => {
                 refreshed.current = true;
@@ -318,12 +286,20 @@ export function WelcomeDialog({
               added={added}
               canPickFolder={pickFolder !== undefined}
               busy={busy}
-              onToggle={setSelected}
+              onToggle={(path) =>
+                setSelected((current) => {
+                  const next = new Set(current);
+                  if (next.has(path)) next.delete(path);
+                  else next.add(path);
+                  return next;
+                })
+              }
               onAddFolder={() => void addFolder()}
+              onSelectAll={(all) => setSelected(all && Array.isArray(folders) ? allFolders(folders) : new Set())}
               onRemoveFolder={(projectId) =>
                 setAdded((current) => current.filter((project) => project.projectId !== projectId))
               }
-              onRetry={() => void loadHistory(true)}
+              onRetry={() => void loadHistory()}
             />
           )}
         </div>
@@ -352,13 +328,13 @@ export function WelcomeDialog({
           ref={primary}
           variant="primary"
           loading={busy}
-          disabled={step === "agents" && ready.length === 0}
+          disabled={step === "agents" && installed.length === 0}
           onClick={next}
         >
           {step !== "projects"
             ? "Continue"
-            : chatCount > 0
-              ? `Import ${projectCount} ${projectCount === 1 ? "project" : "projects"} and open`
+            : projectCount > 0
+              ? `Add ${projectCount} ${projectCount === 1 ? "project" : "projects"} and open`
               : "Open ZLI"}
         </Button>
       </footer>
@@ -379,11 +355,13 @@ function StepHeader({ step, title, children }: { step: number; title: string; ch
 function AgentsStep({
   providers,
   agent,
+  onPick,
   dispatch,
   onRefreshed,
 }: {
   providers: readonly ProviderDiscovery[];
   agent: ProviderDiscovery | undefined;
+  onPick(provider: ListedProviderKind): void;
   dispatch: Dispatch;
   onRefreshed(providers: ProviderDiscovery[]): void;
 }) {
@@ -406,12 +384,14 @@ function AgentsStep({
       entry={entry}
       primary={entry.provider === agent?.provider}
       command={entry.status === "missing" ? installCommand(entry.provider, platform) : undefined}
+      onPick={() => onPick(entry.provider)}
     />
   );
   return (
     <>
       <StepHeader step={1} title="Your agents">
-        ZLI found the coding agents on this computer. They sign in with their own accounts.
+        ZLI found the coding agents on this computer and the accounts they are signed in to. Pick the one new chats
+        start with; you can switch agents in any chat.
       </StepHeader>
       {providers.length === 0 ? (
         <p className="welcome-loading">
@@ -446,13 +426,50 @@ function AgentRow({
   entry,
   primary,
   command,
+  onPick,
 }: {
   entry: ProviderDiscovery;
   primary: boolean;
   command: string | undefined;
+  onPick(): void;
 }) {
-  const [copied, setCopied] = useState(false);
   const found = entry.status === "found";
+  const login = found ? entry.login : undefined;
+  const signedOut = login?.status === "signed-out";
+  const signIn = signedOut ? signInCommand(entry.provider) : undefined;
+  const account = login?.status === "signed-in" ? accountLine(login) : undefined;
+  const version = found ? entry.version : undefined;
+  const pickable = found && agentReady(entry);
+  if (pickable) {
+    return (
+      <li className="welcome-row-pickable">
+        <label className={`welcome-row is-pickable${primary ? " is-picked" : ""}`}>
+          <input
+            type="radio"
+            name="welcome-default-agent"
+            className="welcome-agent-radio-input"
+            checked={primary}
+            onChange={onPick}
+            aria-describedby={`welcome-agent-${entry.provider}`}
+          />
+          <span className="welcome-mark">
+            <ProviderMark provider={entry.provider} size={18} />
+          </span>
+          <span className="welcome-row-copy">
+            <span className="welcome-row-title">
+              {entry.displayName}
+              {primary ? <span className="welcome-tag is-default">Default</span> : null}
+            </span>
+            <span className="welcome-row-detail" id={`welcome-agent-${entry.provider}`} title={version}>
+              {account ?? version ?? "Installed"}
+            </span>
+          </span>
+          <span className="welcome-ready">Ready</span>
+          <span className="welcome-agent-radio" aria-hidden="true" />
+        </label>
+      </li>
+    );
+  }
   return (
     <li className={`welcome-row${found ? "" : " is-missing"}`}>
       <span className="welcome-mark">
@@ -463,33 +480,77 @@ function AgentRow({
           {entry.displayName}
           {primary ? <span className="welcome-tag">Default</span> : null}
         </span>
-        {found ? (
-          <span className="welcome-row-detail is-mono">{entry.version ?? "Installed"}</span>
-        ) : command ? (
+        {!found ? (
+          command ? (
+            <span className="welcome-row-detail">
+              Install with <code>{command}</code>
+            </span>
+          ) : (
+            <span className="welcome-row-detail">Not installed</span>
+          )
+        ) : signedOut ? (
           <span className="welcome-row-detail">
-            Install with <code>{command}</code>
+            {signIn ? (
+              <>
+                Needs an account. Run <code>{signIn}</code> in a terminal to sign in
+              </>
+            ) : (
+              "Needs an account. Sign in from its own CLI"
+            )}
+          </span>
+        ) : account ? (
+          <span className="welcome-row-detail" title={version}>
+            {account}
           </span>
         ) : (
-          <span className="welcome-row-detail">Not installed</span>
+          <span className="welcome-row-detail is-mono">{version ?? "Installed"}</span>
         )}
       </span>
-      {found ? (
+      {!found ? (
+        command ? (
+          <CopyCommand label={`Copy the install command for ${entry.displayName}`} command={command} />
+        ) : null
+      ) : signedOut ? (
+        <span className="welcome-row-end">
+          {signIn ? <CopyCommand label={`Copy the sign-in command for ${entry.displayName}`} command={signIn} /> : null}
+          <span className="welcome-ready is-signed-out">Signed out</span>
+        </span>
+      ) : (
         <span className="welcome-ready">Ready</span>
-      ) : command ? (
-        <IconButton
-          label={`Copy the install command for ${entry.displayName}`}
-          tooltip={copied ? "Copied" : "Copy command"}
-          icon={copied ? "check" : "copy"}
-          size="sm"
-          onClick={() => {
-            void navigator.clipboard?.writeText(command).then(
-              () => setCopied(true),
-              () => undefined,
-            );
-          }}
-        />
-      ) : null}
+      )}
     </li>
+  );
+}
+
+function signedOutNames(installed: readonly ProviderDiscovery[]): string {
+  return installed
+    .filter((entry) => !agentReady(entry))
+    .map((entry) => entry.displayName)
+    .join(" and ");
+}
+
+/** "kim@gmail.com · Pro", or how the agent signs in when its account has no email to show. */
+function accountLine(login: AgentLogin): string {
+  // Some agents keep the login but not the email, so the row still says the account is there.
+  const who = login.email ?? (login.method === "api-key" ? "API key" : "Signed in");
+  return login.plan ? `${who} · ${planLabel(login.plan)}` : who;
+}
+
+function CopyCommand({ label, command }: { label: string; command: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <IconButton
+      label={label}
+      tooltip={copied ? "Copied" : "Copy command"}
+      icon={copied ? "check" : "copy"}
+      size="sm"
+      onClick={() => {
+        void navigator.clipboard?.writeText(command).then(
+          () => setCopied(true),
+          () => undefined,
+        );
+      }}
+    />
   );
 }
 
@@ -595,6 +656,7 @@ function ProjectsStep({
   canPickFolder,
   busy,
   onToggle,
+  onSelectAll,
   onAddFolder,
   onRemoveFolder,
   onRetry,
@@ -604,24 +666,24 @@ function ProjectsStep({
   added: readonly ProjectProjection[];
   canPickFolder: boolean;
   busy: boolean;
-  onToggle(next: Set<string>): void;
+  onToggle(path: string): void;
+  onSelectAll(all: boolean): void;
   onAddFolder(): void;
   onRemoveFolder(projectId: string): void;
   onRetry(): void;
 }) {
-  const found = Array.isArray(folders) ? folders.filter((folder) => folder.exists) : [];
-  const gone = Array.isArray(folders) ? folders.length - found.length : 0;
+  const found = Array.isArray(folders) ? folders : [];
   return (
     <>
       <StepHeader step={3} title="Your projects">
         {found.length > 0
-          ? "ZLI found these from your Claude Code and Codex chats. They come in with their chats; untick any you don't want."
-          : "Add a folder to work in. Projects from your Claude Code and Codex chats show up here too."}
+          ? "ZLI found these folders in your Claude Code and Codex history. Tick the ones to bring in."
+          : "Add a folder to work in. Folders from your Claude Code and Codex history show up here too."}
       </StepHeader>
       {folders === "loading" ? (
         <p className="welcome-loading">
           <span className="spinner" aria-hidden="true" />
-          Looking for projects in your past chats…
+          Looking for your projects…
         </p>
       ) : !Array.isArray(folders) ? (
         <div className="welcome-under">
@@ -631,9 +693,46 @@ function ProjectsStep({
           </Button>
         </div>
       ) : null}
+      {found.length > 1 ? (
+        <div className="welcome-pick-bar">
+          <span className="welcome-pick-count">
+            {found.filter((folder) => selected.has(folder.path)).length} of {found.length} selected
+          </span>
+          <button
+            type="button"
+            className="welcome-link"
+            disabled={busy}
+            onClick={() => onSelectAll(!found.every((folder) => selected.has(folder.path)))}
+          >
+            {found.every((folder) => selected.has(folder.path)) ? "Clear all" : "Select all"}
+          </button>
+        </div>
+      ) : null}
       <ul className="welcome-rows" aria-label="Projects">
         {found.map((folder) => (
-          <FolderRow key={folder.path} folder={folder} selected={selected} disabled={busy} onToggle={onToggle} />
+          <li className="welcome-row is-folder" key={folder.path}>
+            <label className="welcome-folder-pick">
+              <input
+                className="welcome-check"
+                type="checkbox"
+                checked={selected.has(folder.path)}
+                disabled={busy}
+                onChange={() => onToggle(folder.path)}
+              />
+              <span className="welcome-row-copy">
+                <span className="welcome-row-title">{folder.name}</span>
+                <span className="welcome-row-detail is-mono">{folder.path}</span>
+              </span>
+              <span className="welcome-folder-meta">
+                <span className="welcome-folder-marks">
+                  {folder.sources.map((source) => (
+                    <ProviderMark key={source} provider={source} size={13} />
+                  ))}
+                </span>
+                {relativeTime(folder.lastActiveAt)}
+              </span>
+            </label>
+          </li>
         ))}
         {added
           .filter((project) => !found.some((folder) => samePath(folder.path, project.path)))
@@ -670,95 +769,6 @@ function ProjectsStep({
           </li>
         ) : null}
       </ul>
-      {gone > 0 ? (
-        <p className="welcome-under-note">
-          {gone} {gone === 1 ? "folder" : "folders"} from past chats no longer {gone === 1 ? "exists" : "exist"} and{" "}
-          {gone === 1 ? "is" : "are"} left out.
-        </p>
-      ) : null}
     </>
-  );
-}
-
-function FolderRow({
-  folder,
-  selected,
-  disabled,
-  onToggle,
-}: {
-  folder: HistoryFolder;
-  selected: ReadonlySet<string>;
-  disabled: boolean;
-  onToggle(next: Set<string>): void;
-}) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLInputElement>(null);
-  const state = folderState(selected, folder);
-  const pickable = importableChats(folder);
-  const picked = pickable.filter((chat) => selected.has(chatKey(chat))).length;
-  useEffect(() => {
-    if (box.current) box.current.indeterminate = state === "some";
-  }, [state]);
-  const inZli = pickable.length === 0;
-  return (
-    <li className={`welcome-row is-folder${open ? " is-open" : ""}`}>
-      <div className="welcome-folder-head">
-        <label className="welcome-folder-pick">
-          <input
-            ref={box}
-            className="welcome-check"
-            type="checkbox"
-            checked={state === "all"}
-            disabled={disabled || inZli}
-            onChange={() => onToggle(toggleFolder(selected, folder))}
-          />
-          <span className="welcome-row-copy">
-            <span className="welcome-row-title">{folder.name}</span>
-            <span className="welcome-row-detail is-mono">{folder.path}</span>
-          </span>
-        </label>
-        <button type="button" className="welcome-count" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-          {inZli
-            ? "Already in ZLI"
-            : state === "some"
-              ? `${picked} of ${pickable.length} chats`
-              : `${folder.chats.length} ${folder.chats.length === 1 ? "chat" : "chats"}`}
-          <Icon name={open ? "chevronUp" : "chevronDown"} size={12} />
-        </button>
-      </div>
-      {open ? (
-        <ul className="welcome-chats">
-          {folder.chats.map((chat) => {
-            const key = chatKey(chat);
-            const blocked = chat.imported === true;
-            return (
-              <li key={key}>
-                <label className={`welcome-chat${blocked ? " is-disabled" : ""}`}>
-                  <input
-                    className="welcome-check"
-                    type="checkbox"
-                    checked={selected.has(key)}
-                    disabled={disabled || blocked}
-                    onChange={() => {
-                      const next = new Set(selected);
-                      if (next.has(key)) next.delete(key);
-                      else next.add(key);
-                      onToggle(next);
-                    }}
-                  />
-                  <ProviderMark provider={chat.source} size={13} />
-                  <span className="welcome-chat-title" title={`${sourceLabel(chat.source)} · ${chat.title}`}>
-                    {chat.title}
-                  </span>
-                  <span className="welcome-chat-meta">
-                    {blocked ? "In ZLI" : `${chat.messageCount} msgs · ${relativeTime(chat.lastActiveAt)}`}
-                  </span>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-    </li>
   );
 }

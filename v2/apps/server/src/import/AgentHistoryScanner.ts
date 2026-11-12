@@ -1,20 +1,14 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { open, readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
-import { type HistoryChat, type HistoryFolder, type HistorySource, MAX_HISTORY_CHATS } from "@zli-v2/contracts";
+import { type HistoryFolder, type HistorySource, MAX_HISTORY_SESSIONS } from "@zli-v2/contracts";
 
-import {
-  type ParsedHistoryChat,
-  parseClaudeTranscript,
-  parseCodexThreadNames,
-  parseCodexTranscript,
-} from "./agentHistory.js";
+/** The folder is near the top of a session file; reading past this would mean the file is not a session. */
+const MAX_HEAD_BYTES = 1024 * 1024;
+const CHUNK_BYTES = 64 * 1024;
 
-/** Transcripts larger than this are mostly tool output; reading them would stall the scan. */
-const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
-
-type Transcript = { source: HistorySource; path: string; mtimeMs: number; size: number };
-type Parsed = { chat: ParsedHistoryChat; transcript: Transcript };
+type Transcript = { source: HistorySource; path: string; mtimeMs: number };
 
 export type AgentHistoryScannerOptions = {
   home: string;
@@ -23,64 +17,28 @@ export type AgentHistoryScannerOptions = {
 };
 
 /**
- * Finds the person's past Claude Code and Codex chats on disk. It only reads the agents' files and
- * never changes them. Parsed transcripts are kept by file identity, so an import right after a scan
- * does not read the file twice.
+ * Finds the folders the person ran Claude Code and Codex in, from the agents' session files. It reads
+ * only the start of each file and never changes them. Each file's folder is kept by modified time, so
+ * a second scan reads only what changed.
  */
 export class AgentHistoryScanner {
-  private readonly cache = new Map<string, { mtimeMs: number; size: number; chat: ParsedHistoryChat | null }>();
-  private readonly located = new Map<string, Transcript>();
+  private readonly cache = new Map<string, { mtimeMs: number; cwd: string | undefined }>();
 
   constructor(private readonly options: AgentHistoryScannerOptions) {}
 
-  /** Groups the newest chats by the folder they ran in. `importedIds` marks chats already in ZLI. */
-  async scan(importedIds: ReadonlySet<string>): Promise<HistoryFolder[]> {
+  /** Folders that still exist, the most recently used first. */
+  async scan(): Promise<HistoryFolder[]> {
     const transcripts = (await this.transcripts())
       .sort((left, right) => right.mtimeMs - left.mtimeMs)
-      .slice(0, MAX_HISTORY_CHATS);
-    const names = await this.codexNames();
-    const parsed: Parsed[] = [];
+      .slice(0, MAX_HISTORY_SESSIONS);
+    const folders = new Map<string, { path: string; lastActiveMs: number; sources: Set<HistorySource> }>();
     for (const transcript of transcripts) {
-      const chat = await this.parse(transcript, names);
-      if (!chat) continue;
-      this.located.set(key(chat.source, chat.providerSessionId), transcript);
-      parsed.push({ chat, transcript });
-    }
-    return this.group(parsed, importedIds);
-  }
-
-  /** The full chat behind a scan row, read again if its file changed since the scan. */
-  async load(source: HistorySource, providerSessionId: string): Promise<ParsedHistoryChat | undefined> {
-    let transcript = this.located.get(key(source, providerSessionId));
-    if (!transcript) {
-      await this.scan(new Set());
-      transcript = this.located.get(key(source, providerSessionId));
-    }
-    if (!transcript) return undefined;
-    const info = await stat(transcript.path).catch(() => undefined);
-    if (!info) return undefined;
-    const fresh = { ...transcript, mtimeMs: info.mtimeMs, size: info.size };
-    const chat = await this.parse(fresh, await this.codexNames());
-    return chat?.providerSessionId === providerSessionId
-      ? { ...chat, lastActiveAt: new Date(info.mtimeMs).toISOString() }
-      : undefined;
-  }
-
-  private async group(parsed: readonly Parsed[], importedIds: ReadonlySet<string>): Promise<HistoryFolder[]> {
-    const folders = new Map<string, { path: string; chats: HistoryChat[]; lastActiveMs: number }>();
-    for (const { chat, transcript } of parsed) {
-      const folderKey = this.folderKey(chat.cwd);
-      const folder = folders.get(folderKey) ?? { path: chat.cwd, chats: [], lastActiveMs: 0 };
-      folder.chats.push({
-        source: chat.source,
-        providerSessionId: chat.providerSessionId,
-        title: chat.title || "Untitled chat",
-        ...(chat.model ? { model: chat.model } : {}),
-        messageCount: chat.messages.length + chat.omitted,
-        lastActiveAt: new Date(transcript.mtimeMs).toISOString(),
-        ...(importedIds.has(chat.providerSessionId) ? { imported: true } : {}),
-      });
+      const cwd = await this.cwdOf(transcript);
+      if (!cwd) continue;
+      const folderKey = this.folderKey(cwd);
+      const folder = folders.get(folderKey) ?? { path: cwd, lastActiveMs: 0, sources: new Set() };
       folder.lastActiveMs = Math.max(folder.lastActiveMs, transcript.mtimeMs);
+      folder.sources.add(transcript.source);
       folders.set(folderKey, folder);
     }
     const out: HistoryFolder[] = [];
@@ -89,12 +47,12 @@ export class AgentHistoryScanner {
         (info) => info.isDirectory(),
         () => false,
       );
+      if (!exists) continue;
       out.push({
         path: folder.path,
         name: basename(folder.path.replace(/[\\/]+$/u, "")) || folder.path,
-        exists,
         lastActiveAt: new Date(folder.lastActiveMs).toISOString(),
-        chats: folder.chats.sort((left, right) => right.lastActiveAt.localeCompare(left.lastActiveAt)),
+        sources: [...folder.sources],
       });
     }
     return out;
@@ -105,22 +63,12 @@ export class AgentHistoryScanner {
     return (this.options.platform ?? process.platform) === "win32" ? trimmed.toLowerCase() : trimmed;
   }
 
-  private async parse(transcript: Transcript, names: ReadonlyMap<string, string>): Promise<ParsedHistoryChat | null> {
+  private async cwdOf(transcript: Transcript): Promise<string | undefined> {
     const cached = this.cache.get(transcript.path);
-    if (cached && cached.mtimeMs === transcript.mtimeMs && cached.size === transcript.size) return cached.chat;
-    if (transcript.size > MAX_TRANSCRIPT_BYTES) return null;
-    let chat: ParsedHistoryChat | null = null;
-    try {
-      const contents = await readFile(transcript.path, "utf8");
-      chat =
-        transcript.source === "claude-code"
-          ? parseClaudeTranscript(contents, basename(transcript.path, ".jsonl"))
-          : parseCodexTranscript(contents, names);
-    } catch {
-      chat = null;
-    }
-    this.cache.set(transcript.path, { mtimeMs: transcript.mtimeMs, size: transcript.size, chat });
-    return chat;
+    if (cached && cached.mtimeMs === transcript.mtimeMs) return cached.cwd;
+    const cwd = await readCwd(transcript).catch(() => undefined);
+    this.cache.set(transcript.path, { mtimeMs: transcript.mtimeMs, cwd });
+    return cwd;
   }
 
   private async transcripts(): Promise<Transcript[]> {
@@ -168,15 +116,53 @@ export class AgentHistoryScanner {
     }
     return out;
   }
+}
 
-  private async codexNames(): Promise<Map<string, string>> {
-    const contents = await readFile(join(this.codexHome(), "session_index.jsonl"), "utf8").catch(() => "");
-    return parseCodexThreadNames(contents);
+/** The folder one JSONL record says the session ran in, if it says. */
+export function recordCwd(source: HistorySource, line: string): string | undefined {
+  let record: unknown;
+  try {
+    record = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!record || typeof record !== "object") return undefined;
+  const value = record as Record<string, unknown>;
+  if (source === "claude-code") return text(value.cwd);
+  if (value.type !== "session_meta" && value.type !== "turn_context") return undefined;
+  const payload = value.payload;
+  return payload && typeof payload === "object" ? text((payload as Record<string, unknown>).cwd) : undefined;
+}
+
+/** Reads whole lines from the top of the file until one names the folder. */
+async function readCwd(transcript: Transcript): Promise<string | undefined> {
+  const file = await open(transcript.path, "r");
+  try {
+    let pending = "";
+    let offset = 0;
+    const buffer = Buffer.alloc(CHUNK_BYTES);
+    const decoder = new StringDecoder("utf8");
+    while (offset < MAX_HEAD_BYTES) {
+      const { bytesRead } = await file.read(buffer, 0, CHUNK_BYTES, offset);
+      const done = bytesRead === 0;
+      offset += bytesRead;
+      pending += done ? decoder.end() : decoder.write(buffer.subarray(0, bytesRead));
+      const lines = pending.split("\n");
+      pending = done ? "" : (lines.pop() ?? "");
+      for (const line of lines) {
+        const cwd = line.trim() ? recordCwd(transcript.source, line) : undefined;
+        if (cwd) return cwd;
+      }
+      if (done) return undefined;
+    }
+    return undefined;
+  } finally {
+    await file.close();
   }
 }
 
-function key(source: HistorySource, providerSessionId: string): string {
-  return `${source}:${providerSessionId}`;
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 async function list(dir: string): Promise<string[]> {
@@ -185,5 +171,5 @@ async function list(dir: string): Promise<string[]> {
 
 async function describe(source: HistorySource, path: string): Promise<Transcript | undefined> {
   const info = await stat(path).catch(() => undefined);
-  return info?.isFile() ? { source, path, mtimeMs: info.mtimeMs, size: info.size } : undefined;
+  return info?.isFile() ? { source, path, mtimeMs: info.mtimeMs } : undefined;
 }

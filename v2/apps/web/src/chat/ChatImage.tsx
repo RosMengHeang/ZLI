@@ -1,10 +1,11 @@
-import { previewMimeType } from "@zli-v2/contracts";
+import { previewMimeType, ThreadAttachmentData } from "@zli-v2/contracts";
 import { createContext, type KeyboardEvent, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { readFileData } from "../files/fileClient.js";
 import { baseName } from "../files/filePaths.js";
 import { formatFileSize } from "../files/ImagePreview.js";
+import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -23,11 +24,17 @@ type ImageState =
   | { status: "error"; message: string }
   | { status: "ready"; url: string; size?: number };
 
-/** Either a file in the chat's worktree, or an image the reply carries inline as a data URL. */
-export type ImageSource = { path: string } | { url: string; name: string };
+/**
+ * A file in the chat's worktree, an image the reply carries inline as a data URL, or a picture the
+ * person sent with a message, which the runtime keeps outside the worktree.
+ */
+export type ImageSource =
+  | { path: string }
+  | { url: string; name: string }
+  | { attachment: string; threadId: string; name: string };
 
 function sourceName(source: ImageSource): string {
-  return "path" in source ? baseName(source.path) : source.name;
+  return "name" in source ? source.name : baseName(source.path);
 }
 
 function useImage(source: ImageSource): ImageState {
@@ -35,6 +42,8 @@ function useImage(source: ImageSource): ImageState {
   const { dispatch } = useRuntime();
   const path = "path" in source ? source.path : undefined;
   const url = "url" in source ? source.url : undefined;
+  const attachment = "attachment" in source ? source.attachment : undefined;
+  const threadId = "attachment" in source ? source.threadId : undefined;
   const [state, setState] = useState<ImageState>(url ? { status: "ready", url } : { status: "loading" });
 
   useEffect(() => {
@@ -42,13 +51,17 @@ function useImage(source: ImageSource): ImageState {
       setState({ status: "ready", url });
       return;
     }
-    if (!path || !worktreeId) {
+    if (!attachment && (!path || !worktreeId)) {
       setState({ status: "error", message: "This image is not in the agent's worktree." });
       return;
     }
     let cancelled = false;
     setState({ status: "loading" });
-    readFileData(dispatch, worktreeId, path).then(
+    const read =
+      attachment && threadId
+        ? readAttachment(dispatch, threadId, attachment)
+        : readFileData(dispatch, worktreeId ?? "", path ?? "");
+    read.then(
       (data) => {
         if (!cancelled) {
           setState({ status: "ready", url: `data:${data.mimeType};base64,${data.dataBase64}`, size: data.size });
@@ -66,9 +79,24 @@ function useImage(source: ImageSource): ImageState {
     return () => {
       cancelled = true;
     };
-  }, [dispatch, worktreeId, path, url]);
+  }, [dispatch, worktreeId, path, url, attachment, threadId]);
 
   return state;
+}
+
+async function readAttachment(
+  dispatch: ReturnType<typeof useRuntime>["dispatch"],
+  threadId: string,
+  path: string,
+): Promise<ThreadAttachmentData> {
+  const response = await dispatch({
+    protocolVersion: 1,
+    commandId: makeCommandId(),
+    command: { type: "thread.attachment.read", threadId, path },
+  });
+  if (!response) throw new Error("The runtime is not connected.");
+  if (!response.accepted) throw new Error(response.error.message);
+  return ThreadAttachmentData.parse(response.result);
 }
 
 /** An image in a reply. Clicking it opens it full size over the app. */

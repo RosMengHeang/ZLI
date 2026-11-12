@@ -1,11 +1,8 @@
-import type {
-  HistoryChat,
-  HistoryFolder,
-  HistorySource,
-  ListedProviderKind,
-  ProviderDiscovery,
-  RuntimeProjection,
-} from "@zli-v2/contracts";
+import type { HistoryFolder, ListedProviderKind, ProviderDiscovery, RuntimeProjection } from "@zli-v2/contracts";
+
+import { agentReady } from "../agent/providers.js";
+
+export { agentReady, planLabel, signInCommand } from "../agent/providers.js";
 
 export type WelcomeStep = "agents" | "style" | "projects";
 
@@ -15,20 +12,16 @@ export const WELCOME_STEPS: readonly { id: WelcomeStep; label: string }[] = [
   { id: "projects", label: "Projects" },
 ];
 
-/** Where setup lands: a new agent in a folder the person added, or the newest chat they imported. */
-export function landing(input: {
-  style: "chat" | "terminal";
-  added: readonly { projectId: string }[];
-  imported: readonly { sessionId: string; projectId: string; lastActiveAt: string }[];
-}): { kind: "start"; projectId: string } | { kind: "show"; sessionId: string; projectId: string } | { kind: "none" } {
-  const newest = [...input.imported].sort((left, right) => right.lastActiveAt.localeCompare(left.lastActiveAt))[0];
-  const folder = input.added.at(-1);
-  if (folder) return { kind: "start", projectId: folder.projectId };
-  if (!newest) return { kind: "none" };
-  // A terminal person gets the agent's CLI in that project; a chat person picks the imported chat back up.
-  return input.style === "chat"
-    ? { kind: "show", sessionId: newest.sessionId, projectId: newest.projectId }
-    : { kind: "start", projectId: newest.projectId };
+/**
+ * The project setup opens an agent in: the folder added by hand last, else the most recently used of
+ * the folders kept ticked.
+ */
+export function landingPath(
+  folders: readonly HistoryFolder[],
+  selected: ReadonlySet<string>,
+  added: readonly { path: string }[],
+): string | undefined {
+  return added.at(-1)?.path ?? folders.find((folder) => selected.has(folder.path))?.path;
 }
 
 /**
@@ -43,7 +36,7 @@ export function shouldWelcome(
   return projection.projects.length === 0 && projection.threads.length === 0 && projection.terminals.length === 0;
 }
 
-/** Claude Code and Codex are shown even when missing, since their chats can also be imported. */
+/** Claude Code and Codex are always listed, since they are the agents most people start with. */
 const PRIMARY: readonly ListedProviderKind[] = ["claude-code", "codex"];
 
 export function welcomeAgents(providers: readonly ProviderDiscovery[]): {
@@ -58,20 +51,26 @@ export function welcomeAgents(providers: readonly ProviderDiscovery[]): {
 }
 
 /**
- * The agent setup starts with, picked without asking: the saved default when it is installed, else
- * the first ready agent in the order the list shows them.
+ * The agent setup starts with, picked without asking: the saved default when it is ready, else the first
+ * ready agent in the order the list shows them, else the first installed one.
  */
 export function defaultAgent(
   providers: readonly ProviderDiscovery[],
   saved: ListedProviderKind | undefined,
 ): ProviderDiscovery | undefined {
-  const ready = welcomeAgents(providers).shown.filter((entry) => entry.status === "found");
-  return ready.find((entry) => entry.provider === saved) ?? ready[0];
+  const installed = welcomeAgents(providers).shown.filter((entry) => entry.status === "found");
+  const ready = installed.filter(agentReady);
+  return ready.find((entry) => entry.provider === saved) ?? ready[0] ?? installed[0];
 }
 
-/** Every chat that can be imported starts ticked, so the folders found are brought in unless unticked. */
-export function preselect(folders: readonly HistoryFolder[]): Set<string> {
-  return new Set(folders.flatMap((folder) => importableChats(folder).map(chatKey)));
+/** Nothing starts ticked: the person picks the projects to bring in, or ticks them all at once. */
+export function preselect(_folders: readonly HistoryFolder[]): Set<string> {
+  return new Set();
+}
+
+/** Every folder found, for "Select all". */
+export function allFolders(folders: readonly HistoryFolder[]): Set<string> {
+  return new Set(folders.map((folder) => folder.path));
 }
 
 export type InstallPlatform = "windows" | "posix";
@@ -100,50 +99,7 @@ export function installPlatform(userAgent: string): InstallPlatform {
   return userAgent.includes("Windows") ? "windows" : "posix";
 }
 
-export function chatKey(chat: Pick<HistoryChat, "source" | "providerSessionId">): string {
-  return `${chat.source}:${chat.providerSessionId}`;
-}
-
-/** Chats the person can still pick: the folder is there and the chat is not in ZLI already. */
-export function importableChats(folder: HistoryFolder): HistoryChat[] {
-  return folder.exists ? folder.chats.filter((chat) => !chat.imported) : [];
-}
-
-/** Ticking a folder picks every chat that can still be imported in it; unticking clears them. */
-export function toggleFolder(selected: ReadonlySet<string>, folder: HistoryFolder): Set<string> {
-  const keys = importableChats(folder).map(chatKey);
-  const next = new Set(selected);
-  const all = keys.length > 0 && keys.every((key) => next.has(key));
-  for (const key of keys) {
-    if (all) next.delete(key);
-    else next.add(key);
-  }
-  return next;
-}
-
-export function folderState(selected: ReadonlySet<string>, folder: HistoryFolder): "all" | "some" | "none" {
-  const keys = importableChats(folder).map(chatKey);
-  const count = keys.filter((key) => selected.has(key)).length;
-  return count === 0 ? "none" : count === keys.length ? "all" : "some";
-}
-
-export type ImportPlan = {
-  path: string;
-  name: string;
-  chats: { source: HistorySource; providerSessionId: string }[];
-}[];
-
-/** The folders to add and the chats to bring into each, oldest chat first so the newest ends on top. */
-export function importPlan(folders: readonly HistoryFolder[], selected: ReadonlySet<string>): ImportPlan {
-  return folders.flatMap((folder) => {
-    const chats = importableChats(folder)
-      .filter((chat) => selected.has(chatKey(chat)))
-      .sort((left, right) => left.lastActiveAt.localeCompare(right.lastActiveAt))
-      .map(({ source, providerSessionId }) => ({ source, providerSessionId }));
-    return chats.length > 0 ? [{ path: folder.path, name: folder.name, chats }] : [];
-  });
-}
-
-export function sourceLabel(source: HistorySource): string {
-  return source === "claude-code" ? "Claude Code" : "Codex";
+/** The ticked folders, in the order they are listed: most recently used first. */
+export function selectedFolders(folders: readonly HistoryFolder[], selected: ReadonlySet<string>): HistoryFolder[] {
+  return folders.filter((folder) => selected.has(folder.path));
 }

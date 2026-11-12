@@ -405,6 +405,73 @@ describe("ProviderReactor", () => {
     restartedReactor.stop();
     restartedService.dispose();
   });
+  it("links a chat's new agent to the thread it carries on, and gives it the conversation before the message", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    const dispatch = (n: number, command: Record<string, unknown>) =>
+      engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`10000000-0000-4000-8000-0000000009${String(n).padStart(2, "0")}`),
+        command: command as never,
+      });
+
+    await dispatch(60, { type: "project.register", path: "C:\\workspace\\takeover" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch(61, {
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\takeover-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/takeover",
+    });
+    const first = ThreadId.parse("10000000-0000-4000-8000-000000000971");
+    await dispatch(62, { type: "thread.start", threadId: first, worktreeId, provider: "codex", cwd: "C:\\x" });
+    await reactor.waitForIdle();
+    await dispatch(63, { type: "thread.stop", threadId: first });
+    await reactor.waitForIdle();
+    await dispatch(64, {
+      type: "thread.start",
+      threadId,
+      worktreeId,
+      provider: "codex",
+      cwd: "C:\\x",
+      continues: first,
+      shareWorktree: true,
+    });
+    await reactor.waitForIdle();
+    expect((await engine.projection()).threads.find((entry) => entry.threadId === threadId)?.continues).toBe(first);
+    await expect(
+      dispatch(65, {
+        type: "thread.start",
+        threadId: ThreadId.parse("10000000-0000-4000-8000-000000000972"),
+        worktreeId,
+        provider: "codex",
+        cwd: "C:\\x",
+        continues: ThreadId.parse("10000000-0000-4000-8000-000000000979"),
+        shareWorktree: true,
+      }),
+    ).resolves.toMatchObject({ error: { message: expect.stringContaining("Thread does not exist") } });
+
+    await dispatch(66, {
+      type: "thread.queue",
+      threadId,
+      queueId: "q-takeover",
+      text: "Redeploy it",
+      context: "You are taking over this chat.",
+    });
+    await reactor.waitForIdle();
+    expect(adapter.turnInputs.at(-1)?.text).toBe("You are taking over this chat.\n\nRedeploy it");
+    expect((await engine.projection()).messages?.filter((message) => message.threadId === threadId)).toEqual([
+      expect.objectContaining({ role: "user", text: "Redeploy it" }),
+    ]);
+  });
+
   it("passes permission mode and model to the session, attachments to the turn, and records tool activity in order", async () => {
     const database = new Database({ path: ":memory:" });
     databases.push(database);

@@ -169,7 +169,7 @@ type Props = {
   /** Opens a terminal that runs the agent's sign-in for a sign-in account. */
   onSignIn?(account: Account): Promise<string | undefined>;
   onAddProject?(): void;
-  /** Opens the welcome setup again: agents, how new agents open, and projects to add or import. */
+  /** Opens the welcome setup again: agents, how new agents open, and projects to add. */
   onRunSetup?(): void;
   /** Removes a project from ZLI and resolves with a problem to show, if any. */
   onRemoveProject?(projectId: string): Promise<string | undefined>;
@@ -461,7 +461,7 @@ function AgentDefaults({
         <SettingGroup title="Setup">
           <SettingRow
             label="Welcome setup"
-            description="Check your agents, pick how new agents open, and import past Claude Code or Codex chats."
+            description="Check your agents, pick how new agents open, and add projects from your Claude Code or Codex history."
           >
             <Button size="sm" icon="reload" onClick={onRunSetup}>
               Run setup again

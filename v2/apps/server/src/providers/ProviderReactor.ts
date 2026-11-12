@@ -317,7 +317,9 @@ export class ProviderReactor {
     try {
       const result = await this.service.sendTurn({
         threadId: ThreadId.parse(threadId),
-        text: promptWithAttachments(text, attachments),
+        text: intent.context
+          ? `${intent.context}\n\n${promptWithAttachments(text, attachments)}`
+          : promptWithAttachments(text, attachments),
         ...(model ? { model } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(permissionMode ? { permissionMode } : {}),

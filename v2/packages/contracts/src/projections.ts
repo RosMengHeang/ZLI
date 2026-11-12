@@ -219,22 +219,6 @@ export function appendThreadMessage(
   );
 }
 
-/** An imported chat replaces any earlier copy of itself, then keeps the newest messages that fit. */
-export function importThread(
-  projection: Pick<RuntimeProjection, "threads" | "messages">,
-  thread: ThreadProjection,
-  messages: readonly ThreadMessageProjection[],
-): Pick<RuntimeProjection, "threads" | "messages"> {
-  return {
-    threads: [...projection.threads.filter((candidate) => candidate.threadId !== thread.threadId), thread],
-    messages: trimThread(
-      [...(projection.messages ?? []).filter((candidate) => candidate.threadId !== thread.threadId), ...messages],
-      thread.threadId,
-      MAX_MESSAGES_PER_THREAD,
-    ),
-  };
-}
-
 /** A message from another agent lands as-is; delivering the same message again replaces it. */
 export function deliverAgentMessage(
   messages: readonly ThreadMessageProjection[],
