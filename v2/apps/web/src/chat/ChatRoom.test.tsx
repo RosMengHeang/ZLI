@@ -149,7 +149,7 @@ describe("ChatView with more than one agent", () => {
     updateAppSettings((settings) => ({
       ...settings,
       teammates: [
-        { id: "t1", name: "Reviewer", animal: "owl", provider: "codex", instructions: "Look for missing tests." },
+        { id: "t1", name: "Reviewer", buddy: "squircle", provider: "codex", instructions: "Look for missing tests." },
       ],
     }));
     const onBringIn = vi.fn(async () => ({ threadId: guestId }));
@@ -166,7 +166,7 @@ describe("ChatView with more than one agent", () => {
     expect(sent.context).toContain("## User\n\nAdd a login page");
   });
 
-  it("brings any installed agent in from the + menu, named after the animal it wears", async () => {
+  it("brings any installed agent in from the people icon, named after the buddy it wears", async () => {
     const onBringIn = vi.fn(async () => ({ threadId: guestId }));
     const { container } = await render(projectionWith(), { onBringIn });
     // Bring in sits in the message box's + menu while the agent is alone in the chat.
@@ -179,10 +179,23 @@ describe("ChatView with more than one agent", () => {
       node.textContent?.includes("Codex"),
     );
     await act(async () => (item as HTMLElement | undefined)?.click());
-    // The guest takes an animal nobody in the chat wears yet, and is named after it.
+    // The guest takes a buddy nobody in the chat wears yet, and is named after it.
     const [request] = onBringIn.mock.calls[0] as unknown as [{ provider: string; name: string }];
     expect(request.provider).toBe("codex");
-    expect(["Fox", "Owl", "Otter", "Cat", "Panda", "Penguin", "Bear", "Rabbit"]).toContain(request.name);
+    expect([
+      "Gumdrop",
+      "Capsule",
+      "Plus",
+      "Cloud",
+      "Mushroom",
+      "Peanut",
+      "Jelly",
+      "Wedge",
+      "Squircle",
+      "Bulb",
+      "House",
+      "Bean",
+    ]).toContain(request.name);
     expect(container.querySelector("textarea")?.value).toBe(`@${request.name} `);
   });
 });

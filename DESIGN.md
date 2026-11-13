@@ -367,3 +367,17 @@ window. Durations stay between 100 and 160ms. There are no decorative loops.
 With reduced motion turned on, transitions and animations are switched off,
 and entrances land straight on their final state. Status spinners keep
 turning, slowly, because they carry meaning.
+
+Buddies (the agent and chat avatars, `teammates/BuddyAvatar.tsx`) are the one
+place with character motion, and it is a status signal like the spinner: a hop
+when a task arrives, rocking while a step runs, a sway while thinking, two hops
+when the agent needs the person, a spin when a turn ends, a shake on failure, a
+nap when stopped. Below 40px (sidebar, room chips, mention picker, menus) a
+buddy is drawn as a face tile: a rounded square in its color with chunky
+cursor eyes, because a whole body at that size is mostly outline and a column
+of shapes reads as noise. Tiles only hop and blink their cursor eyes; they do
+not rock, sway or spin. The whole buddy appears from 40px up (empty chat at
+92px with a soft light in its color, the teammate picker), where a resting
+buddy breathes and glances around; in lists it holds still and blinks once on
+hover. The Animate teammates setting and reduced
+motion stop all of it, and the eyes and mouth still show the mood.

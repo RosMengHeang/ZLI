@@ -1,0 +1,164 @@
+/*
+ * Buddies. Motion says what the agent is doing, so it plays for every mood but one: a resting buddy only
+ * breathes and looks around where it is large (40px and up: chat header, empty chat, the picker). In lists it
+ * holds still and blinks once when pointed at. The Animate teammates setting and reduced motion stop it all.
+ */
+.buddy-avatar { position: relative; display: inline-grid; place-items: center; flex: none; }
+.buddy-avatar-art { display: block; overflow: visible; }
+.buddy-root { transform-box: view-box; transform-origin: 16px 29px; }
+.buddy-body { transform-box: view-box; transform-origin: 16px 27px; }
+.buddy-eyes { transform-box: fill-box; transform-origin: center; }
+.buddy-foot, .buddy-puff, .buddy-dots circle, .buddy-z { transform-box: fill-box; }
+
+.buddy-avatar.is-failed .buddy-avatar-art { filter: grayscale(1); opacity: .55; }
+.buddy-avatar.is-stopped .buddy-avatar-art { opacity: .75; }
+
+/* Ready, large only: breathes, blinks, glances left and right now and then. */
+.buddy-avatar.is-large.is-idle .buddy-root { animation: buddy-breathe 3.4s ease-in-out infinite; }
+.buddy-avatar.is-large.is-idle .buddy-face { animation: buddy-glance 7s ease-in-out infinite; }
+.buddy-avatar.is-large.is-idle .buddy-eyes { animation: buddy-blink 5.2s infinite; }
+.buddy-avatar.is-large.is-idle .buddy-puff { animation: buddy-puff 3s ease-out infinite; }
+/* Ready in a list: one blink when pointed at. */
+.buddy-avatar.is-idle:not(.is-large):hover .buddy-eyes,
+:is(.session-row, .shelf-row, .room-person-chip, .teammate-buddy):hover .buddy-avatar.is-idle .buddy-eyes {
+  animation: buddy-blink-once 360ms ease-in-out 1;
+}
+
+/* Got a task: one hop to say it is on it. */
+.buddy-avatar.is-ack .buddy-root { animation: buddy-ack 600ms cubic-bezier(.3, 1.5, .5, 1) 1; }
+
+/* Working: rocks side to side, steps in place, and the cursor eyes blink. */
+.buddy-avatar.is-working .buddy-root { animation: buddy-lean 1.3s ease-in-out infinite; }
+.buddy-avatar.is-working .buddy-body { animation: buddy-bob 340ms ease-in-out infinite; }
+.buddy-avatar.is-working .buddy-foot.is-left { animation: buddy-step 340ms ease-in-out infinite alternate; }
+.buddy-avatar.is-working .buddy-foot.is-right { animation: buddy-step 340ms ease-in-out infinite alternate-reverse; }
+.buddy-avatar.is-working .buddy-eyes { animation: buddy-cursor 1s steps(1) infinite; }
+
+/* Thinking: a slow sway with three dots. */
+.buddy-avatar.is-thinking .buddy-root { animation: buddy-sway 2.8s ease-in-out infinite; }
+.buddy-avatar.is-thinking .buddy-dots circle { animation: buddy-dot 1.2s ease-in-out infinite; }
+.buddy-avatar.is-thinking .buddy-dots circle:nth-child(2) { animation-delay: .2s; }
+.buddy-avatar.is-thinking .buddy-dots circle:nth-child(3) { animation-delay: .4s; }
+
+/* Needs you: two hops, then a pause. */
+.buddy-avatar.is-waiting .buddy-root { animation: buddy-call 1.8s ease-in-out infinite; }
+
+/* Done: a jump and one spin, then it settles. */
+.buddy-avatar.is-done .buddy-root { transform-origin: 16px 16px; animation: buddy-cheer 1.1s ease-in-out 1; }
+
+/* Failed: a quick shake, then it slumps. */
+.buddy-avatar.is-failed .buddy-root { animation: buddy-oops 700ms ease-in-out 1 forwards; }
+
+/* Stopped: asleep, slow breaths, a z floats up. */
+.buddy-avatar.is-stopped .buddy-root { animation: buddy-snooze 4.2s ease-in-out infinite; }
+.buddy-avatar.is-stopped .buddy-z { animation: buddy-z 2.8s ease-out infinite; }
+
+/* Tiles (lists): a square does not rock, sway or spin. The eyes blink as a cursor while working, and the
+   tile hops when a task arrives, when it needs the person, and when a turn ends. */
+.buddy-avatar.is-tile:is(.is-working, .is-thinking, .is-stopped) .buddy-root { animation: none; }
+.buddy-avatar.is-tile.is-done .buddy-root { transform-origin: 16px 29px; animation: buddy-ack 600ms cubic-bezier(.3, 1.5, .5, 1) 1; }
+
+/* The empty chat: the one soft light on the screen sits behind the buddy, in its own color (--face). */
+.buddy-glow { position: relative; display: grid; place-items: center; width: 136px; height: 136px; }
+.buddy-glow::before {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  content: "";
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--face) 22%, transparent), transparent);
+}
+.buddy-glow > .buddy-avatar { position: relative; }
+
+.buddy-avatar-flag {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--zli-amber);
+  box-shadow: 0 0 0 2px var(--zli-sidebar, var(--zli-surface));
+  animation: buddy-pop 260ms ease-out;
+}
+.buddy-avatar-mark {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  padding: 1px;
+  border-radius: 4px;
+  background: var(--zli-surface);
+  line-height: 0;
+}
+
+@keyframes buddy-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.015, .975); } }
+@keyframes buddy-glance {
+  0%, 36% { transform: translateX(0); }
+  42%, 56% { transform: translateX(1.2px); }
+  62%, 80% { transform: translateX(-2.3px); }
+  86%, 100% { transform: translateX(0); }
+}
+@keyframes buddy-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+@keyframes buddy-blink-once { 0%, 100% { transform: scaleY(1); } 45%, 55% { transform: scaleY(.1); } }
+@keyframes buddy-puff {
+  0% { transform: translate(0, 0); opacity: 0; }
+  20% { opacity: .55; }
+  100% { transform: translate(1.6px, -4px); opacity: 0; }
+}
+@keyframes buddy-ack {
+  0% { transform: translateY(0) scale(1, 1); }
+  20% { transform: translateY(0) scale(1.06, .92); }
+  50% { transform: translateY(-4.5px) scale(.94, 1.07); }
+  80% { transform: translateY(0) scale(1.06, .94); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes buddy-lean { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
+@keyframes buddy-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.1px); } }
+@keyframes buddy-step { from { transform: translateY(0); } to { transform: translateY(-1.5px); } }
+@keyframes buddy-cursor { 0% { opacity: 1; } 50% { opacity: .2; } }
+@keyframes buddy-sway { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+@keyframes buddy-dot {
+  0%, 100% { opacity: .15; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-.8px); }
+}
+@keyframes buddy-call {
+  0%, 44%, 100% { transform: translateY(0) scale(1, 1); }
+  8% { transform: translateY(-3.4px) scale(.95, 1.06); }
+  16% { transform: translateY(0) scale(1.05, .95); }
+  24% { transform: translateY(-2px) scale(.97, 1.03); }
+  32% { transform: translateY(0) scale(1.03, .97); }
+}
+@keyframes buddy-cheer {
+  0% { transform: translateY(0) rotate(0); }
+  15% { transform: translateY(1px) scale(1.06, .92); }
+  35% { transform: translateY(-6px) rotate(0); }
+  70% { transform: translateY(-6px) rotate(360deg); }
+  88% { transform: translateY(0) rotate(360deg) scale(1.06, .94); }
+  100% { transform: translateY(0) rotate(360deg) scale(1, 1); }
+}
+@keyframes buddy-oops {
+  0% { transform: translateX(0); }
+  15% { transform: translateX(-1.8px); }
+  30% { transform: translateX(1.8px); }
+  45% { transform: translateX(-1.3px); }
+  60% { transform: translateX(1px); }
+  100% { transform: translateX(0) scale(1.03, .93); }
+}
+@keyframes buddy-snooze { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.025, .955); } }
+@keyframes buddy-z {
+  0% { transform: translate(0, 2px); opacity: 0; }
+  25% { opacity: .85; }
+  100% { transform: translate(3px, -5px); opacity: 0; }
+}
+@keyframes buddy-pop { from { transform: scale(.2); } to { transform: scale(1); } }
+
+/* Motion off: moods still show in the eyes and mouth, a failed buddy still slumps. */
+.buddy-avatar.is-still *,
+.buddy-avatar.is-still { animation: none !important; }
+.buddy-avatar.is-still.is-failed .buddy-root { transform: scale(1.03, .93); }
+@media (prefers-reduced-motion: reduce) {
+  .buddy-avatar *,
+  .buddy-avatar { animation: none !important; }
+  .buddy-avatar.is-failed .buddy-root { transform: scale(1.03, .93); }
+}

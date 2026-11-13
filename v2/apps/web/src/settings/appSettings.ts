@@ -86,8 +86,12 @@ export type AppSettings = {
   customThemes: CustomTheme[];
   /** Saved teammates, brought into a chat from its team bar or called with @Name. */
   teammates: Teammate[];
-  /** The animal avatars move while their agent works. Off keeps them still. */
+  /** The buddy avatars move while their agent works. Off keeps them still. */
   animateTeammates: boolean;
+  /** Each project heading in the sidebar takes a soft tint of its lantern colour. Off keeps headings plain. */
+  tintProjects: boolean;
+  /** How the chats under a project take its colour: a faint card around the project, only the open and pointed-at chat, or not at all. */
+  chatTint: ChatTint;
   /** A chat moves to Archived once its branch's pull request merges or closes. */
   archiveMergedChats: boolean;
   /** Several chats share the screen side by side. Off shows one at a time, switched from the sidebar. */
@@ -97,6 +101,7 @@ export type AppSettings = {
 };
 
 export type WindowLayout = "columns" | "classic";
+export type ChatTint = "card" | "selection" | "none";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   defaults: {},
@@ -109,6 +114,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   customThemes: [],
   teammates: [],
   animateTeammates: true,
+  tintProjects: true,
+  chatTint: "card",
   archiveMergedChats: true,
   severalChats: false,
   layout: "columns",
@@ -206,6 +213,8 @@ export function parseAppSettings(raw: string | null): AppSettings {
     customThemes,
     teammates: parseTeammates(value.teammates),
     animateTeammates: value.animateTeammates !== false,
+    tintProjects: value.tintProjects !== false,
+    chatTint: value.chatTint === "selection" || value.chatTint === "none" ? value.chatTint : "card",
     archiveMergedChats: value.archiveMergedChats !== false,
     severalChats: value.severalChats === true,
     layout: value.layout === "classic" ? "classic" : "columns",

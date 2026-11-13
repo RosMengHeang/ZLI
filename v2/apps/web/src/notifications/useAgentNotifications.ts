@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { NotificationSettings, ZliBridge } from "../runtime/bridge.js";
-import { animalIcon } from "../teammates/animalIcon.js";
-import { hashedAnimal, storedChatAnimal } from "../teammates/chatAnimals.js";
+import { buddyIcon } from "../teammates/buddyIcon.js";
+import { hashedBuddy, storedChatBuddy } from "../teammates/chatBuddies.js";
 
 /**
  * Connects the shell to the main process notifier: reports which agent tiles are on screen, selects
@@ -12,7 +12,7 @@ export function useAgentNotifications(
   bridge: ZliBridge | undefined,
   visibleSessionIds: readonly string[],
   onActivate: (sessionId: string) => void,
-  /** The chats whose notifications show their animal. */
+  /** The chats whose notifications show their buddy. */
   chatSessionIds: readonly string[] = [],
 ) {
   const notifications = bridge?.notifications;
@@ -36,7 +36,7 @@ export function useAgentNotifications(
     void notifications?.setViewing(JSON.parse(visibleKey) as string[]).catch(() => undefined);
   }, [notifications, visibleKey]);
 
-  // Each chat's notifications wear its animal, the same one the sidebar shows.
+  // Each chat's notifications wear its buddy, the same one the sidebar shows.
   const chatsKey = JSON.stringify(chatSessionIds);
   useEffect(() => {
     const setFaces = notifications?.setFaces;
@@ -44,7 +44,7 @@ export function useAgentNotifications(
     let live = true;
     const ids = JSON.parse(chatsKey) as string[];
     void Promise.all(
-      ids.map(async (id) => [id, await animalIcon(storedChatAnimal(id) ?? hashedAnimal(id))] as const),
+      ids.map(async (id) => [id, await buddyIcon(storedChatBuddy(id) ?? hashedBuddy(id))] as const),
     ).then((pairs) => {
       if (!live) return;
       const faces: Record<string, string> = {};

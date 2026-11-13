@@ -309,29 +309,30 @@
 /* ---------- Calm chat list ----------
  * The sidebar stays quiet until something happens. Text is grey and white, one size of row, no borders or
  * icons that do not say something. Colour appears only for news: a chat that needs the person (amber), one that
- * failed (red), one that finished out of sight (a dot). The animals carry the personality, in one soft palette.
+ * failed (red), one that finished out of sight (a dot). The buddies carry the personality.
  */
 
-/* New chat and search: two quiet rows, the same width and radius as the cards under them. */
+/* One line at the top: search takes the width, New chat and Add project sit beside it as square buttons.
+   All three sit on the black window until pointed at, focused or pressed, then turn grey. */
 .sidebar-primary { gap: 2px; padding: var(--zli-space-1) var(--zli-space-2) var(--zli-space-4); }
-.sidebar-primary-row { display: flex; align-items: center; gap: 2px; }
-.sidebar-primary-row .sidebar-new-agent {
-  min-width: 0; flex: 1; height: 34px; gap: 10px; padding: 0 var(--zli-space-2) 0 11px;
-  border: 0; border-radius: 10px; background: transparent; box-shadow: none; color: var(--zli-text); font-weight: 500;
+.sidebar-primary-row { display: flex; align-items: center; gap: 4px; }
+.sidebar-primary-row .sidebar-new-agent,
+.sidebar-primary-row .sidebar-add-project {
+  flex: 0 0 auto; width: 34px; height: 34px; padding: 0; justify-content: center; border: 1px solid var(--zli-border); border-radius: 10px;
+  background: transparent; box-shadow: none; color: var(--zli-muted);
 }
-.sidebar-primary-row .sidebar-new-agent:hover { background: var(--zli-hover); }
-.sidebar-primary-row .sidebar-new-agent > svg { color: var(--zli-muted); }
-.sidebar-primary-row .sidebar-add-project { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px; color: var(--zli-dim); }
-.sidebar-primary-row .sidebar-add-project:hover { color: var(--zli-text); }
+.sidebar-primary-row .sidebar-new-agent { color: var(--zli-text); }
+.sidebar-primary-row :is(.sidebar-new-agent, .sidebar-add-project):is(:hover, :focus-visible) { background: var(--zli-hover); color: var(--zli-text); }
+.sidebar-primary-row :is(.sidebar-new-agent, .sidebar-add-project):active { background: var(--zli-active); }
 .sidebar-search {
-  display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 var(--zli-space-2) 0 12px;
-  border-radius: 10px; background: transparent; box-shadow: none; color: var(--zli-dim); cursor: text;
-  transition: background-color var(--zli-duration-fast) var(--zli-ease);
+  display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; height: 34px; padding: 0 10px;
+  border: 1px solid var(--zli-border); border-radius: 10px; background: transparent; box-shadow: none; color: var(--zli-dim); cursor: text;
+  transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease);
 }
-.sidebar-search:hover, .sidebar-search:focus-within { background: var(--zli-hover); }
+.sidebar-search:hover, .sidebar-search:focus-within { background: var(--zli-hover); border-color: var(--zli-border-strong); }
 .sidebar-search > svg { flex: 0 0 auto; }
-.sidebar-search input { min-width: 0; flex: 1; height: 100%; padding: 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: 13px; }
-.sidebar-search input::placeholder { color: var(--zli-dim); }
+.sidebar-search input { min-width: 0; flex: 1; height: 100%; padding: 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: 13px; font-weight: 600; }
+.sidebar-search input::placeholder { color: var(--zli-dim); font-weight: 600; }
 .sidebar-search input::-webkit-search-cancel-button { cursor: pointer; }
 
 /* Projects: a lantern in the project's colour, then the name. A heading, not a folder. */
@@ -340,6 +341,28 @@
 .project-toggle { gap: 8px; padding-left: 10px; }
 .project-name { color: var(--zli-muted); font-size: 12.5px; font-weight: 600; }
 .project-label:hover .project-name { color: var(--zli-text); }
+/* Colored headings (Settings > Appearance, on by default): each project heading takes a soft tint of its
+   lantern's colour, so each project reads as its own place. Off leaves the plain heading above. */
+.sidebar-project { --lantern: hsl(var(--lantern-hue, 220) 55% 68%); }
+.has-project-tint .project-label { background: color-mix(in srgb, var(--lantern) 12%, transparent); }
+.has-project-tint .project-label:hover { background: color-mix(in srgb, var(--lantern) 19%, transparent); }
+.has-project-tint .project-label .project-name { color: color-mix(in srgb, var(--lantern) 40%, var(--zli-text)); }
+.has-project-tint .project-label .project-toggle > svg:first-child,
+.has-project-tint .project-label .project-chevron { color: color-mix(in srgb, var(--lantern) 55%, var(--zli-muted)); }
+/* Chats under a project (Settings > Appearance). Card, the default: a faint wash of the project colour holds
+   the heading and its chats together. Selection: only the open and pointed-at chat take the colour. None:
+   the plain grey rows. The open chat is lit in the project colour in both coloured modes, so it is always
+   clear which project it belongs to. The heading fills the card edge to edge, so no lighter rim shows around
+   it (a rim read as a glow). */
+.chat-tint-card .sidebar-project { padding: 0; border-radius: 10px; background: color-mix(in srgb, var(--lantern) 5%, transparent); }
+.chat-tint-card .sidebar-project:not(.is-collapsed) { padding-bottom: 3px; }
+.chat-tint-card .sidebar-project > .project-label { margin-bottom: 2px; border-radius: 10px; }
+.chat-tint-card .sidebar-project > :not(.project-label) { margin-inline: 3px; }
+.chat-tint-card .sidebar-project + .sidebar-project { margin-top: var(--zli-space-3); }
+:is(.chat-tint-card, .chat-tint-selection) .sidebar-project .session-row:hover { background: color-mix(in srgb, var(--lantern) 8%, transparent); }
+:is(.chat-tint-card, .chat-tint-selection) .sidebar-project .session-row.is-active,
+:is(.chat-tint-card, .chat-tint-selection) .sidebar-project .session-row.is-active:hover { background: color-mix(in srgb, var(--lantern) 16%, transparent); }
+:is(.chat-tint-card, .chat-tint-selection) .sidebar-project .session-row.is-active .session-title { color: color-mix(in srgb, var(--lantern) 25%, var(--zli-text)); }
 .sidebar-heading { margin: var(--zli-space-1) 0 2px; padding: 0 10px; color: var(--zli-dim); font-size: 12px; font-weight: 500; line-height: 24px; }
 
 /* Chat cards. One line when nothing is new: face, title, time. A second line only for news. */
@@ -355,7 +378,7 @@
 .session-row.is-active, .session-row.is-active:hover { background: var(--zli-active); box-shadow: none; }
 .session-face { position: relative; display: inline-grid; flex: 0 0 auto; place-items: center; margin-top: -1px; }
 .session-team { position: absolute; right: -6px; bottom: -4px; display: flex; flex-direction: row-reverse; }
-.session-team > .animal-avatar { margin-left: -5px; }
+.session-team > .buddy-avatar { margin-left: -5px; }
 .session-copy { min-width: 0; flex: 1; gap: 2px; padding-top: 2px; }
 .session-line { gap: var(--zli-space-2); }
 .session-row .session-title { color: var(--zli-muted); font-size: 13px; font-weight: 450; line-height: 18px; }
@@ -420,8 +443,8 @@
 .project-faces-more { margin-left: 3px; }
 .project-label:hover .project-faces { display: none; }
 
-/* ---------- The animal speaks ---------- */
-/* News comes out of the chat's animal as a small speech bubble under the title: the step it is on, its
+/* ---------- The buddy speaks ---------- */
+/* News comes out of the chat's buddy as a small speech bubble under the title: the step it is on, its
    question in amber, its failure in red, or the start of a reply the person has not read. */
 .session-row .session-state {
   position: relative; display: block; width: fit-content; max-width: 100%; margin-top: 3px; padding: 2px 8px 3px;

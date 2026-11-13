@@ -10,8 +10,8 @@ import { openExternalLink } from "../review/links.js";
 import { usePullRequestEntry } from "../review/pullRequestStore.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { entriesForThread, shallowArrayEqual } from "../runtime/runtimeStore.js";
-import { AnimalAvatar } from "../teammates/AnimalAvatar.js";
-import type { Animal } from "../teammates/teammates.js";
+import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
+import type { Buddy } from "../teammates/buddies.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Collapse } from "../ui/Collapse.js";
 import { Icon } from "../ui/Icon.js";
@@ -414,14 +414,14 @@ export function StartSuggestions({ folder, onPick }: { folder: string | undefine
  * read-only chat of its own, shown here and closed with the panel.
  */
 export function SideChat({
-  animal,
+  buddy,
   threadId,
   starting,
   error,
   onAsk,
   onClose,
 }: {
-  animal: Animal;
+  buddy: Buddy;
   /** The side chat's thread, once the first question started it. */
   threadId: string | undefined;
   starting: boolean;
@@ -463,7 +463,7 @@ export function SideChat({
   return (
     <section className="side-chat" aria-label="Side question">
       <header className="tray-head side-chat-head">
-        <AnimalAvatar animal={animal} size={16} mood={thinking ? "thinking" : "idle"} />
+        <BuddyAvatar buddy={buddy} size={16} mood={thinking ? "thinking" : "idle"} />
         <span className="tray-title">Side question</span>
         <span className="tray-meta">Not added to the chat</span>
         <IconButton label="Close the side question" tooltip="Close (Esc)" icon="x" size="xs" onClick={onClose} />
