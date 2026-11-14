@@ -67,8 +67,20 @@ describe("usage totals", () => {
   });
 
   it("finds the latest context report", () => {
-    expect(latestContext(records)).toEqual({ tokens: 9_300, window: 272_000 });
+    expect(latestContext(records)).toEqual({ tokens: 9_300, window: 272_000, turn: { input: 9_000, output: 300 } });
     expect(latestContext(records.slice(0, 2))).toBeUndefined();
+  });
+
+  it("flags a large turn that mostly missed the cache, but never the thread's first turn", () => {
+    const at = (minute: number) => `2026-09-20T10:0${minute}:00.000Z`;
+    const missed = { inputTokens: 50_000, cachedInputTokens: 5_000, outputTokens: 400, contextTokens: 50_400 };
+    const first = record("t", "claude-code", at(0), missed);
+    expect(latestContext([first])?.turn?.cacheMissed).toBeUndefined();
+    expect(latestContext([first, record("t", "claude-code", at(1), missed)])?.turn?.cacheMissed).toBe(true);
+    const warm = { ...missed, cachedInputTokens: 45_000 };
+    expect(latestContext([first, record("t", "claude-code", at(1), warm)])?.turn?.cacheMissed).toBeUndefined();
+    const small = { inputTokens: 5_000, outputTokens: 100, contextTokens: 5_100 };
+    expect(latestContext([first, record("t", "claude-code", at(1), small)])?.turn?.cacheMissed).toBeUndefined();
   });
 
   it("formats counts and costs compactly", () => {

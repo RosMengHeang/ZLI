@@ -1,6 +1,7 @@
 import {
   type HistoryFolder,
   HistoryScanResult,
+  type ListedProviderKind,
   type ProviderDiscovery,
   ProvidersDiscoverResult,
   type RpcResponse,
@@ -38,10 +39,14 @@ export function scanHistory(dispatch: Dispatch): Promise<Result<HistoryFolder[]>
   );
 }
 
-export function discoverProviders(dispatch: Dispatch): Promise<Result<ProviderDiscovery[]>> {
+/** `clearProblem` forgets that agent's failed run first, so the person can try it again. */
+export function discoverProviders(
+  dispatch: Dispatch,
+  clearProblem?: ListedProviderKind,
+): Promise<Result<ProviderDiscovery[]>> {
   return request(
     dispatch,
-    { type: "providers.discover" },
+    { type: "providers.discover", ...(clearProblem ? { clearProblem } : {}) },
     (value) => ProvidersDiscoverResult.safeParse(value).data?.providers,
     "ZLI could not look for agents. Try again.",
   );

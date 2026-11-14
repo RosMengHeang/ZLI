@@ -4,6 +4,7 @@ import {
   MAX_AGENT_NAME_LENGTH,
   type PermissionMode,
   type ProjectProjection,
+  type RpcResponse,
   type RuntimeProjection,
   worktreeHasLiveThread,
 } from "@zli-v2/contracts";
@@ -27,7 +28,9 @@ import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { ModelMark, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
+import { BranchStatus } from "./BranchStatus.js";
 import { checkoutWorktree, type LaunchOptions, type Placement, safeBranchName } from "./launch.js";
+import { type BranchRead, useProjectBranch } from "./projectBranch.js";
 import { agentNameProblem, type SessionMode } from "./sessions.js";
 import "../issues/issues.css";
 
@@ -76,6 +79,7 @@ export function NewAgentDialog({
   initialWorktreeId,
   prefill,
   accounts = noAccounts,
+  dispatch,
   onClose,
   onSubmit,
 }: {
@@ -84,6 +88,8 @@ export function NewAgentDialog({
   initialWorktreeId: string | undefined;
   prefill?: NewAgentPrefill | undefined;
   accounts?: readonly Account[];
+  /** Reads the project folder's branch before ZLI has a checkout for it. */
+  dispatch?: (request: unknown) => Promise<RpcResponse | undefined>;
   onClose(): void;
   onSubmit(request: NewAgentRequest): Promise<string | undefined>;
 }) {
@@ -157,6 +163,13 @@ export function NewAgentDialog({
   const shownModel = modelUnsupported ? "" : model;
   const modelLabel = modelChoices.find((option) => option.value === shownModel)?.label ?? shownModel;
   const checkout = project ? checkoutWorktree(projection, project) : undefined;
+  // A folder added a moment ago has no checkout yet, so its branch is read from the folder.
+  const knownBranch = checkout && checkout.branch !== "HEAD" ? checkout.branch : undefined;
+  const folderBranch = useProjectBranch(knownBranch ? undefined : dispatch, projectId);
+  const branchRead: BranchRead | undefined = knownBranch
+    ? { status: "done", result: { git: true, branch: knownBranch } }
+    : folderBranch.read;
+  const currentBranch = branchRead?.status === "done" ? branchRead.result.branch : undefined;
   const sharedWorktreeId =
     placementKind === "checkout" ? checkout?.worktreeId : placementKind === "existing" ? existingId : undefined;
   const sharing = sharedWorktreeId !== undefined && worktreeHasLiveThread(projection.threads, sharedWorktreeId);
@@ -411,18 +424,27 @@ export function NewAgentDialog({
                       aria-label="Start from"
                       value={baseRef}
                       onChange={(event) => setBaseRef(event.target.value)}
-                      placeholder="HEAD"
+                      placeholder={currentBranch ?? "HEAD"}
                       spellCheck={false}
                     />
+                    {branchRead && branchRead.status !== "done" ? (
+                      <span className="workspace-hint">
+                        <BranchStatus read={branchRead} onRetry={folderBranch.retry} />
+                      </span>
+                    ) : branchRead?.status === "done" && branchRead.result.detachedAt ? (
+                      <span className="workspace-hint">
+                        <BranchStatus read={branchRead} />
+                      </span>
+                    ) : null}
                   </FormSection>
                 </div>
               ) : placementKind === "checkout" ? (
                 <p className="workspace-path" title={project?.path}>
                   <Icon name="folder" size={14} />
                   <span>{project?.path ?? "The project folder"}</span>
-                  {checkout && checkout.branch !== "HEAD" ? (
-                    <span className="workspace-branch">{checkout.branch}</span>
-                  ) : null}
+                  {branchRead?.status === "done" && !branchRead.result.git ? null : (
+                    <BranchStatus read={branchRead} onRetry={folderBranch.retry} />
+                  )}
                 </p>
               ) : (
                 <Select<string>
