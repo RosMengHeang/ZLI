@@ -44,8 +44,14 @@ export function modelOptions(
   agent?: string | undefined,
 ): PickerOption<string>[] {
   const listed = models ?? [];
+  // The agent says which model it runs when none is picked; the Default row names it.
+  const runs = listed.find((option) => option.isDefault)?.label;
   const options: PickerOption<string>[] = [
-    { value: DEFAULT_MODEL, label: "Default model", icon: <ModelMark id={undefined} agent={agent} size={15} /> },
+    {
+      value: DEFAULT_MODEL,
+      label: runs ? `Default · ${runs}` : "Default model",
+      icon: <ModelMark id={undefined} agent={agent} size={15} />,
+    },
   ];
   if (current && !listed.some((option) => option.id === current))
     options.push({ value: current, label: current, icon: <ModelMark id={current} size={15} /> });

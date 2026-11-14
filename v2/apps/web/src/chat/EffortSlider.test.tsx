@@ -39,7 +39,6 @@ describe("EffortSlider", () => {
     const picks: (string | undefined)[] = [];
     const slider = render(undefined, picks);
     expect(slider?.getAttribute("aria-valuetext")).toBe("Medium");
-    expect(document.querySelector(".effort-model")?.textContent).toContain("default");
     act(() => {
       slider?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     });

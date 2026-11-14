@@ -136,8 +136,8 @@ describe("ChatView", () => {
     );
     await act(async () => button(container, "Model: Default model")?.click());
     const agents = [...document.querySelectorAll<HTMLButtonElement>('[aria-label="Agent"] [role="option"]')];
-    // Codex is signed out and Gemini's login cannot be read, so neither is offered.
-    expect(agents.map((agent) => agent.dataset.label)).toEqual(["Droid", "Claude Code"]);
+    // Gemini's login cannot be read, so it is given the chance; Codex is signed out, so it is left out.
+    expect(agents.map((agent) => agent.dataset.label)).toEqual(["Droid", "Claude Code", "Gemini"]);
     expect(agents[1]?.textContent).toContain("Max");
     const models = () =>
       [...document.querySelectorAll<HTMLButtonElement>('[aria-label$=" models"] [role="option"]')].map(

@@ -409,24 +409,8 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
 
 /* Agent first, then its model. Two columns keep the agents in view however long a model list is. The menu's
    height is set from the agent with the most models, so hovering another agent never resizes it. */
-.agent-model-menu.is-split { flex-direction: row; width: 460px; max-width: calc(100vw - 16px); padding: 0; overflow: hidden; }
-.agent-model-column { display: flex; min-height: 0; min-width: 0; flex-direction: column; }
-.agent-model-column.is-agents { flex: 0 0 184px; border-right: 1px solid var(--zli-border); background: var(--zli-surface); }
-.agent-model-column.is-models { flex: 1 1 auto; }
-.agent-model-heading { display: flex; flex: 0 0 30px; align-items: center; justify-content: space-between; gap: var(--zli-space-2); padding: 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; white-space: nowrap; }
-.agent-model-heading > span:first-child { overflow: hidden; color: var(--zli-muted); text-overflow: ellipsis; }
-.agent-model-plan { flex: 0 0 auto; padding: 1px 6px; border-radius: var(--zli-radius-xs); background: var(--zli-hover); color: var(--zli-muted); font-weight: 500; }
-.agent-model-menu.is-split .picker-list { flex: 1 1 auto; min-height: 0; padding: var(--zli-space-1); scrollbar-width: thin; scrollbar-color: var(--zli-border-strong) transparent; }
 /* Fixed row heights: AgentModelPicker sums these to size the menu. */
-.agent-model-menu.is-split .agent-model-agent { height: 44px; align-items: center; }
-.agent-model-menu.is-split .agent-model-models .picker-option { height: 32px; align-items: center; }
-.agent-model-agent .picker-option-text { gap: 0; }
-.agent-model-agent .picker-option-description { overflow: hidden; color: var(--zli-dim); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
 /* The agent whose models show on the right keeps a resting highlight, so the two lists read as one choice. */
-.agent-model-agent[aria-selected="true"] { background: var(--zli-active); }
-.agent-model-agent[aria-selected="true"] .picker-option-label { font-weight: 500; }
-.agent-model-chevron { flex: 0 0 auto; color: var(--zli-dim); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
-.agent-model-agent[aria-selected="true"] .agent-model-chevron { opacity: 1; }
 /* Controls, not text: a double-click on one should not paint a selection over its label. */
 .composer-footer { user-select: none; }
 /* Full access lets the agent act without asking, so its whole chip, not just the lock, reads amber. */
@@ -771,3 +755,19 @@ span.room-person-chip { color: var(--zli-muted); }
 }
 
 /* While the tray holds something, the invitation above it steps back; Bring in stays. */
+.agent-model-menu { width: 260px; padding: 4px; }
+.agent-model-menu.is-split { overflow: hidden; }
+.agent-model-top { display: flex; flex: 0 0 44px; align-items: center; gap: 6px; margin: -4px -4px 4px; padding: 0 2px; border-bottom: 1px solid var(--zli-border); }
+.agent-model-agents { display: flex; min-width: 0; flex: 1 1 auto; gap: 2px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 8px, #000 calc(100% - 8px), transparent); mask-image: linear-gradient(90deg, transparent, #000 8px, #000 calc(100% - 8px), transparent); padding: 0 6px; }
+.agent-model-agents::-webkit-scrollbar { display: none; }
+.agent-model-agent { display: grid; flex: 0 0 auto; width: 30px; height: 30px; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--zli-muted); cursor: pointer; opacity: .55; transition: opacity var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.agent-model-agent:hover, .agent-model-agent:focus-visible { opacity: 1; }
+.agent-model-agent:focus { outline: none; }
+.agent-model-agent[aria-selected="true"] { background: var(--zli-hover); box-shadow: inset 0 0 0 1px var(--zli-border-strong); opacity: 1; }
+.agent-model-column { display: flex; min-height: 0; min-width: 0; flex: 1 1 auto; flex-direction: column; }
+.agent-model-models { min-height: 0; flex: 1 1 auto; overflow: auto; padding: 0; }
+.agent-model-models .picker-option { height: 32px; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; }
+.agent-model-models .picker-option[aria-selected="true"]::before { display: none; }
+.agent-model-models .picker-option-icon { width: auto; height: auto; color: var(--zli-muted); }
+.agent-model-models .picker-option-label { overflow: hidden; min-width: 0; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
+.agent-model-check { display: inline-grid; flex: 0 0 auto; place-items: center; color: var(--zli-muted); }

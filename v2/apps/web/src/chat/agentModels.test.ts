@@ -7,21 +7,29 @@ const found = (provider: ProviderDiscovery["provider"], extra: object = {}): Pro
   ({ provider, displayName: provider, status: "found", path: `/bin/${provider}`, ...extra }) as ProviderDiscovery;
 
 describe("otherAgents", () => {
-  it("offers only the other agents signed in to an account, with their plan", () => {
+  it("lists the agents that can run first, then the ones that cannot, each with its reason", () => {
     const others = otherAgents(
       [
         found("codex", { login: { status: "signed-in", plan: "plus" } }),
-        found("claude-code", { login: { status: "signed-in", method: "subscription", plan: "max" } }),
+        { provider: "claude-code", displayName: "Claude Code", status: "missing", reason: "not found" },
         found("cursor-agent", { login: { status: "signed-out" } }),
         found("droid"),
         found("gemini", { login: { status: "signed-in", method: "api-key" } }),
-        { provider: "qwen", displayName: "Qwen", status: "missing", reason: "not found" },
+        found("kimi", {
+          login: { status: "signed-in", method: "subscription" },
+          problem: { kind: "no-plan", message: "Subscription required", at: "2026-11-12T10:00:00.000Z" },
+        }),
+        found("opencode", { login: { status: "signed-in", method: "subscription", plan: "max" } }),
       ],
       "codex",
     );
-    expect(others.map((agent) => [agent.provider, agent.plan])).toEqual([
-      ["claude-code", "Max"],
-      ["gemini", "API key"],
+    expect(others.map((agent) => [agent.provider, agent.plan, agent.unavailable])).toEqual([
+      ["droid", undefined, undefined],
+      ["gemini", "API key", undefined],
+      ["opencode", "Max", undefined],
+      ["cursor-agent", undefined, "Not signed in"],
+      ["kimi", undefined, "No active plan"],
+      ["claude-code", undefined, "Not installed"],
     ]);
   });
 
