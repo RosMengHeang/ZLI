@@ -539,15 +539,22 @@ describe("AppShell", () => {
     };
     const container = await render(makeBridge(chats, dispatched));
     expect(container.querySelector(".tile-title")?.textContent).toBe("Add a test");
+    // The chat's header carries no status chip and no Stop: the chat and its message box show both.
+    expect(container.querySelector(".tile-header .badge")).toBeNull();
+    expect(container.querySelector(".tile-header .tile-stop")).toBeNull();
     const menuItem = (label: string) =>
       [...document.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')].find(
         (item) => item.querySelector(".menu-item-label")?.textContent === label,
       );
 
     await act(async () => {
-      button(container, "Chats")?.click();
+      button(container, "More actions")?.click();
     });
     expect(menuItem("Add a test")?.getAttribute("aria-checked")).toBe("true");
+    // The chat list, new chat, and rename all share the header's one menu.
+    expect(menuItem("Blank chat")).toBeDefined();
+    expect(menuItem("Rename chat")).toBeDefined();
+    expect(container.querySelectorAll('.tile-header button[aria-haspopup="menu"]')).toHaveLength(1);
     await act(async () => {
       menuItem("Fix the login form")?.click();
     });
@@ -557,7 +564,7 @@ describe("AppShell", () => {
     expect(container.querySelector(".agent-tile textarea")).not.toBeNull();
 
     await act(async () => {
-      button(container, "Chats")?.click();
+      button(container, "More actions")?.click();
     });
     expect(menuItem("Start with recent context")?.getAttribute("aria-disabled")).toBeNull();
     await act(async () => {
@@ -1006,6 +1013,9 @@ describe("Settings", () => {
     expect(box).not.toBeNull();
     // Nothing runs before the person asks for something.
     expect(commands(dispatched).some((command) => command.type === "thread.start")).toBe(false);
+    const projectMenu = () => container.querySelector('button[aria-label^="Move this chat to another project"]');
+    // Before the first message the project is a picker.
+    expect(projectMenu()).not.toBeNull();
     if (!box) return;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(box, "Add a health check");
@@ -1019,6 +1029,8 @@ describe("Settings", () => {
     const queue = commands(dispatched).find((command) => command.type === "thread.queue");
     expect(start?.provider).toBe("claude-code");
     expect(queue).toMatchObject({ threadId: start?.threadId, text: "Add a health check" });
+    // Once it is sent the agent runs in that folder, so the project is no longer a picker.
+    expect(projectMenu()).toBeNull();
   });
 
   it("starts a chat at once in Chat, and keeps the saved defaults and branch template in New agent with options", async () => {

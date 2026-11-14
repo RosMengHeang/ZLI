@@ -17,10 +17,10 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
-import { AttentionPanel } from "../attention/AttentionPanel.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
 import { type ChatBranch, saveChatBranch, takeChatBranch } from "../chat/branches.js";
 import type { GuestRequest, StartRunsRequest } from "../chat/ChatView.js";
+import { seedComposerDraft } from "../chat/Composer.js";
 import { forkWorktree } from "../chat/checkpointClient.js";
 import { addCodeReference } from "../chat/codeReferences.js";
 import type { DraftChange, DraftMessage } from "../chat/DraftChat.js";
@@ -33,6 +33,7 @@ import { filesWorktreeFor } from "../files/filesWorktree.js";
 import { QuickOpen } from "../files/QuickOpen.js";
 import { HuddlePane } from "../huddle/HuddlePane.js";
 import { sessionOfAgent } from "../huddle/huddles.js";
+import { type IssueRequest, onIssueRequest } from "../issues/issueRequest.js";
 import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
 import { MobilePane, type MobileReveal } from "../mobile/MobilePane.js";
 import { useAgentNotifications } from "../notifications/useAgentNotifications.js";
@@ -111,6 +112,7 @@ import {
 import { ExpiredSignInNotice } from "../settings/ExpiredSignInNotice.js";
 import type { IntegrationsView } from "../settings/IntegrationsSection.js";
 import { LegacyImportDialog } from "../settings/LegacyImportDialog.js";
+import { onSettingsRequest } from "../settings/openSettings.js";
 import { SettingsDialog, type SettingsSection } from "../settings/SettingsDialog.js";
 import { AgentReachDialog } from "../setup/AgentReachDialog.js";
 import { AgentTrustDialog } from "../setup/AgentTrustDialog.js";
@@ -226,6 +228,8 @@ function WorkspaceApp() {
   const [worktreeDialogProject, setWorktreeDialogProject] = useState<ProjectProjection>();
   const [newAgentProject, setNewAgentProject] = useState<ProjectProjection | "default">();
   const [issuesProject, setIssuesProject] = useState<ProjectProjection | "default">();
+  // A chat that asked for an issue to attach, set while the picker is open for it.
+  const [issueAttach, setIssueAttach] = useState<IssueRequest>();
   /** The issue the open New agent dialog was started from. */
   const [issueStart, setIssueStart] = useState<{ link: Omit<IssueLink, "linkedAt">; prefill: NewAgentPrefill }>();
   const [notice, setNotice] = useState<{
@@ -269,6 +273,11 @@ function WorkspaceApp() {
   const setupApprovalRef = useRef<WorktreeSetupProjection>(undefined);
   const whatsNewRef = useRef(false);
   const launching = useRef(new Set<string>());
+  // Each isolated draft's worktree, from when it is asked for until it is ready, keyed by the draft's session.
+  const isolatedWorktrees = useRef(new Map<string, string>());
+  // Draft chats whose first message went out. Their folder is fixed from then on, even before the message
+  // shows in the conversation, since the agent is already running there.
+  const sentDrafts = useRef(new Set<string>());
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -664,6 +673,29 @@ function WorkspaceApp() {
     setIntegrationsView(undefined);
     setSettingsSection(section);
   };
+  // Chats ask for Settings > Accounts when their agent cannot run.
+  useEffect(
+    () =>
+      onSettingsRequest((section) => {
+        setPaletteOpen(false);
+        setFocusConnector(undefined);
+        setIntegrationsView(undefined);
+        setSettingsSection(section);
+      }),
+    [],
+  );
+  // The message box's paperclip asks for an issue to attach to the chat.
+  useEffect(
+    () =>
+      onIssueRequest((request) => {
+        setPaletteOpen(false);
+        setIssueAttach(request);
+        setIssuesProject(
+          projectionRef.current?.projects.find((project) => project.projectId === request.projectId) ?? "default",
+        );
+      }),
+    [],
+  );
   // The theme editor needs the app in view, so Settings steps aside while it is open and comes back after.
   const themeEditorOpen = useThemeEditor() !== undefined;
   const editorWasOpen = useRef(false);
@@ -1309,11 +1341,14 @@ function WorkspaceApp() {
     return { path, name: path.split(/[/]/u).filter(Boolean).at(-1) ?? path };
   };
 
-  /** "Open a folder…" in a chat's project menu: adds the folder as a project, so the chat can move there. */
-  const addChatFolder = async (): Promise<string | undefined> => {
-    const folder = await pickChatFolder();
+  /**
+   * A folder in a chat's project menu, a recent one or else "Open a folder…": adds it as a project, so the
+   * chat can move there.
+   */
+  const addChatFolder = async (path?: string): Promise<string | undefined> => {
+    const folder = path ?? (await pickChatFolder())?.path;
     if (!folder) return undefined;
-    const added = await registerProjectPath(folder.path);
+    const added = await registerProjectPath(folder);
     if ("error" in added) {
       if (!added.late) showError(added.error);
       return undefined;
@@ -1321,8 +1356,11 @@ function WorkspaceApp() {
     return added.project.projectId;
   };
 
-  /** The first chat, before any project: adds its folder as a project and starts the chat there. */
-  const startFirstChat = async (folder: ChatFolder, firstMessage: string): Promise<boolean> => {
+  /**
+   * The first chat, before any project: adds its folder as a project and opens a draft chat there, with the
+   * full message box (every agent and model, attachments) and whatever was typed so far already in it.
+   */
+  const openFirstChat = async (folder: ChatFolder, typed: string): Promise<boolean> => {
     const added = await registerProjectPath(folder.path);
     if ("error" in added) {
       if (!added.late) showError(added.error);
@@ -1336,7 +1374,10 @@ function WorkspaceApp() {
       return true;
     }
     const accountId = launchAccountId(accounts, agent.provider, undefined);
+    const sessionId = makeCommandId();
+    seedComposerDraft(sessionId, typed);
     const failure = await submitNewAgent({
+      sessionId,
       project: added.project,
       placement: { kind: "checkout" },
       provider: agent.provider,
@@ -1344,9 +1385,10 @@ function WorkspaceApp() {
       permissionMode: defaults.permissionMode ?? "supervised",
       ...(defaults.provider === agent.provider && defaults.model ? { model: defaults.model } : {}),
       ...(accountId ? { accountId } : {}),
-      ...(firstMessage ? { prompt: firstMessage } : { draft: true }),
+      draft: true,
     });
     if (failure) {
+      seedComposerDraft(sessionId, "");
       showError(failure);
       return false;
     }
@@ -2022,6 +2064,7 @@ function WorkspaceApp() {
         provider,
         ...(model ? { model } : {}),
         ...(change.permissionMode ? { permissionMode: change.permissionMode } : {}),
+        ...("isolate" in change ? { isolate: change.isolate === true } : {}),
       };
     });
     if (change.provider) {
@@ -2058,6 +2101,46 @@ function WorkspaceApp() {
   };
 
   /**
+   * Makes the draft's own worktree on a new branch from the one it was on, and waits until it is ready. The
+   * worktree is remembered as soon as it is asked for, so a send after a slow setup waits on the same one
+   * instead of asking for its branch and folder again.
+   */
+  const isolateDraft = async (
+    launch: PendingLaunch,
+    from: WorktreeProjection,
+  ): Promise<{ worktree: WorktreeProjection } | { error: string }> => {
+    let worktreeId = isolatedWorktrees.current.get(launch.sessionId);
+    if (!worktreeId) {
+      const project = projectionRef.current?.projects.find((candidate) => candidate.projectId === from.projectId);
+      if (!project) return { error: "That project is gone." };
+      const result = await createWorktree(
+        dispatch,
+        project,
+        `zli/chat-${launch.sessionId.slice(-6)}`,
+        from.branch === "HEAD" ? "" : from.branch,
+      );
+      if ("error" in result) return result;
+      worktreeId = result.worktreeId;
+      isolatedWorktrees.current.set(launch.sessionId, worktreeId);
+    }
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+      const made = projectionRef.current?.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
+      if (made?.status === "ready") {
+        isolatedWorktrees.current.delete(launch.sessionId);
+        updateDraft(launch.sessionId, (entry) => ({ ...entry, worktreeId: made.worktreeId }));
+        return { worktree: made };
+      }
+      if (made && ["failed", "cancelling", "cancelled"].includes(made.status)) {
+        isolatedWorktrees.current.delete(launch.sessionId);
+        return { error: "The worktree could not be created." };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    return { error: "The worktree is still being set up. Send again to keep waiting for it." };
+  };
+
+  /**
    * Sends a draft chat's first message: the agent starts with the draft's settings and the message is queued
    * on its thread at once, so it shows in the conversation while the agent comes up.
    */
@@ -2065,11 +2148,21 @@ function WorkspaceApp() {
     const launch = session.pending;
     const current = projectionRef.current;
     if (!launch?.draft || !current) return "This chat already started.";
-    const worktree = current.worktrees.find((candidate) => candidate.worktreeId === launch.worktreeId);
-    if (worktree?.status !== "ready") return "The folder is still being prepared.";
+    const chosen = current.worktrees.find((candidate) => candidate.worktreeId === launch.worktreeId);
+    if (chosen?.status !== "ready") return "The folder is still being prepared.";
     if (!isSelectableProvider(launch.provider)) return "This agent is not supported.";
     if (launching.current.has(launch.sessionId)) return "The agent is already starting.";
     launching.current.add(launch.sessionId);
+    let worktree = chosen;
+    // The worktree switch only takes effect now, so the draft never waits on Git while it is being set up.
+    if (launch.isolate && chosen.kind === "checkout") {
+      const isolated = await isolateDraft(launch, chosen);
+      if ("error" in isolated) {
+        launching.current.delete(launch.sessionId);
+        return isolated.error;
+      }
+      worktree = isolated.worktree;
+    }
     if (!(await ensureTrusted(worktree.projectId))) {
       launching.current.delete(launch.sessionId);
       return AGENTS_NOT_TRUSTED;
@@ -2091,6 +2184,7 @@ function WorkspaceApp() {
       launching.current.delete(launch.sessionId);
       return failure;
     }
+    sentDrafts.current.add(launch.sessionId);
     updateDraft(launch.sessionId, ({ draft: _draft, ...rest }) => ({ ...rest, started: true }));
     // A branched chat's first message takes the conversation it branched from along.
     const branch = takeChatBranch(launch.sessionId);
@@ -2105,6 +2199,7 @@ function WorkspaceApp() {
           text: message.text,
           ...(launch.model ? { model: launch.model } : {}),
           ...(message.reasoningEffort ? { reasoningEffort: message.reasoningEffort } : {}),
+          ...(message.fast ? { fast: message.fast } : {}),
           ...(message.attachments.length > 0 ? { attachments: message.attachments } : {}),
           ...(branch ? { context: branch.context } : {}),
         },
@@ -2626,7 +2721,6 @@ function WorkspaceApp() {
       sidePane={sidePane}
       onShowSidebar={toggleSidebar}
       onNewAgent={() => openNewAgent()}
-      onOpenIssues={() => openIssues(contextProject)}
       onToggleDrawer={toggleDrawer}
       onTogglePanels={togglePanels}
       devServers={contextDevServers}
@@ -2676,6 +2770,7 @@ function WorkspaceApp() {
             }}
             onNewAgent={openNewAgent}
             onNewAgentOptions={openNewAgentDialog}
+            onStartFromIssue={openIssues}
             onOpenProject={() => void openProject()}
             onCreateWorktree={(project) =>
               setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])
@@ -2725,7 +2820,6 @@ function WorkspaceApp() {
             </div>
           ) : null}
           {bridge ? <ExpiredSignInNotice onSignInAgain={openConnectors} /> : null}
-          <AttentionPanel items={projection?.attention ?? []} />
           {!bridge ? (
             <DisconnectedState />
           ) : !projection ? (
@@ -2741,7 +2835,7 @@ function WorkspaceApp() {
                     <NoProjectChat
                       agent={firstChatAgent}
                       onPickFolder={pickChatFolder}
-                      onStart={startFirstChat}
+                      onOpenChat={openFirstChat}
                       onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
                     />
                   ) : visibleTiles.length === 0 ? (
@@ -2813,7 +2907,6 @@ function WorkspaceApp() {
                             onDismissPending={() => closeTileNow(session)}
                             onReviewSetup={() => reviewSetup(session.worktreeId)}
                             onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
-                            onHandoff={handoffTarget(session) ? () => setHandoffRequest(session) : undefined}
                             onSwitchAgent={
                               newChatTarget(session)
                                 ? (provider, model) => switchChatAgent(session, provider, model)
@@ -2824,7 +2917,9 @@ function WorkspaceApp() {
                             onAddFolder={bridge ? addChatFolder : undefined}
                             onDraftSend={(message) => sendDraft(session, message)}
                             onMoveChat={
-                              newChatTarget(session) && !sessionHasMessages(session, projection.messages)
+                              newChatTarget(session) &&
+                              !sentDrafts.current.has(session.sessionId) &&
+                              !sessionHasMessages(session, projection.messages)
                                 ? (place) => moveChat(session, place)
                                 : undefined
                             }
@@ -3205,6 +3300,7 @@ function WorkspaceApp() {
               setIssueStart(undefined);
             }}
             accounts={accounts}
+            dispatch={dispatch}
             onSubmit={submitNewAgent}
           />
         )}
@@ -3213,14 +3309,24 @@ function WorkspaceApp() {
             <IssuesDialog
               projection={projection}
               initialProject={issuesProject === "default" ? (contextProject ?? projection.projects[0]) : issuesProject}
-              onClose={() => setIssuesProject(undefined)}
+              attach={issueAttach !== undefined}
+              onClose={() => {
+                setIssuesProject(undefined);
+                setIssueAttach(undefined);
+              }}
               onConnectLinear={() => {
                 setIssuesProject(undefined);
+                setIssueAttach(undefined);
                 openSettings("issues");
               }}
               onStart={(project, issue) => {
                 const { source, key, reference, title, url } = issue;
                 setIssuesProject(undefined);
+                if (issueAttach) {
+                  issueAttach.onPick(issue);
+                  setIssueAttach(undefined);
+                  return;
+                }
                 setIssueStart({
                   link: { source, key, reference, title, url },
                   prefill: { issue: { source, key, reference, title }, prompt: issuePrompt(issue) },

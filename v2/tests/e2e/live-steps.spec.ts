@@ -36,11 +36,15 @@ test("shows each step live between the reply's text, and stops a turn from the c
     await expect(status).toHaveCount(0, { timeout: 20_000 });
 
     const log = page.getByRole("log", { name: "Agent conversation" });
-    const order = await log
-      .locator(".chat-message-assistant, .work-steps")
-      .evaluateAll((nodes) =>
-        nodes.map((node) => (node.classList.contains("work-steps") ? "steps" : (node.textContent ?? "").trim())),
-      );
+    const order = await log.locator(".chat-message-assistant, .work-steps").evaluateAll((nodes) =>
+      nodes.map((node) => {
+        if (node.classList.contains("work-steps")) return "steps";
+        // The reply's footer ("Worked for 15s") is not part of its text.
+        const text = node.cloneNode(true) as HTMLElement;
+        for (const footer of text.querySelectorAll(".chat-reply-time")) footer.remove();
+        return (text.textContent ?? "").trim();
+      }),
+    );
     expect(order).toEqual([
       "I'll look at the routes first.",
       "steps",
@@ -59,7 +63,7 @@ test("shows each step live between the reply's text, and stops a turn from the c
     await sendChatMessage(page, "[hold] keep working");
     const stop = page.getByRole("button", { name: "Stop Codex", exact: true });
     await expect(stop).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".chat-working-label")).toHaveText("Thinking");
+    await expect(page.locator(".chat-working-label")).toHaveText("Working");
     await stop.click();
     await expect(stop).toHaveCount(0, { timeout: 20_000 });
     await expect(page.locator(".chat-working")).toHaveCount(0);

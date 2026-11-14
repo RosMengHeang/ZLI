@@ -61,7 +61,6 @@ export function Topbar({
   sidePane,
   onShowSidebar,
   onNewAgent,
-  onOpenIssues,
   onToggleDrawer,
   onTogglePanels,
   devServers = [],
@@ -80,7 +79,6 @@ export function Topbar({
   onShowSidebar(): void;
   onNewAgent(): void;
   /** Opens the issue list for the project in view. */
-  onOpenIssues?(): void;
   onToggleDrawer(): void;
   /** Opens the right panel on the panel picker, or closes whatever it shows. */
   onTogglePanels(): void;
@@ -137,9 +135,6 @@ export function Topbar({
           <span className="topbar-new-agent-label">New agent</span>
         </Button>
       )}
-      {hasProjects && onOpenIssues ? (
-        <IconButton label="Issues" tooltip="Start from an issue" icon="issue" onClick={onOpenIssues} />
-      ) : null}
       {/*
         The top bar keeps two switches: the terminal at the bottom and the panel on the right. The right one
         opens on a picker of every panel, each with a key, so nothing hides behind a menu.

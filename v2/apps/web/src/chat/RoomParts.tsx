@@ -5,6 +5,7 @@ import { BuddyAvatar, useAvatarMood } from "../teammates/BuddyAvatar.js";
 import type { Buddy } from "../teammates/buddies.js";
 import { Button } from "../ui/Button.js";
 import { MenuButton, type MenuItem } from "../ui/Menu.js";
+import { liveStepLabel } from "./liveStatus.js";
 import { elapsedLabel } from "./WorkLog.js";
 
 /** Someone in the chat, as the team bar, the speaker lines, and the live cards show them. */
@@ -43,7 +44,7 @@ function liveText(person: RoomPerson): string {
   if (person.status === "waiting") return `${person.name} needs you`;
   if (person.status === "starting") return `${person.name} is joining`;
   if (person.terminal) return `${person.name} is working in its terminal`;
-  if (person.step) return person.step.title;
+  if (person.step) return liveStepLabel(person.step);
   return `${person.name} is thinking`;
 }
 
@@ -106,7 +107,7 @@ export function RoomBar({
             <li key={person.id} className={`room-person is-${person.role}`}>
               {person.role === "host" ? (
                 <span className="room-person-chip" title={`${person.name}, this chat's agent`}>
-                  <PersonAvatar person={person} size={20} />
+                  <PersonAvatar person={person} size={16} />
                   <span className="room-person-name">{person.name}</span>
                 </span>
               ) : (
@@ -118,7 +119,7 @@ export function RoomBar({
                   size="xs"
                   items={() => personItems(person)}
                 >
-                  <PersonAvatar person={person} size={20} />
+                  <PersonAvatar person={person} size={16} />
                   <span className="room-person-name">{person.name}</span>
                 </MenuButton>
               )}

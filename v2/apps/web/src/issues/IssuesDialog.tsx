@@ -42,6 +42,7 @@ export function IssuesDialog({
   onStart,
   onStartWithoutIssue,
   onConnectLinear,
+  attach = false,
 }: {
   projection: RuntimeProjection;
   initialProject: ProjectProjection | undefined;
@@ -49,6 +50,8 @@ export function IssuesDialog({
   onStart(project: ProjectProjection, issue: IssueDetail): void;
   onStartWithoutIssue(project: ProjectProjection): void;
   onConnectLinear(): void;
+  /** Picks an issue for the chat in use instead of starting an agent on it. */
+  attach?: boolean;
 }) {
   const { bridge, dispatch } = useRuntime();
   const ids = useId();
@@ -176,7 +179,7 @@ export function IssuesDialog({
   return (
     <Dialog
       label="Issues"
-      title="Start from an issue"
+      title={attach ? "Attach an issue" : "Start from an issue"}
       subtitle={projection.projects.length > 1 ? undefined : project?.name}
       size="lg"
       className="issues-dialog"
@@ -240,7 +243,7 @@ export function IssuesDialog({
               linearConnected={linearConnected}
               onShowLinear={() => chooseSource("linear")}
               onConnectLinear={onConnectLinear}
-              onStartWithoutIssue={() => onStartWithoutIssue(project)}
+              {...(attach ? {} : { onStartWithoutIssue: () => onStartWithoutIssue(project) })}
             />
           ) : shown.status === "loading" ? (
             <p className="loading-line issues-state" role="status">
@@ -339,7 +342,7 @@ export function IssuesDialog({
         </Button>
         <Button
           variant="primary"
-          icon="play"
+          icon={attach ? "paperclip" : "play"}
           disabled={!ready || !project}
           onClick={() => {
             if (!ready || !project) return;
@@ -347,7 +350,7 @@ export function IssuesDialog({
             onStart(project, ready);
           }}
         >
-          Start agent
+          {attach ? "Attach" : "Start agent"}
         </Button>
       </div>
     </Dialog>
@@ -366,7 +369,8 @@ function NoIssueSource({
   linearConnected: boolean;
   onShowLinear(): void;
   onConnectLinear(): void;
-  onStartWithoutIssue(): void;
+  /** Missing while attaching to a chat, which already has its agent. */
+  onStartWithoutIssue?: (() => void) | undefined;
 }) {
   const { title, detail } = unavailableText(unavailable);
   return (
@@ -380,9 +384,11 @@ function NoIssueSource({
           Connect Linear
         </Button>
       )}
-      <Button size="sm" variant="primary" icon="agentNew" onClick={onStartWithoutIssue}>
-        Start without an issue
-      </Button>
+      {onStartWithoutIssue ? (
+        <Button size="sm" variant="primary" icon="agentNew" onClick={onStartWithoutIssue}>
+          Start without an issue
+        </Button>
+      ) : null}
     </EmptyState>
   );
 }

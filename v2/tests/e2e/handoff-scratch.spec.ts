@@ -29,9 +29,11 @@ test("hands a chat to another agent, starts a scratch chat, and attaches a windo
       timeout: 30_000,
     });
 
-    const firstTile = page.locator(".agent-tile").first();
-    await firstTile.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Continue with another agent" }).click();
+    // Handing off lives in the command palette; the chat's own menu keeps to the chat.
+    await page.keyboard.press(palette);
+    const palettePanel = page.getByRole("dialog", { name: "Command palette" });
+    await palettePanel.getByRole("textbox", { name: "Search commands" }).fill("another agent");
+    await palettePanel.getByRole("textbox", { name: "Search commands" }).press("Enter");
     const handoff = page.getByRole("dialog", { name: "Continue with another agent" });
     await expect(handoff.getByRole("region", { name: "Opening message preview" })).toContainText(
       "Continue: Fix the login form",
@@ -72,8 +74,8 @@ test("hands a chat to another agent, starts a scratch chat, and attaches a windo
 
     // Other platforms need screen recording permission that CI runners cannot grant.
     if (process.platform === "win32") {
-      await scratchTile.getByRole("button", { name: "Add files and more", exact: true }).click();
-      await page.getByRole("menuitem", { name: /^Attach a window/u }).click();
+      await scratchTile.getByRole("button", { name: "Attach", exact: true }).click();
+      await page.getByRole("menuitem", { name: /^A window/u }).click();
       const picker = scratchTile.getByRole("region", { name: "Attach a window" });
       const source = picker.locator(".capture-source").first();
       await expect(source).toBeVisible({ timeout: 20_000 });

@@ -1,4 +1,3 @@
-import type { HistoryFolder } from "@zli-v2/contracts";
 import {
   type CSSProperties,
   type FormEvent,
@@ -10,96 +9,80 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { useRuntime } from "../runtime/RuntimeProvider.js";
-import { relativeTime } from "../sessions/sessions.js";
 import { buddyHex } from "../teammates/buddies.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { hashedBuddy } from "../teammates/chatBuddies.js";
 import { scrollMovesAnchor, useAnchoredPlacement } from "../ui/anchoredPopup.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
-import { scanHistory } from "../welcome/welcomeClient.js";
 import "../chat/chat.css";
 
 /** Where the first chat will work: a folder on this computer. */
 export type ChatFolder = { path: string; name: string };
 
-const RECENT_FOLDERS = 6;
-
 /**
  * A new chat before there is any project. It looks and types like every other chat. The folder tab above the
- * message box opens the same kind of menu the chat's own tab does: the folders the person worked in with their
- * agents before, any other folder, or no folder at all. The message goes out once a folder is picked.
+ * message box opens the same kind of menu the chat's own tab does: any folder on this computer, or no folder
+ * at all. Picking a folder opens the real chat there, with the
+ * full message box and anything typed here already in it.
  */
 export function NoProjectChat({
   agent,
   onPickFolder,
-  onStart,
+  onOpenChat,
   onScratchChat,
 }: {
-  /** The agent the chat will start with, shown where the model picker sits in a started chat. */
+  /** The agent the chat will start with, shown where the model picker sits in the chat itself. */
   agent: { provider: string; name: string } | undefined;
   /** The system folder picker. Undefined when the person closed it. */
   onPickFolder(): Promise<ChatFolder | undefined>;
-  /** Adds the folder as a project and starts the chat there. False when it could not start. */
-  onStart(folder: ChatFolder, firstMessage: string): Promise<boolean>;
+  /** Adds the folder as a project and opens a draft chat there, carrying the typed text. False when it could not. */
+  onOpenChat(folder: ChatFolder, typed: string): Promise<boolean>;
   /** Absent outside the desktop app, where scratch chats are not available. */
   onScratchChat?: (() => void) | undefined;
 }) {
-  const { dispatch } = useRuntime();
   const [draft, setDraft] = useState("");
   const [folder, setFolder] = useState<ChatFolder>();
-  const [recent, setRecent] = useState<readonly HistoryFolder[]>();
   const [menuOpen, setMenuOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [buddy] = useState(() => hashedBuddy(Math.random().toString(36)));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // The folders the person's agents worked in before are the likeliest place for this chat.
-  useEffect(() => {
-    let live = true;
-    void scanHistory(dispatch).then((result) => {
-      if (!live) return;
-      setRecent(
-        result.ok
-          ? [...result.value].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt)).slice(0, RECENT_FOLDERS)
-          : [],
-      );
-    });
-    return () => {
-      live = false;
-    };
-  }, [dispatch]);
   useEffect(() => textareaRef.current?.focus(), []);
 
+  const open = async (next: ChatFolder) => {
+    if (starting) return;
+    setStarting(true);
+    try {
+      // On success this screen goes away, and the chat that replaces it has the text.
+      if (!(await onOpenChat(next, draft))) requestAnimationFrame(() => textareaRef.current?.focus());
+    } finally {
+      setStarting(false);
+    }
+  };
   const choose = (next: ChatFolder) => {
     setFolder(next);
     setMenuOpen(false);
-    requestAnimationFrame(() => textareaRef.current?.focus());
+    void open(next);
   };
   const browse = async () => {
     setMenuOpen(false);
     const picked = await onPickFolder();
     if (picked) choose(picked);
   };
-  const send = async (event?: FormEvent) => {
+  const send = (event?: FormEvent) => {
     event?.preventDefault();
-    if (starting) return;
     // Sending before a folder is picked opens the folder menu, so the message is never lost.
     if (!folder) {
       setMenuOpen(true);
       return;
     }
-    setStarting(true);
-    try {
-      if (await onStart(folder, draft.trim())) setDraft("");
-    } finally {
-      setStarting(false);
-    }
+    // Only reached when opening the chat failed: try again.
+    void open(folder);
   };
 
   return (
-    <div className="chat-view no-project-chat">
+    <div className="chat-view no-project-chat has-start-glow">
       <div className="chat-log" role="log" aria-label="Agent conversation">
         <div className="chat-column">
           <div className="chat-start no-project-start">
@@ -110,7 +93,7 @@ export function NoProjectChat({
             <p className="no-project-hint">
               {folder ? (
                 <>
-                  In <span className="no-project-hint-folder">{folder.name}</span>. Type your first message.
+                  Opening a chat in <span className="no-project-hint-folder">{folder.name}</span>.
                 </>
               ) : (
                 "Pick a folder for the agent, then say what you need."
@@ -125,14 +108,12 @@ export function NoProjectChat({
             <FolderTab
               folder={folder}
               open={menuOpen}
-              recent={recent}
               onOpen={setMenuOpen}
-              onChoose={choose}
               onBrowse={() => void browse()}
               onScratch={onScratchChat}
             />
           </div>
-          <form className="composer no-project-composer" aria-label="New chat" onSubmit={(event) => void send(event)}>
+          <form className="composer no-project-composer" aria-label="New chat" onSubmit={send}>
             <textarea
               ref={textareaRef}
               value={draft}
@@ -143,14 +124,14 @@ export function NoProjectChat({
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
-                  void send();
+                  send();
                 }
               }}
             />
             <div className="composer-footer">
               <span className="composer-spacer" />
               {agent ? (
-                <span className="no-project-agent" data-tooltip="Change the agent and model once the chat opens">
+                <span className="no-project-agent" data-tooltip="Pick a folder to choose the agent and model">
                   <ProviderMark provider={agent.provider} size={14} />
                   {agent.name}
                 </span>
@@ -159,8 +140,8 @@ export function NoProjectChat({
                 <button
                   className="send-button"
                   type="submit"
-                  aria-label={folder ? "Send" : "Choose a folder, then send"}
-                  data-tooltip={folder ? "Send" : "Choose a folder first"}
+                  aria-label={folder ? "Open the chat" : "Choose a folder"}
+                  data-tooltip={folder ? "Open the chat" : "Choose a folder first"}
                   disabled={starting || (!folder && !draft.trim())}
                 >
                   {starting ? <span className="spinner" aria-hidden="true" /> : <Icon name="arrowUp" size={15} />}
@@ -178,17 +159,13 @@ export function NoProjectChat({
 function FolderTab({
   folder,
   open,
-  recent,
   onOpen,
-  onChoose,
   onBrowse,
   onScratch,
 }: {
   folder: ChatFolder | undefined;
   open: boolean;
-  recent: readonly HistoryFolder[] | undefined;
   onOpen(open: boolean): void;
-  onChoose(folder: ChatFolder): void;
   onBrowse(): void;
   onScratch?: (() => void) | undefined;
 }) {
@@ -222,7 +199,6 @@ function FolderTab({
     };
   }, [open, onOpen]);
 
-  const now = Date.now();
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -264,39 +240,7 @@ function FolderTab({
               onKeyDown={move}
             >
               <div className="picker-list" role="listbox" aria-label="Choose a project">
-                {recent === undefined ? (
-                  <p className="place-menu-empty">
-                    <span className="spinner" aria-hidden="true" /> Looking for your recent folders
-                  </p>
-                ) : recent.length > 0 ? (
-                  <div className="picker-group">
-                    <div className="picker-group-label">Where your agents worked recently</div>
-                    {recent.map((entry) => (
-                      <button
-                        key={entry.path}
-                        type="button"
-                        role="option"
-                        tabIndex={-1}
-                        aria-selected={folder?.path === entry.path}
-                        className="picker-option"
-                        onClick={() => onChoose({ path: entry.path, name: entry.name })}
-                      >
-                        <span className="picker-option-icon" aria-hidden="true">
-                          <Icon name="folder" size={14} />
-                        </span>
-                        <span className="picker-option-text">
-                          <span className="picker-option-label">{entry.name}</span>
-                          <span className="picker-option-description" title={entry.path}>
-                            {entry.path}
-                          </span>
-                        </span>
-                        <span className="folder-menu-when">{relativeTime(entry.lastActiveAt, now)}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
                 <div className="picker-group">
-                  {recent && recent.length > 0 ? <div className="picker-group-label">Or</div> : null}
                   <button
                     type="button"
                     role="option"
@@ -306,12 +250,9 @@ function FolderTab({
                     onClick={onBrowse}
                   >
                     <span className="picker-option-icon" aria-hidden="true">
-                      <Icon name="folderPlus" size={14} />
+                      <Icon name="plus" size={14} />
                     </span>
-                    <span className="picker-option-text">
-                      <span className="picker-option-label">Open a folder…</span>
-                      <span className="picker-option-description">Any folder on this computer</span>
-                    </span>
+                    <span className="picker-option-label">Open a folder…</span>
                   </button>
                   {onScratch ? (
                     <button
@@ -320,6 +261,7 @@ function FolderTab({
                       tabIndex={-1}
                       aria-selected={false}
                       className="picker-option"
+                      title="Just ask. Nothing gets edited"
                       onClick={() => {
                         onOpen(false);
                         onScratch();
@@ -328,10 +270,7 @@ function FolderTab({
                       <span className="picker-option-icon" aria-hidden="true">
                         <Icon name="scratch" size={14} />
                       </span>
-                      <span className="picker-option-text">
-                        <span className="picker-option-label">No folder</span>
-                        <span className="picker-option-description">Just ask. Nothing gets edited</span>
-                      </span>
+                      <span className="picker-option-label">No folder</span>
                     </button>
                   ) : null}
                 </div>

@@ -19,27 +19,66 @@ import { Markdown } from "./Markdown.js";
 
 /* ---------- The agent's plan ---------- */
 
+/** The go-ahead for a plan the agent wrote in read-only mode, before it makes any change. */
+export type PlanApprovalAction = {
+  /** The agent can leave read-only mode in this chat, so approving also lets it edit. */
+  canSwitch: boolean;
+  onApprove(): void;
+  onChange(): void;
+};
+
 /**
- * The plan the agent keeps while it works, pinned above the message box: each step ticks off as it finishes,
- * the one in progress shimmers. Folds to one line, and goes away once every step is done and the turn is over.
+ * The agent's plan, pinned above the message box: each step ticks off as it finishes, the one in progress
+ * shimmers. A plan written in read-only mode also waits here for the go-ahead. Folds to one line, and goes away
+ * once every step is done and the turn is over.
  */
 export function PlanCard({
   todos,
   working,
+  approval,
   onDismiss,
 }: {
   todos: readonly ThreadActivityTodo[];
   working: boolean;
+  /** Set while the plan waits for the person's go-ahead. */
+  approval?: PlanApprovalAction | undefined;
   onDismiss(): void;
 }) {
   const done = todos.filter((todo) => todo.status === "completed").length;
   const current = todos.find((todo) => todo.status === "in_progress");
-  const finished = done === todos.length;
+  const finished = todos.length > 0 && done === todos.length;
   const [open, setOpen] = useState(!finished);
   // Once every step is done the plan folds to one line, giving the message box its room back.
   useEffect(() => {
     if (finished) setOpen(false);
   }, [finished]);
+  const actions = approval ? (
+    <span className="plan-card-actions">
+      <Button size="xs" variant="ghost" onClick={approval.onChange}>
+        Change plan
+      </Button>
+      <Button
+        size="xs"
+        variant="primary"
+        tooltip={approval.canSwitch ? "Lets it leave read-only mode and make the changes" : undefined}
+        onClick={approval.onApprove}
+      >
+        Approve plan
+      </Button>
+    </span>
+  ) : null;
+  // With no steps of its own, the plan is the reply above, so the card is only its go-ahead.
+  if (todos.length === 0) {
+    return (
+      <section className="plan-card is-approval" aria-label="The agent's plan">
+        <div className="tray-head plan-card-head">
+          <span className="tray-title plan-card-label">Plan ready</span>
+          <span className="tray-meta" />
+          {actions}
+        </div>
+      </section>
+    );
+  }
   return (
     <section className={`plan-card${finished ? " is-done" : ""}`} aria-label="The agent's plan">
       <div className="tray-head plan-card-head">
@@ -60,7 +99,8 @@ export function PlanCard({
           </span>
           <Icon name="chevronDown" size={12} className="plan-card-chevron" />
         </button>
-        {!working ? (
+        {actions}
+        {!working && !approval ? (
           <IconButton label="Hide the plan" tooltip="Hide" icon="x" size="xs" iconSize={11} onClick={onDismiss} />
         ) : null}
       </div>
@@ -82,39 +122,6 @@ export function PlanCard({
           ))}
         </ol>
       </Collapse>
-    </section>
-  );
-}
-
-/** A plan the agent wrote in read-only mode, waiting for the go-ahead to make the changes. */
-export function PlanApproval({
-  displayName,
-  canSwitch,
-  onApprove,
-  onChange,
-}: {
-  displayName: string;
-  /** The agent can leave read-only mode in this chat, so approving also lets it edit. */
-  canSwitch: boolean;
-  onApprove(): void;
-  onChange(): void;
-}) {
-  return (
-    <section className="plan-approval" aria-label="Approve the plan">
-      <span className="plan-approval-copy">
-        <span className="plan-approval-title">Ready to build this?</span>
-        <span className="plan-approval-detail">
-          {canSwitch
-            ? `${displayName} only planned. Approve to let it make the changes.`
-            : `${displayName} only planned.`}
-        </span>
-      </span>
-      <Button size="sm" variant="ghost" onClick={onChange}>
-        Change plan
-      </Button>
-      <Button size="sm" variant="primary" onClick={onApprove}>
-        Approve and start
-      </Button>
     </section>
   );
 }
@@ -312,8 +319,8 @@ export function checksSummary(pullRequest: PullRequestInfo): ChecksSummary {
 }
 
 /**
- * The pull request of the chat's branch, under the conversation: its checks, and a way to have the agent fix the
- * ones that fail. Absent until the branch has an open pull request.
+ * The pull request of the chat's branch, as a chip under the message box: its checks, and a way to have the agent
+ * fix the ones that fail. Absent until the branch has an open pull request.
  */
 export function PullRequestStrip({
   worktreeId,
@@ -331,49 +338,47 @@ export function PullRequestStrip({
   const checks = checksSummary(pullRequest);
   const merged = pullRequest.state === "MERGED";
   const failedNames = (pullRequest.checks ?? []).filter((check) => check.state === "failed").map((check) => check.name);
+  const state = merged
+    ? "Merged"
+    : checks.state === "failed"
+      ? `${checks.failed} of ${checks.total} checks failed`
+      : checks.state === "pending"
+        ? "Checks running"
+        : checks.state === "passed"
+          ? "Checks passed"
+          : pullRequest.isDraft
+            ? "Draft"
+            : "Open";
+  // The number and a dot for the checks; the title and the state of the checks show on hover.
   return (
-    <section className={`pr-strip is-${merged ? "merged" : checks.state}`} aria-label="Pull request">
-      <Icon name={merged ? "merge" : "pullRequest"} size={13} />
+    <span className={`pr-chip is-${merged ? "merged" : checks.state}`}>
       <button
         type="button"
-        className="pr-strip-title"
-        title={`Open #${pullRequest.number} on GitHub`}
+        className="pr-chip-open"
+        data-tooltip={`${pullRequest.title ?? "Pull request"} · ${state}`}
+        aria-label={`Open #${pullRequest.number} on GitHub, ${state}`}
         onClick={() => {
           if (bridge) void openExternalLink(bridge, pullRequest.url);
         }}
       >
-        <span className="pr-strip-number">#{pullRequest.number}</span>
-        <span className="pr-strip-name">{pullRequest.title ?? "Pull request"}</span>
+        <Icon name={merged ? "merge" : "pullRequest"} size={12} />
+        <span className="pr-chip-number">#{pullRequest.number}</span>
+        <span className="pr-chip-dot" aria-hidden="true" />
       </button>
-      <span className="pr-strip-checks">
-        {merged
-          ? "Merged"
-          : checks.state === "failed"
-            ? `${checks.failed} of ${checks.total} checks failed`
-            : checks.state === "pending"
-              ? "Checks running"
-              : checks.state === "passed"
-                ? "Checks passed"
-                : pullRequest.isDraft
-                  ? "Draft"
-                  : "Open"}
-      </span>
       {!merged && checks.state === "failed" && onAsk ? (
-        <Button
-          size="xs"
-          variant="secondary"
-          icon="wrench"
+        <IconButton
+          label="Fix failing checks"
           tooltip={`Ask ${displayName} to fix ${failedNames.join(", ")}`}
+          icon="wrench"
+          size="xs"
           onClick={() =>
             onAsk(
               `The pull request's checks failed: ${failedNames.join(", ")}. Find out why with gh, fix it, and push.`,
             )
           }
-        >
-          Fix failing checks
-        </Button>
+        />
       ) : null}
-    </section>
+    </span>
   );
 }
 

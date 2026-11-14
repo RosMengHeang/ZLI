@@ -6,13 +6,12 @@ import { ChatStart, ChatView, type GuestRequest, type StartRunsRequest } from ".
 import { type DraftChange, DraftChat, type DraftMessage } from "../chat/DraftChat.js";
 import { useFileLinks } from "../files/FileIndex.js";
 import { HUDDLE_AGENT_DRAG_TYPE, sessionAgentId, typingHeldCount } from "../huddle/huddles.js";
-import { HuddleHeldPill, TileHuddleChip, useHuddleEntries } from "../huddle/TileHuddle.js";
+import { HuddleHeldPill, useHuddleEntries } from "../huddle/TileHuddle.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { setupProgress, worktreeSetup } from "../setup/setup.js";
 import { useChatBuddy } from "../teammates/chatBuddies.js";
 import { LazyTerminalView } from "../terminal/LazyTerminalView.js";
-import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { MenuButton, type MenuEntry } from "../ui/Menu.js";
@@ -29,7 +28,6 @@ import {
   relativeTime,
   type SessionChat,
   type SessionMode,
-  type SessionStatus,
   sessionAgentName,
   sessionChats,
   sessionStatusLabel,
@@ -44,16 +42,6 @@ function chatDetail(chat: SessionChat): string {
   const when = age === "now" ? "Just now" : /^\d+[mhd]$/u.test(age) ? `${age} ago` : age;
   return [when, chatStatusLabel[chat.status]].filter(Boolean).join(" · ");
 }
-
-const statusTone: Record<SessionStatus, BadgeTone> = {
-  preparing: "info",
-  starting: "info",
-  working: "info",
-  waiting: "warning",
-  ready: "success",
-  ended: "quiet",
-  failed: "danger",
-};
 
 export function AgentTile({
   projection,
@@ -73,7 +61,6 @@ export function AgentTile({
   onDismissPending,
   onReviewSetup,
   onShowSetupOutput,
-  onHandoff,
   onSwitchAgent,
   onMoveChat,
   onOpenPullRequest,
@@ -121,8 +108,6 @@ export function AgentTile({
   onDismissPending(): void;
   onReviewSetup(): void;
   onShowSetupOutput(): void;
-  /** Absent when the chat has nothing to hand over yet. */
-  onHandoff?: (() => void) | undefined;
   /** Starts the tile's empty chat again with another agent and model. */
   onSwitchAgent?: ((provider: string, model: string | undefined) => Promise<string | undefined>) | undefined;
   /** Shows the worktree's pull request in the side panel. */
@@ -132,8 +117,8 @@ export function AgentTile({
   /** A draft chat's settings changed before its first message. */
   onDraftChange?: ((change: DraftChange) => void) | undefined;
   onDraftMove?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
-  /** Opens the folder picker and adds the folder as a project, for the chat's project menu. */
-  onAddFolder?: (() => Promise<string | undefined>) | undefined;
+  /** Adds a folder as a project (the given one, or else one picked in the folder picker), for the project menu. */
+  onAddFolder?: ((path?: string) => Promise<string | undefined>) | undefined;
   /** Starts a draft chat's agent with its first message. */
   onDraftSend?: ((message: DraftMessage) => Promise<string | undefined>) | undefined;
   /** Opens Settings at a connector, for a chat that needs one. */
@@ -243,13 +228,15 @@ export function AgentTile({
     setBusy(false);
   };
 
+  const canStartChat = mode === "chat" && thread !== undefined && onNewChat !== undefined;
   const newChatButton = useRef<HTMLButtonElement>(null);
   const seenRequest = useRef(newChatRequest);
   useEffect(() => {
     if (newChatRequest === seenRequest.current) return;
     seenRequest.current = newChatRequest;
-    newChatButton.current?.click();
-  }, [newChatRequest]);
+    // The New chat items open at the top of the tile's menu; a tile that cannot start a chat leaves it shut.
+    if (canStartChat) newChatButton.current?.click();
+  }, [newChatRequest, canStartChat]);
   const newChat = async (withContext: boolean) => {
     if (!onNewChat) return;
     setError(undefined);
@@ -299,7 +286,43 @@ export function AgentTile({
     onOpen: (huddleId) => onOpenHuddle?.(huddleId),
     onError: setError,
   });
-  const moreItems: MenuEntry[] = [
+  // The header keeps only the title, the environment, and one menu, so the chat list, the starter, the
+  // huddles, and the board controls all live in that menu. Each run is joined by a rule.
+  const chatEntries: MenuEntry[] = canStartChat ? newChatItems : [];
+  const historyEntries: MenuEntry[] = onOpenChat && chats.length > 1 ? historyItems : [];
+  const placeEntries: MenuEntry[] = [
+    ...(startedBy
+      ? [
+          {
+            id: "started-by",
+            label: `Show ${startedBy.label}`,
+            icon: "bot" as const,
+            detail: "Started this agent",
+            run: startedBy.onOpen,
+          },
+        ]
+      : []),
+    ...(onOpenHuddle
+      ? memberOf.map((huddle) => ({
+          id: `open-${huddle.huddleId}`,
+          label: `Open ${huddle.name}`,
+          icon: "users" as const,
+          detail: "Huddle",
+          run: () => onOpenHuddle(huddle.huddleId),
+        }))
+      : []),
+  ];
+  const boardEntries: MenuEntry[] = canMaximize
+    ? [
+        {
+          id: "maximize",
+          label: maximized ? "Show all agents" : "Maximize",
+          icon: maximized ? ("minimize" as const) : ("maximize" as const),
+          run: onToggleMaximize,
+        },
+      ]
+    : [];
+  const tileItems: MenuEntry[] = [
     ...(mode === "chat" && chatKey
       ? [
           { id: "rename-chat", label: "Rename chat", icon: "pencil" as const, run: () => setEditingTitle(true) },
@@ -316,25 +339,37 @@ export function AgentTile({
             : []),
         ]
       : []),
-    ...(mode === "chat" && onHandoff
-      ? [{ id: "handoff", label: "Continue with another agent", icon: "handoff" as const, run: onHandoff }]
-      : []),
-    ...(onRename && !agentName
+    ...(onRename
       ? [
-          {
-            id: "rename",
-            label: "Name this agent",
-            icon: "pencil" as const,
-            title: "Name this agent so you and other agents can refer to it",
-            run: onRename,
-          },
+          agentName
+            ? {
+                id: "rename",
+                label: "Rename agent",
+                icon: "pencil" as const,
+                detail: agentName,
+                run: onRename,
+              }
+            : {
+                id: "rename",
+                label: "Name this agent",
+                icon: "pencil" as const,
+                title: "Name this agent so you and other agents can refer to it",
+                run: onRename,
+              },
         ]
       : []),
-    ...(huddleEntries.length > 0 && (onHandoff || onRename) ? ["separator" as const] : []),
-    ...huddleEntries.map((entry) =>
-      entry === "separator" || entry.id === "new" ? entry : { ...entry, label: `Huddle: ${entry.label}` },
-    ),
   ];
+  const huddleItems: MenuEntry[] = huddleEntries.map((entry) =>
+    entry === "separator" || entry.id === "new" ? entry : { ...entry, label: `Huddle: ${entry.label}` },
+  );
+  const moreItems: MenuEntry[] = [chatEntries, historyEntries, tileItems, placeEntries, huddleItems, boardEntries]
+    .filter((group) => group.length > 0)
+    .flatMap((group, index) => (index === 0 ? group : ["separator" as const, ...group]));
+  const failed = status === "failed";
+  // Who the agent is and which account it runs under stay one hover away instead of taking header room.
+  const titleHint = [title, agentName, accountLabel ? `Account: ${accountLabel}` : undefined]
+    .filter(Boolean)
+    .join("\n");
 
   return (
     <section
@@ -363,35 +398,6 @@ export function AgentTile({
         <span className="tile-mark" aria-hidden="true">
           {mode === "chat" ? <Icon name="message" size={13} /> : <ProviderMark provider={session.provider} size={13} />}
         </span>
-        {agentName ? (
-          onRename ? (
-            <button
-              type="button"
-              className="tile-name"
-              title={`${agentName}. Click to rename`}
-              aria-label={`Rename ${agentName}`}
-              onClick={onRename}
-            >
-              {agentName}
-            </button>
-          ) : (
-            <span className="tile-name" title={agentName}>
-              {agentName}
-            </span>
-          )
-        ) : null}
-        {startedBy ? (
-          <button
-            type="button"
-            className="tile-parent"
-            title={`Started by ${startedBy.label}. Click to show it`}
-            aria-label={`Sub-agent of ${startedBy.label}. Show ${startedBy.label}`}
-            onClick={startedBy.onOpen}
-          >
-            Sub-agent of {startedBy.label}
-          </button>
-        ) : null}
-        {onOpenHuddle ? <TileHuddleChip huddles={memberOf} onOpen={onOpenHuddle} /> : null}
         {mode === "chat" && chatKey && editingTitle ? (
           <ChatTitleEditor
             title={title}
@@ -404,47 +410,40 @@ export function AgentTile({
           <button
             type="button"
             className="tile-title is-editable"
-            title={`${title}. Click to rename`}
+            title={`${titleHint}\nClick to rename`}
             aria-label={`Rename chat: ${title}`}
             onClick={() => setEditingTitle(true)}
           >
             {title}
           </button>
         ) : (
-          <span className="tile-title" title={title}>
+          <span className="tile-title" title={titleHint}>
             {title}
           </span>
         )}
+        {/* The chat, the sidebar, and the agent's own terminal already say how it is doing. Only a failure
+            earns a mark here, so a tile that stopped working stands out on a busy board. */}
+        {failed ? (
+          <span
+            className="tile-failed"
+            role="img"
+            aria-label={sessionStatusLabel.failed}
+            title={sessionStatusLabel.failed}
+          >
+            <Icon name="alert" size={12} />
+          </span>
+        ) : null}
         {/* A chat's message box already shows its folder and branch, so the header does not repeat them. */}
         {mode === "chat" ? null : (
           <span className="tile-branch" title={worktree?.path}>
-            <Icon name="branch" size={11} />
-            <span>{branch}</span>
+            {branch}
           </span>
         )}
-        {accountLabel ? (
-          <span className="tile-account" title={`Account: ${accountLabel}`}>
-            <Icon name="user" size={11} />
-            <span>{accountLabel}</span>
-          </span>
-        ) : null}
         {run ? (
           <span className="tile-run" title={`Run ${run.index} of ${run.count} for ${run.group.label}`}>
             Run {run.index}
           </span>
         ) : null}
-        {/* A chat is a conversation, not a process: its start-up and idle states say nothing worth a chip. */}
-        {mode === "chat" && quietInChat.has(status) ? null : (
-          <Badge
-            className="tile-status"
-            tone={statusTone[status]}
-            dot={!statusBusy}
-            spinner={statusBusy}
-            title={sessionStatusLabel[status]}
-          >
-            {sessionStatusLabel[status]}
-          </Badge>
-        )}
         <span className="tile-spacer" />
         <span className="tile-actions">
           {worktree?.status === "ready" ? (
@@ -465,33 +464,12 @@ export function AgentTile({
               }
             />
           ) : null}
-          {mode === "chat" && thread && onNewChat ? (
-            <MenuButton
-              ref={newChatButton}
-              label="Chats"
-              tooltip={
-                chats.length > 1 ? `New chat, or one of ${chats.length} chats` : "New chat. This one stays in Chats"
-              }
-              shortcut={newChatShortcut}
-              icon="squarePen"
-              size="sm"
-              iconSize={13}
-              items={onOpenChat && chats.length > 1 ? [...newChatItems, "separator", ...historyItems] : newChatItems}
-            />
-          ) : onOpenChat && chats.length > 1 ? (
-            <MenuButton
-              label="Chats"
-              tooltip={`${chats.length} chats`}
-              icon="history"
-              size="sm"
-              iconSize={13}
-              items={historyItems}
-            />
-          ) : null}
           {moreItems.length > 0 ? (
             <MenuButton
+              ref={newChatButton}
               label="More actions"
-              tooltip="Hand off, name, or add to a huddle"
+              tooltip={chatEntries.length > 0 ? "New chat, chats, and more" : "More"}
+              shortcut={chatEntries.length > 0 ? newChatShortcut : undefined}
               icon="more"
               size="sm"
               iconSize={14}
@@ -512,14 +490,6 @@ export function AgentTile({
             >
               Stop
             </StopButton>
-          ) : null}
-          {canMaximize ? (
-            <IconButton
-              label={maximized ? "Show all agents" : "Maximize"}
-              icon={maximized ? "minimize" : "maximize"}
-              size="sm"
-              onClick={onToggleMaximize}
-            />
           ) : null}
           {closable ? <IconButton label="Close tile" icon="x" size="sm" iconSize={14} onClick={onClose} /> : null}
         </span>
@@ -641,7 +611,6 @@ export function AgentTile({
             worktree={worktree}
             onOpenDiff={onOpenDiff}
             onRestart={() => void start("chat")}
-            onHandoff={onHandoff}
             onSwitchAgent={onSwitchAgent}
             onMoveChat={onMoveChat}
             onAddFolder={onAddFolder}
@@ -678,10 +647,6 @@ export function AgentTile({
     </section>
   );
 }
-
-/** States a chat tile leaves unsaid. The composer already takes messages while the agent starts. */
-// A stopped chat picks up where it left off with the next message, so being stopped is not news either.
-const quietInChat: ReadonlySet<string> = new Set(["preparing", "starting", "ready", "ended"]);
 
 /** The chat's title as a field, for renaming it in place. Enter keeps the name, Escape keeps the old one. */
 function ChatTitleEditor({ title, onDone }: { title: string; onDone(title: string | undefined): void }) {

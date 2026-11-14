@@ -27,7 +27,7 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
     await expect(page.locator(".chat-message-assistant").first()).toBeVisible({ timeout: 30_000 });
 
     // Bring in: the other agent joins under its buddy's name, and the message box calls it.
-    await page.getByRole("button", { name: "Add files and more" }).last().click();
+    await page.getByRole("button", { name: "Other agents" }).last().click();
     await page.getByRole("menuitem", { name: /^Bring in an agent/u }).click();
     await page.getByRole("menuitem", { name: /Codex/u }).click();
     const composer = page.getByRole("textbox", { name: /^Message / });

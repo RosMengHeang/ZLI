@@ -1,9 +1,4 @@
-import type {
-  TerminalProjection,
-  ThreadActivityProjection,
-  ThreadMessageProjection,
-  ThreadProjection,
-} from "@zli-v2/contracts";
+import type { TerminalProjection, ThreadMessageProjection, ThreadProjection } from "@zli-v2/contracts";
 
 import { handoffTranscript, TAKEOVER_CHAR_BUDGET } from "../sessions/handoff.js";
 import type { TimelineItem } from "../sessions/sessions.js";
@@ -129,11 +124,5 @@ function listNames(names: readonly string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
-/** The step a member is on: the latest call still running in its newest turn. */
-export function runningStep(activities: readonly ThreadActivityProjection[]): ThreadActivityProjection | undefined {
-  for (let index = activities.length - 1; index >= 0; index -= 1) {
-    const activity = activities[index];
-    if (activity?.status === "running") return activity;
-  }
-  return undefined;
-}
+// The step a member is on lives with the rest of the live status, so every place that shows it agrees.
+export { runningStep } from "./liveStatus.js";

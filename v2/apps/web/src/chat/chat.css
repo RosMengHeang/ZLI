@@ -3,19 +3,18 @@
 .chat-log { min-height: 0; flex: 1; overflow: auto; }
 .chat-column { width: 100%; max-width: 52rem; margin: 0 auto; padding: 0 var(--zli-space-5); }
 .chat-log > .chat-column { display: flex; min-height: 100%; flex-direction: column; gap: var(--zli-space-4); padding-top: var(--zli-space-5); padding-bottom: var(--zli-space-5); }
-.chat-empty { margin: auto 0; }
 .chat-start { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-4); margin: auto 0; text-align: center; }
 .chat-start > .provider-mark { opacity: .85; }
+/* The one display size in chat. */
 .chat-start-title { margin: 0; color: var(--zli-text); font-size: 22px; font-weight: 500; letter-spacing: -.01em; line-height: 1.3; text-wrap: balance; }
 .chat-start-folder { color: var(--zli-muted); }
-.chat-message p { margin: 0; color: var(--zli-text); font-size: var(--zli-text-md); line-height: var(--zli-leading-relaxed); white-space: pre-wrap; overflow-wrap: anywhere; }
-.chat-message-user { align-self: flex-end; max-width: min(85%, 36rem); padding: var(--zli-space-2) 14px; border-radius: var(--zli-radius-lg) var(--zli-radius-lg) var(--zli-radius-xs) var(--zli-radius-lg); background: var(--zli-raised); box-shadow: inset 0 0 0 1px var(--zli-border); }
+.chat-message p { margin: 0; color: var(--zli-text); font-size: var(--zli-text-chat); line-height: var(--zli-leading-relaxed); white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-message-user { align-self: flex-end; max-width: min(85%, 36rem); padding: var(--zli-space-2) 14px; border-radius: var(--zli-radius-lg) var(--zli-radius-lg) var(--zli-radius-xs) var(--zli-radius-lg); box-shadow: inset 0 0 0 1px var(--zli-border); }
 .chat-message-user + .chat-message-assistant, .chat-message-user + .chat-work { margin-top: var(--zli-space-1); }
 .chat-attachments { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); margin: var(--zli-space-0-5) 0 var(--zli-space-2); padding: 0; list-style: none; }
 .chat-attachments:last-child { margin-bottom: var(--zli-space-0-5); }
 .chat-attachments li { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: var(--zli-space-1-5); height: 28px; padding: 0 var(--zli-space-2-5) 0 var(--zli-space-1); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-surface); color: var(--zli-text); font-size: var(--zli-text-xs); }
 .chat-attachment-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-message-peer { padding: var(--zli-space-2-5) var(--zli-space-3); border-left: 2px solid var(--zli-amber-line); border-radius: 0 var(--zli-radius-md) var(--zli-radius-md) 0; background: var(--zli-amber-soft); }
 .chat-message-label { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); margin-bottom: var(--zli-space-1); color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 600; }
 .chat-system { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: center; }
 .chat-working { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
@@ -28,9 +27,8 @@
 .chat-dock { position: relative; flex: 0 0 auto; padding: 0 0 var(--zli-space-3); }
 .chat-dock::before { position: absolute; right: 0; bottom: 100%; left: 0; height: var(--zli-space-5); background: linear-gradient(to bottom, transparent, var(--zli-surface)); content: ""; pointer-events: none; }
 .chat-dock .chat-column { display: flex; flex-direction: column; gap: var(--zli-space-2); }
-.chat-dock .inline-error { margin: 0 var(--zli-space-1); }
 .chat-queue { display: flex; flex-direction: column; gap: var(--zli-space-1); padding: var(--zli-space-2) var(--zli-space-2) var(--zli-space-1-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
-.chat-queue-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--zli-space-2); margin: 0; padding: 0 var(--zli-space-1); color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 600; }
+.chat-queue-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--zli-space-2); margin: 0; color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 600; }
 .chat-queue-head span { overflow: hidden; color: var(--zli-muted); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .chat-queue-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .chat-queue-item { display: flex; align-items: center; gap: var(--zli-space-2); min-height: var(--zli-control-md); padding: 0 0 0 var(--zli-space-1); border-radius: var(--zli-radius-md); }
@@ -38,9 +36,8 @@
 .chat-queue-index { flex: 0 0 auto; min-width: 12px; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-align: right; }
 .chat-queue-text { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .chat-queue-meta { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 3px; color: var(--zli-muted); font-size: var(--zli-text-xs); }
-.chat-request { padding: var(--zli-space-3) var(--zli-space-4); border: 1px solid var(--zli-amber-line); border-radius: var(--zli-radius-lg); background: var(--zli-amber-soft); }
-.chat-request-title { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-amber); font-size: var(--zli-text-sm); font-weight: 600; }
-.chat-request { display: flex; flex-direction: column; gap: var(--zli-space-2-5); }
+.chat-request { display: flex; flex-direction: column; border: 1px solid var(--zli-amber-line); }
+.chat-request-title { display: inline-flex; align-items: center; font-size: var(--zli-text-sm); }
 .chat-request-head { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); }
 .chat-request-count { color: var(--zli-muted); font-size: var(--zli-text-xs); white-space: nowrap; }
 .chat-request-heading { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
@@ -51,32 +48,19 @@
 .chat-request-field dd.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: 1.6; }
 .chat-request-form { display: flex; flex-direction: column; gap: var(--zli-space-3); }
 .chat-request-question { display: flex; flex-direction: column; gap: var(--zli-space-2); min-width: 0; margin: 0; padding: 0; border: 0; }
-.chat-request-question legend { display: flex; flex-direction: column; gap: 2px; padding: 0; margin-bottom: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-sm); }
-.chat-request-question-header { color: var(--zli-muted); font-size: var(--zli-text-xs); }
-.chat-request-options { display: flex; flex-direction: column; gap: var(--zli-space-1); }
-.chat-request-option { display: flex; align-items: flex-start; gap: var(--zli-space-2); padding: var(--zli-space-1-5) var(--zli-space-2); border-radius: var(--zli-radius-sm); cursor: pointer; }
-.chat-request-option:hover { background: var(--zli-overlay); }
+.chat-request-question legend { display: flex; flex-direction: column; padding: 0; color: var(--zli-text); }
+.chat-request-options { display: flex; flex-direction: column; }
+.chat-request-option { display: flex; cursor: pointer; }
 .chat-request-option input { margin: 3px 0 0; accent-color: var(--zli-accent); }
 .chat-request-option > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .chat-request-option-label { color: var(--zli-text); font-size: var(--zli-text-sm); }
 .chat-request-option-detail { color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
 .chat-request-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-2); }
-.chat-request-raw > summary { display: inline-flex; align-items: center; gap: var(--zli-space-1); border-radius: var(--zli-radius-xs); color: var(--zli-dim); cursor: pointer; font-size: var(--zli-text-xs); list-style: none; }
-.chat-request-raw > summary::-webkit-details-marker { display: none; }
-.chat-request-raw > summary svg { transition: transform var(--zli-duration-fast) var(--zli-ease); }
-.chat-request-raw[open] > summary svg { transform: rotate(90deg); }
-.chat-request-raw > summary:hover { color: var(--zli-muted); }
-.chat-request-raw pre { max-height: 160px; margin: var(--zli-space-2) 0 0; padding: var(--zli-space-2) var(--zli-space-2-5); overflow: auto; border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-xs); white-space: pre-wrap; }
-.chat-paused { display: flex; align-items: flex-start; overflow-wrap: anywhere; gap: var(--zli-space-1-5); margin: 0; padding: 0 var(--zli-space-1); color: var(--zli-muted); font-size: var(--zli-text-sm); }
-.chat-paused > svg { flex: 0 0 auto; margin-top: 3px; color: var(--zli-dim); }
-.chat-paused.is-failed > svg { color: var(--zli-red); }
 .chat-ended { display: flex; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-2-5) var(--zli-space-2-5) var(--zli-space-2-5) var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
 .chat-ended > svg { color: var(--zli-dim); }
-.chat-ended.is-failed { border-color: var(--zli-red-line); }
 /* Amber, not red: nothing failed yet, the agent only needs a login before the first message. */
 .chat-sign-in > svg { color: var(--zli-amber); }
 .chat-sign-in code { font-family: var(--zli-mono); font-size: var(--zli-text-xs); color: var(--zli-text); }
-.chat-ended.is-failed > svg { color: var(--zli-red); }
 .chat-ended-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
 .chat-ended-title { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
 .chat-ended-detail { color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
@@ -93,17 +77,15 @@
 .chat-peer .btn { align-self: flex-end; }
 
 /* ---------- Markdown ---------- */
-.markdown { color: var(--zli-text); font-size: var(--zli-text-md); line-height: var(--zli-leading-relaxed); overflow-wrap: anywhere; }
+.markdown { font-size: var(--zli-text-chat); line-height: var(--zli-leading-relaxed); overflow-wrap: anywhere; }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
 .markdown p { margin: 0 0 var(--zli-space-2-5); white-space: pre-wrap; }
 .markdown ul, .markdown ol { margin: 0 0 var(--zli-space-2-5); padding-left: 22px; }
 .markdown li + li { margin-top: 3px; }
-.markdown .md-heading, .markdown .md-h1, .markdown .md-h2, .markdown .md-h3 { margin: var(--zli-space-4) 0 var(--zli-space-2); color: var(--zli-text); font-weight: 600; line-height: 1.35; }
-.markdown .md-h1 { font-size: var(--zli-text-lg); }
-.markdown .md-h2 { font-size: 15px; }
-.markdown .md-h3 { font-size: var(--zli-text-md); }
-.markdown pre, .markdown .md-code { margin: 0 0 var(--zli-space-2-5); padding: var(--zli-space-2-5) var(--zli-space-3); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); font-family: var(--zli-mono); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); white-space: pre; }
+.markdown .md-heading, .markdown .md-h1, .markdown .md-h2, .markdown .md-h3 { color: var(--zli-text); font-weight: 600; }
+.markdown .md-h3 { font-size: var(--zli-text-chat); }
+.markdown pre, .markdown .md-code { margin: 0 0 var(--zli-space-2-5); padding: var(--zli-space-2-5) var(--zli-space-3); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); font-family: var(--zli-mono); white-space: pre; }
 .markdown pre code { padding: 0; background: none; }
 .markdown .md-code-block { margin: 0 0 var(--zli-space-2-5); overflow: hidden; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); }
 .markdown .md-code-block > .md-code { margin: 0; border: 0; border-radius: 0; }
@@ -195,14 +177,12 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 
 /* ---------- Composer ---------- */
 /* The composer is the one raised surface in a chat: it floats over the log, so it carries the shadow. */
-.composer { padding: var(--zli-space-3) var(--zli-space-2-5) var(--zli-space-2-5) var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: 18px; background: var(--zli-raised); box-shadow: var(--zli-highlight), var(--zli-shadow-lift); transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
+.composer { border: 1px solid var(--zli-border-strong); transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease), box-shadow var(--zli-duration-fast) var(--zli-ease); }
 .composer:hover { border-color: var(--zli-border-hover); }
-/* Typing lifts the composer a step and rings it softly; the accent stays reserved for keyboard focus on controls. */
-.composer:focus-within { border-color: var(--zli-border-hover); background: var(--zli-overlay); box-shadow: var(--zli-highlight), var(--zli-shadow-lift), 0 0 0 3px var(--zli-hover); }
 /* Where the message lands: folder, local copy or worktree, and branch, on a tab the message box sits on top of. */
 .composer-shell { position: relative; }
 .composer-shell > .composer { position: relative; z-index: 1; }
-.composer-workspace { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1); margin: 0 var(--zli-space-3) -16px; padding: 5px var(--zli-space-2) 21px; border: 1px solid var(--zli-border); border-bottom: 0; border-radius: 14px 14px 0 0; background: var(--zli-surface); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: 18px; user-select: none; }
+.composer-workspace { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1); margin: 0 var(--zli-space-3) -16px; padding: 5px var(--zli-space-2) 21px; border: 1px solid var(--zli-border); border-bottom: 0; border-radius: 14px 14px 0 0; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: 18px; user-select: none; }
 .composer-workspace-item { display: inline-flex; min-width: 0; height: 26px; flex: 0 0 auto; align-items: center; gap: 6px; padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: inherit; font: inherit; white-space: nowrap; }
 .composer-workspace-item > svg { flex: 0 0 auto; color: var(--zli-dim); }
 .composer-workspace-item.is-folder { color: var(--zli-text); font-weight: 500; }
@@ -218,22 +198,18 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 .composer-workspace-note { display: inline-flex; min-width: 0; align-items: center; gap: 6px; margin-left: auto; padding-right: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .composer-workspace-note.is-error { color: var(--zli-red); }
 /* Places to move a chat to: projects, or this project's worktrees and branches with a filter on top. */
-.place-menu { width: 320px; }
-.place-menu-search { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); margin: calc(-1 * var(--zli-space-1)) calc(-1 * var(--zli-space-1)) var(--zli-space-1); padding: 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); }
+.place-menu-search { display: flex; flex: 0 0 auto; align-items: center; border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); }
 .place-menu-search input { min-width: 0; height: 34px; flex: 1; padding: 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); }
-.place-menu .picker-option-label.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
 .place-menu .picker-option-description { overflow: hidden; color: var(--zli-dim); text-overflow: ellipsis; white-space: nowrap; }
-.place-menu-empty { margin: 0; padding: var(--zli-space-2) var(--zli-space-2-5); color: var(--zli-dim); font-size: var(--zli-text-xs); }
-.composer textarea { display: block; width: 100%; min-height: 44px; max-height: 240px; resize: none; padding: 2px var(--zli-space-1) 0 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font-size: var(--zli-text-md); line-height: var(--zli-leading-normal); field-sizing: content; }
+.composer textarea { display: block; width: 100%; max-height: 240px; resize: none; padding: 2px var(--zli-space-1) 0 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font-size: var(--zli-text-chat); line-height: var(--zli-leading-normal); field-sizing: content; }
 .composer textarea::placeholder { color: var(--zli-dim); }
 .composer textarea:focus-visible { outline: none; }
 /* The top padding leaves room for the remove buttons that sit on each attachment's corner. */
 .composer-attachments { display: flex; flex-wrap: wrap; gap: var(--zli-space-2); margin: calc(var(--zli-space-1) * -1) 0 var(--zli-space-2-5); padding: 6px 6px 0 0; list-style: none; }
-.composer-attachment { position: relative; display: flex; flex: 0 1 auto; min-width: 0; align-items: center; height: 56px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-surface); color: var(--zli-muted); font-size: var(--zli-text-xs); animation: zli-fade-in var(--zli-duration-base) var(--zli-ease) both; transition: border-color var(--zli-duration-fast) var(--zli-ease); }
+.composer-attachment { position: relative; display: flex; flex: 0 1 auto; min-width: 0; align-items: center; color: var(--zli-muted); font-size: var(--zli-text-xs); animation: zli-fade-in var(--zli-duration-base) var(--zli-ease) both; transition: border-color var(--zli-duration-fast) var(--zli-ease); }
 .composer-attachment:hover, .composer-attachment:focus-within { border-color: var(--zli-border-hover); }
-.composer-attachment.is-card { gap: 10px; max-width: 248px; padding: 0 var(--zli-space-3) 0 10px; }
-.composer-attachment.is-image { flex: 0 0 auto; width: 76px; }
-.composer-attachment-thumb { display: grid; width: 100%; height: 100%; place-items: center; padding: 0; overflow: hidden; border: 0; border-radius: calc(var(--zli-radius-lg) - 1px); background: var(--zli-well); color: var(--zli-dim); cursor: zoom-in; }
+.composer-attachment.is-image { flex: 0 0 auto; }
+.composer-attachment-thumb { display: grid; width: 100%; height: 100%; place-items: center; padding: 0; overflow: hidden; border: 0; background: var(--zli-well); color: var(--zli-dim); cursor: zoom-in; }
 .composer-attachment-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .composer-attachment-thumb:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 .composer-attachment-label { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; line-height: 1.25; }
@@ -248,6 +224,7 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 /* Tinted by file type so a PDF, a sheet, and a deck read apart at a glance. */
 .file-badge { display: inline-grid; flex: 0 0 auto; place-items: center; width: 32px; height: 32px; border-radius: var(--zli-radius-sm); background: var(--zli-overlay); color: var(--zli-muted); }
 .file-badge.is-sm { width: 20px; height: 20px; border-radius: var(--zli-radius-xs); }
+/* Glyphs inside fixed icon boxes (this badge, the site letter, the citation number) sit outside the type scale. */
 .file-badge-text { font-size: 9px; font-weight: 700; letter-spacing: .04em; line-height: 1; text-transform: uppercase; }
 .file-badge.is-pdf { background: var(--zli-red-soft); color: var(--zli-red); }
 .file-badge.is-doc { background: var(--zli-blue-soft); color: var(--zli-blue); }
@@ -278,11 +255,10 @@ button.step-row:hover .step-file { background: var(--zli-active); }
  * One row of 28px controls on the same radius: Add, then the pickers as quiet chips (icon, label, chevron),
  * then the context meter and Send on the right. Only the model name gives way when the row runs short.
  */
-.composer-footer { display: flex; min-width: 0; align-items: center; gap: 2px; margin-left: -6px; padding-top: var(--zli-space-2); }
+.composer-footer { display: flex; min-width: 0; align-items: center; margin-left: -6px; padding-top: var(--zli-space-2); }
 .composer-footer > .btn, .composer-footer > .picker-trigger, .composer-badge { border-radius: var(--zli-radius-pill); }
 .composer-add { color: var(--zli-muted); }
 .composer-add[aria-expanded="true"] { background: var(--zli-active); color: var(--zli-text); }
-.composer-divider { flex: 0 0 auto; width: 1px; height: 14px; margin: 0 var(--zli-space-1); background: var(--zli-border-strong); }
 .composer-footer .picker-trigger { flex: 0 0 auto; gap: 6px; min-width: 0; padding: 0 var(--zli-space-2) 0 var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); }
 .composer-footer .picker-trigger:hover, .composer-footer .picker-trigger[aria-expanded="true"] { color: var(--zli-text); }
 .composer-footer .picker-trigger > svg:not(.picker-chevron) { color: var(--zli-muted); }
@@ -300,14 +276,12 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 /* Model and effort read as one setting on the right: the model in full, its effort quieter beside it. */
 .composer-footer .composer-reasoning { margin-left: -4px; }
 .composer-footer .composer-reasoning:not(:hover, [aria-expanded="true"]) .picker-trigger-label { color: var(--zli-dim); }
-.composer-footer .send-split, .composer-footer > .stop-button { margin-left: var(--zli-space-1); }
+.composer-footer .send-split { margin-left: var(--zli-space-1); }
 .composer-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: var(--zli-control-md); margin-left: var(--zli-space-1); padding: 0 var(--zli-space-2) 0 7px; color: var(--zli-muted); cursor: default; font-size: var(--zli-text-sm); white-space: nowrap; }
 .composer-badge > svg { color: var(--zli-muted); }
 /* Full access is the one level where the agent acts without asking, so its shield alone carries a calm amber. */
 svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permission-icon.is-full-access, .picker-field > svg.permission-icon.is-full-access { color: var(--zli-amber); }
 .composer-spacer { flex: 1; min-width: var(--zli-space-1); }
-.composer-context { padding: 0 var(--zli-space-1-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.composer-context.is-full { color: var(--zli-amber); }
 .composer-error { display: flex; align-items: center; gap: var(--zli-space-1-5); margin: var(--zli-space-1-5) 0 0; color: var(--zli-red); font-size: var(--zli-text-sm); }
 .send-button { display: inline-grid; place-items: center; width: 30px; height: 30px; flex: 0 0 auto; padding: 0; border: 0; border-radius: var(--zli-radius-pill); background: var(--zli-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 1px 2px rgba(0, 0, 0, .4); color: var(--zli-accent-ink); cursor: pointer; transition: background-color var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
 .send-button:active:not(:disabled) { transform: scale(.94); }
@@ -341,7 +315,6 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
 .best-of-count { min-width: 26px; height: 20px; padding: 0 var(--zli-space-1-5); border: 0; border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 .best-of-count:hover { color: var(--zli-text); }
 .best-of-count[aria-pressed="true"] { background: var(--zli-active); color: var(--zli-text); font-weight: 600; }
-.best-of-prompt { margin: 0 var(--zli-space-2) var(--zli-space-1); overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .best-of-runs { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
 .best-of-run { display: flex; align-items: center; gap: var(--zli-space-1); min-width: 0; padding: 2px var(--zli-space-1) 2px var(--zli-space-2); border-radius: var(--zli-radius-sm); }
 .best-of-run:hover { background: var(--zli-hover); }
@@ -377,7 +350,7 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
   .composer-model .picker-trigger-label { max-width: 110px; }
 }
 @container tile (max-width: 360px) {
-  .composer-divider, .composer-context { display: none; }
+  .composer-context { display: none; }
   .composer-model .picker-trigger-label { display: none; }
 }
 
@@ -405,12 +378,8 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
 .image-lightbox-stage > img { max-width: calc(100vw - 2 * var(--zli-space-6)); max-height: calc(100vh - 48px - var(--zli-space-6)); border-radius: var(--zli-radius-md); box-shadow: var(--zli-shadow-dialog); object-fit: contain; pointer-events: auto; }
 .image-lightbox-error { margin: 0; color: var(--zli-red-ink); font-size: var(--zli-text-sm); }
 @keyframes image-lightbox-in { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .image-lightbox, .step, .chat-working { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .image-lightbox, .step, .chat-working, .turn-rail-card { animation: none; } .turn-rail-line { transition: none; } }
 
-/* Agent first, then its model. Two columns keep the agents in view however long a model list is. The menu's
-   height is set from the agent with the most models, so hovering another agent never resizes it. */
-/* Fixed row heights: AgentModelPicker sums these to size the menu. */
-/* The agent whose models show on the right keeps a resting highlight, so the two lists read as one choice. */
 /* Controls, not text: a double-click on one should not paint a selection over its label. */
 .composer-footer { user-select: none; }
 /* Full access lets the agent act without asking, so its whole chip, not just the lock, reads amber. */
@@ -420,39 +389,17 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
 /* The level is the headline and the model it applies to sits under it. One thick pill runs from least to most
    thinking; the blue fill ends under the knob, and the knob carries the same rising bars as the chip in the
    message box, so the two read as one control. Each level's name sits under its stop and can be clicked. */
-.effort-popup { --effort-ease: cubic-bezier(.22, 1, .36, 1); position: fixed; z-index: calc(var(--zli-z-dialog) + 1); width: 288px; padding: var(--zli-space-3) var(--zli-space-3-5, 14px) var(--zli-space-3); border: 1px solid var(--zli-border-strong); border-radius: 16px; background: var(--zli-overlay); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); color: var(--zli-text); transform-origin: bottom right; animation: picker-in var(--zli-duration-base) var(--zli-ease) both; user-select: none; }
+/* Effort: a black popup with the effort track (ReasoningTrack) under a one-line header. */
+.effort-popup { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); width: 280px; padding: 12px 12px 14px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: 16px; background: var(--zli-popup, #0a0a0a); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); color: var(--zli-text); transform-origin: bottom right; animation: picker-in var(--zli-duration-base) var(--zli-ease) both; user-select: none; }
 .effort-popup[data-side="bottom"] { transform-origin: top right; }
-.effort-head { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 0 var(--zli-space-6); text-align: center; }
-.effort-noun { color: var(--zli-dim); font-size: 11px; font-weight: 500; line-height: 16px; }
-.effort-level { color: var(--zli-accent-hover); font-size: 17px; font-weight: 600; line-height: 24px; animation: effort-lift 260ms var(--effort-ease) both; }
-@keyframes effort-lift { from { opacity: 0; transform: translateY(4px); } }
-.effort-model { overflow: hidden; max-width: 100%; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.effort-reset { position: absolute; top: 2px; right: -6px; display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-pill); background: transparent; color: var(--zli-muted); cursor: pointer; animation: zli-fade-in var(--zli-duration-fast) var(--zli-ease) both; }
+.effort-head { display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 2px; }
+.effort-noun { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
+.effort-reset { display: grid; width: 22px; height: 22px; flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-pill); background: transparent; color: var(--zli-muted); cursor: pointer; animation: zli-fade-in var(--zli-duration-fast) var(--zli-ease) both; }
 .effort-reset:hover { background: var(--zli-hover); color: var(--zli-text); }
 .effort-reset:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
-.effort-slider { position: relative; height: 32px; margin-top: var(--zli-space-3); border-radius: var(--zli-radius-pill); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); cursor: grab; touch-action: none; outline: none; }
-.effort-slider.is-dragging { cursor: grabbing; }
-.effort-slider:focus, .effort-slider:focus-visible { outline: none; }
-.effort-fill { position: absolute; top: 0; bottom: 0; left: 0; width: calc((100% - 32px) * var(--effort) + 32px); border-radius: var(--zli-radius-pill); background: var(--zli-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2); transition: width 280ms var(--effort-ease); }
-.effort-rail { position: absolute; inset: 0 16px; }
-.effort-stop { position: absolute; top: 50%; width: 4px; height: 4px; border-radius: 50%; background: var(--zli-muted); transform: translate(-50%, -50%); transition: background-color 200ms var(--zli-ease); }
-.effort-stop.is-on { background: rgba(255, 255, 255, .55); }
-.effort-knob { position: absolute; top: 50%; left: calc(var(--effort) * 100%); display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: #f4f4f5; box-shadow: 0 1px 3px rgba(0, 0, 0, .45), 0 0 0 1px rgba(0, 0, 0, .15); color: var(--zli-accent); transform: translate(-50%, -50%); transition: left 280ms var(--effort-ease), transform 160ms var(--effort-ease), box-shadow 160ms var(--zli-ease); }
-.effort-knob .reasoning-meter { width: 12px; height: 12px; }
-.effort-knob .reasoning-meter :is(rect, path) { fill: currentColor; }
-.effort-slider:hover .effort-knob { box-shadow: 0 2px 6px rgba(0, 0, 0, .5), 0 0 0 1px rgba(0, 0, 0, .15); }
-.effort-slider.is-dragging .effort-knob { transform: translate(-50%, -50%) scale(1.08); }
-/* While dragging, the knob and fill follow the pointer exactly; the easing only carries them onto a stop. */
-.effort-slider.is-dragging .effort-knob, .effort-slider.is-dragging .effort-fill { transition-property: transform, box-shadow; }
-.effort-slider.is-keyed:focus .effort-knob { box-shadow: 0 1px 3px rgba(0, 0, 0, .45), 0 0 0 3px var(--zli-accent-line); }
-.effort-scale { position: relative; height: 18px; margin: 6px 16px 0; }
-.effort-scale-label { position: absolute; top: 0; padding: 0 2px; border: 0; background: transparent; color: var(--zli-dim); cursor: pointer; font-size: 11px; line-height: 18px; white-space: nowrap; transform: translateX(-50%); transition: color 200ms var(--zli-ease); }
-.effort-scale-label:first-child { transform: translateX(-16px); }
-.effort-scale-label:last-child { transform: translateX(calc(-100% + 16px)); }
-.effort-scale-label:hover { color: var(--zli-muted); }
-.effort-scale-label.is-on { color: var(--zli-text); font-weight: 500; }
-.effort-hint { margin: var(--zli-space-2) 0 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); text-align: center; }
-@media (prefers-reduced-motion: reduce) { .effort-popup, .effort-level, .effort-knob, .effort-fill, .effort-reset { animation: none; transition: none; } }
+.effort-popup .rt-root { margin-top: 10px; }
+.effort-hint { margin: 10px 2px 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 1.45; }
+@media (prefers-reduced-motion: reduce) { .effort-popup, .effort-reset { animation: none; transition: none; } }
 
 /* ---------- Conversation ---------- */
 .chat-stage { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; }
@@ -488,20 +435,23 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
 .chat-jump.is-new > svg { color: var(--zli-accent); }
 
 /* One mark for each message sent, down the edge of the log; pointing at them lists the messages. */
+/* The message rail, down the left edge of a long chat: one tick per message the person sent. Ticks grow
+   as the pointer nears, the one in view is lit, and the pointed tick shows a card with the message and the
+   start of its reply. */
 .chat-view:has(.turn-rail) .chat-column { padding-right: 44px; padding-left: 44px; }
-.turn-rail { position: absolute; top: 50%; right: 12px; z-index: 3; display: flex; max-height: 70%; transform: translateY(-50%); }
-.turn-rail-marks { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; padding: var(--zli-space-2) 2px var(--zli-space-2) var(--zli-space-3); overflow: hidden; }
-.turn-rail-mark { width: 10px; height: 2px; flex: 0 0 auto; border-radius: 1px; background: var(--zli-border-strong); transition: width var(--zli-duration-base) var(--zli-ease), background-color var(--zli-duration-base) var(--zli-ease); }
-.turn-rail-mark.is-active { width: 18px; background: var(--zli-text); }
-.turn-rail-list { position: absolute; top: 50%; right: 0; width: 280px; max-height: min(60vh, 420px); margin: 0; padding: var(--zli-space-1); overflow: auto; transform: translate(6px, -50%); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-lg); background: var(--zli-raised); box-shadow: var(--zli-shadow-pop); list-style: none; opacity: 0; pointer-events: none; transition: opacity var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
-.turn-rail:hover .turn-rail-list, .turn-rail:focus-within .turn-rail-list { transform: translate(0, -50%); opacity: 1; pointer-events: auto; }
-.turn-rail-item { display: flex; width: 100%; min-width: 0; align-items: baseline; gap: var(--zli-space-2); padding: 6px var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); text-align: left; }
-.turn-rail-item:hover { background: var(--zli-hover); color: var(--zli-text); }
-.turn-rail-item.is-active { color: var(--zli-text); }
-.turn-rail-item:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
-.turn-rail-number { flex: 0 0 16px; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; text-align: right; }
-.turn-rail-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@container tile (max-width: 640px) {
+.turn-rail { position: absolute; top: 50%; left: 6px; z-index: 3; display: flex; max-height: 70%; transform: translateY(-50%); }
+.turn-rail-marks { position: relative; display: flex; flex-direction: column; align-items: flex-start; overflow: hidden auto; padding: 8px 18px 8px 6px; scrollbar-width: none; }
+.turn-rail-marks::-webkit-scrollbar { display: none; }
+.turn-rail-tick { --near: 0; display: flex; width: 34px; height: 8px; flex: 0 0 auto; align-items: center; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.turn-rail-tick:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; border-radius: 2px; }
+.turn-rail-line { width: calc(10px + var(--near) * 14px); height: 1.5px; border-radius: 1px; background: color-mix(in srgb, var(--zli-text) calc(22% + var(--near) * 45%), transparent); transition: width var(--zli-duration-base) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.turn-rail-tick.is-active .turn-rail-line { width: calc(18px + var(--near) * 6px); background: var(--zli-text); }
+.turn-rail-tick.is-shown .turn-rail-line { width: 26px; background: var(--zli-text); }
+.turn-rail-card { position: absolute; left: 44px; display: flex; width: 280px; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: 12px; background: var(--zli-popup, #0a0a0a); box-shadow: var(--zli-shadow-pop); pointer-events: none; transform: translateY(-50%); animation: turn-card-in var(--zli-duration-base) var(--zli-ease) both; }
+@keyframes turn-card-in { from { opacity: 0; transform: translate(-6px, -50%); } }
+.turn-rail-card-title { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.turn-rail-card-reply { display: -webkit-box; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+@container tile (max-width: 480px) {
   .turn-rail { display: none; }
   .chat-view:has(.turn-rail) .chat-column { padding-right: var(--zli-space-3); padding-left: var(--zli-space-3); }
 }
@@ -541,11 +491,11 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
 .markdown strong { font-weight: 600; }
 .markdown p { margin-bottom: var(--zli-space-3); }
 .markdown .md-heading, .markdown .md-h1, .markdown .md-h2, .markdown .md-h3 { margin: 22px 0 var(--zli-space-2); letter-spacing: -0.012em; line-height: 1.3; text-wrap: balance; }
-.markdown .md-h1 { font-size: 18px; font-weight: 650; }
-.markdown .md-h2 { font-size: 16px; }
+.markdown .md-h1 { font-size: calc(var(--zli-text-chat) + 3px); font-weight: 650; }
+.markdown .md-h2 { font-size: calc(var(--zli-text-chat) + 1px); }
 .markdown li::marker { color: var(--zli-dim); }
-.markdown :not(pre) > code { font-size: 0.86em; }
-.markdown pre, .markdown .md-code { font-size: 12.5px; line-height: 1.6; font-variant-ligatures: none; }
+.markdown :not(pre) > code { font-size: calc(var(--zli-text-code) - 1px); }
+.markdown pre, .markdown .md-code { font-size: var(--zli-text-code); line-height: 1.6; font-variant-ligatures: none; }
 .chat-message-user p { color: var(--zli-text); }
 
 /* The message box sits just above the page instead of on a grey slab, which on Midnight read as a light
@@ -603,7 +553,7 @@ span.room-person-chip { color: var(--zli-muted); }
 .mention-option-copy { display: flex; min-width: 0; flex-direction: column; }
 
 /* The first chat before any project. It is the same chat as any other; the folder tab is the way in. */
-.no-project-start { gap: var(--zli-space-3); animation: no-project-rise 420ms cubic-bezier(.22, 1, .36, 1) both; }
+.no-project-start { gap: var(--zli-space-3); animation: no-project-rise 420ms var(--zli-ease) both; }
 .no-project-start .chat-start-title { margin-top: var(--zli-space-1); }
 .no-project-hint { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: center; }
 .no-project-hint-folder { color: var(--zli-text); font-weight: 550; }
@@ -613,17 +563,12 @@ span.room-person-chip { color: var(--zli-muted); }
 .folder-menu { width: 380px; }
 .folder-menu .picker-option { align-items: center; }
 .folder-menu .picker-option-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.folder-menu-when { flex: 0 0 auto; margin-left: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 @keyframes no-project-rise { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .no-project-start { animation: none; } }
 
 /* ---------- Picking up, editing, branching ---------- */
 .chat-continue { display: flex; align-items: center; gap: var(--zli-space-2); margin: var(--zli-space-2) 0; }
 .chat-continue-line { height: 1px; flex: 1; background: var(--zli-border); }
-.chat-editing { display: flex; align-items: center; gap: var(--zli-space-1-5); margin: 0 0 var(--zli-space-1-5); padding: 0 var(--zli-space-1); color: var(--zli-muted); font-size: var(--zli-text-xs); }
-.chat-editing > svg { color: var(--zli-accent); }
-.chat-editing > button { margin-left: auto; padding: 0 6px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); font: inherit; cursor: pointer; }
-.chat-editing > button:hover { background: var(--zli-hover); color: var(--zli-text); }
 .chat-branched { display: flex; align-items: center; justify-content: center; gap: var(--zli-space-1-5); margin: 0 auto var(--zli-space-4); color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
 .chat-branched > svg { flex: 0 0 auto; }
 .chat-branched > span { min-width: 0; }
@@ -631,8 +576,8 @@ span.room-person-chip { color: var(--zli-muted); }
 
 /* ---------- Suggestions ---------- */
 /* What the last reply suggests doing next: rows, not buttons, so they read as part of the reply. */
-.follow-ups { display: flex; flex-direction: column; gap: 2px; margin: var(--zli-space-1) 0 var(--zli-space-3); }
-.follow-up { display: flex; align-items: center; gap: var(--zli-space-2); min-height: 32px; padding: 0 4px 0 var(--zli-space-2-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-sm); transition: border-color var(--zli-duration-fast) var(--zli-ease); }
+.follow-ups { display: flex; flex-direction: column; }
+.follow-up { display: flex; align-items: center; gap: var(--zli-space-2); padding: 0 4px 0 var(--zli-space-2-5); color: var(--zli-muted); font-size: var(--zli-text-sm); transition: border-color var(--zli-duration-fast) var(--zli-ease); }
 .follow-up:hover { border-color: var(--zli-border-hover); color: var(--zli-text); }
 .follow-up > svg { flex: 0 0 auto; color: var(--zli-dim); }
 .follow-up-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -665,23 +610,13 @@ span.room-person-chip { color: var(--zli-muted); }
 .review-finding:hover .review-finding-actions, .review-finding:focus-within .review-finding-actions { opacity: 1; }
 
 /* ---------- The branch's pull request ---------- */
-.pr-strip { display: flex; align-items: center; gap: var(--zli-space-2); min-height: 32px; margin: 0 0 var(--zli-space-2); padding: 0 4px 0 var(--zli-space-2-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-sm); }
-.pr-strip > svg { flex: 0 0 auto; color: var(--zli-dim); }
-.pr-strip.is-passed > svg, .pr-strip.is-merged > svg { color: var(--zli-green); }
-.pr-strip.is-failed > svg { color: var(--zli-red); }
-.pr-strip-title { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 6px; padding: 0; border: 0; background: transparent; color: var(--zli-text); font: inherit; cursor: pointer; text-align: left; }
-.pr-strip-title:hover .pr-strip-name { text-decoration: underline; text-underline-offset: 2px; }
-.pr-strip-number { flex: 0 0 auto; color: var(--zli-dim); font-variant-numeric: tabular-nums; }
-.pr-strip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pr-strip-checks { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
-.pr-strip.is-failed .pr-strip-checks { color: var(--zli-red); }
 
 /* ---------- The tray on the message box ---------- */
 /* What waits on the person docks on top of the workspace tab, the same width, so the plan, a side question,
    and an approval read as part of the message box rather than more conversation. It stays put while the
    conversation scrolls, and scrolls on its own past half the window. Quiet by design: one surface, hairline
    dividers inset from the edges, grey type, and colour only where it carries state. */
-.composer-tray { display: flex; max-height: min(50vh, 440px); flex-direction: column; margin: 0 var(--zli-space-3); overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--zli-border); border-bottom: 0; border-radius: 14px 14px 0 0; background: color-mix(in srgb, var(--zli-raised) 25%, var(--zli-surface)); scrollbar-width: thin; }
+.composer-tray { display: flex; max-height: min(50vh, 440px); flex-direction: column; margin: 0 var(--zli-space-3); overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--zli-border); border-bottom: 0; scrollbar-width: thin; }
 .composer-tray > * { position: relative; }
 .composer-tray > * + *::before { position: absolute; top: 0; right: var(--zli-space-3); left: var(--zli-space-3); height: 1px; background: var(--zli-border); content: ""; }
 .composer-shell.has-tray .composer-workspace { border-radius: 0; }
@@ -710,7 +645,7 @@ span.room-person-chip { color: var(--zli-muted); }
 .plan-card-tick.is-completed { background: var(--zli-muted); }
 .plan-card-tick.is-in_progress { background: var(--zli-accent); }
 .plan-card.is-done .plan-card-tick { background: var(--zli-green); opacity: .7; }
-.plan-card-count { min-width: 26px; flex: 0 0 auto; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+.plan-card-count { min-width: 26px; flex: 0 0 auto; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-align: right; }
 .plan-card-chevron { flex: 0 0 auto; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
 .plan-card-toggle[aria-expanded="true"] .plan-card-chevron { transform: rotate(180deg); }
 .plan-card-list { display: flex; flex-direction: column; margin: 0; padding: 0 var(--zli-space-3) var(--zli-space-2) 14px; list-style: none; }
@@ -742,22 +677,127 @@ span.room-person-chip { color: var(--zli-muted); }
 .side-chat-form > textarea:focus { outline: none; }
 .side-chat-form > textarea::placeholder { color: var(--zli-dim); }
 
-/* ---------- Approving a plan ---------- */
-/* The one decision in the tray, so it alone carries the accent, on its button. */
-.plan-approval { display: flex; align-items: center; gap: var(--zli-space-1-5); padding: 6px 6px 6px var(--zli-space-3); }
-.plan-approval-copy { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: var(--zli-space-2); }
-.plan-approval-title { flex: 0 0 auto; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
-.plan-approval-detail { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.plan-approval > .btn { flex: 0 0 auto; }
 
 @media (prefers-reduced-motion: reduce) {
   .composer-tray > *, .plan-step.is-in_progress .plan-step-mark { animation: none; }
 }
 
 /* While the tray holds something, the invitation above it steps back; Bring in stays. */
+
+/* ---------- Dither glow ---------- */
+/* Light under the message box, cut into a grid of dots so it reads as pixels rather than a blur. The dots stay
+   put and the light moves under them, which gives the drift its shimmer while the agent works. */
+@property --composer-glow-x { syntax: "<percentage>"; inherits: false; initial-value: 50%; }
+@property --composer-glow-spread { syntax: "<percentage>"; inherits: false; initial-value: 46%; }
+.chat-dock { overflow-x: clip; }
+.composer-shell { isolation: isolate; }
+.composer-shell::before { position: absolute; inset: -28px -24px -12px; z-index: -1; background: radial-gradient(var(--composer-glow-spread) 70% at var(--composer-glow-x) 100%, color-mix(in srgb, var(--zli-accent) 70%, transparent), transparent 72%), radial-gradient(70% 80% at 50% 70%, color-mix(in srgb, var(--zli-accent) 22%, transparent), transparent 78%); -webkit-mask: radial-gradient(circle, #000 0 .9px, transparent 1.3px) 0 0 / 4px 4px; mask: radial-gradient(circle, #000 0 .9px, transparent 1.3px) 0 0 / 4px 4px; opacity: .4; content: ""; pointer-events: none; transition: opacity var(--zli-duration-base) var(--zli-ease); }
+.composer-shell.is-working::before { opacity: .9; animation: composer-glow-drift 7s ease-in-out infinite; }
+@keyframes composer-glow-drift {
+  0%, 100% { --composer-glow-x: 22%; --composer-glow-spread: 38%; }
+  50% { --composer-glow-x: 78%; --composer-glow-spread: 58%; }
+}
+
+/* The box itself: a softer edge and a hairline of light on top. Typing in it changes nothing around it: no ring, no brighter glow. */
+.composer { border-radius: 20px; border-color: color-mix(in srgb, var(--zli-border-strong) 85%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent), var(--zli-shadow-lift); }
+.composer:focus-within { border-color: color-mix(in srgb, var(--zli-border-strong) 85%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent), var(--zli-shadow-lift); }
+.composer-shell.is-working .composer { border-color: color-mix(in srgb, var(--zli-accent) 28%, var(--zli-border-strong)); }
+
+/* Before the first message, the same dots rise from the bottom of the page. The dock's fade would draw a
+   band across them, and there is no log to fade yet, so it goes. */
+.chat-view.has-start-glow { position: relative; isolation: isolate; }
+.chat-view.has-start-glow::after { position: absolute; right: 0; bottom: 0; left: 0; z-index: -1; height: min(45%, 380px); background: radial-gradient(55% 100% at 50% 100%, color-mix(in srgb, var(--zli-accent) 50%, transparent), color-mix(in srgb, var(--zli-accent) 12%, transparent) 55%, transparent 80%); -webkit-mask: radial-gradient(circle, #000 0 .9px, transparent 1.3px) 0 0 / 4px 4px; mask: radial-gradient(circle, #000 0 .9px, transparent 1.3px) 0 0 / 4px 4px; content: ""; pointer-events: none; animation: zli-fade-in 700ms var(--zli-ease) both; }
+.chat-view.has-start-glow .chat-dock::before { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-shell.is-working::before, .chat-view.has-start-glow::after { animation: none; }
+}
+
+/* ---------- Under the message box ---------- */
+/* Where the chat works and how much it may do sit in one quiet row under the box rather than on a tab above
+   it, so the box holds only what you type and what you send it to. */
+.composer-below { display: flex; min-width: 0; align-items: center; gap: 2px; min-height: 30px; padding: 6px var(--zli-space-1) 0; color: var(--zli-dim); font-size: var(--zli-text-xs); user-select: none; }
+.composer-below > .composer-workspace { min-width: 0; flex: 1; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font-size: inherit; }
+.composer-below .composer-workspace-item { height: 24px; gap: 5px; padding: 0 6px; color: var(--zli-muted); }
+.composer-below .composer-workspace-item.is-folder { color: var(--zli-muted); font-weight: 400; }
+.composer-below .composer-workspace-item > svg { width: 13px; height: 13px; }
+.composer-below .composer-workspace-item.is-button:hover, .composer-below .composer-workspace-item.is-button[aria-expanded="true"] { color: var(--zli-text); }
+.composer-below .composer-workspace-item.is-branch .composer-workspace-label { font-size: var(--zli-text-sm); }
+.composer-shell.has-tray .composer-tray { margin-bottom: -16px; padding-bottom: 16px; }
+
+/* The permission sits at the end of the row. Full access keeps its amber so it is never missed. */
+.composer-below > .picker-trigger, .composer-below > .composer-badge { flex: 0 0 auto; height: 24px; gap: 5px; margin-left: 0; padding: 0 6px; border-radius: var(--zli-radius-sm); color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.composer-below > .picker-trigger:hover, .composer-below > .picker-trigger[aria-expanded="true"] { background: var(--zli-hover); color: var(--zli-text); }
+.composer-below > .picker-trigger > svg:not(.picker-chevron), .composer-below > .composer-badge > svg { width: 13px; height: 13px; color: var(--zli-dim); }
+.composer-below .picker-chevron { width: 10px; height: 10px; }
+.composer-below > .composer-permission.is-full-access, .composer-below > .composer-badge.is-full-access { color: var(--zli-amber); }
+.composer-below > .composer-permission.is-full-access > svg:not(.picker-chevron), .composer-below > .composer-badge.is-full-access > svg { color: var(--zli-amber); }
+
+/* Worktree on or off, before the first message. On gives the chat its own branch and folder. */
+.composer-isolate { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; height: 24px; margin-left: auto; padding: 0 6px; border-radius: var(--zli-radius-sm); color: var(--zli-muted); cursor: pointer; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.composer-isolate:hover { background: var(--zli-hover); color: var(--zli-text); }
+.composer-isolate > input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.composer-isolate-track { position: relative; width: 22px; height: 13px; flex: 0 0 auto; border-radius: var(--zli-radius-pill); background: var(--zli-border-strong); transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.composer-isolate-track::after { position: absolute; top: 2px; left: 2px; width: 9px; height: 9px; border-radius: 50%; background: var(--zli-text); content: ""; transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.composer-isolate > input:checked + .composer-isolate-track { background: var(--zli-accent); }
+.composer-isolate > input:checked + .composer-isolate-track::after { background: var(--zli-accent-ink); transform: translateX(9px); }
+.composer-isolate:has(> input:checked) { color: var(--zli-text); }
+.composer-isolate > input:focus-visible + .composer-isolate-track { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.composer-isolate:has(> input:disabled) { cursor: progress; opacity: .6; }
+.composer-below .composer-workspace-note { margin-left: var(--zli-space-1); }
+
+/* Inside the box: more room to type, and controls that stay grey until you reach for them. */
+.composer { padding: 14px var(--zli-space-3) 10px var(--zli-space-4); }
+.composer textarea { min-height: 48px; }
+.composer-footer { gap: 4px; }
+.composer-footer > .composer-add { color: var(--zli-muted); }
+.composer-footer > .composer-add:hover { color: var(--zli-text); }
+
+@media (max-width: 520px) {
+  .composer-below .composer-permission .picker-trigger-label, .composer-isolate > span:last-child { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-isolate-track, .composer-isolate-track::after { transition: none; }
+}
+
+/* ---------- Menus from the message box ---------- */
+.menu-item:hover:not([aria-disabled="true"]) { background: var(--zli-hover); }
+/* The folder and branch menus: a search on top, one line per place with its icon, and "Open a folder…"
+   set apart at the bottom. What each place is waits in the tooltip. */
+.place-menu { width: 280px; min-width: 0; padding: 4px; }
+.place-menu .picker-group + .picker-group { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--zli-border); }
+.place-menu .picker-option { height: 30px; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; color: var(--zli-text); }
+.place-menu .picker-option[aria-selected="true"]::before { display: none; }
+.place-menu .picker-option[aria-selected="true"] .picker-option-label { font-weight: 400; }
+.place-menu .picker-option-icon { width: auto; height: auto; color: var(--zli-muted); }
+.place-menu .picker-option-label { overflow: hidden; min-width: 0; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
+.place-menu .picker-option-label.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-sm); }
+.place-menu .picker-option.is-quiet, .place-menu .picker-option[aria-disabled="true"] { color: var(--zli-dim); }
+.place-menu .picker-option.is-quiet .picker-option-icon, .place-menu .picker-option[aria-disabled="true"] .picker-option-icon { color: var(--zli-dim); }
+.place-check { display: inline-grid; flex: 0 0 auto; place-items: center; color: var(--zli-muted); }
+.place-menu-search { height: 40px; gap: 9px; margin: -4px -4px 4px; padding: 0 14px; }
+.place-menu-search input::placeholder { color: var(--zli-dim); }
+.place-menu-search:focus-within > svg { color: var(--zli-text); }
+.place-menu-empty { margin: 0; padding: 8px 10px; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+
+/* ---------- Attachments in the box ---------- */
+/* Flat chips on a sunken well rather than bordered cards, so a few files do not crowd the text. */
+.composer-attachment { height: 44px; border: 0; border-radius: 10px; background: var(--zli-well); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--zli-border) 60%, transparent); }
+.composer-attachment:hover, .composer-attachment:focus-within { box-shadow: inset 0 0 0 1px var(--zli-border-hover); }
+.composer-attachment.is-card { gap: 8px; max-width: 220px; padding: 0 var(--zli-space-3) 0 6px; }
+.composer-attachment.is-image { width: 44px; }
+.composer-attachment-thumb { border-radius: 10px; }
+.composer-attachment .file-badge { width: 30px; height: 30px; border-radius: 7px; }
+.composer-attachment-label { font-size: var(--zli-text-sm); }
+.composer-attachment-meta { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+
+/* ---------- Model menu ---------- */
+/* The agents are a row of marks along the top that the wheel scrolls through; the one under the pointer or
+   the keys shows its models below. Its name and plan are in the mark's tooltip. One line per model. */
 .agent-model-menu { width: 260px; padding: 4px; }
 .agent-model-menu.is-split { overflow: hidden; }
 .agent-model-top { display: flex; flex: 0 0 44px; align-items: center; gap: 6px; margin: -4px -4px 4px; padding: 0 2px; border-bottom: 1px solid var(--zli-border); }
+/* The marks scroll sideways under the wheel when there are many; no scrollbar, a soft fade at the edges. */
 .agent-model-agents { display: flex; min-width: 0; flex: 1 1 auto; gap: 2px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 8px, #000 calc(100% - 8px), transparent); mask-image: linear-gradient(90deg, transparent, #000 8px, #000 calc(100% - 8px), transparent); padding: 0 6px; }
 .agent-model-agents::-webkit-scrollbar { display: none; }
 .agent-model-agent { display: grid; flex: 0 0 auto; width: 30px; height: 30px; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--zli-muted); cursor: pointer; opacity: .55; transition: opacity var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
@@ -771,3 +811,253 @@ span.room-person-chip { color: var(--zli-muted); }
 .agent-model-models .picker-option-icon { width: auto; height: auto; color: var(--zli-muted); }
 .agent-model-models .picker-option-label { overflow: hidden; min-width: 0; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
 .agent-model-check { display: inline-grid; flex: 0 0 auto; place-items: center; color: var(--zli-muted); }
+
+/* The effort chip's dial: a grey arc, filled in the text colour up to the level, with a needle on it. */
+.effort-dial { overflow: visible; }
+.effort-dial :is(path, line) { fill: none; stroke-linecap: round; }
+.effort-dial-track { stroke: var(--zli-border-strong); stroke-width: 1.6; }
+.effort-dial-value { stroke: currentColor; stroke-width: 1.6; transition: stroke-dasharray var(--zli-duration-base) var(--zli-ease); }
+.effort-dial-needle { stroke: currentColor; stroke-width: 1.3; transform: rotate(calc(var(--dial) * 240deg)); transform-origin: 7px 8px; transition: transform var(--zli-duration-base) var(--zli-ease-spring); }
+/* The chip's level name and the hint under the track change with a short blur-in, like the track's label. */
+.effort-chip-label, .effort-hint { animation: effort-swap var(--zli-duration-base) var(--zli-ease); }
+@keyframes effort-swap { from { filter: blur(2px); opacity: .3; transform: translateY(2px); } }
+.effort-chip-fast { color: var(--zli-amber); }
+.effort-chip-fast path { fill: currentColor; }
+.effort-spacer { flex: 1; }
+/* Fast, as a small pill in the effort header: grey when off, amber with a filled bolt when on (it costs more). */
+.effort-fast { display: inline-flex; height: 24px; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-radius: var(--zli-radius-pill); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-xs); transition: color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.effort-fast:hover { background: var(--zli-hover); color: var(--zli-text); }
+.effort-fast:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.effort-fast.is-on { background: color-mix(in srgb, var(--zli-amber) 14%, transparent); color: var(--zli-amber); }
+.effort-fast.is-on > svg path { fill: currentColor; }
+
+/* Fast: a small switch beside effort, shown only for a model that has a faster mode. */
+.composer-fast { display: inline-flex; height: 28px; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: var(--zli-radius-pill); background: transparent; color: var(--zli-dim); cursor: pointer; font: inherit; font-size: var(--zli-text-xs); transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.composer-fast:hover { background: var(--zli-hover); color: var(--zli-text); }
+.composer-fast:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.composer-fast.is-on { background: color-mix(in srgb, var(--zli-amber) 14%, transparent); color: var(--zli-amber); }
+.composer-fast.is-on svg path { fill: currentColor; }
+@media (prefers-reduced-motion: reduce) { .effort-dial-value, .effort-dial-needle { transition: none; } .effort-chip-label, .effort-hint { animation: none; } }
+
+
+/* Long step output folds to its ends; the copy button shows on hover. */
+.step-output { position: relative; }
+.step-more { display: block; margin: 1px 0; padding: 0; border: 0; background: none; color: var(--zli-dim); cursor: pointer; font: inherit; }
+.step-more:hover, .step-more:focus-visible { color: var(--zli-text); }
+.step-copy { position: absolute; top: 8px; right: 6px; background: var(--zli-popup, #0a0a0a); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.step-output:hover .step-copy, .step-copy:focus-visible, .trace:hover .trace-copy, .trace-copy:focus-visible { opacity: 1; }
+.step-detail.is-trace { white-space: normal; }
+
+/* Stack traces: the error first, frames folded, library frames dimmed. */
+.trace { position: relative; min-width: 0; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.trace-text { margin: 0 0 var(--zli-space-1); color: var(--zli-dim); font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.trace-head { margin: 0; padding-right: 28px; color: var(--zli-text); overflow-wrap: anywhere; white-space: pre-wrap; }
+.trace-type { color: var(--zli-red-ink); }
+.trace-toggle { display: inline-flex; align-items: center; gap: 4px; margin: 2px 0 0 -2px; padding: 1px 4px 1px 2px; border: 0; border-radius: var(--zli-radius-xs); background: none; color: var(--zli-dim); cursor: pointer; font: inherit; }
+.trace-toggle:hover, .trace-toggle:focus-visible { background: var(--zli-hover); color: var(--zli-text); }
+.trace-chevron { transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.trace-toggle[aria-expanded="true"] .trace-chevron { transform: rotate(90deg); }
+.trace-frames { margin: 2px 0 0; padding: 0 0 0 var(--zli-space-3); border-left: 1px solid var(--zli-border); list-style: none; }
+.trace-frame { overflow-wrap: anywhere; white-space: pre-wrap; }
+.trace-frame.is-vendor { color: var(--zli-dim); }
+.trace-code { display: block; padding-left: var(--zli-space-3); color: var(--zli-dim); }
+.trace-link { padding: 0; border: 0; background: none; color: inherit; cursor: pointer; font: inherit; text-decoration: underline; text-decoration-color: var(--zli-border-strong); text-underline-offset: 2px; }
+.trace-link:hover, .trace-link:focus-visible { color: var(--zli-text); text-decoration-color: currentColor; }
+.trace-copy { position: absolute; top: -2px; right: 0; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+
+/* Context meter: a ring that fills with the context window, amber only when nearly full. */
+.composer-context { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--zli-radius-pill); background: none; color: var(--zli-muted); cursor: default; }
+.composer-context:hover, .composer-context:focus-visible { background: var(--zli-hover); color: var(--zli-text); }
+.composer-context.is-full { color: var(--zli-amber); }
+.context-ring-track, .context-ring-fill { fill: none; stroke-width: 1.75; }
+.context-ring-track { stroke: var(--zli-border-strong); }
+.context-ring-fill { stroke: currentColor; stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; transition: stroke-dashoffset var(--zli-duration-base) var(--zli-ease); }
+.context-popup { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); min-width: 168px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-md); background: var(--zli-popup, #0a0a0a); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); color: var(--zli-text); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; pointer-events: none; animation: picker-in var(--zli-duration-fast) var(--zli-ease) both; }
+.context-popup-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--zli-space-3); }
+.context-popup-title { color: var(--zli-muted); }
+.context-popup-percent { font-size: var(--zli-text-sm); }
+.context-popup-percent.is-full { color: var(--zli-amber); }
+.context-popup-tokens { margin: 2px 0 0; color: var(--zli-muted); font-family: var(--zli-mono); }
+.context-popup-section { margin: var(--zli-space-2) 0 2px; padding-top: var(--zli-space-2); border-top: 1px solid var(--zli-border); color: var(--zli-dim); }
+.context-popup-turn { display: grid; gap: 1px; margin: 0; }
+.context-popup-row { display: flex; justify-content: space-between; gap: var(--zli-space-3); }
+.context-popup-row dt { color: var(--zli-muted); }
+.context-popup-row dd { margin: 0; font-family: var(--zli-mono); }
+.context-popup-cache { margin: var(--zli-space-2) 0 0; padding-top: var(--zli-space-2); border-top: 1px solid var(--zli-border); color: var(--zli-muted); }
+.context-popup-note { max-width: 220px; margin: var(--zli-space-2) 0 0; color: var(--zli-amber-ink); line-height: var(--zli-leading-normal); }
+@media (prefers-reduced-motion: reduce) { .context-popup { animation: none; } .context-ring-fill, .trace-chevron, .step-copy, .trace-copy { transition: none; } }
+
+/* Thinking: a row of its own. While it streams it stays open, dim and small, pinned to its newest line with the
+   older lines fading out above; done, it folds to how long it took. */
+.step.is-reasoning > .thought-row { gap: 6px; color: var(--zli-muted); }
+.thought-chevron { flex: 0 0 auto; margin: 0 1px; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.step.is-reasoning.is-open .thought-chevron { transform: rotate(90deg); }
+.thought-label { min-width: 0; overflow: hidden; color: var(--zli-muted); text-overflow: ellipsis; white-space: nowrap; }
+.step.is-completed > .thought-row .thought-label { color: var(--zli-dim); }
+button.thought-row:hover .thought-label { color: var(--zli-muted); }
+.thought-body { max-height: 320px; margin: 0 0 var(--zli-space-1-5) 5px; padding: 2px 0 2px var(--zli-space-3); overflow: auto; border-left: 1px solid var(--zli-border); }
+.step.is-running > .collapse .thought-body { max-height: 132px; overflow: hidden; mask-image: linear-gradient(to bottom, transparent, #000 36px); }
+.thought-body .markdown, .thought-body .markdown strong, .thought-body .markdown .md-heading { color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.thought-body .markdown p, .thought-body .markdown ul, .thought-body .markdown ol { margin-bottom: var(--zli-space-1-5); }
+.thought-body .markdown > :last-child { margin-bottom: 0; }
+.thought-cut { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); }
+
+/* Step times sit at the end of the row, as quiet as the row's own chevron. */
+.step-time, .turn-fold-time, .chat-reply-time { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.step-time { margin-left: var(--zli-space-0-5); }
+.turn-fold-time::before { margin-right: 6px; content: "·"; }
+.chat-reply-time { margin-left: var(--zli-space-2); }
+.step-denied { flex: 0 0 auto; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.step-pending { margin: 2px 0 var(--zli-space-1-5) 21px; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+
+/* A tool call's arguments: names dim on the left, values in mono, long ones held to three lines. */
+.step-input { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px var(--zli-space-3); margin: 2px 0 var(--zli-space-1-5) 21px; font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.step-input-row { display: contents; }
+.step-input dt { color: var(--zli-dim); }
+.step-input-value { min-width: 0; margin: 0; color: var(--zli-muted); font-family: var(--zli-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.step-input-value.is-clamped { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.step-input-value .step-more { display: inline; margin-left: var(--zli-space-1-5); font-family: var(--zli-font); }
+.step-input + .step-output > .step-detail, .step-input + .step-detail { margin-top: 0; }
+.step-child.is-open-able { display: block; }
+.step-child-row { display: flex; width: 100%; min-width: 0; align-items: center; gap: var(--zli-space-2); min-height: 22px; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.step-child-row > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.step-child-row:hover .step-child-title { color: var(--zli-text); }
+.step-child .step-input, .step-child .step-detail, .step-child .step-pending { margin-left: 20px; }
+
+/* Pages a web step read: site chips in grey, the icon taking its colour only under the pointer. */
+.source-chips { display: flex; flex-wrap: wrap; gap: var(--zli-space-1); margin: 2px 0 var(--zli-space-1) 21px; padding: 0; list-style: none; }
+.source-chip { display: inline-flex; max-width: 200px; height: 20px; align-items: center; gap: 5px; padding: 0 var(--zli-space-2) 0 5px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-pill); background: none; color: var(--zli-dim); cursor: pointer; font: inherit; font-size: var(--zli-text-xs); transition: border-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.source-chip:hover, .source-chip:focus-visible { border-color: var(--zli-border-hover); color: var(--zli-text); }
+.source-chip-host { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.site-icon { width: 12px; height: 12px; flex: 0 0 auto; border-radius: 3px; filter: grayscale(1); opacity: .75; transition: filter var(--zli-duration-fast) var(--zli-ease), opacity var(--zli-duration-fast) var(--zli-ease); }
+.source-chip:hover .site-icon, .sources-item:hover .site-icon { filter: none; opacity: 1; }
+.site-icon.is-letter { display: inline-grid; place-items: center; background: var(--zli-active); color: var(--zli-muted); font-size: 8px; font-weight: 600; line-height: 1; filter: none; }
+
+/* Under a reply that searched the web: "Sources (3)", opening to the numbered pages its citations point at. */
+.sources { margin: var(--zli-space-1) 0 0; }
+.sources-toggle { display: inline-flex; height: 24px; align-items: center; gap: 6px; margin-left: -6px; padding: 0 var(--zli-space-2) 0 6px; border: 0; border-radius: var(--zli-radius-sm); background: none; color: var(--zli-dim); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.sources-toggle:hover, .sources.is-open > .sources-toggle { color: var(--zli-muted); }
+.sources-toggle:hover { background: var(--zli-hover); }
+.sources-chevron { transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.sources-toggle[aria-expanded="true"] .sources-chevron { transform: rotate(90deg); }
+.sources-list { display: flex; flex-direction: column; margin: 2px 0 0 5px; padding: 0 0 0 var(--zli-space-3); border-left: 1px solid var(--zli-border); list-style: none; }
+.sources-item { display: flex; width: 100%; min-width: 0; height: 26px; align-items: center; gap: var(--zli-space-2); padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm); background: none; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); text-align: left; }
+.sources-item:hover, .sources-item:focus-visible { background: var(--zli-hover); color: var(--zli-text); }
+.sources-number { width: 12px; flex: 0 0 auto; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-align: right; }
+.sources-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sources-host { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+
+/* A citation in a reply: a small number just after the words it backs, naming its page on hover. */
+.md-cite { display: inline-grid; min-width: 15px; height: 15px; place-items: center; margin: 0 1px 0 3px; padding: 0 3px; border: 0; border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); cursor: pointer; font-family: var(--zli-mono); font-size: 9.5px; line-height: 1; vertical-align: 2px; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.md-cite:hover, .md-cite:focus-visible { background: var(--zli-text); color: var(--zli-canvas); }
+.cite-card { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); max-width: 280px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-md); background: var(--zli-popup, #0a0a0a); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); pointer-events: none; animation: picker-in var(--zli-duration-fast) var(--zli-ease) both; }
+.cite-card-title { display: -webkit-box; margin: 0 0 3px; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.cite-card-host { display: flex; align-items: center; gap: 5px; margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+@media (prefers-reduced-motion: reduce) { .cite-card { animation: none; } .thought-chevron, .sources-chevron, .site-icon, .source-chip, .md-cite { transition: none; } }
+
+/* The new chat's quiet way in from an issue, under "What should we work on?". */
+.chat-start-issue { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 0; border-radius: var(--zli-radius-pill); background: transparent; color: var(--zli-dim); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); transition: color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.chat-start-issue:hover { background: var(--zli-hover); color: var(--zli-text); }
+.chat-start-issue:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+
+/* Questions asked one at a time: a count and a dot per question, the current one wide, answered ones lit. */
+.chat-request-steps { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-3); }
+.chat-request-step-count { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.chat-request-step-dots { display: flex; align-items: center; gap: 4px; }
+.chat-request-step-dot { width: 5px; height: 5px; border-radius: var(--zli-radius-pill); background: var(--zli-border-strong); transition: width var(--zli-duration-base) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.chat-request-step-dot.is-done { background: var(--zli-muted); }
+.chat-request-step-dot.is-current { width: 14px; background: var(--zli-text); }
+.chat-request-form .chat-request-question { animation: request-step-in var(--zli-duration-base) var(--zli-ease) both; }
+@keyframes request-step-in { from { opacity: 0; transform: translateX(8px); } }
+@media (prefers-reduced-motion: reduce) { .chat-request-form .chat-request-question { animation: none; } .chat-request-step-dot { transition: none; } }
+
+/* The question and approval card, calm: a dark card with a hairline, a small amber pulse for "needs you",
+   choices as rows that take a check when picked, and the buttons at the right. */
+.chat-request { gap: var(--zli-space-3); padding: 14px 16px; border-color: var(--zli-border-strong); border-radius: 14px; background: var(--zli-raised); box-shadow: var(--zli-highlight); }
+.chat-request-title { gap: 8px; color: var(--zli-text); font-weight: 500; }
+.chat-request-pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--zli-amber); box-shadow: 0 0 0 0 color-mix(in srgb, var(--zli-amber) 45%, transparent); animation: request-pulse 2s ease-out infinite; }
+@keyframes request-pulse { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.chat-request-question legend { gap: 4px; margin-bottom: var(--zli-space-3); font-size: var(--zli-text-base); font-weight: 500; line-height: 1.4; }
+.chat-request-question-header { color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 400; }
+.chat-request-options { gap: 6px; }
+.chat-request-option { align-items: center; gap: var(--zli-space-3); padding: 9px 12px; border: 1px solid var(--zli-border); border-radius: 10px; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.chat-request-option:hover { border-color: var(--zli-border-strong); background: var(--zli-hover); }
+.chat-request-option.is-picked { border-color: color-mix(in srgb, var(--zli-text) 55%, transparent); background: var(--zli-hover); }
+.chat-request-option:has(input:focus-visible) { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.chat-request-option > span { flex: 1; }
+.chat-request-option-check { flex: 0 0 auto; color: var(--zli-text); opacity: 0; transform: scale(.6); transition: opacity var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-base) var(--zli-ease-spring); }
+.chat-request-option.is-picked .chat-request-option-check { opacity: 1; transform: none; }
+.chat-request-question .input { height: 36px; margin-top: 2px; border-color: var(--zli-border); border-radius: 10px; background: transparent; }
+.chat-request-actions { justify-content: flex-end; }
+.chat-request-steps { margin-bottom: var(--zli-space-1); }
+@media (prefers-reduced-motion: reduce) { .chat-request-pulse { animation: none; } }
+
+
+/* ---------- Agent A: dock and cards ---------- */
+
+/* The one slot above the message box. Its height follows the one item in it, so the box glides rather than jumps;
+   the negative margin cancels the column's gap while the slot is empty. */
+.chat-slot { flex: 0 0 auto; margin-bottom: calc(-1 * var(--zli-space-2)); overflow: hidden; transition: height var(--zli-duration-base) var(--zli-ease); }
+.chat-slot-item { padding-bottom: var(--zli-space-2); animation: chat-slot-in var(--zli-duration-base) var(--zli-ease) both; }
+@keyframes chat-slot-in { from { opacity: 0; } }
+
+/* One card for everything that sits in or beside the conversation: a raised fill, a hairline, a 12px corner. */
+.chat-request, .chat-connector, .chat-queue, .chat-ended, .review-card, .follow-ups, .composer-tray.is-loose, .chat-note { border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-raised); box-shadow: none; }
+.chat-request, .chat-connector, .chat-ended { padding: var(--zli-space-3) 14px; }
+.chat-queue, .follow-ups { padding: var(--zli-space-1); }
+.chat-queue-head { padding: var(--zli-space-1) var(--zli-space-2) 2px; }
+.composer-tray { border-color: var(--zli-border); border-radius: var(--zli-radius-lg) var(--zli-radius-lg) 0 0; background: var(--zli-raised); }
+
+/* Suggested next steps under the reply: one card, a row per step. */
+.follow-ups { gap: 0; margin: var(--zli-space-2) 0 var(--zli-space-3); }
+.follow-up { min-height: 30px; border: 0; border-radius: var(--zli-radius-md); }
+.follow-up:hover, .follow-up:focus-within { background: var(--zli-hover); }
+
+/* A message from another agent: neutral, marked only by a thin line at its left. */
+.chat-message-peer { padding: 2px 0 2px var(--zli-space-3); border-left: 2px solid var(--zli-border-strong); border-radius: 0; background: transparent; }
+
+/* The quiet line in the slot: an error, a failure the chat can resume from, or editing the last message. */
+.chat-note { display: flex; align-items: flex-start; gap: var(--zli-space-2); margin: 0; padding: var(--zli-space-2) var(--zli-space-3); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.chat-note-text { min-width: 0; flex: 1; }
+.chat-note > svg { flex: 0 0 auto; margin-top: 4px; color: var(--zli-dim); }
+.chat-note > button { flex: 0 0 auto; height: 20px; padding: 0 6px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-xs); }
+.chat-note > button:hover { background: var(--zli-hover); color: var(--zli-text); }
+.chat-note > button:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+
+/* One error style: a neutral card and a small red dot or icon, the message itself unchanged. */
+.chat-note.is-limit { border-color: var(--zli-amber-line); }
+.chat-note.is-limit > svg { color: var(--zli-amber-ink); }
+.chat-note-title { color: var(--zli-text); font-weight: 600; }
+.chat-note-dot { flex: 0 0 auto; width: 6px; height: 6px; margin-top: 7px; border-radius: 50%; background: var(--zli-red); }
+.chat-ended.is-failed { border-color: var(--zli-border); }
+.chat-ended.is-failed > svg { color: var(--zli-red); }
+.step-detail.is-trace { border-color: var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
+
+/* The row under the message box: who else is in the chat, and the branch's pull request, as small chips. */
+.composer-below > .room-bar { flex: 0 1 auto; min-width: 0; min-height: 0; gap: 2px; margin: 0; padding: 0; }
+.composer-below .room-people { gap: 2px; }
+.composer-below .room-person.is-host { display: none; }
+.composer-below .room-person-chip { height: 24px; gap: 4px; padding: 0 5px 0 4px; border-radius: var(--zli-radius-sm); }
+.composer-below .room-person-name { max-width: 80px; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 450; }
+.composer-below .room-bring { margin-left: 0; }
+.composer-below .room-bring > span { display: none; }
+.composer-below .room-bar-joining { font-size: var(--zli-text-xs); }
+.pr-chip { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1px; }
+.pr-chip-open { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 6px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.pr-chip-open:hover { background: var(--zli-hover); color: var(--zli-text); }
+.pr-chip-open:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.pr-chip-open > svg { color: var(--zli-dim); }
+.pr-chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--zli-dim); }
+.pr-chip.is-passed .pr-chip-dot { background: var(--zli-text); }
+.pr-chip.is-failed .pr-chip-dot { background: var(--zli-red); }
+.pr-chip.is-pending .pr-chip-dot { animation: pr-chip-pending 1.4s ease-in-out infinite; }
+@keyframes pr-chip-pending { 50% { opacity: .35; } }
+.chat-ended-below:empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .chat-slot { transition: none; } .chat-slot-item, .pr-chip.is-pending .pr-chip-dot { animation: none; } }
+
+/* ---------- Agent C: actions and plans ---------- */
+.chat-request-pager { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; }
+.chat-request-pager .chat-request-count { min-width: 3.5em; text-align: center; font-variant-numeric: tabular-nums; }
+.chat-request-prev svg { transform: rotate(180deg); }
+.plan-card-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); }
+.plan-card.is-approval .plan-card-label { padding-left: 6px; }
