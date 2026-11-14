@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import { MOBILE_MCP_TOOLS } from "../mcp.js";
 import { MOBILE_DEV_INSTRUCTIONS } from "../devTools.js";
+import { MOBILE_MCP_TOOLS } from "../mcp.js";
 
 describe("crash and build tools", () => {
   it("adds mobile_crashes and mobile_build_brief as read-only tools", () => {

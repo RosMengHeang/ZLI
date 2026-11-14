@@ -155,7 +155,7 @@ const CORE_TOOLS: readonly McpTool[] = [
     description: "Read recent device logs (logcat on Android, the unified log on iOS), optionally only one app's.",
     properties: {
       appId: { type: "string", description: "Only this app's lines, by package name or bundle id." },
-      lines: { type: "integer", minimum: 1, maximum: 2_000, description: "How many recent lines. Default 200." },
+      lines: { type: "integer", minimum: 1, maximum: 500, description: "How many recent lines. Default 100." },
       filter: { type: "string", description: "Only lines containing this text, ignoring case." },
     },
     readOnly: true,
@@ -232,7 +232,7 @@ function formatMobileResultBody(action: string, result: unknown): ToolResult {
   if (action === "mobilelogs" && isRecord(result) && typeof result.log === "string") {
     return { content: [{ type: "text", text: result.log || "(No matching log lines.)" }] };
   }
-  return { content: [{ type: "text", text: JSON.stringify(result ?? null, null, 2) }] };
+  return { content: [{ type: "text", text: JSON.stringify(result ?? null) }] };
 }
 
 export function createMobileMcpServer(call: ZliBrowserCall): McpServer {

@@ -26,7 +26,10 @@ import type { BrowserManager } from "./BrowserManager.js";
 /** Agent tabs share the renderer's default profile, so they see the same cookies as the user's tabs. */
 export const DEFAULT_BROWSER_PROFILE_ID = "00000000-0000-4000-8000-000000000002";
 
-const MAX_LISTED_ENTRIES = 200;
+/** Every listed entry is read by the agent on each later request, so a list holds only the newest. */
+const MAX_LISTED_ENTRIES = 50;
+/** A console message cut to this length still shows what went wrong; stacks rarely need more. */
+const MAX_LISTED_TEXT = 1_000;
 const SETTLE_TIMEOUT_MS = 10_000;
 
 export type BrowserControlManager = Pick<
@@ -338,7 +341,13 @@ export function createBrowserControlActions(host: BrowserControlHost): BrowserCo
       return {
         browserTabId,
         total: messages.length,
-        messages: messages.slice(-MAX_LISTED_ENTRIES),
+        messages: messages
+          .slice(-MAX_LISTED_ENTRIES)
+          .map((message) =>
+            message.text.length > MAX_LISTED_TEXT
+              ? { ...message, text: `${message.text.slice(0, MAX_LISTED_TEXT)}…` }
+              : message,
+          ),
         ...(parsed.clear ? { cleared: true } : {}),
       };
     },

@@ -1,5 +1,5 @@
-import { createZliBrowserClient } from "./client.js";
 import { CliUsageError, parseCliArgs, runCli } from "./cli.js";
+import { createZliBrowserClient } from "./client.js";
 import { createMcpServer, serveMcpOverStdio } from "./mcp.js";
 
 async function main(argv: readonly string[]): Promise<number> {

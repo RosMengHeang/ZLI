@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   BrowserControlError,
+  type BrowserControlManager,
   createBrowserControlActions,
   DEFAULT_BROWSER_PROFILE_ID,
-  type BrowserControlManager,
   normalizeAgentUrl,
   normalizeWorktreePath,
   resolveBrowserControlWorktree,

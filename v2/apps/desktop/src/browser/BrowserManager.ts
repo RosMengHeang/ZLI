@@ -2,16 +2,16 @@ import { randomUUID } from "node:crypto";
 
 import {
   BrowserBounds,
+  type BrowserBounds as BrowserBoundsValue,
   BrowserNavigateInput,
   BrowserTabCreateInput,
   BrowserTabId,
   BrowserTabProjection,
-  BrowserViewport,
   type BrowserTabProjection as BrowserTabProjectionValue,
-  type BrowserBounds as BrowserBoundsValue,
+  BrowserViewport,
   type BrowserViewport as BrowserViewportValue,
 } from "@zli-v2/contracts";
-
+import { isAllowedBrowserNavigation } from "../security/NavigationPolicy.js";
 import type {
   BrowserAutomation,
   BrowserClickInput,
@@ -27,9 +27,8 @@ import type {
   CdpClientLike,
 } from "./BrowserAutomation.js";
 import { BrowserSessionManager, type BrowserSessionModule } from "./BrowserSession.js";
-import type { DesignMode, DesignInspection } from "./DesignMode.js";
+import type { DesignInspection, DesignMode } from "./DesignMode.js";
 import type { DesignMark, DesignPickResult, DesignRect, DesignStroke } from "./DesignPicker.js";
-import { isAllowedBrowserNavigation } from "../security/NavigationPolicy.js";
 
 export type BrowserWebContentsLike = {
   getURL(): string;
