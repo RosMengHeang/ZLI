@@ -56,9 +56,8 @@ test("points a newly added project at New agent until it has one", async () => {
     const notice = page.locator(".board-project-notice");
     await expect(notice).toHaveText(/No chats in guider-crm yet./u);
     const project = page.getByRole("region", { name: "guider-crm" });
-    await page.mouse.move(800, 400);
-    await expect(project).toContainText("No chats yet.");
-    await expect(project.getByRole("button", { name: "New chat in guider-crm" })).toBeVisible();
+    // An empty project shows only its heading; starting a chat in it is in its menu.
+    await expect(project).not.toContainText("No chats yet.");
 
     // The project's menu opens the dialog with every option, already on that project.
     await clickProjectAction(
@@ -70,8 +69,6 @@ test("points a newly added project at New agent until it has one", async () => {
     await startChat(page, "Beta");
 
     await expect(notice).toHaveCount(0);
-    await expect(project.getByRole("button", { name: "Start a chat in guider-crm" })).toHaveCount(0);
-    await expect(project).not.toContainText("No chats yet.");
     // One chat fills the board; Alpha waits in the sidebar.
     await expect(page.getByRole("textbox", { name: "Message Beta" })).toBeVisible();
     await expect(page.locator(".session-row", { hasText: "Alpha" })).toBeVisible();

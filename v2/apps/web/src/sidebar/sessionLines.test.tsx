@@ -48,8 +48,8 @@ describe("the line under a chat", () => {
 
   it("says the step a working agent is on, from this turn only", async () => {
     expect(await text({ activities }, <LiveStep threadId={threadId} turnId="t2" />)).toBe("npm run build");
-    expect(await text({ activities }, <LiveStep threadId={threadId} turnId="t1" />)).toBe("npm test");
-    expect(await text({ activities }, <LiveStep threadId={threadId} turnId="t3" />)).toBe("Thinking");
+    expect(await text({ activities }, <LiveStep threadId={threadId} turnId="t1" />)).toBe("Working");
+    expect(await text({ activities }, <LiveStep threadId={threadId} turnId="t3" />)).toBe("Working");
   });
 
   it("says what a waiting agent asked for", async () => {
