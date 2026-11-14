@@ -2,7 +2,7 @@ import { createInterface } from "node:readline";
 
 import { BROWSER_DEVICE_PRESETS } from "@zli-v2/contracts";
 
-import { ZliBrowserUnavailableError, type ZliBrowserCall } from "./client.js";
+import { type ZliBrowserCall, ZliBrowserUnavailableError } from "./client.js";
 
 export const ZLI_BROWSER_VERSION = "1.0.0";
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -403,7 +403,7 @@ function formatResult(action: string, result: unknown): ToolResult {
   }
   const loadError = isRecord(result) && isRecord(result.tab) ? result.tab.loadError : undefined;
   return {
-    content: [{ type: "text", text: JSON.stringify(result ?? null, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify(result ?? null) }],
     ...(typeof loadError === "string" ? { isError: true } : {}),
   };
 }

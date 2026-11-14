@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 
 import type { BrowserControlEndpoint } from "@zli-v2/contracts";
 
-import { BrowserControlError, type BrowserControlDispatch } from "./BrowserControlActions.js";
+import { type BrowserControlDispatch, BrowserControlError } from "./BrowserControlActions.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const ROUTE = /^\/v1\/([a-z]+)$/u;

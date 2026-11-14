@@ -25,9 +25,9 @@ import {
   type BrowserControlWorktree,
   resolveBrowserControlWorktree,
 } from "../browser/BrowserControlActions.js";
-import type { MobileDev } from "./dev/index.js";
 import { DeviceBusyError, type LeaseOwner } from "./DeviceLeases.js";
 import type { DeviceManager } from "./DeviceManager.js";
+import type { MobileDev } from "./dev/index.js";
 import { type MobileDriver, MobileDriverError } from "./MobileDriver.js";
 import { centerOf, formatUiTree, type UiTree } from "./uiTree.js";
 
@@ -344,11 +344,11 @@ export function createMobileControlActions(host: MobileControlHost): BrowserCont
         const parsed = MobileControlLogsInput.parse(input);
         const { device, driver } = await online(parsed);
         const lines = await driver.logs(device, {
-          lines: parsed.lines ?? 200,
+          lines: Math.min(parsed.lines ?? MOBILE_LOG_DEFAULT_LINES, MOBILE_LOG_MAX_LINES),
           ...(parsed.appId ? { appId: parsed.appId } : {}),
           ...(parsed.filter ? { filter: parsed.filter } : {}),
         });
-        return { deviceId: device.deviceId, lines: lines.length, log: lines.join("\n") };
+        return { deviceId: device.deviceId, lines: lines.length, log: clipLog(lines) };
       }
       case "mobilerelease": {
         const parsed = MobileControlDeviceInput.parse(input);
@@ -395,4 +395,26 @@ export function swipeForDirection(
     case "right":
       return { from: { x: cx - dx, y: cy }, to: { x: cx + dx, y: cy } };
   }
+}
+
+/** The agent rereads a tool's output on every later request, so logs stay short: the newest lines, each cut. */
+const MOBILE_LOG_DEFAULT_LINES = 100;
+const MOBILE_LOG_MAX_LINES = 500;
+const MOBILE_LOG_LINE_CHARS = 500;
+const MOBILE_LOG_TOTAL_CHARS = 30_000;
+
+export function clipLog(lines: readonly string[]): string {
+  const kept: string[] = [];
+  let total = 0;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const raw = lines[index] ?? "";
+    const line = raw.length > MOBILE_LOG_LINE_CHARS ? `${raw.slice(0, MOBILE_LOG_LINE_CHARS)}…` : raw;
+    if (total + line.length + 1 > MOBILE_LOG_TOTAL_CHARS) {
+      kept.unshift(`(${index + 1} older lines left out)`);
+      break;
+    }
+    kept.unshift(line);
+    total += line.length + 1;
+  }
+  return kept.join("\n");
 }
