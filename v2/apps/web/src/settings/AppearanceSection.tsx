@@ -15,7 +15,8 @@ import { MenuButton } from "../ui/Menu.js";
 import { Segmented } from "../ui/Segmented.js";
 import { Switch } from "../ui/Switch.js";
 import { type ChatTint, updateAppSettings, useAppSettings, type WindowLayout } from "./appSettings.js";
-import { SectionHeader } from "./SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader } from "./SettingsLayout.js";
+import { TypographySettings } from "./TypographySettings.js";
 import "./appearance.css";
 
 /** The theme's own tokens on the preview, so the miniature window draws in that theme. */
@@ -144,25 +145,21 @@ export function AppearanceSection() {
     );
 
   return (
-    <div className="appearance">
-      <SectionHeader title="Appearance">Colors for every ZLI window, including terminals and the editor.</SectionHeader>
+    <>
+      <SettingsPageHeader title="Appearance">
+        Colors, layout, fonts, and text sizes for every ZLI window, including terminals and the editor.
+      </SettingsPageHeader>
 
-      <section className="appearance-block" aria-labelledby={`${name}-themes`}>
-        <h4 id={`${name}-themes`} className="appearance-heading">
-          Theme
-        </h4>
-        <div className="theme-tiles" role="radiogroup" aria-labelledby={`${name}-themes`}>
+      <SettingsGroup title="Theme" bare>
+        <div className="theme-tiles" role="radiogroup" aria-label="Theme">
           {builtIn.map((theme) => (
             <ThemeTile key={theme.id} theme={theme} name={name} checked={current.id === theme.id} />
           ))}
         </div>
-      </section>
+      </SettingsGroup>
 
-      <section className="appearance-block" aria-labelledby={`${name}-layout`}>
-        <h4 id={`${name}-layout`} className="appearance-heading">
-          Layout
-        </h4>
-        <div className="theme-tiles" role="radiogroup" aria-labelledby={`${name}-layout`}>
+      <SettingsGroup title="Layout" bare>
+        <div className="theme-tiles" role="radiogroup" aria-label="Layout">
           {layouts.map((layout) => (
             <div key={layout.id} className="theme-tile">
               <label className="theme-tile-pick" data-tooltip={layout.hint}>
@@ -179,12 +176,9 @@ export function AppearanceSection() {
             </div>
           ))}
         </div>
-      </section>
+      </SettingsGroup>
 
-      <section className="appearance-block" aria-labelledby={`${name}-sidebar`}>
-        <h4 id={`${name}-sidebar`} className="appearance-heading">
-          Sidebar
-        </h4>
+      <SettingsGroup title="Sidebar">
         <Switch
           label="Color project headings"
           hint="Each project heading takes a soft tint of its own color, the same as its ring. Off keeps headings plain."
@@ -206,13 +200,14 @@ export function AppearanceSection() {
             onChange={(chatTint) => updateAppSettings((current) => ({ ...current, chatTint }))}
           />
         </Field>
-      </section>
+      </SettingsGroup>
 
-      <section className="appearance-block" aria-labelledby={`${name}-yours`}>
-        <div className="appearance-heading-row">
-          <h4 id={`${name}-yours`} className="appearance-heading">
-            Your themes
-          </h4>
+      <TypographySettings />
+
+      <SettingsGroup
+        title="Your themes"
+        bare
+        actions={
           <Button
             icon="plus"
             size="sm"
@@ -223,9 +218,10 @@ export function AppearanceSection() {
           >
             Create theme
           </Button>
-        </div>
+        }
+      >
         {yours.length > 0 ? (
-          <div className="theme-tiles" role="radiogroup" aria-labelledby={`${name}-yours`}>
+          <div className="theme-tiles" role="radiogroup" aria-label="Your themes">
             {yours.map((theme) => (
               <ThemeTile
                 key={theme.id}
@@ -238,9 +234,9 @@ export function AppearanceSection() {
             ))}
           </div>
         ) : (
-          <p className="appearance-empty">Start from the theme you use now and change any color.</p>
+          <p className="settings-empty">Start from the theme you use now and change any color.</p>
         )}
-      </section>
-    </div>
+      </SettingsGroup>
+    </>
   );
 }

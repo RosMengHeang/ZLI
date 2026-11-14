@@ -5,6 +5,7 @@ import { getBridge } from "../runtime/bridge.js";
 import { readAppSettings, subscribeAppSettings } from "../settings/appSettings.js";
 import { buildCustomTheme, resolveTheme } from "./customThemes.js";
 import { readThemeEditor, subscribeThemeEditor } from "./themeEditorStore.js";
+import { applyTypography } from "./typography.js";
 
 /** The draft in the theme editor while it is open, otherwise the saved choice. */
 export function activeTheme(): Theme {
@@ -57,6 +58,7 @@ export function useActiveTheme(): Theme {
 }
 
 function refresh(): void {
+  applyTypography(readAppSettings().typography);
   const next = activeTheme();
   if (current && current.id === next.id && JSON.stringify(current.base) === JSON.stringify(next.base)) return;
   current = next;
