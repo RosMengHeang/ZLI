@@ -1,7 +1,6 @@
 import type { ProviderModelOption } from "@zli-v2/contracts";
 import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-
 import { scrollMovesAnchor, useAnchoredPlacement } from "../ui/anchoredPopup.js";
 import { Icon } from "../ui/Icon.js";
 import { DEFAULT_MODEL, ModelMark, modelOptions } from "../ui/ModelMark.js";
@@ -10,19 +9,19 @@ import type { AgentChoice } from "./agentModels.js";
 
 type Row = AgentChoice;
 
-/** Row heights the split menu is sized from. chat.css pins the rows to these, so the sum is exact. */
-const AGENT_ROW = 44;
+/** Sizes the menu is built from. chat.css pins the rows to these, so the sum is exact. */
+const TABS = 45;
 const MODEL_ROW = 32;
 const ROW_GAP = 1;
-const HEADING = 30;
 const LIST_PADDING = 8;
 const MAX_HEIGHT = 400;
 
 const listHeight = (rows: number, row: number) => rows * row + Math.max(0, rows - 1) * ROW_GAP;
 
 /**
- * Picks the agent first and then one of its models, so a long model list never buries the agents. With no
- * other agent to offer, as once a conversation has started, it is a plain list of the agent's models.
+ * The agents sit in a row of marks along the top, the picked one's models in a plain list under them. Hover or
+ * arrow along the marks to see another agent's models; pick a model to switch. With no other agent to offer,
+ * as once a conversation has started, it is just the list of the agent's models.
  */
 export function AgentModelPicker({
   provider,
@@ -69,8 +68,9 @@ export function AgentModelPicker({
     models,
     plan: agentPlan,
   };
-  const agents = [own, ...others];
-  const twoColumns = others.length > 0;
+  // Only agents that can run right now: one that is not installed or signed in is left out, not greyed.
+  const agents = [own, ...others.filter((agent) => !agent.unavailable)];
+  const twoColumns = agents.length > 1;
   const active = agents.find((agent) => agent.provider === shown) ?? own;
   const isOwn = active.provider === own.provider;
   const choices = modelOptions(active.models, isOwn ? model : undefined, active.provider || undefined);
@@ -78,7 +78,6 @@ export function AgentModelPicker({
   const ownChoices = modelOptions(models, model, provider);
   // Sized for the agent with the most models, so moving between agents never resizes the menu.
   const tallest = Math.max(
-    listHeight(agents.length, AGENT_ROW),
     ...agents.map((agent) =>
       listHeight(
         modelOptions(agent.models, agent.provider === own.provider ? model : undefined, agent.provider || undefined)
@@ -87,7 +86,7 @@ export function AgentModelPicker({
       ),
     ),
   );
-  const splitHeight = HEADING + LIST_PADDING + tallest + 2;
+  const splitHeight = TABS + LIST_PADDING + tallest + 2;
   const modelLabel = ownChoices.find((option) => option.value === (model ?? DEFAULT_MODEL))?.label ?? model ?? "";
 
   const close = (returnFocus: boolean) => {
@@ -128,6 +127,19 @@ export function AgentModelPicker({
     };
   });
 
+  useEffect(() => {
+    const row = agentsRef.current;
+    if (!open || !row) return;
+    const onWheel = (event: WheelEvent) => {
+      const delta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+      if (row.scrollWidth <= row.clientWidth || delta === 0) return;
+      event.preventDefault();
+      row.scrollBy({ left: delta, behavior: Math.abs(delta) > 40 ? "smooth" : "auto" });
+    };
+    row.addEventListener("wheel", onWheel, { passive: false });
+    return () => row.removeEventListener("wheel", onWheel);
+  }, [open]);
+
   const pick = (agent: Row, value: string) => {
     close(true);
     const next = value || undefined;
@@ -139,7 +151,7 @@ export function AgentModelPicker({
   const focusIn = (list: HTMLElement | null, which: "selected" | "first") => {
     const target =
       (which === "selected" ? list?.querySelector<HTMLElement>('[aria-selected="true"]') : null) ??
-      list?.querySelector<HTMLElement>('[role="option"]');
+      list?.querySelector<HTMLElement>('[role="option"], button');
     target?.focus();
   };
 
@@ -151,21 +163,36 @@ export function AgentModelPicker({
       close(true);
       return;
     }
-    if (!list) return;
-    const inAgents = list === agentsRef.current;
-    if (event.key === "ArrowRight" && inAgents) {
+    const inAgents = list !== null && list === agentsRef.current;
+    if (!list || inAgents) {
+      // The marks, or the note that stands in for an agent's models when it cannot run.
+      if (!twoColumns) return;
+      const marks = [...(agentsRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])];
+      const at = marks.indexOf(document.activeElement as HTMLElement);
+      let next: HTMLElement | undefined;
+      if (inAgents && event.key === "ArrowRight") next = marks[(at + 1) % marks.length];
+      else if (inAgents && event.key === "ArrowLeft") next = marks[(at - 1 + marks.length) % marks.length];
+      else if (inAgents && event.key === "ArrowDown") {
+        event.preventDefault();
+        focusIn(modelsRef.current, "selected");
+        return;
+      } else if (!list && event.key === "ArrowUp")
+        next = agentsRef.current?.querySelector<HTMLElement>('[aria-selected="true"]') ?? undefined;
+      if (!next) return;
       event.preventDefault();
-      focusIn(modelsRef.current, "selected");
-      return;
-    }
-    if (event.key === "ArrowLeft" && !inAgents && twoColumns) {
-      event.preventDefault();
-      focusIn(agentsRef.current, "selected");
+      next.focus();
+      next.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+      if (next.dataset.agent) setShown(next.dataset.agent);
       return;
     }
     const items = [...list.querySelectorAll<HTMLElement>('[role="option"]')];
     const index = items.indexOf(document.activeElement as HTMLElement);
     let next: HTMLElement | undefined;
+    if (event.key === "ArrowUp" && index === 0 && twoColumns) {
+      event.preventDefault();
+      focusIn(agentsRef.current, "selected");
+      return;
+    }
     if (event.key === "ArrowDown") next = items[(index + 1) % items.length];
     else if (event.key === "ArrowUp") next = items[(index - 1 + items.length) % items.length];
     else if (event.key === "Home") next = items[0];
@@ -179,7 +206,6 @@ export function AgentModelPicker({
     event.preventDefault();
     next?.focus();
     next?.scrollIntoView?.({ block: "nearest" });
-    if (inAgents && next?.dataset.agent) setShown(next.dataset.agent);
   };
 
   const hoverFocus = (event: { currentTarget: HTMLElement }) => {
@@ -238,16 +264,14 @@ export function AgentModelPicker({
               onKeyDown={onKeyDown}
             >
               {twoColumns ? (
-                <div className="agent-model-column is-agents">
-                  <div className="agent-model-heading" aria-hidden="true">
-                    Agent
-                  </div>
+                <div className="agent-model-top">
                   <div
                     ref={agentsRef}
-                    className="agent-model-agents picker-list"
+                    className="agent-model-agents"
                     id={agentsId}
                     role="listbox"
                     aria-label="Agent"
+                    aria-orientation="horizontal"
                   >
                     {agents.map((agent) => (
                       <button
@@ -256,9 +280,10 @@ export function AgentModelPicker({
                         role="option"
                         tabIndex={-1}
                         aria-selected={agent.provider === active.provider}
-                        className="picker-option agent-model-agent"
+                        className="agent-model-agent"
                         data-label={agent.name}
                         data-agent={agent.provider}
+                        data-tooltip={[agent.name, agent.plan].filter(Boolean).join(" · ")}
                         onPointerMove={(event) => {
                           hoverFocus(event);
                           setShown(agent.provider);
@@ -266,26 +291,17 @@ export function AgentModelPicker({
                         onFocus={() => setShown(agent.provider)}
                         onClick={() => focusIn(modelsRef.current, "first")}
                       >
-                        <span className="picker-option-icon" aria-hidden="true">
-                          <ProviderMark provider={agent.provider} size={15} />
+                        <ProviderMark provider={agent.provider} size={16} />
+                        <span className="sr-only">
+                          {agent.name}
+                          {agent.plan ? `, ${agent.plan}` : ""}
                         </span>
-                        <span className="picker-option-text">
-                          <span className="picker-option-label">{agent.name}</span>
-                          {agent.plan ? <span className="picker-option-description">{agent.plan}</span> : null}
-                        </span>
-                        <Icon name="chevronRight" size={12} className="agent-model-chevron" />
                       </button>
                     ))}
                   </div>
                 </div>
               ) : null}
-              <div className="agent-model-column is-models">
-                {twoColumns ? (
-                  <div className="agent-model-heading" aria-hidden="true">
-                    <span>{active.name}</span>
-                    {active.plan ? <span className="agent-model-plan">{active.plan}</span> : null}
-                  </div>
-                ) : null}
+              <div className="agent-model-column">
                 <div
                   ref={modelsRef}
                   className="agent-model-models picker-list"
@@ -310,12 +326,12 @@ export function AgentModelPicker({
                         <span className="picker-option-icon" aria-hidden="true">
                           {option.icon}
                         </span>
-                        <span className="picker-option-text">
-                          <span className="picker-option-label">{option.label}</span>
-                        </span>
-                        <span className="picker-option-check" aria-hidden="true">
-                          {selected ? <Icon name="check" size={14} /> : null}
-                        </span>
+                        <span className="picker-option-label">{option.label}</span>
+                        {selected ? (
+                          <span className="agent-model-check" aria-hidden="true">
+                            <Icon name="check" size={13} />
+                          </span>
+                        ) : null}
                       </button>
                     );
                   })}

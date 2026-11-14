@@ -73,3 +73,15 @@ export function reasoningOptions(levels: readonly string[], defaultLevel?: strin
     }),
   ];
 }
+
+/**
+ * What a turn sends to run the picked model in its faster mode, or undefined when it has none. With no model
+ * picked, the agent's own default model decides.
+ */
+export function fastFor(
+  models: readonly ProviderModelOption[] | undefined,
+  model: string | undefined,
+): string | undefined {
+  const picked = model ? models?.find((option) => option.id === model) : models?.find((option) => option.isDefault);
+  return picked?.fast;
+}
