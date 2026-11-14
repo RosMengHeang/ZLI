@@ -15,7 +15,7 @@ type ClaudeClient = Pick<ClaudeCodeClient, "sendTurn" | "interruptTurn" | "trans
   Partial<Pick<ClaudeCodeClient, "respondToApproval" | "sessionId">>;
 type ClientStart = Pick<
   ProviderSessionStart,
-  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId" | "trustedProjectPath"
+  "cwd" | "permissionMode" | "model" | "worktreeId" | "account" | "resumeSessionId" | "trustedProjectPath" | "title"
 >;
 
 export class ClaudeCodeProviderAdapter implements ProviderAdapter {
@@ -45,6 +45,7 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       ...(input.account ? { account: input.account } : {}),
       ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
       ...(input.trustedProjectPath ? { trustedProjectPath: input.trustedProjectPath } : {}),
+      ...(input.title ? { title: input.title } : {}),
     });
     const session: ProviderSession = {
       threadId: input.threadId,
@@ -64,6 +65,7 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       text: input.text,
       ...(input.model ? { model: input.model } : {}),
       ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+      fast: input.fast !== undefined,
     });
     return { turnId: result.providerTurnId };
   }
@@ -158,7 +160,12 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
         this.emit({ type: "turn.completed", threadId, turnId: event.providerTurnId, status: event.status });
         return;
       case "turn.failed":
-        this.emit({ type: "provider.error", threadId, message: event.message });
+        this.emit({
+          type: "provider.error",
+          threadId,
+          message: event.message,
+          ...(event.usageLimit ? { usageLimit: event.usageLimit } : {}),
+        });
         return;
       case "usage.updated":
         this.emit({ type: "usage", threadId, turnId: event.providerTurnId, usage: event.usage });
@@ -169,6 +176,24 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
           threadId,
           turnId: event.providerTurnId,
           activity: toolActivity(event.tool, cwd),
+        });
+        return;
+      case "reasoning.delta":
+        this.emit({
+          type: "reasoning.delta",
+          threadId,
+          turnId: event.providerTurnId,
+          reasoningId: event.reasoningId,
+          text: event.text,
+        });
+        return;
+      case "reasoning.completed":
+        this.emit({
+          type: "reasoning.completed",
+          threadId,
+          turnId: event.providerTurnId,
+          reasoningId: event.reasoningId,
+          ...(event.text ? { text: event.text } : {}),
         });
         return;
       case "approval.requested":

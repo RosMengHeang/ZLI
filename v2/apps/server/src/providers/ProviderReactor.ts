@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   CommandId,
   type ListedProviderKind,
+  MAX_REASONING_TEXT,
   ProviderKind,
   type RuntimeEventEnvelope,
   type ThreadAttachment,
@@ -38,8 +39,20 @@ type StatusDetail = {
   turnId?: string;
   capabilities?: ReturnType<ProviderService["getCapabilities"]>;
   errorMessage?: string;
+  usageLimit?: { resetsAt?: string };
 };
 type PendingDelta = { threadId: string; turnId: string; text: string; timer: ReturnType<typeof setTimeout> };
+type ReasoningEvent = Extract<ProviderEvent, { type: "reasoning.delta" | "reasoning.completed" }>;
+/** A reasoning block that has not finished. sent counts the characters recorded so far, which MAX_REASONING_TEXT caps. */
+type OpenReasoning = {
+  threadId: string;
+  turnId: string;
+  reasoningId: string;
+  pending: string;
+  sent: number;
+  truncated: boolean;
+  timer?: ReturnType<typeof setTimeout> | undefined;
+};
 
 /** Streaming fragments are coalesced so one reply is one durable event per flush, not one per token. */
 const DELTA_FLUSH_MS = 120;
@@ -55,6 +68,8 @@ const FRESH_START_NOTE =
 export class ProviderReactor {
   private readonly tasks = new Set<Promise<void>>();
   private readonly pendingDeltas = new Map<string, PendingDelta>();
+  /** Reasoning blocks that started and have not finished, keyed by thread and the provider's block id. */
+  private readonly openReasoning = new Map<string, OpenReasoning>();
   /** Threads whose session was deleted. Late provider output for them has no record to land on. */
   private readonly deleted = new Set<string>();
   /** The provider's id for each thread's current turn, as the provider reports it. */
@@ -98,6 +113,8 @@ export class ProviderReactor {
     this.unsubscribeProvider();
     for (const pending of this.pendingDeltas.values()) clearTimeout(pending.timer);
     this.pendingDeltas.clear();
+    for (const open of this.openReasoning.values()) clearTimeout(open.timer);
+    this.openReasoning.clear();
   }
 
   async waitForIdle(): Promise<void> {
@@ -177,6 +194,7 @@ export class ProviderReactor {
       ...(thread.model ? { model: thread.model } : {}),
       ...(account ? { account } : {}),
       ...(trustedProjectPath ? { trustedProjectPath } : {}),
+      ...(thread.name ? { title: thread.name } : {}),
     };
   }
 
@@ -311,7 +329,7 @@ export class ProviderReactor {
     attachments: readonly ThreadAttachment[],
     sendToken: object,
   ): Promise<void> {
-    const { threadId, text, model, reasoningEffort, permissionMode } = intent;
+    const { threadId, text, model, reasoningEffort, fast, permissionMode } = intent;
     // Taken before the provider sees the message, so none of the turn's edits can land first.
     const start = await this.checkpoints?.capture(threadId);
     try {
@@ -322,6 +340,7 @@ export class ProviderReactor {
           : promptWithAttachments(text, attachments),
         ...(model ? { model } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(fast ? { fast } : {}),
         ...(permissionMode ? { permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       });
@@ -361,6 +380,7 @@ export class ProviderReactor {
       await this.service.interruptTurn({ threadId: ThreadId.parse(threadId), ...(turnId ? { turnId } : {}) });
       this.flushThreadDeltas(threadId);
       if (active) {
+        this.closeTurnReasoning(threadId, active);
         this.endTurn(threadId, active);
         this.recordCheckpoint(threadId, active);
       }
@@ -375,6 +395,7 @@ export class ProviderReactor {
     try {
       await this.service.interruptTurn({ threadId: ThreadId.parse(threadId), turnId });
       this.flushThreadDeltas(threadId);
+      this.closeTurnReasoning(threadId, turnId);
       this.endTurn(threadId, turnId);
       this.recordCheckpoint(threadId, turnId);
       await this.status(threadId, "idle");
@@ -406,6 +427,11 @@ export class ProviderReactor {
       clearTimeout(pending.timer);
       this.pendingDeltas.delete(key);
     }
+    for (const [key, open] of this.openReasoning) {
+      if (open.threadId !== threadId) continue;
+      clearTimeout(open.timer);
+      this.openReasoning.delete(key);
+    }
     const id = ThreadId.parse(threadId);
     if (!this.service.hasSession(id)) return;
     try {
@@ -419,6 +445,10 @@ export class ProviderReactor {
     if (event.threadId && this.deleted.has(event.threadId)) return;
     if (event.type === "assistant.delta") {
       this.bufferDelta(event.threadId, event.turnId, event.text);
+      return;
+    }
+    if (event.type === "reasoning.delta" || event.type === "reasoning.completed") {
+      this.reasoning(event);
       return;
     }
     if (event.type === "turn.started") {
@@ -444,6 +474,9 @@ export class ProviderReactor {
     if (event.type === "turn.completed") {
       this.resuming.delete(event.threadId);
       this.flushThreadDeltas(event.threadId);
+      // Only this turn's thinking closes, so a late completion after steering leaves the next turn's running,
+      // and an interrupted turn's own thinking still ends here.
+      this.closeTurnReasoning(event.threadId, event.turnId);
       if (this.turnEnded(event.threadId, event.turnId)) return;
       this.endTurn(event.threadId, event.turnId);
       this.recordCheckpoint(event.threadId, event.turnId);
@@ -469,6 +502,7 @@ export class ProviderReactor {
       if (active) this.recordCheckpoint(event.threadId, active);
       if (this.resuming.has(event.threadId)) {
         this.flushThreadDeltas(event.threadId);
+        this.closeThreadReasoning(event.threadId);
         if (active) this.endTurn(event.threadId, active);
         this.track(this.recoverResume(event.threadId, this.takeResume(event.threadId)));
         return;
@@ -476,6 +510,7 @@ export class ProviderReactor {
     }
     if (event.type === "session.closed") {
       this.flushThreadDeltas(event.threadId);
+      this.closeThreadReasoning(event.threadId);
       // The turn died with the process. Left active, it would be the one a Stop after the next send interrupts.
       const active = this.activeTurns.get(event.threadId);
       if (active) this.endTurn(event.threadId, active);
@@ -484,7 +519,13 @@ export class ProviderReactor {
     }
     if (event.threadId) {
       this.flushThreadDeltas(event.threadId);
-      this.track(this.status(event.threadId, "failed", { errorMessage: event.message }));
+      this.closeThreadReasoning(event.threadId);
+      this.track(
+        this.status(event.threadId, "failed", {
+          errorMessage: event.message,
+          ...(event.usageLimit ? { usageLimit: event.usageLimit } : {}),
+        }),
+      );
     }
   }
 
@@ -545,10 +586,106 @@ export class ProviderReactor {
     for (const [key, pending] of this.pendingDeltas) {
       if (pending.threadId === threadId) this.flushDelta(key);
     }
+    for (const open of this.openReasoning.values()) {
+      if (open.threadId === threadId) this.flushReasoning(open);
+    }
   }
 
   private flushAllDeltas(): void {
     for (const key of [...this.pendingDeltas.keys()]) this.flushDelta(key);
+    for (const open of this.openReasoning.values()) this.flushReasoning(open);
+  }
+
+  /**
+   * Reasoning is recorded as a "reasoning" activity. Its first part is recorded at once, after the
+   * reply text before it, so the step keeps its place and start time. Later parts are coalesced like
+   * reply text, and each recorded part extends the step's text.
+   */
+  private reasoning(event: ReasoningEvent): void {
+    if (this.turnEnded(event.threadId, event.turnId)) return;
+    const key = turnKey(event.threadId, event.reasoningId);
+    let open = this.openReasoning.get(key);
+    if (!open) {
+      this.flushThreadDeltas(event.threadId);
+      open = {
+        threadId: event.threadId,
+        turnId: event.turnId,
+        reasoningId: event.reasoningId,
+        pending: "",
+        sent: 0,
+        truncated: false,
+      };
+      this.openReasoning.set(key, open);
+      if (event.type === "reasoning.delta") {
+        open.pending = event.text;
+        this.recordReasoning(open, "running", true);
+        return;
+      }
+    }
+    if (event.type === "reasoning.delta") {
+      if (event.text.length === 0) return;
+      open.pending += event.text;
+      const current = open;
+      open.timer ??= setTimeout(() => this.flushReasoning(current), DELTA_FLUSH_MS);
+      return;
+    }
+    // A provider that did not stream the block sends it whole when it ends.
+    if (open.sent === 0 && open.pending.length === 0 && event.text) open.pending = event.text;
+    this.completeReasoning(key, open);
+  }
+
+  private flushReasoning(open: OpenReasoning): void {
+    clearTimeout(open.timer);
+    open.timer = undefined;
+    if (open.pending.length === 0) return;
+    this.recordReasoning(open, "running", false);
+  }
+
+  private completeReasoning(key: string, open: OpenReasoning): void {
+    clearTimeout(open.timer);
+    open.timer = undefined;
+    this.openReasoning.delete(key);
+    this.recordReasoning(open, "completed", true);
+  }
+
+  /** A session that ends or fails leaves no reasoning running. */
+  private closeThreadReasoning(threadId: string): void {
+    for (const [key, open] of this.openReasoning) {
+      if (open.threadId === threadId) this.completeReasoning(key, open);
+    }
+  }
+
+  /** A turn that ends leaves none of its reasoning running, even when the provider never closed the block. */
+  private closeTurnReasoning(threadId: string, turnId: string): void {
+    for (const [key, open] of this.openReasoning) {
+      if (open.threadId === threadId && open.turnId === turnId) this.completeReasoning(key, open);
+    }
+  }
+
+  private recordReasoning(open: OpenReasoning, status: "running" | "completed", always: boolean): void {
+    const room = MAX_REASONING_TEXT - open.sent;
+    const text = open.pending.slice(0, Math.max(0, room));
+    const cut = open.pending.length > text.length && !open.truncated;
+    open.pending = "";
+    open.sent += text.length;
+    if (cut) open.truncated = true;
+    // Past the cap there is nothing new to record until the block ends.
+    if (!always && text.length === 0 && !cut) return;
+    this.track(
+      this.activity({
+        type: "activity",
+        threadId: ThreadId.parse(open.threadId),
+        turnId: open.turnId,
+        activity: {
+          activityId: `reasoning:${open.reasoningId}`,
+          kind: "reasoning",
+          title: "Thinking",
+          status,
+          ...(text ? { text } : {}),
+          ...(cut ? { truncated: true } : {}),
+        },
+      }),
+    );
   }
 
   private fail(threadId: string, error: unknown, fallback: string): Promise<void> {
@@ -566,8 +703,12 @@ export class ProviderReactor {
           threadId: ThreadId.parse(threadId),
           status,
           ...(detail.turnId ? { turnId: safeTurnId(detail.turnId) } : {}),
+          ...(detail.turnId?.trim() && detail.turnId.trim().length <= MAX_ACTIVITY_ID
+            ? { providerTurnId: detail.turnId.trim() }
+            : {}),
           ...(detail.capabilities ? { capabilities: detail.capabilities } : {}),
           ...(detail.errorMessage?.trim() ? { errorMessage: detail.errorMessage.trim().slice(0, 2_000) } : {}),
+          ...(detail.usageLimit ? { usageLimit: detail.usageLimit } : {}),
         },
       })
       .then(() => undefined);
@@ -668,6 +809,10 @@ export class ProviderReactor {
             ...(turnId ? { textOffset: textOffset ?? 0 } : {}),
             ...(activity.connector ? { connector: activity.connector } : {}),
             ...(activity.todos ? { todos: activity.todos } : {}),
+            ...(activity.input && activity.input.length > 0 ? { input: activity.input.slice(0, 30) } : {}),
+            ...(activity.urls && activity.urls.length > 0 ? { urls: activity.urls.slice(0, 20) } : {}),
+            ...(activity.text ? { text: activity.text.slice(0, MAX_REASONING_TEXT) } : {}),
+            ...(activity.truncated ? { truncated: true } : {}),
           },
         },
       })

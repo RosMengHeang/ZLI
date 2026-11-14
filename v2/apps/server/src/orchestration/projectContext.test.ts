@@ -2,11 +2,11 @@ import {
   EnvironmentId,
   EventId,
   ProjectId,
-  ThreadId,
-  WorktreeId,
   type RuntimeEvent,
   type RuntimeEventEnvelope,
   type RuntimeProjection,
+  ThreadId,
+  WorktreeId,
 } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 

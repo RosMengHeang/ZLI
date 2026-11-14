@@ -5,10 +5,92 @@ import {
   diffLineCounts,
   displayPath,
   editLines,
+  inputEntries,
   patchLines,
   toolActivity,
   toolConnector,
+  webSources,
 } from "./toolActivity.js";
+
+describe("tool input", () => {
+  it("lists an MCP call's arguments as text, with JSON for anything that is not a string", () => {
+    const activity = toolActivity({
+      callId: "m1",
+      name: "mcp__linear__create_issue",
+      input: { title: "Fix login", priority: 2, labels: ["bug"], empty: null },
+      status: "running",
+    });
+    expect(activity.input).toEqual([
+      { key: "title", value: "Fix login" },
+      { key: "priority", value: "2" },
+      { key: "labels", value: '["bug"]' },
+    ]);
+  });
+
+  it("keeps all values within the total cap", () => {
+    const entries = inputEntries({ a: "x".repeat(3_000), b: "y".repeat(3_000), c: "z" });
+    expect(entries.map((entry) => entry.key)).toEqual(["a", "b"]);
+    expect(entries.reduce((sum, entry) => sum + entry.value.length, 0)).toBe(4_000);
+    expect(entries[1]?.value.endsWith("…")).toBe(true);
+  });
+
+  it("leaves commands, reads, and edits to the fields that already show their arguments", () => {
+    expect(
+      toolActivity({ callId: "c", name: "Bash", input: { command: "ls" }, status: "running" }).input,
+    ).toBeUndefined();
+    expect(
+      toolActivity({ callId: "e", name: "Edit", input: { file_path: "a.ts", old_string: "a" }, status: "running" })
+        .input,
+    ).toBeUndefined();
+  });
+});
+
+describe("web sources", () => {
+  it("reads Claude's WebSearch links with their titles", () => {
+    const output = [
+      'Web search results for query: "zod"',
+      "",
+      'Links: [{"title":"Zod","url":"https://zod.dev"},{"title":"GitHub","url":"https://github.com/colinhacks/zod"}]',
+      "",
+      "Zod is a schema library. See https://zod.dev for more.",
+    ].join("\n");
+    const activity = toolActivity({
+      callId: "w",
+      name: "WebSearch",
+      input: { query: "zod" },
+      status: "completed",
+      output,
+    });
+    expect(activity.urls).toEqual([
+      { url: "https://zod.dev", title: "Zod" },
+      { url: "https://github.com/colinhacks/zod", title: "GitHub" },
+    ]);
+    expect(activity.input).toEqual([{ key: "query", value: "zod" }]);
+  });
+
+  it("uses the fetched URL for a fetch, not the links on the page", () => {
+    const activity = toolActivity({
+      callId: "f",
+      name: "WebFetch",
+      input: { url: "https://example.com/doc", prompt: "Summarize" },
+      status: "completed",
+      output: "See [other](https://other.example) too.",
+    });
+    expect(activity.urls).toEqual([{ url: "https://example.com/doc" }]);
+  });
+
+  it("merges reported sources, markdown links, and bare URLs, dropping repeats and anything that is not http", () => {
+    expect(
+      webSources(
+        { query: "q" },
+        [{ url: "https://a.example" }, { url: "ftp://nope.example" }],
+        "[A page](https://a.example) and https://b.example/path.",
+      ),
+    ).toEqual([{ url: "https://a.example", title: "A page" }, { url: "https://b.example/path" }]);
+    const many = Array.from({ length: 30 }, (_, index) => ({ url: `https://s${index}.example` }));
+    expect(webSources({}, many, undefined)).toHaveLength(20);
+  });
+});
 
 describe("classifyTool", () => {
   it.each([

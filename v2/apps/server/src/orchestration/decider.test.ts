@@ -494,6 +494,22 @@ describe("queued messages", () => {
     ]);
   });
 
+  it("wakes an ended chat so its queued messages go out, without taking a queue slot", () => {
+    let state = withThread("working");
+    for (let index = 0; index < 20; index += 1) state = apply(state, queue(`q${index}`));
+    const ended = {
+      ...state,
+      threads: state.threads.map((thread) => ({ ...thread, status: "failed" as const, providerSessionId: "s1" })),
+    } as RuntimeProjection;
+    expect(decide(ended, { type: "thread.wake", threadId })).toEqual([
+      { type: "thread.resume.requested", threadId, cwd: "/work/tree" },
+    ]);
+    // A 21st message is still refused, so nothing the person sends is dropped.
+    expect(() => decide(ended, queue("q20"))).toThrow(/up to 20 queued messages/u);
+    // A running chat needs no wake.
+    expect(decide(state, { type: "thread.wake", threadId })).toEqual([]);
+  });
+
   it("holds messages while the agent works and sends the oldest when it goes idle", () => {
     let state = apply(apply(withThread("working"), queue("q1")), queue("q2"));
     expect(state.queuedMessages?.map((entry) => entry.queueId)).toEqual(["q1", "q2"]);
@@ -894,6 +910,31 @@ describe("agent names", () => {
     state = fold(state, decide(state, start(secondThread, "bob")));
     state = fold(state, decide(state, queue));
     expect(state.threads.map((thread) => thread.name)).toEqual([undefined, "bob"]);
+  });
+
+  it("keeps a usage limit stop until the agent runs again, with auto-resume the person set", () => {
+    let state = fold(twoProjects(), decide(twoProjects(), start(firstThread, "Bob")));
+    const resetsAt = "2026-10-28T15:00:00.000Z";
+    const limitResume: RuntimeCommand = { type: "thread.limit.resume", threadId: firstThread, autoResume: true };
+    expect(decide(state, limitResume)).toEqual([]);
+    state = fold(state, [
+      { type: "thread.provider-session.recorded", threadId: firstThread, providerSessionId: "session-1" },
+      ...decide(state, {
+        type: "thread.status",
+        threadId: firstThread,
+        status: "failed",
+        errorMessage: "You've hit your limit",
+        usageLimit: { resetsAt },
+      }),
+    ]);
+    state = fold(state, decide(state, limitResume));
+    expect(state.threads[0]?.usageLimit).toEqual({ resetsAt, autoResume: true });
+    expect(decide(state, limitResume)).toEqual([]);
+    // ZLI restarting marks the chat stopped; the limit and the person's choice stay.
+    state = fold(state, [{ type: "thread.status.changed", threadId: firstThread, status: "stopped" }]);
+    expect(state.threads[0]?.usageLimit).toEqual({ resetsAt, autoResume: true });
+    state = fold(state, decide(state, { type: "thread.queue", queueId: "q1", threadId: firstThread, text: "go" }));
+    expect(state.threads[0]?.usageLimit).toBeUndefined();
   });
 
   it("renames and clears the name of a chat or terminal agent", () => {

@@ -10,6 +10,7 @@ import {
   RuntimeEvent,
   type RuntimeEventEnvelope,
   type RuntimeProjection,
+  recordTurnStatus,
   removeDevServer,
   removeSession,
   upsertDevServer,
@@ -202,10 +203,17 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "thread.status.changed":
       return {
         ...projection,
+        turns: recordTurnStatus(projection.turns ?? [], event, envelope.occurredAt),
         threads: projection.threads.map((thread) => {
           if (thread.threadId !== event.threadId) return thread;
-          const { errorMessage: _previousError, ...rest } = thread;
+          const { errorMessage: _previousError, usageLimit: previousLimit, ...rest } = thread;
           const keepPreviousError = !event.errorMessage && (event.status === "failed" || event.status === "stopped");
+          // A limit stop lasts until the agent runs again; a restart that marks it stopped keeps it.
+          const usageLimit = event.usageLimit
+            ? { ...event.usageLimit, ...(previousLimit?.autoResume ? { autoResume: true } : {}) }
+            : keepPreviousError
+              ? previousLimit
+              : undefined;
           return {
             ...rest,
             status: event.status,
@@ -217,8 +225,19 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
               : keepPreviousError && thread.errorMessage
                 ? { errorMessage: thread.errorMessage }
                 : {}),
+            ...(usageLimit ? { usageLimit } : {}),
           };
         }),
+        lastSequence: envelope.sequence,
+      };
+    case "thread.limit.resume.changed":
+      return {
+        ...projection,
+        threads: projection.threads.map((thread) =>
+          thread.threadId === event.threadId && thread.usageLimit
+            ? { ...thread, usageLimit: { ...thread.usageLimit, autoResume: event.autoResume } }
+            : thread,
+        ),
         lastSequence: envelope.sequence,
       };
     case "thread.resume.requested":
@@ -226,7 +245,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
         ...projection,
         threads: projection.threads.map((thread) => {
           if (thread.threadId !== event.threadId) return thread;
-          const { errorMessage: _previousError, ...rest } = thread;
+          const { errorMessage: _previousError, usageLimit: _limit, ...rest } = thread;
           return { ...rest, status: "starting" as const, updatedAt: envelope.occurredAt };
         }),
         lastSequence: envelope.sequence,
@@ -249,7 +268,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "thread.activity.updated":
       return {
         ...projection,
-        activities: upsertThreadActivity(projection.activities ?? [], event.activity),
+        activities: upsertThreadActivity(projection.activities ?? [], event.activity, envelope.occurredAt),
         threads: touchThread(projection.threads, event.activity.threadId, envelope.occurredAt),
         lastSequence: envelope.sequence,
       };

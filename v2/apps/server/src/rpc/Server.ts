@@ -7,6 +7,9 @@ import {
   type AccountCommand,
   type AccountDraft,
   type AccountListResult,
+  AGENT_SETTINGS_COMMAND_TYPES,
+  type AgentSettings,
+  type AgentSettingsCommand,
   type AgentToolAccess,
   type AgentToolScope,
   CHECKPOINT_COMMAND_TYPES,
@@ -126,10 +129,16 @@ type RpcServerOptions = {
   };
   /** Plan limits per login. Without it, limits commands are answered as unavailable. */
   limits?: { read(refresh?: boolean): Promise<PlanLimitsResult> };
+  /** Settings applied when chat agents start. Without it, agent settings commands are answered as unavailable. */
+  agentSettings?: { read(): AgentSettings; save(settings: AgentSettings): Promise<AgentSettings> };
   /** Folders found in past Claude Code and Codex sessions. Without it, the scan is answered as unavailable. */
   history?: Pick<AgentHistoryScanner, "scan">;
   /** Looks for agent CLIs again without the cache. */
   refreshProviders?: () => Promise<readonly ProviderDiscovery[]>;
+  /** Forgets the account failure recorded from an agent's last run. */
+  clearProviderProblem?: (provider: ListedProviderKind) => void;
+  /** Called when what discovery reports changes without a new scan, such as a run failing for want of a plan. */
+  onProvidersChanged?: (listener: () => void) => () => void;
   host?: string;
   port?: number;
 };
@@ -153,7 +162,10 @@ export class RpcServer {
   private readonly accounts: RpcServerOptions["accounts"];
   private readonly history: RpcServerOptions["history"];
   private readonly refreshProviders: RpcServerOptions["refreshProviders"];
+  private readonly clearProviderProblem: RpcServerOptions["clearProviderProblem"];
+  private readonly stopProvidersWatch: (() => void) | undefined;
   private readonly limits: RpcServerOptions["limits"];
+  private readonly agentSettings: RpcServerOptions["agentSettings"];
   private readonly host: string;
   private readonly port: number;
   private httpServer: HttpServer | undefined;
@@ -176,6 +188,8 @@ export class RpcServer {
     this.discoverProviders = options.discoverProviders;
     this.history = options.history;
     this.refreshProviders = options.refreshProviders;
+    this.clearProviderProblem = options.clearProviderProblem;
+    this.stopProvidersWatch = options.onProvidersChanged?.(() => void this.broadcastProviders());
     this.attachmentsDir = options.attachmentsDir;
     this.pullRequestService = options.pullRequestService ?? new PullRequestService();
     this.gitChangesService = options.gitChangesService ?? new GitChangesService();
@@ -186,6 +200,7 @@ export class RpcServer {
     this.plugins = options.plugins;
     this.accounts = options.accounts;
     this.limits = options.limits;
+    this.agentSettings = options.agentSettings;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
   }
@@ -284,7 +299,20 @@ export class RpcServer {
     return `ws://${this.host}:${this.boundPort}/rpc`;
   }
 
+  /** Sends every client the agents as discovery now reports them, from its cache. */
+  private async broadcastProviders(): Promise<void> {
+    if (!this.discoverProviders) return;
+    try {
+      const providers = [...(await this.discoverProviders())];
+      this.lastProviders = providers;
+      for (const client of this.clients) void this.sendWithProviders(client, providers);
+    } catch {
+      // The next projection carries them.
+    }
+  }
+
   async stop(): Promise<void> {
+    this.stopProvidersWatch?.();
     for (const client of this.clients) {
       client.close(1001, "server stopping");
     }
@@ -433,6 +461,34 @@ export class RpcServer {
     return true;
   }
 
+  /** The branch is read fresh from the project folder, so a checkout made outside ZLI shows up. */
+  private async handleProjectBranch(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (command.type !== "project.branch") return false;
+    const reject = (message: string, retryable: boolean) =>
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "invalid_request", message, retryable },
+        },
+      });
+    const projection = await this.engine.projection();
+    const project = projection.projects.find((candidate) => candidate.projectId === command.projectId);
+    if (!project) {
+      reject("Project does not exist.", false);
+      return true;
+    }
+    try {
+      const result = await this.gitChangesService.checkedOutBranch(project.path);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      reject(error instanceof GitChangesError ? error.message : "The project's branch could not be read.", true);
+    }
+    return true;
+  }
+
   /** The server list lives in a file beside the database, outside the event log. */
   private async handleMcpCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
     const command = request.command;
@@ -568,6 +624,7 @@ export class RpcServer {
         return true;
       }
       try {
+        if (command.clearProblem) this.clearProviderProblem?.(command.clearProblem);
         const providers = [...(await discover())];
         this.lastProviders = providers;
         respond({ providers });
@@ -605,6 +662,28 @@ export class RpcServer {
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
     } catch {
       reject({ code: "internal", message: "Plan limits could not be read.", retryable: true });
+    }
+    return true;
+  }
+
+  /** Kept by the runtime, which reads them each time it starts a chat agent. */
+  private async handleAgentSettingsCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isAgentSettingsCommand(command)) return false;
+    const reject = (error: RuntimeError) =>
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: false, error } });
+    if (!this.agentSettings) {
+      reject({ code: "unavailable", message: "Agent settings are not available here.", retryable: false });
+      return true;
+    }
+    try {
+      const result =
+        command.type === "agentSettings.save"
+          ? await this.agentSettings.save(command.settings)
+          : this.agentSettings.read();
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch {
+      reject({ code: "internal", message: "Agent settings could not be saved.", retryable: true });
     }
     return true;
   }
@@ -874,11 +953,13 @@ export class RpcServer {
         if (await this.handleIssueCommand(client, message.data.request)) return;
         if (await this.handleCheckpointCommand(client, message.data.request)) return;
         if (await this.handleProjectConfig(client, message.data.request)) return;
+        if (await this.handleProjectBranch(client, message.data.request)) return;
         if (await this.handleMcpCommand(client, message.data.request)) return;
         if (await this.handleSkillCommand(client, message.data.request)) return;
         if (await this.handlePluginCommand(client, message.data.request)) return;
         if (await this.handleAccountCommand(client, message.data.request)) return;
         if (await this.handleLimitsCommand(client, message.data.request)) return;
+        if (await this.handleAgentSettingsCommand(client, message.data.request)) return;
         if (await this.handleHistoryCommand(client, message.data.request)) return;
         try {
           let request: RpcRequest;
@@ -1010,6 +1091,10 @@ function isAccountCommand(command: RpcRequest["command"]): command is AccountCom
 
 function isLimitsCommand(command: RpcRequest["command"]): command is LimitsCommand {
   return (LIMITS_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isAgentSettingsCommand(command: RpcRequest["command"]): command is AgentSettingsCommand {
+  return (AGENT_SETTINGS_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isHistoryCommand(command: RpcRequest["command"]): command is HistoryCommand {

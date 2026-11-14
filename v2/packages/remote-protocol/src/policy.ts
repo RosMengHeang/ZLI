@@ -15,6 +15,7 @@ export const PHONE_COMMANDS = [
   "thread.interrupt",
   "thread.stop",
   "thread.rename",
+  "thread.limit.resume",
   "thread.respond",
   "thread.user-input",
   "session.delete",

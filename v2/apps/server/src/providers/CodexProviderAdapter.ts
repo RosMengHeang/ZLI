@@ -100,6 +100,7 @@ export class CodexProviderAdapter implements ProviderAdapter {
       text: input.text,
       ...(input.model ? { model: input.model } : {}),
       ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
+      ...(input.fast ? { serviceTier: input.fast } : {}),
       ...(imagePaths.length > 0 ? { imagePaths } : {}),
     });
     return { turnId: result.providerTurnId };
@@ -246,6 +247,24 @@ export class CodexProviderAdapter implements ProviderAdapter {
           activity: toolActivity(event.tool, context.session.cwd),
         });
         return;
+      case "reasoning.delta":
+        this.emit({
+          type: "reasoning.delta",
+          threadId: context.session.threadId,
+          turnId: event.providerTurnId,
+          reasoningId: event.reasoningId,
+          text: event.text,
+        });
+        return;
+      case "reasoning.completed":
+        this.emit({
+          type: "reasoning.completed",
+          threadId: context.session.threadId,
+          turnId: event.providerTurnId,
+          reasoningId: event.reasoningId,
+          ...(event.text ? { text: event.text } : {}),
+        });
+        return;
       case "usage.updated":
         this.emit({
           type: "usage",
@@ -260,6 +279,7 @@ export class CodexProviderAdapter implements ProviderAdapter {
           threadId: context.session.threadId,
           turnId: event.providerTurnId,
           status: event.status,
+          ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
         });
         return;
       case "approval.requested":

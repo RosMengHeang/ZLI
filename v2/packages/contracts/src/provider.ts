@@ -41,6 +41,13 @@ export const ProviderModelOption = z.object({
   /** Empty means the model has no reasoning levels. Missing means the agent did not say. */
   reasoningEfforts: ReasoningEfforts.optional(),
   defaultReasoningEffort: ReasoningEffort.optional(),
+  /** The model the agent runs when none is picked. */
+  isDefault: z.boolean().optional(),
+  /**
+   * The model can run faster at a higher price. The value is what a turn sends to ask for it: Codex's
+   * service tier id, or "on" for Claude Code's fast mode. Missing means the model has no faster mode.
+   */
+  fast: z.string().min(1).max(60).optional(),
 });
 export type ProviderModelOption = z.infer<typeof ProviderModelOption>;
 
@@ -58,6 +65,20 @@ export const AgentLogin = z.object({
 });
 export type AgentLogin = z.infer<typeof AgentLogin>;
 
+/**
+ * Why the agent's last run under its usual login failed, when the agent's own error said the account cannot
+ * run it: signed out (or the login expired), or no plan, credits, or subscription that covers it. Most of
+ * this is only known from a run, so it is kept until a later run succeeds, the login changes, or the person
+ * clears it to try again.
+ */
+export const AgentRunProblem = z.object({
+  kind: z.enum(["signed-out", "no-plan"]),
+  /** The agent's own words, trimmed. */
+  message: z.string().min(1).max(300),
+  at: z.string().datetime({ offset: true }),
+});
+export type AgentRunProblem = z.infer<typeof AgentRunProblem>;
+
 export const ProviderDiscovery = z.discriminatedUnion("status", [
   z.object({
     provider: ListedProviderKind,
@@ -69,6 +90,7 @@ export const ProviderDiscovery = z.discriminatedUnion("status", [
     /** Levels for models that list none of their own, including the agent's default model. */
     reasoningEfforts: ReasoningEfforts.optional(),
     login: AgentLogin.optional(),
+    problem: AgentRunProblem.optional(),
   }),
   z.object({
     provider: ListedProviderKind,
@@ -92,6 +114,10 @@ export const ProviderCapabilities = z.object({
 });
 export type ProviderCapabilities = z.infer<typeof ProviderCapabilities>;
 
+/** The plan's usage limit stopped the agent. resetsAt is when it lifts, when the agent said. */
+export const UsageLimitStop = z.object({ resetsAt: z.string().datetime({ offset: true }).optional() });
+export type UsageLimitStop = z.infer<typeof UsageLimitStop>;
+
 export const ThreadProjection = z.object({
   threadId: ThreadId,
   worktreeId: WorktreeId,
@@ -100,6 +126,11 @@ export const ThreadProjection = z.object({
   activeTurnId: TurnId.optional(),
   capabilities: ProviderCapabilities,
   errorMessage: z.string().min(1).optional(),
+  /**
+   * Set while the agent is stopped at the plan's usage limit. With autoResume, ZLI tells it to carry on
+   * once the limit resets.
+   */
+  usageLimit: UsageLimitStop.extend({ autoResume: z.boolean().optional() }).optional(),
   permissionMode: PermissionMode.optional(),
   model: z.string().min(1).max(200).optional(),
   /** The name the person gave this agent. */
@@ -206,6 +237,7 @@ export const ThreadQueuedMessage = z.object({
   text: z.string().min(1),
   model: z.string().min(1).max(200).optional(),
   reasoningEffort: ReasoningEffort.optional(),
+  fast: z.string().min(1).max(60).optional(),
   permissionMode: PermissionMode.optional(),
   attachments: z.array(ThreadAttachment).max(8).optional(),
   /**
@@ -231,8 +263,23 @@ export const TurnUsage = z.object({
   /** Tokens in the context window at the end of the turn, out of contextWindow. */
   contextTokens: TokenCount.optional(),
   contextWindow: z.number().int().positive().optional(),
+  /** When the prompt cache from the turn's last request runs out, in epoch milliseconds. */
+  promptCacheExpiresAt: z.number().int().positive().optional(),
 });
 export type TurnUsage = z.infer<typeof TurnUsage>;
+
+/**
+ * When one turn ran. It starts when the thread reports working on it and ends when the thread goes
+ * idle, stops, or fails. status is how it ended.
+ */
+export const ThreadTurnProjection = z.object({
+  threadId: ThreadId,
+  turnId: z.string().min(1).max(200),
+  startedAt: z.string().datetime({ offset: true }),
+  completedAt: z.string().datetime({ offset: true }).optional(),
+  status: z.enum(["completed", "failed", "stopped"]).optional(),
+});
+export type ThreadTurnProjection = z.infer<typeof ThreadTurnProjection>;
 
 /** One turn's usage. Kept after its session is deleted, so spend history stays complete. */
 export const ThreadUsageRecord = z.object({
@@ -248,7 +295,8 @@ export const ThreadUsageRecord = z.object({
 });
 export type ThreadUsageRecord = z.infer<typeof ThreadUsageRecord>;
 
-export const ThreadActivityKind = z.enum(["command", "file-read", "file-edit", "search", "web", "tool"]);
+/** reasoning is the agent's thinking between steps, as the provider streams it. It has text, not a tool call. */
+export const ThreadActivityKind = z.enum(["command", "file-read", "file-edit", "search", "web", "tool", "reasoning"]);
 export type ThreadActivityKind = z.infer<typeof ThreadActivityKind>;
 
 /**
@@ -268,7 +316,30 @@ export const ThreadActivityTodo = z.object({
 });
 export type ThreadActivityTodo = z.infer<typeof ThreadActivityTodo>;
 
-/** One tool call inside a turn. Updates with the same activityId replace earlier ones. */
+/** One argument of a tool call. value is the argument as text, JSON for anything that is not a string. */
+export const ThreadActivityInput = z.object({
+  key: z.string().min(1).max(100),
+  value: z.string().max(4_000),
+});
+export type ThreadActivityInput = z.infer<typeof ThreadActivityInput>;
+
+/** A page a web search or fetch looked at. */
+export const ThreadActivitySource = z.object({
+  url: z.string().min(1).max(2_000),
+  title: z.string().min(1).max(300).optional(),
+});
+export type ThreadActivitySource = z.infer<typeof ThreadActivitySource>;
+
+/** Reasoning text kept per step. Longer thinking keeps its start and is marked truncated. */
+export const MAX_REASONING_TEXT = 20_000;
+/** Characters kept across all of a tool call's input values. */
+export const MAX_ACTIVITY_INPUT = 4_000;
+export const MAX_ACTIVITY_SOURCES = 20;
+
+/**
+ * One tool call inside a turn. Updates with the same activityId replace earlier ones, except a
+ * reasoning step's text, which each update extends.
+ */
 export const ThreadActivityProjection = z.object({
   activityId: z.string().min(1).max(200),
   threadId: ThreadId,
@@ -291,5 +362,19 @@ export const ThreadActivityProjection = z.object({
   connector: ThreadActivityConnector.optional(),
   /** The agent's whole plan as of this call, for a call that writes its todo list or plan. */
   todos: z.array(ThreadActivityTodo).max(100).optional(),
+  /** When the runtime first recorded the step and when it saw it finish. Older steps have neither. */
+  startedAt: z.string().datetime({ offset: true }).optional(),
+  completedAt: z.string().datetime({ offset: true }).optional(),
+  /**
+   * The arguments the agent called the tool with, for steps whose title, command, and files do not
+   * already show them (tool, MCP, web, and search steps).
+   */
+  input: z.array(ThreadActivityInput).max(30).optional(),
+  /** Pages a web search found or a fetch read, in the order the provider reported them. */
+  urls: z.array(ThreadActivitySource).max(MAX_ACTIVITY_SOURCES).optional(),
+  /** A reasoning step's text. On an update it is the part that arrived since the last one. */
+  text: z.string().max(MAX_REASONING_TEXT).optional(),
+  /** The reasoning ran past MAX_REASONING_TEXT and the rest was dropped. */
+  truncated: z.boolean().optional(),
 });
 export type ThreadActivityProjection = z.infer<typeof ThreadActivityProjection>;

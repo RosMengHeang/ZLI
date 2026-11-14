@@ -10,9 +10,9 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import { Database } from "../db/Database.js";
+import { ProviderReactor } from "../providers/ProviderReactor.js";
 import type { ProviderAdapter, ProviderEvent, ProviderSession } from "../providers/ProviderService.js";
 import { ProviderRegistry, ProviderService } from "../providers/ProviderService.js";
-import { ProviderReactor } from "../providers/ProviderReactor.js";
 import { AgentMessageReactor } from "./AgentMessageReactor.js";
 import { DomainError, decide } from "./decider.js";
 import { Engine } from "./Engine.js";

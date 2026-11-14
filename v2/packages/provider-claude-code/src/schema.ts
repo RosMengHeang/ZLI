@@ -132,6 +132,22 @@ export function setEffortRequest(
   };
 }
 
+/** Turns Claude Code's fast mode on or off for the turns that follow. */
+export function setFastModeRequest(
+  requestId: string,
+  fastMode: boolean,
+): {
+  type: "control_request";
+  request_id: string;
+  request: { subtype: "apply_flag_settings"; settings: { fastMode: boolean } };
+} {
+  return {
+    type: "control_request",
+    request_id: requestId,
+    request: { subtype: "apply_flag_settings", settings: { fastMode } },
+  };
+}
+
 export type ClaudeToolBlock =
   | { kind: "use"; id: string; name: string; input?: Record<string, unknown> }
   | { kind: "result"; toolUseId: string; isError: boolean; output?: string };
@@ -161,6 +177,48 @@ export function claudeToolBlocks(value: unknown): ClaudeToolBlock[] {
       if (!toolUseId) continue;
       const output = resultText(block.content);
       blocks.push({ kind: "result", toolUseId, isError: block.is_error === true, ...(output ? { output } : {}) });
+    }
+  }
+  return blocks;
+}
+
+export type ClaudeThinking =
+  | { kind: "start"; index: number }
+  | { kind: "delta"; index: number; text: string }
+  | { kind: "stop"; index: number }
+  | { kind: "block"; text: string };
+
+/**
+ * Thinking in the main conversation. With partial messages it streams as content_block_start
+ * { content_block: { type: "thinking" } }, then thinking_delta deltas, then content_block_stop, all at
+ * one block index. The assistant record repeats it whole as { type: "thinking", thinking }. A
+ * redacted_thinking block has no readable text and is left out.
+ */
+export function claudeThinking(value: unknown): ClaudeThinking[] {
+  const record = asRecord(value);
+  if (!record || isSubagent(record)) return [];
+  if (record.type === "stream_event") {
+    const event = asRecord(record.event);
+    const index = typeof event?.index === "number" ? event.index : undefined;
+    if (!event || index === undefined) return [];
+    if (event.type === "content_block_start") {
+      return asRecord(event.content_block)?.type === "thinking" ? [{ kind: "start", index }] : [];
+    }
+    if (event.type === "content_block_delta") {
+      const delta = asRecord(event.delta);
+      if (delta?.type !== "thinking_delta" || typeof delta.thinking !== "string" || !delta.thinking) return [];
+      return [{ kind: "delta", index, text: delta.thinking }];
+    }
+    return event.type === "content_block_stop" ? [{ kind: "stop", index }] : [];
+  }
+  if (record.type !== "assistant") return [];
+  const content = asRecord(record.message)?.content;
+  if (!Array.isArray(content)) return [];
+  const blocks: ClaudeThinking[] = [];
+  for (const raw of content) {
+    const block = asRecord(raw);
+    if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim()) {
+      blocks.push({ kind: "block", text: block.thinking });
     }
   }
   return blocks;
@@ -270,6 +328,51 @@ export function claudeContextTokens(value: unknown): number | undefined {
     tokenCount(usage.cache_read_input_tokens),
     tokenCount(usage.output_tokens),
   );
+}
+
+/**
+ * A main-conversation request starting, read from its `message_start` stream event. A request
+ * refreshes the prompt cache, which then lives for `ttlMs` from the request's start. `ttlMs` is
+ * set only when the request wrote to the cache, since that is the only place the tier shows.
+ */
+export function claudeCacheRequest(value: unknown): { ttlMs?: number } | undefined {
+  const record = asRecord(value);
+  if (record?.type !== "stream_event" || isSubagent(record)) return undefined;
+  const event = asRecord(record.event);
+  if (event?.type !== "message_start") return undefined;
+  const creation = asRecord(asRecord(asRecord(event.message)?.usage)?.cache_creation);
+  if ((tokenCount(creation?.ephemeral_1h_input_tokens) ?? 0) > 0) return { ttlMs: 60 * 60_000 };
+  if ((tokenCount(creation?.ephemeral_5m_input_tokens) ?? 0) > 0) return { ttlMs: 5 * 60_000 };
+  return {};
+}
+
+/**
+ * What a message says about the plan's usage limit. "blocked" means Claude refused the request until
+ * the limit resets; "clear" means a limit report allowed it. A `rate_limit_event` reports it, and an
+ * assistant record that Claude answered with `error: "rate_limit"` repeats it. Extra usage that is
+ * allowed means the request still runs, so that does not count as blocked.
+ */
+export function claudeUsageLimit(
+  value: unknown,
+): { state: "blocked"; resetsAt?: string } | { state: "clear" } | undefined {
+  const record = asRecord(value);
+  let info: Record<string, unknown> | undefined;
+  if (record?.type === "rate_limit_event") info = asRecord(record.rate_limit_info);
+  else if (record?.type === "assistant" && record.error === "rate_limit" && !isSubagent(record))
+    info = asRecord(asRecord(record.api_error_params)?.rate_limit_info) ?? { status: "rejected" };
+  if (!info) return undefined;
+  const overage =
+    info.overageStatus === "allowed" ||
+    info.overageStatus === "allowed_warning" ||
+    info.isUsingOverage === true ||
+    info.overageInUse === true;
+  if (info.status === "rejected" && !overage) {
+    const resetMs = typeof info.resetsAt === "number" ? info.resetsAt * 1000 : Number.NaN;
+    return Number.isFinite(resetMs) && resetMs > 0 && resetMs < 8.64e15
+      ? { state: "blocked", resetsAt: new Date(resetMs).toISOString() }
+      : { state: "blocked" };
+  }
+  return info.status === "allowed" || info.status === "allowed_warning" || overage ? { state: "clear" } : undefined;
 }
 
 function classifyControlRequest(record: Record<string, unknown>): ClaudeInbound {

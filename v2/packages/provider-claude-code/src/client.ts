@@ -14,12 +14,16 @@ import {
   allowToolRequest,
   type ClaudeResultUsage,
   classifyClaudeMessage,
+  claudeCacheRequest,
   claudeContextTokens,
+  claudeThinking,
   claudeToolBlocks,
+  claudeUsageLimit,
   denyToolRequest,
   initializeRequest,
   interruptRequest,
   setEffortRequest,
+  setFastModeRequest,
   setModelRequest,
   unsupportedControlResponse,
   userTurnMessage,
@@ -31,8 +35,13 @@ export type ClaudeProviderEvent =
   | { type: "turn.started"; providerTurnId: string }
   | { type: "assistant.delta"; providerTurnId: string; text: string }
   | { type: "turn.completed"; providerTurnId: string; status: string }
-  | { type: "turn.failed"; providerTurnId: string; message: string }
+  /** usageLimit is set when the plan's usage limit stopped the turn; resetsAt is when it lifts, if Claude said. */
+  | { type: "turn.failed"; providerTurnId: string; message: string; usageLimit?: { resetsAt?: string } }
   | { type: "tool.updated"; providerTurnId: string; tool: ClaudeToolUpdate }
+  /** Thinking for one block. The first delta of a block may be empty; it marks the start. */
+  | { type: "reasoning.delta"; providerTurnId: string; reasoningId: string; text: string }
+  /** text is the whole block, sent only when it was not streamed. */
+  | { type: "reasoning.completed"; providerTurnId: string; reasoningId: string; text?: string }
   | { type: "usage.updated"; providerTurnId: string; usage: ProviderUsage }
   | { type: "approval.requested"; requestId: string; payload: Record<string, unknown> }
   | { type: "protocol.error"; message: string }
@@ -98,6 +107,14 @@ export type ClaudeCodeClientOptions = {
   resumeSessionId?: string;
   /** MCP config file (or JSON) passed as --mcp-config for this session. */
   mcpConfig?: string;
+  /** Replaces the clock used for prompt cache expiry. */
+  now?: () => number;
+  /** The session's display name, passed as --name. */
+  name?: string;
+  /** Passed as --autocompact. */
+  autoCompactTokens?: number;
+  /** Passed as --append-system-prompt-file. */
+  appendSystemPromptFile?: string;
 };
 
 export class ClaudeProviderError extends Error {
@@ -118,6 +135,12 @@ type ActiveTurn = {
   sawText: boolean;
   tools: Map<string, { name: string; input?: Record<string, unknown> }>;
   contextTokens?: number;
+  /** Thinking blocks streaming now, by content block index, and how many the turn has had. */
+  thinking: Map<number, string>;
+  thinkingCount: number;
+  sawPartialThinking: boolean;
+  /** Set while Claude refuses requests because the plan's usage limit is reached. */
+  usageLimit?: { resetsAt?: string };
 };
 
 export class ClaudeCodeClient {
@@ -139,7 +162,14 @@ export class ClaudeCodeClient {
   private sessionCostUsd: number | undefined;
   /** Undefined is the model's own default, which is how every session starts. */
   private effort: string | undefined;
+  /** Fast mode as last set on the session. It starts off. */
+  private fast = false;
   private closed = false;
+  private now: () => number = Date.now;
+  /** How long a cache write lasts in this session, from the last request that wrote one. A request that only reads keeps the same tier. */
+  private cacheTtlMs: number | undefined;
+  /** When the latest main-conversation request started. Each request restarts the cache's lifetime. */
+  private lastRequestAt: number | undefined;
 
   private constructor(
     private readonly peer: ClaudePeer,
@@ -164,6 +194,7 @@ export class ClaudeCodeClient {
       options.model?.trim() || undefined,
       sessionId,
     );
+    if (options.now) client.now = options.now;
     try {
       client.sendInitialize();
       await client.waitForInit(options.initTimeoutMs ?? SESSION_INIT_TIMEOUT_MS);
@@ -189,7 +220,13 @@ export class ClaudeCodeClient {
     return this.completed;
   }
 
-  async sendTurn(input: { text: string; model?: string; reasoningEffort?: string }): Promise<ClaudeTurnResult> {
+  async sendTurn(input: {
+    text: string;
+    model?: string;
+    reasoningEffort?: string;
+    /** Fast mode for this turn and the ones after it, until a turn says otherwise. */
+    fast?: boolean;
+  }): Promise<ClaudeTurnResult> {
     this.assertOpen();
     const sessionId = this.currentSessionId;
     if (!this.ready) throw new ClaudeProviderError("request_failed", "Claude Code session is not started.");
@@ -197,7 +234,16 @@ export class ClaudeCodeClient {
     const model = input.model?.trim();
     const effort = input.reasoningEffort?.trim() || undefined;
     const providerTurnId = randomUUID();
-    this.active = { id: providerTurnId, text: "", sawPartial: false, sawText: false, tools: new Map() };
+    this.active = {
+      id: providerTurnId,
+      text: "",
+      sawPartial: false,
+      sawText: false,
+      tools: new Map(),
+      thinking: new Map(),
+      thinkingCount: 0,
+      sawPartialThinking: false,
+    };
     try {
       // The session keeps its model across turns, so only a different one needs a switch.
       if (model && model !== this.model) {
@@ -208,6 +254,11 @@ export class ClaudeCodeClient {
       if (effort !== this.effort) {
         this.write(setEffortRequest(`set_effort_${randomUUID()}`, effort ?? null));
         this.effort = effort;
+      }
+      const fast = input.fast === true;
+      if (fast !== this.fast) {
+        this.write(setFastModeRequest(`set_fast_${randomUUID()}`, fast));
+        this.fast = fast;
       }
       this.write(userTurnMessage(input.text, sessionId));
     } catch (error) {
@@ -285,8 +336,20 @@ export class ClaudeCodeClient {
       return;
     }
     this.handleToolBlocks(raw);
+    this.handleThinking(raw);
     const contextTokens = claudeContextTokens(raw);
     if (contextTokens !== undefined && this.active) this.active.contextTokens = contextTokens;
+    const cacheRequest = claudeCacheRequest(raw);
+    if (cacheRequest) {
+      this.lastRequestAt = this.now();
+      if (cacheRequest.ttlMs !== undefined) this.cacheTtlMs = cacheRequest.ttlMs;
+    }
+    const limit = claudeUsageLimit(raw);
+    if (limit && this.active) {
+      if (limit.state === "blocked")
+        this.active.usageLimit = { ...this.active.usageLimit, ...(limit.resetsAt ? { resetsAt: limit.resetsAt } : {}) };
+      else delete this.active.usageLimit;
+    }
     const message = classifyClaudeMessage(raw);
     switch (message.kind) {
       case "init":
@@ -342,6 +405,11 @@ export class ClaudeCodeClient {
   private onResult(message: { isError: boolean; text?: string; subtype?: string; usage?: ClaudeResultUsage }): void {
     if (!this.active) return;
     this.emitUsage(this.active, message.usage);
+    if (this.active.usageLimit) {
+      const usageLimit = this.active.usageLimit;
+      this.finishTurn("error", message.text?.trim() || "You've hit your usage limit.", usageLimit);
+      return;
+    }
     if (message.isError) {
       const detail =
         message.text?.trim() ||
@@ -363,6 +431,10 @@ export class ClaudeCodeClient {
       costUsd,
       contextTokens: active.contextTokens,
       contextWindow: reported?.contextWindow,
+      promptCacheExpiresAt:
+        this.lastRequestAt !== undefined && this.cacheTtlMs !== undefined
+          ? this.lastRequestAt + this.cacheTtlMs
+          : undefined,
     });
     if (usage) this.emit({ type: "usage.updated", providerTurnId: active.id, usage });
   }
@@ -377,18 +449,66 @@ export class ClaudeCodeClient {
     this.emit({ type: "assistant.delta", providerTurnId: this.active.id, text });
   }
 
-  private finishTurn(status: string, errorMessage?: string): void {
+  private finishTurn(status: string, errorMessage?: string, usageLimit?: { resetsAt?: string }): void {
     const active = this.active;
     if (!active) return;
+    // An interrupted turn can end inside a thinking block, which then never gets its stop event.
+    for (const reasoningId of active.thinking.values()) {
+      this.emit({ type: "reasoning.completed", providerTurnId: active.id, reasoningId });
+    }
+    active.thinking.clear();
     this.active = undefined;
     this.pendingApprovals.clear();
     if (errorMessage) {
       this.completed.push({ providerTurnId: active.id, text: errorMessage, status });
-      this.emit({ type: "turn.failed", providerTurnId: active.id, message: errorMessage });
+      this.emit({
+        type: "turn.failed",
+        providerTurnId: active.id,
+        message: errorMessage,
+        ...(usageLimit ? { usageLimit } : {}),
+      });
       return;
     }
     this.completed.push({ providerTurnId: active.id, text: active.text, status });
     this.emit({ type: "turn.completed", providerTurnId: active.id, status });
+  }
+
+  /**
+   * Streamed thinking is reported as it arrives. The assistant record's copy of a block is only used
+   * when nothing streamed, as when the CLI runs without partial messages.
+   */
+  private handleThinking(raw: unknown): void {
+    const active = this.active;
+    if (!active) return;
+    for (const part of claudeThinking(raw)) {
+      if (part.kind === "block") {
+        if (active.sawPartialThinking) continue;
+        active.thinkingCount += 1;
+        this.emit({
+          type: "reasoning.completed",
+          providerTurnId: active.id,
+          reasoningId: `${active.id}-thinking-${active.thinkingCount}`,
+          text: part.text,
+        });
+        continue;
+      }
+      if (part.kind === "start") {
+        active.sawPartialThinking = true;
+        active.thinkingCount += 1;
+        const reasoningId = `${active.id}-thinking-${active.thinkingCount}`;
+        active.thinking.set(part.index, reasoningId);
+        this.emit({ type: "reasoning.delta", providerTurnId: active.id, reasoningId, text: "" });
+        continue;
+      }
+      const reasoningId = active.thinking.get(part.index);
+      if (!reasoningId) continue;
+      if (part.kind === "delta") {
+        this.emit({ type: "reasoning.delta", providerTurnId: active.id, reasoningId, text: part.text });
+        continue;
+      }
+      active.thinking.delete(part.index);
+      this.emit({ type: "reasoning.completed", providerTurnId: active.id, reasoningId });
+    }
   }
 
   private handleToolBlocks(raw: unknown): void {
@@ -545,6 +665,9 @@ function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string, sess
     ...(options.model?.trim() ? { model: options.model.trim() } : {}),
     ...(options.resumeSessionId?.trim() ? { resumeSessionId: options.resumeSessionId.trim() } : { sessionId }),
     ...(options.mcpConfig ? { mcpConfig: options.mcpConfig } : {}),
+    ...(options.name ? { name: options.name } : {}),
+    ...(options.autoCompactTokens !== undefined ? { autoCompactTokens: options.autoCompactTokens } : {}),
+    ...(options.appendSystemPromptFile ? { appendSystemPromptFile: options.appendSystemPromptFile } : {}),
   });
   const child = spawnProcess(command, args, {
     cwd: options.cwd,
@@ -570,8 +693,28 @@ function defaultSpawn(command: string, args: readonly string[], options: ClaudeS
   return child as ClaudeChild;
 }
 
+/** How Claude Code reports who started it. ZLI names itself rather than passing on another app's value. */
+export const ZLI_CLAUDE_ENTRYPOINT = "zli";
+
+/**
+ * The entrypoint is set over the inherited one: a ZLI started from inside Claude Code inherits
+ * `cli`, which would misreport these headless sessions as the interactive app. `options.env` and the
+ * `env` block of the user's Claude settings, which the CLI applies after start, still win.
+ * Tool search is on unless the user chose otherwise, so MCP tool definitions load when the agent
+ * needs one instead of riding along on every request.
+ * A resumed session's first request would otherwise go out before its MCP servers connect, and
+ * Claude Code tells the agent they disconnected, which can cost a turn of it working around them.
+ */
 function sessionEnv(options: ClaudeCodeClientOptions): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...(options.env ?? {}), PWD: options.cwd };
+  const resuming = Boolean(options.resumeSessionId?.trim());
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    CLAUDE_CODE_ENTRYPOINT: ZLI_CLAUDE_ENTRYPOINT,
+    ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH ?? "true",
+    ...(resuming && process.env.MCP_CONNECTION_NONBLOCKING === undefined ? { MCP_CONNECTION_NONBLOCKING: "0" } : {}),
+    ...(options.env ?? {}),
+    PWD: options.cwd,
+  };
   delete env.CLAUDECODE;
   return env;
 }

@@ -1,7 +1,6 @@
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { CommandId, type EnvironmentDescriptor, EnvironmentId } from "@zli-v2/contracts";
 import * as Effect from "effect/Effect";
-
-import { CommandId, EnvironmentId, type EnvironmentDescriptor } from "@zli-v2/contracts";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine, type EngineOptions, StoredEventCompatibilityError } from "./Engine.js";

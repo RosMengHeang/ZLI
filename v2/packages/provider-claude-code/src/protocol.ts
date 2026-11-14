@@ -8,6 +8,12 @@ const BASE_ARGS = [
   "stream-json",
   "--verbose",
   "--include-partial-messages",
+  // Adaptive thinking lets the model think as much as each request needs instead of a fixed budget,
+  // and summarized display streams readable thinking for the chat's thinking rows.
+  "--thinking",
+  "adaptive",
+  "--thinking-display",
+  "summarized",
 ] as const;
 
 // Print mode is required for stream-json input and output. No one-shot prompt:
@@ -32,6 +38,12 @@ export function claudeSessionArgs(
     sessionId?: string;
     resumeSessionId?: string;
     mcpConfig?: string;
+    /** The session's display name. Naming it up front saves the request Claude Code otherwise makes to name it. */
+    name?: string;
+    /** Tokens at which Claude summarizes older context, from 100k to 1M. Omitted keeps Claude's own setting. */
+    autoCompactTokens?: number;
+    /** A file of instructions added after Claude Code's own system prompt. */
+    appendSystemPromptFile?: string;
   } = {},
 ): string[] {
   const args: string[] =
@@ -47,6 +59,9 @@ export function claudeSessionArgs(
   if (input.model) args.push("--model", input.model);
   if (input.resumeSessionId) args.push("--resume", input.resumeSessionId);
   else if (input.sessionId) args.push("--session-id", input.sessionId);
+  if (input.name?.trim()) args.push("--name", input.name.trim());
+  if (input.autoCompactTokens !== undefined) args.push("--autocompact", String(input.autoCompactTokens));
+  if (input.appendSystemPromptFile) args.push("--append-system-prompt-file", input.appendSystemPromptFile);
   if (input.mcpConfig) args.push("--mcp-config", input.mcpConfig);
   return args;
 }

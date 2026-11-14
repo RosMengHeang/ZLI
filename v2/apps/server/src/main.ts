@@ -13,7 +13,6 @@ import {
 } from "@zli-v2/contracts";
 import { CodexAppServerClient } from "@zli-v2/provider-codex";
 import { AccountStore } from "./accounts/AccountStore.js";
-import { AgentHistoryScanner } from "./import/AgentHistoryScanner.js";
 import {
   type BrowserToolConfig,
   browserToolConfigFromEnv,
@@ -31,6 +30,7 @@ import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
 import { GitProcess } from "./git/GitProcess.js";
 import { HuddleReactor } from "./huddles/HuddleReactor.js";
 import { TerminalInputTracker } from "./huddles/TerminalInputTracker.js";
+import { AgentHistoryScanner } from "./import/AgentHistoryScanner.js";
 import { LegacyImportReactor } from "./import/LegacyImportReactor.js";
 import { GitHubIssues } from "./issues/GitHubIssues.js";
 import { GitLabIssues } from "./issues/GitLabIssues.js";
@@ -44,7 +44,9 @@ import { projectionMetroEnv } from "./mobile/metroEnv.js";
 import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
 import { PluginStore } from "./plugins/PluginStore.js";
+import { AgentSettingsStore } from "./providers/AgentSettingsStore.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
+import { UsageLimitResumer } from "./providers/UsageLimitResumer.js";
 import { ProviderService } from "./providers/ProviderService.js";
 import { createProviderRegistry } from "./providers/registerProviders.js";
 import { ReviewReactor } from "./review/ReviewReactor.js";
@@ -239,12 +241,16 @@ export async function startRuntime(options: {
   };
   const writeWorktreeFile = (worktreePath: string, relPath: string, contents: string | undefined) =>
     agentFiles.writeFile(worktreePath, relPath, contents);
+  const agentSettings = new AgentSettingsStore(join(dirname(databasePath), "agent-settings.json"));
+  await agentSettings.load();
   const providerService = new ProviderService(
     createProviderRegistry(process.env, {
       ...(browserTool ? { browserTool } : {}),
       ...mcpOptions,
       writeWorktreeFile,
       metroEnv: (worktreeId) => projectionMetroEnv(engine, worktreeId),
+      instructionsDir: join(dirname(databasePath), "instructions"),
+      claudeAutoCompactTokens: () => agentSettings.read().claudeAutoCompactTokens,
     }),
   );
   // Started now so it overlaps server start and terminal restore; the first projection shares this run.
@@ -307,14 +313,18 @@ export async function startRuntime(options: {
     plugins,
     accounts,
     limits: planLimits,
+    agentSettings,
     history: new AgentHistoryScanner({ home: userHome, env: process.env }),
     refreshProviders: () => providerService.discoverProviders(true),
+    clearProviderProblem: (provider) => providerService.runProblems.clear(provider),
+    onProvidersChanged: (listener) => providerService.onProvidersChanged(listener),
   });
   // Before the server accepts commands, so a setup started by a new request is never mistaken for a stale one.
   await worktreeSetup.reconcile();
   await server.start();
   await terminalReactor.restore();
   await providerReactor.reconcileOrphanedThreads();
+  const usageLimitResumer = new UsageLimitResumer(engine);
   const unsubscribeWorktrees = engine.subscribe((envelope) => {
     const event = envelope.event;
     if (
@@ -388,6 +398,7 @@ export async function startRuntime(options: {
       terminalReactor.stop();
       reviewReactor.stop();
       providerReactor.stop();
+      usageLimitResumer.stop();
       checkpoints.stop();
       agentMessageReactor.stop();
       diagnosticsReactor.stop();

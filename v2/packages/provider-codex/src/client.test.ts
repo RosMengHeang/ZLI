@@ -410,6 +410,76 @@ describe("CodexAppServerClient tool items", () => {
     expect(events.some((event) => event.type === "protocol.error")).toBe(false);
   });
 
+  it("streams reasoning summaries, keeps one stream per item, and sends unstreamed items whole", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    const events: CodexProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    const send = (method: string, params: Record<string, unknown>) =>
+      peer.emit({ jsonrpc: "2.0", method, params: { ...ids, ...params } });
+
+    send("item/started", { item: { type: "reasoning", id: "rs-1", summary: [], content: [] } });
+    send("item/reasoning/summaryPartAdded", { itemId: "rs-1", summaryIndex: 0 });
+    send("item/reasoning/summaryTextDelta", { itemId: "rs-1", summaryIndex: 0, delta: "Reading files" });
+    send("item/reasoning/textDelta", { itemId: "rs-1", contentIndex: 0, delta: "raw" });
+    send("item/reasoning/summaryPartAdded", { itemId: "rs-1", summaryIndex: 1 });
+    send("item/reasoning/summaryTextDelta", { itemId: "rs-1", summaryIndex: 1, delta: "Then tests" });
+    send("item/completed", {
+      item: { type: "reasoning", id: "rs-1", summary: ["Reading files", "Then tests"], content: [] },
+    });
+    send("item/completed", { item: { type: "reasoning", id: "rs-2", summary: ["One", "Two"], content: ["raw"] } });
+
+    const reasoning = events
+      .filter((event) => event.type === "reasoning.delta" || event.type === "reasoning.completed")
+      .map((event) => [event.type, event.reasoningId, "text" in event ? event.text : undefined]);
+    expect(reasoning).toEqual([
+      ["reasoning.delta", "rs-1", ""],
+      ["reasoning.delta", "rs-1", ""],
+      ["reasoning.delta", "rs-1", "Reading files"],
+      ["reasoning.delta", "rs-1", ""],
+      ["reasoning.delta", "rs-1", "\n\n"],
+      ["reasoning.delta", "rs-1", "Then tests"],
+      ["reasoning.completed", "rs-1", undefined],
+      ["reasoning.completed", "rs-2", "One\n\nTwo"],
+    ]);
+    expect(events.some((event) => event.type === "protocol.notification" || event.type === "protocol.error")).toBe(
+      false,
+    );
+  });
+
+  it("reports the pages a webSearch item opened or returned", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    const events: CodexProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    peer.emit({
+      jsonrpc: "2.0",
+      method: "item/completed",
+      params: {
+        ...ids,
+        item: {
+          type: "webSearch",
+          id: "web-2",
+          query: "zod",
+          action: { type: "openPage", url: "https://zod.dev" },
+          results: [{ url: "https://github.com/colinhacks/zod", title: "zod" }, { title: "no url" }],
+        },
+      },
+    });
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool.updated",
+        tool: {
+          callId: "web-2",
+          name: "webSearch",
+          input: { query: "zod", url: "https://zod.dev" },
+          status: "completed",
+          sources: [{ url: "https://zod.dev" }, { url: "https://github.com/colinhacks/zod", title: "zod" }],
+        },
+      }),
+    ]);
+  });
+
   it("sends per-thread config overrides with thread/start", async () => {
     const peer = new FakePeer();
     const client = await CodexAppServerClient.connect({ peer });

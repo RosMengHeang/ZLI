@@ -9,6 +9,8 @@ import {
   createDefaultCliProbe,
   discoverCliProviders,
   fileLooksExecutable,
+  parseClaudeCodeModels,
+  parseCodexModels,
   parseCursorModels,
   parseDroidModels,
   parseOpenCodeModels,
@@ -477,5 +479,65 @@ describe("model discovery", () => {
     now += 61_000;
     expect(readCachedCliModels("codex", "/cache-test/codex", clock)).not.toBe(failed);
     expect(readCachedCliModels("claude-code", "/cache-test/claude", clock)).toBe(first);
+  });
+});
+
+describe("live model lists", () => {
+  it("reads Claude Code's models from its initialize answer, marking the default and fast mode", () => {
+    const models = parseClaudeCodeModels({
+      models: [
+        { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)" },
+        {
+          value: "opus",
+          resolvedModel: "claude-opus-5-5",
+          displayName: "Opus 5.5",
+          supportsEffort: true,
+          supportedEffortLevels: ["low", "high"],
+          supportsFastMode: true,
+        },
+        {
+          value: "fable",
+          resolvedModel: "claude-fable-5-2",
+          displayName: "Fable 5.2",
+          supportsEffort: true,
+          supportedEffortLevels: ["low"],
+        },
+        { value: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5" },
+      ],
+    });
+    expect(models).toEqual([
+      { id: "opus", label: "Opus 5.5", reasoningEfforts: ["low", "high"], fast: "on", isDefault: true },
+      { id: "fable", label: "Fable 5.2", reasoningEfforts: ["low"] },
+      { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", reasoningEfforts: [] },
+    ]);
+    expect(parseClaudeCodeModels({})).toBeUndefined();
+  });
+
+  it("reads Codex's model/list, leaving hidden models out and finding a fast service tier", () => {
+    const models = parseCodexModels({
+      data: [
+        {
+          id: "gpt-6-luna",
+          model: "gpt-6-luna",
+          displayName: "GPT-6-Luna",
+          isDefault: true,
+          defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: [{ reasoningEffort: "low" }, { reasoningEffort: "medium" }],
+          serviceTiers: [{ id: "priority", name: "Fast", description: "Quicker" }],
+        },
+        { id: "secret", model: "secret", displayName: "Secret", hidden: true },
+      ],
+    });
+    expect(models).toEqual([
+      {
+        id: "gpt-6-luna",
+        label: "GPT-6-Luna",
+        reasoningEfforts: ["low", "medium"],
+        defaultReasoningEffort: "medium",
+        isDefault: true,
+        fast: "priority",
+      },
+    ]);
+    expect(parseCodexModels(undefined)).toBeUndefined();
   });
 });
