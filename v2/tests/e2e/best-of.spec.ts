@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 import {
   closeDesktop,
@@ -36,23 +36,6 @@ const exists = (path: string) =>
     () => true,
     () => false,
   );
-
-/**
- * Opens Try N ways on a sent message. The action is drawn beside the bubble and ignores the pointer
- * until the message is hovered, so a hover that does not stick leaves the column taking the click.
- */
-async function clickTryWays(message: Locator): Promise<void> {
-  const button = message.getByRole("button", { name: "Try N ways" });
-  await expect(async () => {
-    await message.evaluate((bubble) => {
-      const actions = bubble.querySelector<HTMLElement>(".chat-message-actions");
-      if (!actions) throw new Error("Try N ways is not on this message.");
-      actions.style.setProperty("opacity", "1");
-      actions.style.setProperty("pointer-events", "auto");
-    });
-    await button.click({ timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
-}
 
 async function startChat(page: Page): Promise<void> {
   await expect(page.locator(".project-label")).toContainText("repo");
@@ -123,48 +106,6 @@ test("sends a message as Best of N, compares the runs, and keeps one", async () 
     expect(await git(repo, ["branch", "--list", kept.branch])).toContain(kept.branch);
     await expect(page.getByRole("group", { name: /^Best of 2 from / })).toHaveCount(0);
     await expect(page.locator(".agent-tile .tile-run")).toHaveCount(0);
-  } finally {
-    if (fixture) await closeDesktop(fixture);
-  }
-});
-
-test("tries an earlier message several ways, starting from before it was sent", async () => {
-  test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
-  const { root, repo } = await createGitFixture();
-  let fixture: DesktopFixture | undefined;
-  try {
-    fixture = await launchDesktop(repo, root);
-    const page = fixture.page;
-    await startChat(page);
-    await sendChatMessage(page, "[write notes.md] first change");
-    await expect(page.locator(".chat-log").getByText("Mock response: [write notes.md] first change")).toBeVisible({
-      timeout: 30_000,
-    });
-    await sendChatMessage(page, "[write other.md] second change");
-    await expect(page.locator(".chat-log").getByText("Mock response: [write other.md] second change")).toBeVisible({
-      timeout: 30_000,
-    });
-    // Each turn's changes are saved just after it ends; until then Try N ways cannot know where to start.
-    await expect(page.getByRole("region", { name: "Changes in this turn" })).toHaveCount(2, { timeout: 20_000 });
-
-    const message = page.locator(".chat-message-user").filter({ hasText: "[write notes.md] first change" });
-    await clickTryWays(message);
-    const popover = page.getByRole("dialog", { name: "Try N ways" });
-    await expect(popover).toContainText("[write notes.md] first change");
-    await expect(popover).toContainText("from the state before this message");
-    await popover.getByRole("button", { name: "2 runs" }).click();
-    await popover.getByRole("button", { name: "Start runs" }).click();
-    await expect(popover).toBeHidden();
-
-    const group = page.getByRole("group", { name: /^Best of 2 from / });
-    await expect(group.getByRole("button", { name: "Compare" })).toBeVisible({ timeout: 60_000 });
-    const runs = await runWorktrees(page);
-    expect(runs).toHaveLength(2);
-    for (const run of runs) {
-      // The run started before the first message, so the second turn's file is not there.
-      expect(await exists(join(run.path, "notes.md"))).toBe(true);
-      expect(await exists(join(run.path, "other.md"))).toBe(false);
-    }
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

@@ -2,7 +2,7 @@ import type { ThreadActivityProjection, ThreadId, ThreadMessageProjection } from
 import { describe, expect, it } from "vitest";
 
 import type { TimelineItem } from "../sessions/sessions.js";
-import { groupTurns, promptLabel, trailSummary } from "./turns.js";
+import { groupTurns, promptLabel, trailSummary, workedFor } from "./turns.js";
 
 const threadId = "thread-1" as ThreadId;
 
@@ -48,10 +48,10 @@ describe("groupTurns", () => {
     expect(latestStart).toBe(4);
   });
 
-  it("lists the messages the person sent, without the files attached to them", () => {
+  it("lists the messages the person sent, without the files attached to them, each with its reply", () => {
     expect(groupTurns(timeline).prompts).toEqual([
-      { id: "u1", text: "Add a health route" },
-      { id: "u2", text: "Now test it" },
+      { id: "u1", text: "Add a health route", reply: "I'll look first.\n\nDone." },
+      { id: "u2", text: "Now test it", reply: "Tests pass." },
     ]);
   });
 
@@ -102,6 +102,30 @@ describe("trailSummary", () => {
         activity("t1", "tool"),
       ]),
     ).toBe("Edited 2 files · Used 1 tool");
+  });
+
+  it("leaves thinking out unless the turn did nothing else", () => {
+    expect(trailSummary([activity("k1", "reasoning"), activity("c1", "command")])).toBe("Ran 1 command");
+    expect(trailSummary([activity("k1", "reasoning")])).toBe("Thought");
+  });
+});
+
+describe("workedFor", () => {
+  const turn = (startedAt: string, completedAt?: string) => ({
+    threadId: "00000000-0000-4000-8000-000000000001" as ThreadId,
+    turnId: "t1",
+    startedAt,
+    ...(completedAt ? { completedAt } : {}),
+  });
+
+  it("says how long a finished turn worked", () => {
+    expect(workedFor(turn("2026-01-01T12:00:00.000Z", "2026-01-01T12:01:05.000Z"))).toBe("Worked for 1m 05s");
+  });
+
+  it("says nothing for a turn still running, one under a second, or one it does not know", () => {
+    expect(workedFor(turn("2026-01-01T12:00:00.000Z"))).toBeUndefined();
+    expect(workedFor(turn("2026-01-01T12:00:00.000Z", "2026-01-01T12:00:00.400Z"))).toBeUndefined();
+    expect(workedFor(undefined)).toBeUndefined();
   });
 });
 

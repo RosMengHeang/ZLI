@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 import {
   closeDesktop,
@@ -89,6 +89,16 @@ echo "unexpected glab $*" >&2
 exit 2
 `;
 
+/** Issues open from the command palette's "Start from issue". */
+async function openIssues(page: Page): Promise<void> {
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+k" : "Control+k");
+  const search = page
+    .getByRole("dialog", { name: "Command palette" })
+    .getByRole("textbox", { name: "Search commands" });
+  await search.fill("Start from issue");
+  await search.press("Enter");
+}
+
 test("lists GitHub issues and starts an agent from one", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   test.skip(process.platform === "win32", "The stand-in GitHub CLI is a POSIX shell script.");
@@ -115,7 +125,7 @@ test("lists GitHub issues and starts an agent from one", async () => {
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.getByRole("button", { name: "Issues", exact: true }).click();
+    await openIssues(page);
     const issues = page.getByRole("dialog", { name: "Issues" });
     const list = issues.getByRole("list", { name: "GitHub issues" });
     await expect(list.getByRole("button")).toHaveCount(2, { timeout: 30_000 });
@@ -198,7 +208,7 @@ test("lists GitLab issues with glab and starts an agent from one", async () => {
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.getByRole("button", { name: "Issues", exact: true }).click();
+    await openIssues(page);
     const issues = page.getByRole("dialog", { name: "Issues" });
     const list = issues.getByRole("list", { name: "GitLab issues" });
     await expect(list.getByRole("button")).toHaveCount(1, { timeout: 30_000 });
@@ -244,7 +254,7 @@ test("explains how to read a GitLab project's issues without glab", async () => 
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.getByRole("button", { name: "Issues", exact: true }).click();
+    await openIssues(page);
     const issues = page.getByRole("dialog", { name: "Issues" });
     await expect(issues.getByRole("alert")).toContainText("GitLab CLI (glab) is not installed", { timeout: 30_000 });
     await expect(issues.getByRole("button", { name: "Try again" })).toBeVisible();
@@ -266,7 +276,7 @@ test("explains a project hosted outside GitHub and GitLab and starts an agent wi
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await page.getByRole("button", { name: "Issues", exact: true }).click();
+    await openIssues(page);
     const issues = page.getByRole("dialog", { name: "Issues" });
     await expect(issues.getByText("This project's remote is on bitbucket.org.")).toBeVisible({ timeout: 30_000 });
     await expect(issues.getByText("ZLI can read issues from GitHub, GitLab, and Linear today.")).toBeVisible();

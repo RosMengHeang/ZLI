@@ -1,7 +1,7 @@
 import type { ThreadActivityProjection } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { elapsedLabel, exploreCounts, groupSteps } from "./WorkLog.js";
+import { elapsedLabel, exploreCounts, foldOutput, groupSteps } from "./WorkLog.js";
 
 const activity = (id: string, kind: ThreadActivityProjection["kind"], extra: Partial<ThreadActivityProjection> = {}) =>
   ({
@@ -48,5 +48,21 @@ describe("step labels", () => {
     expect(elapsedLabel(8_400)).toBe("8s");
     expect(elapsedLabel(65_000)).toBe("1m 05s");
     expect(elapsedLabel(3_720_000)).toBe("1h 02m");
+  });
+});
+
+describe("foldOutput", () => {
+  const lines = (count: number) => Array.from({ length: count }, (_, index) => `line ${index + 1}`).join("\n");
+
+  it("leaves short output whole", () => {
+    expect(foldOutput(lines(8))).toBeUndefined();
+  });
+
+  it("keeps the first and last three lines of long output", () => {
+    expect(foldOutput(lines(20))).toEqual({
+      head: "line 1\nline 2\nline 3",
+      hidden: 14,
+      tail: "line 18\nline 19\nline 20",
+    });
   });
 });

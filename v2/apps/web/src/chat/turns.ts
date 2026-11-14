@@ -1,7 +1,8 @@
-import type { ThreadActivityProjection } from "@zli-v2/contracts";
+import type { ThreadActivityProjection, ThreadTurnProjection } from "@zli-v2/contracts";
 
 import type { TimelineItem } from "../sessions/sessions.js";
 import { splitAttachedFiles } from "./attachedFiles.js";
+import { durationLabel, stepDuration } from "./Thought.js";
 import { baseName, exploreCounts } from "./WorkLog.js";
 
 /** One row of the conversation: a timeline item, or an earlier turn's working-out folded into one line. */
@@ -13,8 +14,8 @@ export type ChatTurns = {
   rows: ChatRow[];
   /** The whole reply of each turn, keyed by the timeline index of its last part, which carries Copy. */
   replies: Map<number, string>;
-  /** The messages the person sent, in order, for jumping around a long chat. */
-  prompts: { id: string; text: string }[];
+  /** The messages the person sent, in order, for jumping around a long chat, each with the start of its reply. */
+  prompts: { id: string; text: string; reply?: string }[];
   /** Where the latest turn starts in the timeline. */
   latestStart: number;
 };
@@ -59,6 +60,10 @@ export function groupTurns(timeline: readonly TimelineItem[]): ChatTurns {
         parts.push(item.message.text.trim());
       } else others.push(index);
     }
+    if (first && isUser(first) && first.kind === "message" && parts.length > 0) {
+      const prompt = prompts.find((entry) => entry.id === first.message.messageId);
+      if (prompt) prompt.reply = parts.join("\n\n").slice(0, 600);
+    }
     const foldable = !others.some((index) => index < lastWork);
     if (lastReply > lastWork && parts.length > 0) replies.set(lastReply, parts.join("\n\n"));
 
@@ -89,7 +94,10 @@ export function groupTurns(timeline: readonly TimelineItem[]): ChatTurns {
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /** A folded turn in a few words: "Explored 3 files · Edited routes.ts · Ran 2 commands". */
-export function trailSummary(activities: readonly ThreadActivityProjection[]): string {
+export function trailSummary(all: readonly ThreadActivityProjection[]): string {
+  // Thinking is not something the agent did to the project, so it only names a turn that did nothing else.
+  const activities = all.filter((entry) => entry.kind !== "reasoning");
+  if (activities.length === 0 && all.length > 0) return "Thought";
   const explored = activities.filter(
     (entry) => entry.kind === "file-read" || entry.kind === "search" || entry.kind === "web",
   );
@@ -116,6 +124,12 @@ export function trailSummary(activities: readonly ThreadActivityProjection[]): s
   if (tools > 0) parts.push(`Used ${plural(tools, "tool", "tools")}`);
   if (failed > 0) parts.push(`${failed} failed`);
   return parts.join(" · ") || plural(activities.length, "step", "steps");
+}
+
+/** "Worked for 1m 05s", for a turn that has ended and took at least a second. */
+export function workedFor(turn: ThreadTurnProjection | undefined): string | undefined {
+  const label = turn ? durationLabel(stepDuration(turn)) : undefined;
+  return label ? `Worked for ${label}` : undefined;
 }
 
 /** The first line of a message, for the list of messages to jump to. */

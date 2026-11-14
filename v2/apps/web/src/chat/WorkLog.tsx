@@ -1,9 +1,16 @@
 import type { ThreadActivityProjection } from "@zli-v2/contracts";
 import { useState } from "react";
 
+import type { FileLinks } from "../files/FileIndex.js";
 import { Button } from "../ui/Button.js";
 import { Collapse } from "../ui/Collapse.js";
 import { Icon, type IconName } from "../ui/Icon.js";
+import { CopyButton } from "./CopyButton.js";
+import { SourceChips } from "./Sources.js";
+import { parseStackTrace, StackTrace } from "./StackTrace.js";
+import { durationLabel, elapsedLabel, stepDuration, ThoughtStep } from "./Thought.js";
+
+export { elapsedLabel };
 
 type Activity = ThreadActivityProjection;
 
@@ -22,12 +29,17 @@ const EXPLORE = new Set<Activity["kind"]>(["file-read", "search", "web"]);
 
 export type StepRow =
   | { kind: "explore"; key: string; entries: Activity[] }
+  | { kind: "thought"; key: string; entry: Activity }
   | { kind: "step"; key: string; entry: Activity };
 
 export function groupSteps(activities: readonly Activity[]): StepRow[] {
   const rows: StepRow[] = [];
   for (const entry of activities) {
     const last = rows.at(-1);
+    if (entry.kind === "reasoning") {
+      rows.push({ kind: "thought", key: entry.activityId, entry });
+      continue;
+    }
     if (EXPLORE.has(entry.kind)) {
       if (last?.kind === "explore") last.entries.push(entry);
       else rows.push({ kind: "explore", key: `explore-${entry.activityId}`, entries: [entry] });
@@ -70,13 +82,137 @@ export function baseName(path: string): string {
   return normalized.slice(normalized.lastIndexOf("/") + 1) || normalized;
 }
 
-/** Seconds as "8s", "1m 05s", or "1h 02m". */
-export function elapsedLabel(milliseconds: number): string {
-  const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
-  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+/** A run of lookups took from the first one's start to the last one's end; nothing while one still runs. */
+export function groupDuration(entries: readonly Activity[]): number | undefined {
+  let start = Number.POSITIVE_INFINITY;
+  let end = Number.NEGATIVE_INFINITY;
+  for (const entry of entries) {
+    if (stepDuration(entry) === undefined) return undefined;
+    start = Math.min(start, Date.parse(entry.startedAt ?? ""));
+    end = Math.max(end, Date.parse(entry.completedAt ?? ""));
+  }
+  return entries.length > 0 ? end - start : undefined;
+}
+
+function StepTime({ milliseconds }: { milliseconds: number | undefined }) {
+  const label = durationLabel(milliseconds);
+  return label ? <span className="step-time">{label}</span> : null;
+}
+
+/**
+ * Wording agents use when the person, or a permission rule, refused a call. A bare "permission
+ * denied" is left out: that is usually the file system answering a command.
+ */
+const DENIED =
+  /\b(?:the user doesn't want to proceed|tool use was rejected|(?:denied|rejected|declined) by (?:the )?user|user (?:denied|rejected|declined)|permission to use \S+ (?:was|has been) denied)/iu;
+
+/** What a step's status word says: a refused call reads as Denied, not as a failure of the tool. */
+export function stepState(entry: Activity): Activity["status"] | "denied" {
+  if (entry.status === "failed" && entry.detail && DENIED.test(entry.detail)) return "denied";
+  return entry.status;
+}
+
+/** Long values stay three lines until opened; a value of this many characters is likely to need more. */
+const CLAMP_LINES = 3;
+const CLAMP_CHARS = 240;
+
+function InputValue({ value }: { value: string }) {
+  const [full, setFull] = useState(false);
+  const long = value.split("\n").length > CLAMP_LINES || value.length > CLAMP_CHARS;
+  return (
+    <dd className={`step-input-value${long && !full ? " is-clamped" : ""}`}>
+      {value}
+      {long ? (
+        <button className="step-more" type="button" onClick={() => setFull(!full)}>
+          {full ? "less" : "more"}
+        </button>
+      ) : null}
+    </dd>
+  );
+}
+
+/** The arguments a tool was called with, one per line: the name dim, the value as written. */
+function StepInputs({ input }: { input: NonNullable<Activity["input"]> }) {
+  return (
+    <dl className="step-input">
+      {input.map((item, index) => (
+        <div className="step-input-row" key={`${item.key}-${index.toString()}`}>
+          <dt>{item.key}</dt>
+          <InputValue value={item.value} />
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** What a step opens to: its arguments, then its output, or its stack trace when it failed. */
+function StepBody({
+  entry,
+  detail,
+  links,
+}: {
+  entry: Activity;
+  detail: string | undefined;
+  links?: FileLinks | undefined;
+}) {
+  // Only a failed step is worth the parse: its output is where a stack trace would be.
+  const trace = detail && entry.status === "failed" ? parseStackTrace(detail) : undefined;
+  return (
+    <>
+      {entry.input?.length ? <StepInputs input={entry.input} /> : null}
+      {trace && detail ? (
+        <div className="step-detail is-trace">
+          <StackTrace trace={trace} text={detail} links={links} />
+        </div>
+      ) : detail ? (
+        <StepOutput text={detail} />
+      ) : entry.status === "running" ? (
+        <p className="step-pending">Running</p>
+      ) : null}
+    </>
+  );
+}
+
+function stepDetail(entry: Activity): string | undefined {
+  return entry.command ? [`$ ${entry.command}`, entry.detail].filter(Boolean).join("\n") : entry.detail;
+}
+
+/** Output this long or shorter shows whole; longer output keeps its first and last lines. */
+const FOLD_AFTER = 8;
+const FOLD_KEEP = 3;
+
+/** The first and last lines of long output and how many lines sit between them. */
+export function foldOutput(text: string): { head: string; hidden: number; tail: string } | undefined {
+  const lines = text.split("\n");
+  if (lines.length <= FOLD_AFTER) return undefined;
+  return {
+    head: lines.slice(0, FOLD_KEEP).join("\n"),
+    hidden: lines.length - FOLD_KEEP * 2,
+    tail: lines.slice(-FOLD_KEEP).join("\n"),
+  };
+}
+
+function StepOutput({ text }: { text: string }) {
+  const [full, setFull] = useState(false);
+  const fold = full ? undefined : foldOutput(text);
+  return (
+    <div className="step-output">
+      <pre className="step-detail">
+        {fold ? (
+          <>
+            {fold.head}
+            <button className="step-more" type="button" onClick={() => setFull(true)}>
+              … +{fold.hidden} lines
+            </button>
+            {fold.tail}
+          </>
+        ) : (
+          text
+        )}
+      </pre>
+      <CopyButton text={text} className="step-copy" />
+    </div>
+  );
 }
 
 function rowStatus(entries: readonly Activity[]): Activity["status"] {
@@ -85,9 +221,10 @@ function rowStatus(entries: readonly Activity[]): Activity["status"] {
   return "completed";
 }
 
-function StepStatus({ status }: { status: Activity["status"] }) {
+function StepStatus({ status }: { status: Activity["status"] | "denied" }) {
   // A running step shows it through the shimmer on its text; this keeps the state readable aloud.
   if (status === "running") return <span className="sr-only" role="img" aria-label="Running" />;
+  if (status === "denied") return <span className="step-denied">Denied</span>;
   if (status === "failed") {
     return (
       <span className="step-failed">
@@ -115,9 +252,12 @@ function LineCounts({ lines }: { lines: NonNullable<Activity["lines"]> }) {
 export function WorkSteps({
   activities,
   onOpenFile,
+  links,
 }: {
   activities: readonly Activity[];
   onOpenFile?: ((path: string) => void) | undefined;
+  /** Opens the files a failed step's stack trace names. */
+  links?: FileLinks | undefined;
 }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const toggle = (key: string) =>
@@ -136,6 +276,7 @@ export function WorkSteps({
           const expanded = open.has(row.key);
           if (row.kind === "explore") {
             const status = rowStatus(row.entries);
+            const sources = sourcesOf(row.entries);
             return (
               <li className={`step is-explore is-${status}`} key={row.key}>
                 <button
@@ -152,26 +293,32 @@ export function WorkSteps({
                   <span className="step-muted">{exploreCounts(row.entries)}</span>
                   <Icon name="chevronRight" size={11} className="step-chevron" />
                   <StepStatus status={status} />
+                  <StepTime milliseconds={status === "running" ? undefined : groupDuration(row.entries)} />
                 </button>
                 <Collapse open={expanded}>
                   <ol className="step-children">
                     {row.entries.map((entry) => (
-                      <li className={`step-child is-${entry.status}`} key={entry.activityId} title={entry.title}>
-                        <Icon name={kindIcon[entry.kind]} size={12} />
-                        <span className={`step-child-title${entry.status === "running" ? " shimmer-text" : ""}`}>
-                          {entry.title}
-                        </span>
-                        <StepStatus status={entry.status} />
-                      </li>
+                      <ExploreChild
+                        key={entry.activityId}
+                        entry={entry}
+                        open={open.has(entry.activityId)}
+                        onToggle={() => toggle(entry.activityId)}
+                        links={links}
+                      />
                     ))}
                   </ol>
                 </Collapse>
+                {sources.length > 0 ? <SourceChips urls={sources} /> : null}
               </li>
             );
           }
           const { entry } = row;
+          if (row.kind === "thought") {
+            return <ThoughtStep key={row.key} entry={entry} open={expanded} onToggle={() => toggle(row.key)} />;
+          }
           if (entry.kind === "file-edit") return <EditStep key={row.key} entry={entry} onOpenFile={onOpenFile} />;
-          const detail = entry.command ? [`$ ${entry.command}`, entry.detail].filter(Boolean).join("\n") : entry.detail;
+          const detail = stepDetail(entry);
+          const opens = Boolean(detail || entry.input?.length);
           const mono = entry.kind === "command" && !entry.command;
           const running = entry.status === "running";
           return (
@@ -179,8 +326,8 @@ export function WorkSteps({
               <button
                 className="step-row"
                 type="button"
-                aria-expanded={detail ? expanded : undefined}
-                disabled={!detail}
+                aria-expanded={opens ? expanded : undefined}
+                disabled={!opens}
                 onClick={() => toggle(row.key)}
                 title={entry.command ?? entry.title}
               >
@@ -188,19 +335,72 @@ export function WorkSteps({
                 <span className={`step-title${mono ? " is-mono" : ""}${running ? " shimmer-text" : ""}`}>
                   {entry.title}
                 </span>
-                {detail ? <Icon name="chevronRight" size={11} className="step-chevron" /> : null}
-                <StepStatus status={entry.status} />
+                {opens ? <Icon name="chevronRight" size={11} className="step-chevron" /> : null}
+                <StepStatus status={stepState(entry)} />
+                <StepTime milliseconds={stepDuration(entry)} />
               </button>
-              {detail ? (
+              {opens ? (
                 <Collapse open={expanded}>
-                  <pre className="step-detail">{detail}</pre>
+                  <StepBody entry={entry} detail={detail} links={links} />
                 </Collapse>
               ) : null}
+              {entry.urls?.length ? <SourceChips urls={entry.urls} /> : null}
             </li>
           );
         })}
       </ol>
     </section>
+  );
+}
+
+/** The pages a run of lookups read, each once, for the chips under it. */
+function sourcesOf(entries: readonly Activity[]): NonNullable<Activity["urls"]> {
+  const seen = new Set<string>();
+  return entries.flatMap((entry) =>
+    (entry.urls ?? []).filter((source) => {
+      if (seen.has(source.url)) return false;
+      seen.add(source.url);
+      return true;
+    }),
+  );
+}
+
+/** One lookup inside an "Explored" step. One called with arguments, or with output, opens to show them. */
+function ExploreChild({
+  entry,
+  open,
+  onToggle,
+  links,
+}: {
+  entry: Activity;
+  open: boolean;
+  onToggle(): void;
+  links?: FileLinks | undefined;
+}) {
+  const opens = Boolean(entry.detail || entry.input?.length);
+  const content = (
+    <>
+      <Icon name={kindIcon[entry.kind]} size={12} />
+      <span className={`step-child-title${entry.status === "running" ? " shimmer-text" : ""}`}>{entry.title}</span>
+      <StepStatus status={stepState(entry)} />
+      <StepTime milliseconds={stepDuration(entry)} />
+    </>
+  );
+  return (
+    <li className={`step-child is-${entry.status}${opens ? " is-open-able" : ""}`} title={entry.title}>
+      {opens ? (
+        <button className="step-child-row" type="button" aria-expanded={open} onClick={onToggle}>
+          {content}
+        </button>
+      ) : (
+        content
+      )}
+      {opens ? (
+        <Collapse open={open}>
+          <StepBody entry={entry} detail={entry.detail} links={links} />
+        </Collapse>
+      ) : null}
+    </li>
   );
 }
 
@@ -226,7 +426,8 @@ function EditStep({ entry, onOpenFile }: { entry: Activity; onOpenFile?: ((path:
       )}
       {files.length > 1 ? <span className="step-muted">and {files.length - 1} more</span> : null}
       {first && onOpenFile ? <Icon name="arrowRight" size={11} className="step-chevron" /> : null}
-      <StepStatus status={entry.status} />
+      <StepStatus status={stepState(entry)} />
+      <StepTime milliseconds={stepDuration(entry)} />
     </>
   );
   return (

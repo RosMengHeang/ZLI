@@ -25,13 +25,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { isSelectableProvider, listedDiscoveries, providerDisplayName, signInCommand } from "../agent/providers.js";
+import { agentUsable, chatAgentStatus } from "../agent/agentStatus.js";
+import { isSelectableProvider, listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { type FileLinks, useFileIndexContext, useFileLinks } from "../files/FileIndex.js";
 import { useCopyFeedback } from "../review/links.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { entriesForThread, entriesForThreads, entriesInOrder, shallowArrayEqual } from "../runtime/runtimeStore.js";
-import { forkPointAfter, type RunAgent, type RunStart } from "../sessions/bestOf.js";
+import type { RunAgent, RunStart } from "../sessions/bestOf.js";
 import { takeoverContext } from "../sessions/handoff.js";
 import type { ChatPlace } from "../sessions/launch.js";
 import { buildTimeline, conversationThreads, type TimelineItem } from "../sessions/sessions.js";
@@ -54,7 +55,7 @@ import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
-import { discoverProviders } from "../welcome/welcomeClient.js";
+import { AgentUnavailableNotice } from "./AgentUnavailableNotice.js";
 import { accountPlan, otherAgents } from "./agentModels.js";
 import { fileName, splitAttachedFiles } from "./attachedFiles.js";
 import type { BestOfAgentOption } from "./BestOfPopover.js";
@@ -62,7 +63,7 @@ import {
   ContinueRow,
   FollowUps,
   followUpsIn,
-  PlanApproval,
+  type PlanApprovalAction,
   PlanCard,
   PullRequestStrip,
   ReviewCard,
@@ -74,18 +75,23 @@ import { ChatImage, ChatImageScope, isImagePath } from "./ChatImage.js";
 import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Composer.js";
 import { ConnectorCard } from "./ConnectorCard.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
+import { DockSlot, firstDockItem } from "./DockSlot.js";
 import { FileBadge } from "./FileBadge.js";
+import { liveStepLabel } from "./liveStatus.js";
 import { Markdown } from "./Markdown.js";
 import type { MentionOption } from "./MentionPicker.js";
-import { RequestCard } from "./RequestCard.js";
+import { type PendingRequest, RequestPager } from "./RequestCard.js";
 import { RoomBar, RoomLive, type RoomPerson, RoomSpeaker } from "./RoomParts.js";
-import { reasoningLevels } from "./reasoning.js";
+import { fastFor, reasoningLevels } from "./reasoning.js";
 import { mergeRoomTimeline, missedBy, roomBrief, roomGuests, roomHelpers, runningStep } from "./room.js";
+import { CitationContext, citationsFor, type Source, SourcesRow, turnSources } from "./Sources.js";
+import { ErrorText } from "./StackTrace.js";
 import { isSideChat } from "./sideChats.js";
 import { isSwitchNotice, switchNotice } from "./switchNotice.js";
 import { TurnChanges } from "./TurnChanges.js";
 import { TurnRail } from "./TurnRail.js";
-import { groupTurns, trailSummary } from "./turns.js";
+import { groupTurns, trailSummary, workedFor } from "./turns.js";
+import { UsageLimitNote } from "./UsageLimitNote.js";
 import { ChangedFiles, elapsedLabel, WorkSteps } from "./WorkLog.js";
 import { WorkspaceBar } from "./WorkspaceBar.js";
 import "./chat.css";
@@ -96,7 +102,6 @@ export function ChatView({
   worktree,
   onOpenDiff,
   onRestart,
-  onHandoff,
   onSwitchAgent,
   onMoveChat,
   onAddFolder,
@@ -117,7 +122,6 @@ export function ChatView({
   worktree: WorktreeProjection | undefined;
   onOpenDiff(path?: string): void;
   onRestart(): void;
-  onHandoff?: (() => void) | undefined;
   /**
    * Starts this chat over with another agent, before anything was sent. Absent where the tile cannot
    * start agents, such as a scratch chat.
@@ -125,8 +129,11 @@ export function ChatView({
   onSwitchAgent?: ((provider: string, model: string | undefined) => Promise<string | undefined>) | undefined;
   /** Moves the chat to another folder, worktree, or branch before its first message. */
   onMoveChat?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
-  /** Opens the folder picker and adds the folder as a project, for the project menu before the first message. */
-  onAddFolder?: (() => Promise<string | undefined>) | undefined;
+  /**
+   * Adds a folder as a project (the given one, or else one picked in the folder picker), for the project menu
+   * before the first message.
+   */
+  onAddFolder?: ((path?: string) => Promise<string | undefined>) | undefined;
   /** Opens Settings at a connector, a catalog id or a server name. */
   onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Starts best-of runs from this chat. Absent where runs cannot start, such as a scratch chat. */
@@ -177,6 +184,10 @@ export function ChatView({
   const startingReasoning = reasoning.levels.find((level) => level.toLowerCase() === "low");
   const reasoningEffort =
     (chosenReasoning && reasoning.levels.includes(chosenReasoning) ? chosenReasoning : undefined) ?? startingReasoning;
+  // Fast holds for the chat while the picked model offers it; a model without it simply runs at standard speed.
+  const [fastOn, setFastOn] = useState(false);
+  const fastValue = fastFor(models, model);
+  const fast = fastOn ? fastValue : undefined;
   // The projection passed in skips chat-only updates, so this thread's chat state is read from the
   // store. Each selector returns the same value while this thread is unchanged, even when another
   // thread is streaming.
@@ -189,19 +200,16 @@ export function ChatView({
     useCallback((value: RuntimeProjection | undefined) => entriesForThread(value?.activities, threadId), [threadId]),
     shallowArrayEqual,
   );
-  const request = useRuntimeSelector(
-    useCallback(
-      (value: RuntimeProjection | undefined) => value?.requests?.find((candidate) => candidate.threadId === threadId),
-      [threadId],
-    ),
-  );
-  const waitingCount = useRuntimeSelector(
+  const hostRequests = useRuntimeSelector(
     useCallback(
       (value: RuntimeProjection | undefined) =>
-        (value?.requests ?? []).filter((candidate) => candidate.threadId === threadId).length,
+        (value?.requests ?? []).filter((candidate) => candidate.threadId === threadId),
       [threadId],
     ),
+    shallowArrayEqual,
   );
+  const request = hostRequests[0];
+  const waitingCount = hostRequests.length;
   const queued = useRuntimeSelector(
     useCallback(
       (value: RuntimeProjection | undefined) => entriesForThread(value?.queuedMessages, threadId),
@@ -223,6 +231,11 @@ export function ChatView({
   // Every turn of the conversation keeps its file changes and its point to try again from, whichever
   // agent ran it.
   const chainKey = earlierKey ? `${earlierKey} ${threadId}` : threadId;
+  // When each turn of the conversation ran, for "Worked for" and for the timer of the turn in progress.
+  const turnTimes = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.turns, chainKey), [chainKey]),
+    shallowArrayEqual,
+  );
   // The agents the person brought into this chat talk in it, so the chat reads as one room.
   const { teammates } = useAppSettings();
   // The chat's own buddy, the same one the sidebar shows for it.
@@ -249,12 +262,13 @@ export function ChatView({
     useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.activities, helperKey), [helperKey]),
     shallowArrayEqual,
   );
-  const guestRequest = useRuntimeSelector(
+  const guestRequests = useRuntimeSelector(
     useCallback(
       (value: RuntimeProjection | undefined) =>
-        guestKey ? value?.requests?.find((candidate) => guestKey.split(" ").includes(candidate.threadId)) : undefined,
+        guestKey ? (value?.requests ?? []).filter((candidate) => guestKey.split(" ").includes(candidate.threadId)) : [],
       [guestKey],
     ),
+    shallowArrayEqual,
   );
   const checkpoints = useRuntimeSelector(
     useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.checkpoints, roomKey), [roomKey]),
@@ -297,6 +311,35 @@ export function ChatView({
     return mergeRoomTimeline(ownTimeline, guestSaid, order);
   }, [ownTimeline, guests.length, roomMessages, guestIds]);
   const turns = useMemo(() => groupTurns(timeline), [timeline]);
+  const worked = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const turn of turnTimes) {
+      const label = workedFor(turn);
+      if (label) labels.set(turn.turnId, label);
+    }
+    return labels;
+  }, [turnTimes]);
+  // A folded turn says how long it worked on its fold, so its reply does not say it again.
+  const foldedTurns = useMemo(() => {
+    const folded = new Set<string>();
+    for (const row of turns.rows) {
+      const turnId = row.kind === "fold" ? row.activities[0]?.turnId : undefined;
+      if (turnId) folded.add(turnId);
+    }
+    return folded;
+  }, [turns.rows]);
+  const sourcesByTurn = useMemo(() => {
+    const byTurn = new Map<string, ThreadActivityProjection[]>();
+    for (const item of timeline) {
+      if (item.kind === "work") byTurn.set(item.turnId, [...(byTurn.get(item.turnId) ?? []), ...item.activities]);
+    }
+    const sources = new Map<string, Source[]>();
+    for (const [turnId, list] of byTurn) {
+      const found = turnSources(list);
+      if (found.length > 0) sources.set(turnId, found);
+    }
+    return sources;
+  }, [timeline]);
   const fileLinks = useFileLinks(worktree?.worktreeId, messages.length);
   const latestOpenDiff = useRef(onOpenDiff);
   useLayoutEffect(() => {
@@ -446,6 +489,7 @@ export function ChatView({
           text,
           ...(model ? { model } : {}),
           ...(reasoningEffort ? { reasoningEffort } : {}),
+          ...(fast ? { fast } : {}),
           ...(permissionSwitch && mode !== threadMode ? { permissionMode: mode } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
           ...(brief ? { context: brief } : {}),
@@ -498,22 +542,6 @@ export function ChatView({
     }
   };
 
-  const [retry, setRetry] = useState<{ key: string; text: string; index: number }>();
-  const placedRef = useRef(placedCheckpoints);
-  placedRef.current = placedCheckpoints;
-  const worktreeIdRef = useRef(thread.worktreeId);
-  worktreeIdRef.current = thread.worktreeId;
-  const tryWays = useCallback((message: ThreadMessageProjection, index: number) => {
-    setRetry({ key: message.messageId, text: message.text, index });
-  }, []);
-  // Worked out when the runs start rather than when the popover opens: a turn that just ended may
-  // not have its checkpoint yet, and without it the runs would copy the files later turns changed.
-  const retryStart = (index: number): RunStart => {
-    const checkpoint = forkPointAfter(index, placedRef.current.after);
-    return checkpoint
-      ? { kind: "checkpoint", checkpointId: checkpoint.checkpointId }
-      : { kind: "worktree", worktreeId: worktreeIdRef.current };
-  };
   const runAgents = useMemo(
     (): BestOfAgentOption[] =>
       listedDiscoveries(projection.providers).flatMap((entry) =>
@@ -529,13 +557,11 @@ export function ChatView({
       ? {
           agents: runAgents,
           current: { provider: thread.provider, ...(model ? { model } : {}) },
-          retry: retry ? { key: retry.key, text: retry.text } : undefined,
-          onRetryClose: () => setRetry(undefined),
-          onStart: ({ text, runs, retry: again }) =>
+          onStart: ({ text, runs }) =>
             onStartRuns({
               prompt: text,
               runs,
-              from: again && retry ? retryStart(retry.index) : { kind: "worktree", worktreeId: thread.worktreeId },
+              from: { kind: "worktree", worktreeId: thread.worktreeId },
               permissionMode,
             }),
         }
@@ -553,8 +579,14 @@ export function ChatView({
   };
 
   const step = useMemo(() => (working ? currentStep(ownTimeline) : undefined), [working, ownTimeline]);
-  // A running step already shimmers in the list, so the line under it only says that work goes on.
-  const liveLabel = thread.status === "waiting" ? `${displayName} is waiting for you` : step ? "Working" : "Thinking";
+  // The line under the chat says what the agent does now, worked out the same way as the sidebar and room rows.
+  // A running tool step already shimmers in the list, so the line itself stays still then.
+  const toolRunning = step !== undefined && step.kind !== "reasoning";
+  const liveLabel = thread.status === "waiting" ? `${displayName} is waiting for you` : liveStepLabel(step);
+  // The timer counts from when the turn started on the server, so it stays right after a reload.
+  const turnStartedAt = working
+    ? turnTimes.findLast((turn) => turn.threadId === threadId && !turn.completedAt)?.startedAt
+    : undefined;
   const visibleError = error;
   // Until the first message, the chat is not tied to its agent yet, so the model list offers every agent.
   const fresh = messages.length === 0 && earlierMessages.length === 0 && queued.length === 0 && !ended;
@@ -567,7 +599,11 @@ export function ChatView({
     [switchable, projection.providers, thread.provider],
   );
   const agentName = providerDisplayName(thread.provider, projection.providers);
-  const signedOut = discovery?.status === "found" && discovery.login?.status === "signed-out";
+  const accountStatus = chatAgentStatus(discovery, thread.accountId);
+  // Shown on the composer, which keeps sending off until the agent can run again.
+  const unavailable = agentUsable(accountStatus) ? undefined : (
+    <AgentUnavailableNotice name={agentName} provider={thread.provider} status={accountStatus} />
+  );
   const switchAgent = (provider: string, next: string | undefined) => {
     setError(undefined);
     void onSwitchAgent?.(provider, next).then((failure) => {
@@ -948,7 +984,22 @@ export function ChatView({
     }
     return sent;
   };
-  const guestOfRequest = guestRequest ? guests.find((guest) => guest.threadId === guestRequest.threadId) : undefined;
+  // Every open request in the chat, the host's first, for the one card that pages through them.
+  const pendingRequests: PendingRequest[] = [
+    ...hostRequests.map((entry) => ({ entry, provider: thread.provider, name: displayName })),
+    ...guestRequests.flatMap((entry) => {
+      const guest = guests.find((candidate) => candidate.threadId === entry.threadId);
+      return guest ? [{ entry, provider: guest.provider, name: nameOfThread(guest) }] : [];
+    }),
+  ].map(({ entry, provider, name }) => ({
+    request: entry,
+    provider,
+    displayName: name,
+    onRespond: (decision: unknown) =>
+      run({ type: "thread.respond", threadId: entry.threadId, requestId: entry.requestId, decision }),
+    onAnswer: (answers: Record<string, string>) =>
+      run({ type: "thread.user-input", threadId: entry.threadId, requestId: entry.requestId, answers }),
+  }));
   const busyPeople = people.filter(
     (person) =>
       person.role !== "host" &&
@@ -988,9 +1039,10 @@ export function ChatView({
     [settled, lastReply, lastAsk],
   );
   // A chat cut off mid-task, as when the app closed while the agent worked: its last word is the person's,
-  // or a step never finished.
+  // or a step never finished. A chat stopped at the usage limit has its own note above the message box.
   const cutOff =
     resumable &&
+    !thread.usageLimit &&
     !working &&
     queued.length === 0 &&
     (thread.status === "failed" ||
@@ -1098,7 +1150,12 @@ export function ChatView({
     return (
       <Fragment key={item.kind === "work" ? `work-${item.key}` : (item.key ?? item.message.messageId)}>
         {item.kind === "work" ? (
-          <ChatWork item={item} showChangedFiles={!placedCheckpoints.turns.has(item.turnId)} onOpenDiff={openDiff} />
+          <ChatWork
+            item={item}
+            showChangedFiles={!placedCheckpoints.turns.has(item.turnId)}
+            onOpenDiff={openDiff}
+            links={fileLinks}
+          />
         ) : isSwitchNotice(item.message) ? (
           <div className="chat-switch" role="note">
             <span className="chat-switch-line" aria-hidden="true" />
@@ -1115,7 +1172,12 @@ export function ChatView({
               source={item.message.role === "agent" ? sourceLabel(projection, item.message.sourceThreadId) : ""}
               // A reply still being written has no Copy yet: it would copy half an answer.
               reply={working && index >= turns.latestStart ? undefined : turns.replies.get(index)}
-              onTryWays={bestOf && canSend && !guestIds.has(item.message.threadId) ? tryWays : undefined}
+              sources={item.message.turnId ? sourcesByTurn.get(item.message.turnId) : undefined}
+              workedFor={
+                item.message.turnId && !foldedTurns.has(item.message.turnId)
+                  ? worked.get(item.message.turnId)
+                  : undefined
+              }
               onEdit={
                 index === lastUserIndex && settled && item.message.threadId === thread.threadId
                   ? editMessage
@@ -1123,6 +1185,10 @@ export function ChatView({
               }
               onBranch={onBranch && !working ? branchAt : undefined}
             />
+            {/* The next steps a reply suggests sit right under it, where they were read. */}
+            {index === lastReplyIndex && followUps.length > 0 && findings.length === 0 ? (
+              <FollowUps items={followUps} onHere={(task) => void send(task, [])} onNewChat={onNewChatWithPrompt} />
+            ) : null}
           </>
         )}
         {withChanges ? placedCheckpoints.after.get(index)?.map(turnChanges) : null}
@@ -1130,8 +1196,8 @@ export function ChatView({
     );
   };
 
-  // What waits on the person sits on the message box, above the workspace tab: the plan the agent keeps, a
-  // side question, and the go-ahead for a plan. The nearest to the box is the one to act on.
+  // What waits on the person sits on the message box, above the workspace tab: the plan, with its go-ahead
+  // when the agent only planned, and a side question.
   // With the side chat open in the right panel, the side question lives there, ready before anything is asked.
   const sideChat =
     aside || sideChatSlot ? (
@@ -1145,28 +1211,34 @@ export function ChatView({
       />
     ) : null;
   const trayAside = sideChatSlot ? null : sideChat;
+  const planTodos = showPlan ? plan?.todos : undefined;
+  const planApproval: PlanApprovalAction | undefined =
+    planToApprove && !request
+      ? {
+          canSwitch: permissionSwitch,
+          onApprove: () => {
+            setApprovedAt(lastIndex);
+            if (permissionSwitch) setPermissionMode("full-access");
+            void sendToHost("Go ahead with the plan.", [], permissionSwitch ? { permissionMode: "full-access" } : {});
+          },
+          onChange: () => {
+            setApprovedAt(lastIndex);
+            setInsertRequest({ text: "Change the plan: ", nonce: Date.now(), replace: true });
+          },
+        }
+      : undefined;
   const traySections =
-    (showPlan && plan?.todos) || trayAside || (planToApprove && !request) ? (
+    planTodos || trayAside || planApproval ? (
       <>
-        {showPlan && plan?.todos ? (
-          <PlanCard todos={plan.todos} working={working} onDismiss={() => setHiddenPlan(planKey)} />
-        ) : null}
-        {trayAside}
-        {planToApprove && !request ? (
-          <PlanApproval
-            displayName={displayName}
-            canSwitch={permissionSwitch}
-            onApprove={() => {
-              setApprovedAt(lastIndex);
-              if (permissionSwitch) setPermissionMode("full-access");
-              void sendToHost("Go ahead with the plan.", [], permissionSwitch ? { permissionMode: "full-access" } : {});
-            }}
-            onChange={() => {
-              setApprovedAt(lastIndex);
-              setInsertRequest({ text: "Change the plan: ", nonce: Date.now(), replace: true });
-            }}
+        {planTodos || planApproval ? (
+          <PlanCard
+            todos={planTodos ?? []}
+            working={working}
+            approval={planApproval}
+            onDismiss={() => setHiddenPlan(planKey)}
           />
         ) : null}
+        {trayAside}
       </>
     ) : null;
 
@@ -1206,6 +1278,7 @@ export function ChatView({
                     <Fragment key={row.key}>
                       <TurnFold
                         summary={trailSummary(row.activities)}
+                        time={worked.get(row.activities[0]?.turnId ?? "")}
                         open={openFolds.has(row.key)}
                         onToggle={() => toggleFold(row.key)}
                       >
@@ -1231,9 +1304,6 @@ export function ChatView({
                   onOpenFile={fileLinks ? openFile : undefined}
                 />
               ) : null}
-              {followUps.length > 0 && findings.length === 0 ? (
-                <FollowUps items={followUps} onHere={(task) => void send(task, [])} onNewChat={onNewChatWithPrompt} />
-              ) : null}
               {cutOff ? <ContinueRow onContinue={() => void sendToHost("Continue where you left off.", [])} /> : null}
               {earlyMessages.map((message, index) => (
                 <ChatMessage
@@ -1247,7 +1317,11 @@ export function ChatView({
               {earlyMessages.length > 0 ? (
                 <WorkingStatus label="Working" live />
               ) : working ? (
-                <WorkingStatus label={liveLabel} live={!step && thread.status !== "waiting"} />
+                <WorkingStatus
+                  label={liveLabel}
+                  live={!toolRunning && thread.status !== "waiting"}
+                  since={turnStartedAt}
+                />
               ) : null}
               {busyPeople.map((person) => (
                 <RoomLive
@@ -1269,106 +1343,108 @@ export function ChatView({
       </ChatImageScope>
       <div className="chat-dock">
         <div className="chat-column">
-          {request ? (
-            <RequestCard
-              key={request.requestId}
-              request={request}
-              provider={thread.provider}
-              displayName={displayName}
-              waitingCount={waitingCount}
-              onRespond={(decision) =>
-                run({ type: "thread.respond", threadId: thread.threadId, requestId: request.requestId, decision })
-              }
-              onAnswer={(answers) =>
-                run({ type: "thread.user-input", threadId: thread.threadId, requestId: request.requestId, answers })
-              }
-            />
-          ) : null}
-          {guestRequest && guestOfRequest ? (
-            <RequestCard
-              key={guestRequest.requestId}
-              request={guestRequest}
-              provider={guestOfRequest.provider}
-              displayName={nameOfThread(guestOfRequest)}
-              waitingCount={1}
-              onRespond={(decision) =>
-                run({
-                  type: "thread.respond",
-                  threadId: guestRequest.threadId,
-                  requestId: guestRequest.requestId,
-                  decision,
-                })
-              }
-              onAnswer={(answers) =>
-                run({
-                  type: "thread.user-input",
-                  threadId: guestRequest.threadId,
-                  requestId: guestRequest.requestId,
-                  answers,
-                })
-              }
-            />
-          ) : null}
-          {connectorActivity?.connector ? (
-            <ConnectorCard
-              key={connectorActivity.activityId}
-              connector={connectorActivity.connector}
-              displayName={displayName}
-              onTryAgain={canSend ? (text) => send(text, []) : undefined}
-              onNewChat={() => void newChatForConnector()}
-              onOpenConnectors={onOpenConnectors}
-              onDismiss={() => setDismissedConnectors((current) => new Set(current).add(connectorActivity.activityId))}
-            />
-          ) : null}
-          {queued.length > 0 && earlyMessages.length === 0 ? (
-            <QueuedMessages
-              queued={queued}
-              displayName={displayName}
-              canSteer={!ended && thread.status !== "starting"}
-              pendingNote={
-                thread.status === "starting"
-                  ? `Sent when ${displayName} is ready`
-                  : ended
-                    ? "Not sent"
-                    : `Sent in order after ${displayName}'s current turn`
-              }
-              waiting={thread.status === "waiting" || waitingCount > 0}
-              onSteer={(queueId) => run({ type: "thread.steer", threadId: thread.threadId, queueId })}
-              onRemove={(queueId) => run({ type: "thread.queue.remove", threadId: thread.threadId, queueId })}
-            />
-          ) : null}
-          {signedOut && !ended ? (
-            <SignInNotice
-              name={agentName}
-              command={isSelectableProvider(thread.provider) ? signInCommand(thread.provider) : undefined}
-              onCheck={() => discoverProviders(dispatch)}
-            />
-          ) : null}
-          {visibleError ? (
-            <p className="inline-error" role="alert">
-              {visibleError}
-            </p>
-          ) : null}
-          {/* A stopped chat needs no note: the next message picks up where it left off. A failure says why. */}
-          {resumable && thread.status === "failed" && thread.errorMessage ? (
-            <p className="chat-paused is-failed" role="status">
-              <Icon name="alert" size={12} />
-              <span>{thread.errorMessage}</span>
-            </p>
-          ) : null}
-          {editing ? (
-            <p className="chat-editing" role="status">
-              <Icon name="pencil" size={11} />
-              <span>Editing your last message. Sending replaces it.</span>
-              <button type="button" onClick={() => setEditing(undefined)}>
-                Cancel
-              </button>
-            </p>
-          ) : null}
-          <PullRequestStrip
-            worktreeId={worktree?.worktreeId}
-            displayName={displayName}
-            onAsk={canSend ? (text) => void send(text, []) : undefined}
+          {/* One thing above the message box at a time, the most pressing first: what holds the agent up, then
+              the messages waiting their turn, then one quiet line about the chat. The next shows as each clears. */}
+          <DockSlot
+            item={firstDockItem([
+              pendingRequests.length > 0 && {
+                key: "requests",
+                node: <RequestPager requests={pendingRequests} />,
+              },
+              connectorActivity?.connector && {
+                key: `connector-${connectorActivity.activityId}`,
+                node: (
+                  <ConnectorCard
+                    key={connectorActivity.activityId}
+                    connector={connectorActivity.connector}
+                    displayName={displayName}
+                    onTryAgain={canSend ? (text) => send(text, []) : undefined}
+                    onNewChat={() => void newChatForConnector()}
+                    onOpenConnectors={onOpenConnectors}
+                    onDismiss={() =>
+                      setDismissedConnectors((current) => new Set(current).add(connectorActivity.activityId))
+                    }
+                  />
+                ),
+              },
+              // A plan waiting for the go-ahead sits in the message box's tray, so nothing lesser shows over it.
+              !(planToApprove && !request) &&
+                queued.length > 0 &&
+                earlyMessages.length === 0 && {
+                  key: "queue",
+                  node: (
+                    <QueuedMessages
+                      queued={queued}
+                      displayName={displayName}
+                      canSteer={!ended && thread.status !== "starting"}
+                      pendingNote={
+                        thread.status === "starting"
+                          ? `Sent when ${displayName} is ready`
+                          : ended
+                            ? "Not sent"
+                            : `Sent in order after ${displayName}'s current turn`
+                      }
+                      waiting={thread.status === "waiting" || waitingCount > 0}
+                      onSteer={(queueId) => run({ type: "thread.steer", threadId: thread.threadId, queueId })}
+                      onRemove={(queueId) => run({ type: "thread.queue.remove", threadId: thread.threadId, queueId })}
+                    />
+                  ),
+                },
+              !(planToApprove && !request) &&
+                visibleError && {
+                  key: "error",
+                  node: (
+                    <div className="chat-note is-error" role="alert">
+                      <span className="chat-note-dot" aria-hidden="true" />
+                      <span className="chat-note-text">{visibleError}</span>
+                    </div>
+                  ),
+                },
+              // The plan's limit stopped the agent: say when it resets, and offer to carry on then.
+              !(planToApprove && !request) &&
+                resumable &&
+                thread.usageLimit && {
+                  key: "usage-limit",
+                  node: (
+                    <UsageLimitNote
+                      limit={thread.usageLimit}
+                      onAutoResume={(autoResume) =>
+                        void run({ type: "thread.limit.resume", threadId: thread.threadId, autoResume })
+                      }
+                      onContinue={() => void send("Continue where you left off.", [])}
+                    />
+                  ),
+                },
+              // A stopped chat needs no note: the next message picks up where it left off. A failure says why.
+              !(planToApprove && !request) &&
+                resumable &&
+                thread.status === "failed" &&
+                !thread.usageLimit &&
+                thread.errorMessage && {
+                  key: "failed",
+                  node: (
+                    <div className="chat-note is-error" role="status">
+                      <span className="chat-note-dot" aria-hidden="true" />
+                      <span className="chat-note-text">
+                        <ErrorText text={thread.errorMessage} links={fileLinks} />
+                      </span>
+                    </div>
+                  ),
+                },
+              !(planToApprove && !request) &&
+                editing && {
+                  key: "editing",
+                  node: (
+                    <div className="chat-note is-editing" role="status">
+                      <Icon name="pencil" size={11} />
+                      <span className="chat-note-text">Editing your last message</span>
+                      <button type="button" onClick={() => setEditing(undefined)}>
+                        Cancel
+                      </button>
+                    </div>
+                  ),
+                },
+            ])}
           />
           {sideChatSlot && sideChat ? createPortal(sideChat, sideChatSlot) : null}
           {ended && !resumable && traySections ? <div className="composer-tray is-loose">{traySections}</div> : null}
@@ -1380,36 +1456,48 @@ export function ChatView({
                   {thread.status === "failed" ? `${displayName} failed` : `${displayName} session ended`}
                 </span>
                 <span className="chat-ended-detail">
-                  {thread.errorMessage ?? "A new chat starts fresh in the same worktree."}
+                  {thread.errorMessage ? (
+                    <ErrorText text={thread.errorMessage} links={fileLinks} />
+                  ) : (
+                    "A new chat starts fresh in the same worktree."
+                  )}
                 </span>
               </span>
-              {onHandoff ? (
+              {/* A branch carries the whole conversation into a new chat, where any agent can pick it up. */}
+              {onBranch && lastIndex >= 0 ? (
                 <Button
                   size="sm"
-                  icon="handoff"
-                  tooltip="Start another agent from this conversation"
-                  onClick={onHandoff}
+                  icon="branch"
+                  tooltip="New chat with this conversation, on any agent"
+                  onClick={() => branchAt(lastIndex)}
                 >
-                  Switch agent
+                  Branch
                 </Button>
               ) : null}
               <Button variant="primary" size="sm" icon="plus" onClick={onRestart}>
                 New chat
               </Button>
             </div>
+          ) : null}
+          {ended && !resumable ? (
+            <div className="composer-below chat-ended-below">
+              <PullRequestStrip
+                worktreeId={worktree?.worktreeId}
+                displayName={displayName}
+                onAsk={canSend ? (text) => void send(text, []) : undefined}
+              />
+            </div>
           ) : (
             <>
-              <RoomBar people={people} bringInItems={bringInItems} bringing={bringing} personItems={personItems} />
               {bringMenu ? <Menu request={bringMenu} onClose={() => setBringMenu(undefined)} /> : null}
               <Composer
-                moreAddItems={[
+                peopleItems={[
                   ...(bringInItems
                     ? [
                         {
                           id: "bring-in",
                           label: "Bring in an agent",
                           icon: "users" as const,
-                          detail: "Another agent or a teammate joins this chat",
                           run: () => {
                             const anchor =
                               document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -1432,7 +1520,6 @@ export function ChatView({
                           id: "peer",
                           label: "Message another agent",
                           icon: "message" as const,
-                          detail: "Send a note to another chat in this project",
                           run: () => setPeerOpen(true),
                         },
                       ]
@@ -1444,7 +1531,23 @@ export function ChatView({
                 displayName={displayName}
                 provider={thread.provider}
                 branch={worktree?.branch ?? "this worktree"}
-                tray={traySections}
+                // While a card above the box holds the agent up, the plan waits in its place; a side question stays.
+                tray={pendingRequests.length > 0 || connectorActivity?.connector ? trayAside : traySections}
+                chips={
+                  <>
+                    <RoomBar
+                      people={people}
+                      bringInItems={bringInItems}
+                      bringing={bringing}
+                      personItems={personItems}
+                    />
+                    <PullRequestStrip
+                      worktreeId={worktree?.worktreeId}
+                      displayName={displayName}
+                      onAsk={canSend ? (text) => void send(text, []) : undefined}
+                    />
+                  </>
+                }
                 workspace={
                   worktree ? (
                     <WorkspaceBar
@@ -1459,6 +1562,7 @@ export function ChatView({
                   ) : undefined
                 }
                 disabled={false}
+                blocked={unavailable}
                 queues={busy}
                 models={models}
                 model={model}
@@ -1473,6 +1577,8 @@ export function ChatView({
                 defaultReasoning={startingReasoning ?? reasoning.defaultLevel}
                 reasoningEffort={reasoningEffort}
                 onReasoningEffortChange={setChosenReasoning}
+                fast={fastValue ? fastOn : undefined}
+                onFastChange={setFastOn}
                 permissionMode={permissionMode}
                 onPermissionModeChange={permissionSwitch ? setPermissionMode : undefined}
                 projectId={worktree?.projectId}
@@ -1610,10 +1716,15 @@ function QueuedMessages({
   );
 }
 
-/** Mounted for as long as the agent works, so the time counts from the moment the message went out. */
-function WorkingStatus({ label, live }: { label: string; live: boolean }) {
-  const [startedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(startedAt);
+/**
+ * Mounted for as long as the agent works. The time counts from when the turn started, or, before the
+ * turn is known, from the moment the message went out.
+ */
+function WorkingStatus({ label, live, since }: { label: string; live: boolean; since?: string | undefined }) {
+  const [mountedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(mountedAt);
+  const sinceAt = since ? Date.parse(since) : Number.NaN;
+  const startedAt = Number.isFinite(sinceAt) ? Math.min(sinceAt, now) : mountedAt;
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(timer);
@@ -1646,18 +1757,20 @@ const ChatWork = memo(function ChatWork({
   item,
   showChangedFiles,
   onOpenDiff,
+  links,
 }: {
   item: Extract<TimelineItem, { kind: "work" }>;
   /** Off once the turn has a checkpoint, which lists the same files with their real diff. */
   showChangedFiles: boolean;
   onOpenDiff(path?: string): void;
+  links: FileLinks | undefined;
 }) {
   // The plan has its own card above the message box, so its updates are not steps.
   const steps = useMemo(() => item.activities.filter((activity) => !activity.todos), [item.activities]);
   if (steps.length === 0 && !(showChangedFiles && item.changedFiles.length > 0)) return null;
   return (
     <div className="chat-work">
-      {steps.length > 0 ? <WorkSteps activities={steps} onOpenFile={onOpenDiff} /> : null}
+      {steps.length > 0 ? <WorkSteps activities={steps} onOpenFile={onOpenDiff} links={links} /> : null}
       {showChangedFiles && item.changedFiles.length > 0 ? (
         <ChangedFiles files={item.changedFiles} onOpenDiff={onOpenDiff} />
       ) : null}
@@ -1709,11 +1822,14 @@ export type StartRunsRequest = {
 /** A folded turn opens to its steps and remarks; closed, one line says what the agent did. */
 function TurnFold({
   summary,
+  time,
   open,
   onToggle,
   children,
 }: {
   summary: string;
+  /** "Worked for 1m 05s", when the turn's times are known. */
+  time?: string | undefined;
   open: boolean;
   onToggle(): void;
   children: ReactNode;
@@ -1723,6 +1839,7 @@ function TurnFold({
       <button type="button" className="turn-fold-row" aria-expanded={open} onClick={onToggle}>
         <Icon name="chevronRight" size={11} className="turn-fold-chevron" />
         <span className="turn-fold-summary">{summary}</span>
+        {time ? <span className="turn-fold-time">{time}</span> : null}
       </button>
       <Collapse open={open}>
         <div className="turn-fold-body">{children}</div>
@@ -1737,15 +1854,11 @@ const LONG_MESSAGE_CHARS = 1_400;
 
 function UserMessage({
   message,
-  index,
   links,
-  onTryWays,
   onEdit,
 }: {
   message: ThreadMessageProjection;
-  index: number;
   links: FileLinks | undefined;
-  onTryWays?: ((message: ThreadMessageProjection, index: number) => void) | undefined;
   onEdit?: ((message: ThreadMessageProjection) => void) | undefined;
 }) {
   const typed = splitAttachedFiles(message.text);
@@ -1762,17 +1875,6 @@ function UserMessage({
   return (
     <article className="chat-message chat-message-user" data-turn={message.messageId}>
       <span className="chat-message-actions">
-        {onTryWays && message.text.trim() ? (
-          <Button
-            variant="ghost"
-            size="xs"
-            icon="split"
-            tooltip="Run this message again in new worktrees, from before it was sent"
-            onClick={() => onTryWays(message, index)}
-          >
-            Try N ways
-          </Button>
-        ) : null}
         {onEdit && typed.text ? (
           <IconButton
             label="Edit message"
@@ -1860,17 +1962,25 @@ function AssistantMessage({
   message,
   links,
   reply,
+  sources,
+  workedFor,
   onBranch,
 }: {
   message: ThreadMessageProjection;
   links: FileLinks | undefined;
   reply: string | undefined;
+  sources?: readonly Source[] | undefined;
+  workedFor?: string | undefined;
   onBranch?: (() => void) | undefined;
 }) {
   const [copyState, copy] = useCopyFeedback();
+  const citations = useMemo(() => (sources ? citationsFor(sources) : undefined), [sources]);
   return (
     <article className="chat-message chat-message-assistant">
-      <Markdown text={message.text} links={links} showImages />
+      <CitationContext.Provider value={citations}>
+        <Markdown text={message.text} links={links} showImages />
+      </CitationContext.Provider>
+      {reply && sources?.length ? <SourcesRow sources={sources} /> : null}
       {reply ? (
         <div className="chat-reply-foot">
           <IconButton
@@ -1884,13 +1994,14 @@ function AssistantMessage({
           {onBranch ? (
             <IconButton
               label="Branch from here"
-              tooltip="New chat from here: it carries the conversation up to this reply"
+              tooltip="New chat from this reply, on any agent"
               icon="branch"
               size="xs"
               iconSize={12}
               onClick={onBranch}
             />
           ) : null}
+          {workedFor ? <span className="chat-reply-time">{workedFor}</span> : null}
         </div>
       ) : null}
     </article>
@@ -1903,7 +2014,8 @@ const ChatMessage = memo(function ChatMessage({
   links,
   source,
   reply,
-  onTryWays,
+  sources,
+  workedFor,
   onEdit,
   onBranch,
 }: {
@@ -1914,14 +2026,17 @@ const ChatMessage = memo(function ChatMessage({
   source: string;
   /** The turn's whole reply, on its last part only, which offers to copy it. */
   reply?: string | undefined;
-  onTryWays?: ((message: ThreadMessageProjection, index: number) => void) | undefined;
+  /** Pages the turn's web steps read; links to them read as citations, and the last part lists them. */
+  sources?: readonly Source[] | undefined;
+  /** How long the turn worked, on its last part. */
+  workedFor?: string | undefined;
   /** Puts the person's last message back in the box to change and send again. */
   onEdit?: ((message: ThreadMessageProjection) => void) | undefined;
   /** Starts a new chat with the conversation up to this reply. */
   onBranch?: ((index: number) => void) | undefined;
 }) {
   if (message.role === "user") {
-    return <UserMessage message={message} index={index} links={links} onTryWays={onTryWays} onEdit={onEdit} />;
+    return <UserMessage message={message} links={links} onEdit={onEdit} />;
   }
   if (message.role === "agent") {
     return (
@@ -1940,6 +2055,8 @@ const ChatMessage = memo(function ChatMessage({
       message={message}
       links={links}
       reply={reply}
+      sources={sources}
+      workedFor={workedFor}
       onBranch={onBranch ? () => onBranch(index) : undefined}
     />
   );
@@ -1959,70 +2076,6 @@ function peerOptionLabel(projection: RuntimeProjection, threadId: string): strin
 }
 
 /**
- * The chat's agent is installed but signed out, so a message would fail. Says what to run and checks
- * again on request; once discovery sees the login, the notice goes away by itself.
- */
-function SignInNotice({
-  name,
-  command,
-  onCheck,
-}: {
-  name: string;
-  command: string | undefined;
-  onCheck(): Promise<{ ok: true } | { ok: false; error: string }>;
-}) {
-  const [checking, setChecking] = useState(false);
-  const [result, setResult] = useState<string>();
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="chat-ended chat-sign-in" role="status">
-      <Icon name="alert" size={13} />
-      <span className="chat-ended-copy">
-        <span className="chat-ended-title">{name} is signed out</span>
-        <span className="chat-ended-detail">
-          {command ? (
-            <>
-              Run <code>{command}</code> in a terminal and sign in, then check again.
-            </>
-          ) : (
-            `Sign in from ${name}'s own CLI, then check again.`
-          )}
-          {result ? ` ${result}` : null}
-        </span>
-      </span>
-      {command ? (
-        <IconButton
-          label={`Copy ${command}`}
-          tooltip={copied ? "Copied" : "Copy command"}
-          icon={copied ? "check" : "copy"}
-          size="sm"
-          onClick={() => {
-            void navigator.clipboard?.writeText(command).then(
-              () => setCopied(true),
-              () => undefined,
-            );
-          }}
-        />
-      ) : null}
-      <Button
-        size="sm"
-        disabled={checking}
-        onClick={() => {
-          setChecking(true);
-          setResult(undefined);
-          void onCheck().then((outcome) => {
-            setChecking(false);
-            setResult(outcome.ok ? "Still signed out." : outcome.error);
-          });
-        }}
-      >
-        {checking ? "Checking…" : "Check again"}
-      </Button>
-    </div>
-  );
-}
-
-/**
  * A new chat opens straight onto the message box, like any chat app. The agent may still be starting; the
  * header says so, and a message sent meanwhile waits until it is up.
  */
@@ -2031,11 +2084,14 @@ export function ChatStart({
   provider,
   folder,
   buddy,
+  onStartFromIssue,
 }: {
   provider: string;
   folder: string | undefined;
   /** The chat's own buddy, which stays when the chat moves to another agent. */
   buddy?: Buddy | undefined;
+  /** Offers a quiet "Start from an issue" under the question. */
+  onStartFromIssue?: (() => void) | undefined;
 }) {
   return (
     <div className="chat-start">
@@ -2056,6 +2112,12 @@ export function ChatStart({
         ) : null}
         ?
       </h2>
+      {onStartFromIssue ? (
+        <button type="button" className="chat-start-issue" onClick={onStartFromIssue}>
+          <Icon name="issue" size={13} />
+          Start from an issue
+        </button>
+      ) : null}
     </div>
   );
 }

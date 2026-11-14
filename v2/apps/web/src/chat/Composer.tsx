@@ -13,6 +13,8 @@ import {
 } from "react";
 
 import { formatFileSize } from "../files/ImagePreview.js";
+import { requestIssue } from "../issues/issueRequest.js";
+import { issuePrompt } from "../issues/issueStart.js";
 import { usePluginContributions } from "../plugins/plugins.js";
 import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
 import { combinePrompts, requestPromptManager, slashQuery, usePersonalPrompts } from "../prompts/prompts.js";
@@ -27,12 +29,13 @@ import { DEFAULT_MODEL, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
 import { StopButton } from "../ui/StopButton.js";
 import { ariaShortcut } from "../ui/shortcuts.js";
-import { formatTokens } from "../usage/usage.js";
+import type { ContextUsage } from "../usage/usage.js";
 import { AgentModelPicker } from "./AgentModelPicker.js";
 import type { AgentChoice } from "./agentModels.js";
 import { fileName, parentName, withAttachedFiles } from "./attachedFiles.js";
 import { type BestOfAgentOption, BestOfPopover } from "./BestOfPopover.js";
 import { ImageViewer } from "./ChatImage.js";
+import { ContextMeter } from "./ContextMeter.js";
 import { CHAT_DRAG_TYPE, readDraggedChat } from "./chatDrag.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
 import { EffortSlider } from "./EffortSlider.js";
@@ -58,6 +61,12 @@ const NO_AGENTS: readonly AgentChoice[] = [];
  */
 const drafts = new Map<string, string>();
 
+/** Puts text in a chat's message box before it opens, as if it had been typed there. */
+export function seedComposerDraft(key: string, text: string): void {
+  if (text) drafts.set(key, text);
+  else drafts.delete(key);
+}
+
 const CapturePicker = lazy(() => import("./CapturePicker.js").then((module) => ({ default: module.CapturePicker })));
 
 export type ComposerAttachment = { name: string; mimeType: AttachmentMimeType; dataBase64: string };
@@ -68,11 +77,8 @@ export const BEST_OF_SHORTCUT = "Mod+Shift+Enter";
 export type ComposerBestOf = {
   agents: readonly BestOfAgentOption[];
   current: RunAgent;
-  /** Try N ways on an earlier message: the popover opens for that message instead of the draft. */
-  retry?: { key: string; text: string } | undefined;
-  onRetryClose(): void;
   /** Resolves with a message when the runs could not start. */
-  onStart(input: { text: string; runs: RunAgent[]; retry: boolean }): Promise<string | undefined>;
+  onStart(input: { text: string; runs: RunAgent[] }): Promise<string | undefined>;
 };
 
 type Draft =
@@ -89,24 +95,6 @@ const MAX_ATTACHMENTS = 8;
 /** Files from disk go out as paths, so they do not count toward the upload limit. */
 const MAX_FILES = 20;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-
-function ContextMeter({ tokens, window }: { tokens: number; window?: number | undefined }) {
-  const detail = window
-    ? `${formatTokens(tokens)} of ${formatTokens(window)} tokens in context after the last turn`
-    : `${formatTokens(tokens)} tokens in context after the last turn`;
-  const percent = window ? Math.min(100, Math.round((tokens / window) * 100)) : undefined;
-  return (
-    <span
-      className={`composer-context${percent !== undefined && percent >= 80 ? " is-full" : ""}`}
-      data-tooltip={detail}
-    >
-      <span aria-hidden="true">
-        {percent === undefined ? `${formatTokens(tokens)} context` : `${percent}% context`}
-      </span>
-      <span className="sr-only">{percent === undefined ? detail : `${percent}% of context used. ${detail}`}</span>
-    </span>
-  );
-}
 
 function isImageType(value: string): value is ImageMimeType {
   return (IMAGE_TYPES as readonly string[]).includes(value);
@@ -133,7 +121,9 @@ export function Composer({
   provider,
   branch,
   workspace,
+  chips,
   tray,
+  blocked,
   disabled,
   queues = false,
   models,
@@ -148,6 +138,8 @@ export function Composer({
   reasoningLevels = NO_LEVELS,
   defaultReasoning,
   reasoningEffort,
+  fast,
+  onFastChange,
   onReasoningEffortChange,
   permissionMode,
   onPermissionModeChange,
@@ -162,7 +154,8 @@ export function Composer({
   bestOf,
   active = false,
   draftKey,
-  moreAddItems,
+  peopleItems,
+  issueRequest,
 }: {
   /** Who "@" offers: the chat's other members and saved teammates. Empty turns the list off. */
   mentions?: readonly MentionOption[] | undefined;
@@ -175,8 +168,12 @@ export function Composer({
   branch: string;
   /** The tab above the message box that says, and before the first message changes, where the agent works. */
   workspace?: ReactNode;
+  /** Small chips in the row under the box, beside the workspace: who is in the chat, the branch's pull request. */
+  chips?: ReactNode;
   /** What waits on the person, docked above the workspace tab: the plan, a side question, an approval. */
   tray?: ReactNode;
+  /** Why the agent cannot take a message right now, shown above the box. Typing still works; sending does not. */
+  blocked?: ReactNode;
   disabled: boolean;
   /** The agent is busy, so a submitted message waits in its queue. */
   queues?: boolean;
@@ -202,6 +199,9 @@ export function Composer({
   /** The model's own level, when the agent says. */
   defaultReasoning?: string | undefined;
   reasoningEffort?: string | undefined;
+  /** Whether fast is on. Undefined when the picked model has no faster mode, which hides the switch. */
+  fast?: boolean | undefined;
+  onFastChange?: ((fast: boolean) => void) | undefined;
   onReasoningEffortChange?(level: string | undefined): void;
   permissionMode: PermissionMode;
   /** Absent when the provider keeps its permission mode for the whole session. */
@@ -209,7 +209,7 @@ export function Composer({
   /** Where shared prompts come from. */
   projectId: string | undefined;
   /** How full the context window was after the agent's latest turn, when it reports that. */
-  context?: { tokens: number; window?: number } | undefined;
+  context?: ContextUsage | undefined;
   /** Window capture from the desktop app. Absent where it is not available. */
   capture?: ZliBridge["capture"] | undefined;
   /** Files and lines picked in the Files panel. They go out ahead of the next message. */
@@ -224,8 +224,10 @@ export function Composer({
   active?: boolean | undefined;
   /** Keeps the unsent text for this chat when its message box is replaced. */
   draftKey?: string | undefined;
-  /** More for the + menu from the chat around the box, such as bringing in another agent. */
-  moreAddItems?: readonly Exclude<MenuEntry, "separator">[] | undefined;
+  /** Changes to a new number to open the issue picker, as the new-chat screen's "Start from an issue" does. */
+  issueRequest?: number | undefined;
+  /** Other agents: bringing one in, or messaging one. A second icon beside the paperclip, when there are any. */
+  peopleItems?: readonly Exclude<MenuEntry, "separator">[] | undefined;
 }) {
   const [draft, setDraft] = useState(() => (draftKey ? (drafts.get(draftKey) ?? "") : ""));
   useEffect(() => {
@@ -294,7 +296,11 @@ export function Composer({
     [models, model, provider],
   );
   const permission = permissionText(provider, permissionMode);
-  const permissionChoices = useMemo(() => permissionOptionsFor(provider), [provider]);
+  // One line per level: the name and its icon. What each one allows is in the button's tooltip.
+  const permissionChoices = useMemo(
+    () => permissionOptionsFor(provider).map(({ description: _, ...option }) => option),
+    [provider],
+  );
   const noun = reasoningNoun(provider);
 
   useEffect(
@@ -394,7 +400,7 @@ export function Composer({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const text = draft.trim();
-    if ((!text && images.length === 0 && references.length === 0) || disabled || sending) return;
+    if ((!text && images.length === 0 && references.length === 0) || disabled || blocked || sending) return;
     setSending(true);
     setError(undefined);
     try {
@@ -443,7 +449,6 @@ export function Composer({
   const openBestOf = () => {
     setSendMenuOpen(false);
     if (!bestOf) return;
-    bestOf.onRetryClose();
     setBestOfError(undefined);
     setBestOfOpen(true);
   };
@@ -451,44 +456,35 @@ export function Composer({
   const closeBestOf = () => {
     setBestOfOpen(false);
     setBestOfError(undefined);
-    bestOf?.onRetryClose();
     textareaRef.current?.focus();
   };
 
   /** Every run gets the draft as its first message. Pasted text goes inline; images cannot be copied to runs. */
   const startBestOf = async (runs: RunAgent[]) => {
     if (!bestOf || bestOfStarting) return;
-    const retry = bestOf.retry;
-    let text: string;
-    if (retry) text = retry.text;
-    else {
-      if (images.some((image) => image.kind === "image")) {
-        setBestOfError("Runs start from text only. Remove the images, or send them as a normal message.");
-        return;
-      }
-      const pasted = images.flatMap((image) => (image.kind === "text" ? [image.text] : []));
-      const paths = images.flatMap((image) => (image.kind === "file" ? [image.path] : []));
-      const message = [draft.trim(), ...pasted].filter(Boolean).join("\n\n");
-      if (!message && references.length === 0 && paths.length === 0) {
-        setBestOfError("Type the message every run starts with.");
-        return;
-      }
-      text = withReferences(references, withAttachedFiles(paths, message));
+    if (images.some((image) => image.kind === "image")) {
+      setBestOfError("Runs start from text only. Remove the images, or send them as a normal message.");
+      return;
     }
+    const pasted = images.flatMap((image) => (image.kind === "text" ? [image.text] : []));
+    const paths = images.flatMap((image) => (image.kind === "file" ? [image.path] : []));
+    const message = [draft.trim(), ...pasted].filter(Boolean).join("\n\n");
+    if (!message && references.length === 0 && paths.length === 0) {
+      setBestOfError("Type the message every run starts with.");
+      return;
+    }
+    const text = withReferences(references, withAttachedFiles(paths, message));
     setBestOfStarting(true);
     setBestOfError(undefined);
     try {
-      const failure = await bestOf.onStart({ text, runs, retry: retry !== undefined });
+      const failure = await bestOf.onStart({ text, runs });
       if (failure) {
         setBestOfError(failure);
         return;
       }
-      if (retry) bestOf.onRetryClose();
-      else {
-        setDraft("");
-        if (references.length > 0) onReferencesSent?.();
-        setImages([]);
-      }
+      setDraft("");
+      if (references.length > 0) onReferencesSent?.();
+      setImages([]);
       setBestOfOpen(false);
     } catch (cause) {
       setBestOfError(cause instanceof Error ? cause.message : "The runs could not start.");
@@ -496,39 +492,25 @@ export function Composer({
       setBestOfStarting(false);
     }
   };
-  const bestOfVisible = bestOf !== undefined && (bestOf.retry !== undefined || bestOfOpen);
+  const bestOfVisible = bestOf !== undefined && bestOfOpen;
 
-  const addItems: MenuEntry[] = [
-    {
-      id: "files",
-      label: "Attach files",
-      icon: "paperclip",
-      detail: "Or paste or drop them here",
-      run: () => fileInputRef.current?.click(),
-    },
-    ...(capture
-      ? [
-          {
-            id: "window",
-            label: "Attach a window",
-            icon: "camera" as const,
-            detail: "A picture of an open window",
-            run: () => setCapturing(true),
-          },
-        ]
-      : []),
-    ...(moreAddItems && moreAddItems.length > 0 ? (["separator", ...moreAddItems] as MenuEntry[]) : []),
-    "separator",
-    {
-      id: "prompts",
-      label: "Saved prompts",
-      icon: "bookmark",
-      detail: "Or type / at the start of a message",
-      run: () => {
-        if (!picker.open) picker.toggle();
-        textareaRef.current?.focus();
-      },
-    },
+  // An issue rides along as a text attachment: its title, link, and description, for the agent to read.
+  const pickIssue = () =>
+    requestIssue({
+      projectId,
+      onPick: (issue) => addPastedText(issuePrompt(issue), `${issue.reference}.md`),
+    });
+  const issueNonce = issueRequest;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new nonce is the request; pickIssue changes every render.
+  useEffect(() => {
+    if (issueNonce) pickIssue();
+  }, [issueNonce]);
+
+  // Files, a picture of an open window in the desktop app, and an issue from the project's tracker.
+  const attachItems: MenuEntry[] = [
+    { id: "files", label: "Files", icon: "file", run: () => fileInputRef.current?.click() },
+    ...(capture ? [{ id: "window", label: "A window", icon: "camera" as const, run: () => setCapturing(true) }] : []),
+    ...(projectId ? [{ id: "issue", label: "An issue", icon: "issue" as const, run: pickIssue }] : []),
   ];
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -571,9 +553,15 @@ export function Composer({
   };
 
   return (
-    <div className={`composer-shell${workspace ? " has-workspace" : ""}${tray ? " has-tray" : ""}`}>
-      {tray ? <div className="composer-tray">{tray}</div> : null}
-      {workspace}
+    <div
+      className={`composer-shell${workspace ? " has-workspace" : ""}${tray || blocked ? " has-tray" : ""}${onStop ? " is-working" : ""}`}
+    >
+      {tray || blocked ? (
+        <div className="composer-tray">
+          {blocked}
+          {tray}
+        </div>
+      ) : null}
       <form
         className={`composer prompt-anchor${dragging ? " is-dragging" : ""}`}
         onSubmit={(event) => void submit(event)}
@@ -602,10 +590,8 @@ export function Composer({
         {preview ? <ImageViewer source={preview} onClose={() => setPreview(undefined)} /> : null}
         {bestOfVisible && bestOf ? (
           <BestOfPopover
-            key={bestOf.retry?.key ?? "draft"}
             agents={bestOf.agents}
             current={bestOf.current}
-            retryText={bestOf.retry?.text}
             starting={bestOfStarting}
             error={bestOfError}
             onStart={(runs) => void startBestOf(runs)}
@@ -790,18 +776,39 @@ export function Composer({
           rows={2}
         />
         <div className="composer-footer">
-          <MenuButton
-            label="Add files and more"
-            tooltip={
-              capture ? "Attach files or a window, or insert a saved prompt" : "Attach files or insert a saved prompt"
-            }
-            icon="plus"
-            size="md"
-            iconSize={16}
-            align="start"
-            className="composer-add"
-            items={addItems}
-          />
+          {attachItems.length > 1 ? (
+            <MenuButton
+              label="Attach"
+              tooltip={capture ? "Attach files, a window, or an issue" : "Attach files or an issue"}
+              icon="paperclip"
+              size="md"
+              iconSize={15}
+              align="start"
+              className="composer-add"
+              items={attachItems}
+            />
+          ) : (
+            <IconButton
+              label="Attach files"
+              tooltip="Attach files. You can also paste or drop them"
+              icon="paperclip"
+              iconSize={15}
+              className="composer-add"
+              onClick={() => fileInputRef.current?.click()}
+            />
+          )}
+          {peopleItems && peopleItems.length > 0 ? (
+            <MenuButton
+              label="Other agents"
+              tooltip="Bring in or message another agent"
+              icon="users"
+              size="md"
+              iconSize={15}
+              align="start"
+              className="composer-add"
+              items={[...peopleItems]}
+            />
+          ) : null}
           <input
             ref={fileInputRef}
             className="sr-only"
@@ -814,30 +821,8 @@ export function Composer({
               event.target.value = "";
             }}
           />
-          {onPermissionModeChange ? (
-            <Picker
-              label="Permissions"
-              className={`composer-permission is-${permissionMode}`}
-              value={permissionMode}
-              options={permissionChoices}
-              onChange={onPermissionModeChange}
-              tooltip={`${permission.label}: ${permission.hint} Applies from your next message.`}
-              footer="Applies from your next message."
-            >
-              <PermissionIcon mode={permissionMode} />
-              <span className="picker-trigger-label">{permission.label}</span>
-            </Picker>
-          ) : (
-            <span
-              className={`composer-badge is-${permissionMode}`}
-              data-tooltip={`${permission.label}: ${permission.hint} ${displayName} keeps this for the whole chat.`}
-            >
-              <PermissionIcon mode={permissionMode} />
-              <span className="composer-badge-label">{permission.label}</span>
-            </span>
-          )}
           <span className="composer-spacer" />
-          {context ? <ContextMeter tokens={context.tokens} window={context.window} /> : null}
+          {context ? <ContextMeter context={context} /> : null}
           <AgentModelPicker
             provider={provider}
             agentName={agentName ?? displayName}
@@ -869,7 +854,27 @@ export function Composer({
               modelLabel={model ? (modelLabel ?? model) : (agentName ?? displayName)}
               tooltip={`${noun}: ${reasoningEffort ? reasoningLabel(reasoningEffort) : "the model's own level"}. ${provider === "claude-code" ? "How hard Claude works on each answer." : "How long the model thinks before it answers."} Applies from your next message.`}
               onChange={onReasoningEffortChange}
+              fast={fast}
+              onFastChange={onFastChange}
             />
+          ) : null}
+          {/* Fast lives in the effort popup; this stands in only for an agent with no effort levels. */}
+          {fast !== undefined && onFastChange && !(reasoningLevels.length > 0 && onReasoningEffortChange) ? (
+            <button
+              type="button"
+              className={`composer-fast${fast ? " is-on" : ""}`}
+              aria-pressed={fast}
+              aria-label="Fast mode"
+              data-tooltip={
+                fast
+                  ? "Fast mode is on: quicker answers, billed at a higher rate. Click to turn it off."
+                  : "Fast mode: quicker answers from the same model, billed at a higher rate."
+              }
+              onClick={() => onFastChange(!fast)}
+            >
+              <Icon name="zap" size={13} />
+              <span>Fast</span>
+            </button>
           ) : null}
           {onStop ? (
             <StopButton
@@ -887,7 +892,12 @@ export function Composer({
               data-tooltip={queues ? `Queue. ${displayName} gets it after the current turn` : "Send"}
               data-shortcut="Enter"
               aria-keyshortcuts="Enter"
-              disabled={disabled || sending || (!draft.trim() && images.length === 0 && references.length === 0)}
+              disabled={
+                disabled ||
+                Boolean(blocked) ||
+                sending ||
+                (!draft.trim() && images.length === 0 && references.length === 0)
+              }
             >
               <Icon name="arrowUp" size={15} />
             </button>
@@ -899,7 +909,7 @@ export function Composer({
                 aria-haspopup="menu"
                 aria-expanded={sendMenuOpen}
                 data-tooltip={sendMenuOpen ? undefined : "More ways to send"}
-                disabled={disabled}
+                disabled={disabled || Boolean(blocked)}
                 onClick={() => setSendMenuOpen((open) => !open)}
               >
                 <Icon name="chevronDown" size={12} />
@@ -944,6 +954,31 @@ export function Composer({
           </p>
         ) : null}
       </form>
+      <div className="composer-below">
+        {workspace}
+        {chips}
+        {onPermissionModeChange ? (
+          <Picker
+            label="Permissions"
+            className={`composer-permission is-${permissionMode}`}
+            value={permissionMode}
+            options={permissionChoices}
+            onChange={onPermissionModeChange}
+            tooltip={`${permission.label}: ${permission.hint} Applies from your next message.`}
+          >
+            <PermissionIcon mode={permissionMode} />
+            <span className="picker-trigger-label">{permission.label}</span>
+          </Picker>
+        ) : (
+          <span
+            className={`composer-badge is-${permissionMode}`}
+            data-tooltip={`${permission.label}: ${permission.hint} ${displayName} keeps this for the whole chat.`}
+          >
+            <PermissionIcon mode={permissionMode} />
+            <span className="composer-badge-label">{permission.label}</span>
+          </span>
+        )}
+      </div>
     </div>
   );
 }

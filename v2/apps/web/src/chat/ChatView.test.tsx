@@ -4,7 +4,7 @@ import { CommandId, EnvironmentId, ProjectId, type RuntimeProjection, type Threa
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
-
+import { onIssueRequest } from "../issues/issueRequest.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import { ChatView } from "./ChatView.js";
@@ -221,23 +221,49 @@ describe("ChatView", () => {
       }),
     );
     const notice = container.querySelector(".chat-sign-in");
-    expect(notice?.textContent).toContain("Codex is signed out");
+    expect(notice?.textContent).toContain("Codex is not signed in");
     expect(notice?.querySelector("code")?.textContent).toBe("codex login");
     expect(button(container, "Check again")).toBeDefined();
+    expect(button(container, "Accounts")).toBeDefined();
+    // The message box still takes typing, but nothing can be sent until the agent can run.
+    expect(container.querySelector<HTMLButtonElement>(".send-button")?.disabled).toBe(true);
+  });
+
+  it("says the agent has no active plan when its last run said so, and lets the person try again", async () => {
+    const { container } = await render(
+      projectionWith({
+        providers: [
+          {
+            provider: "codex",
+            displayName: "Codex",
+            status: "found",
+            path: "codex",
+            login: { status: "signed-in", method: "subscription", email: "kim@example.com", plan: "free" },
+            problem: { kind: "no-plan", message: "Upgrade to Plus to use Codex.", at: "2026-11-12T10:00:00.000Z" },
+          },
+        ],
+        threads: [{ ...thread, provider: "codex" } as ThreadProjection],
+      }),
+    );
+    const notice = container.querySelector(".chat-sign-in");
+    expect(notice?.textContent).toContain("Codex has no active plan");
+    expect(notice?.textContent).toContain("“Upgrade to Plus to use Codex.”");
+    expect(button(container, "Try again")).toBeDefined();
+    expect(container.querySelector<HTMLButtonElement>(".send-button")?.disabled).toBe(true);
   });
 
   it("keeps the composer for a stopped chat that can resume, and offers New chat otherwise", async () => {
     const stopped = { ...thread, status: "stopped", providerSessionId: "conv-1" } as ThreadProjection;
     const resumable = await render(projectionWith({ threads: [stopped] }));
     // A stopped chat says nothing about being stopped; the message box is the way on.
-    expect(resumable.container.querySelector(".chat-paused")).toBeNull();
+    expect(resumable.container.querySelector(".chat-note")).toBeNull();
     expect(resumable.container.querySelector('textarea[aria-label="Message Droid"]')).not.toBeNull();
     expect(button(resumable.container, "New chat")).toBeUndefined();
     document.body.replaceChildren();
 
     const { providerSessionId: _id, ...withoutId } = stopped;
     const ended = await render(projectionWith({ threads: [withoutId as ThreadProjection] }));
-    expect(ended.container.querySelector(".chat-paused")).toBeNull();
+    expect(ended.container.querySelector(".chat-note")).toBeNull();
     expect(ended.container.querySelector('textarea[aria-label="Message Droid"]')).toBeNull();
     expect(button(ended.container, "New chat")).toBeDefined();
   });
@@ -358,7 +384,7 @@ describe("ChatView", () => {
       "Fixed the helper.",
       "steps:Run the tests",
     ]);
-    expect(container.querySelector(".chat-working-label")?.textContent).toBe("Working");
+    expect(container.querySelector(".chat-working-label")?.textContent).toBe("Run the tests");
     expect(container.querySelector(".step.is-running .shimmer-text")?.textContent).toBe("Run the tests");
     expect(container.querySelector(".step.is-running .spinner")).toBeNull();
     await act(async () => button(container, "Stop Droid")?.click());
@@ -544,7 +570,7 @@ describe("ChatView", () => {
     expect(sent.context).toContain("## Droid\n\nIts cached copy is a day old.");
   });
 
-  it("gathers attach files, window capture, and saved prompts behind one Add button", async () => {
+  it("attaches files, a window, or an issue from the paperclip", async () => {
     const sources = vi.fn(async () => []);
     const { container } = await render(
       projectionWith({ threads: [{ ...thread, status: "idle" }] }),
@@ -553,16 +579,23 @@ describe("ChatView", () => {
       false,
       { capture: { sources, take: vi.fn() } },
     );
-    const add = button(container, "Add files and more");
-    expect(add?.getAttribute("aria-haspopup")).toBe("menu");
-    expect(button(container, "Attach files")).toBeUndefined();
+    expect(button(container, "Add files and more")).toBeUndefined();
+    const attach = button(container, "Attach");
+    expect(attach?.getAttribute("aria-haspopup")).toBe("menu");
     const items = () => [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')];
-    await act(async () => add?.click());
+    await act(async () => attach?.click());
     expect(items().map((item) => item.querySelector(".menu-item-label")?.textContent)).toEqual([
-      "Attach files",
-      "Attach a window",
-      "Saved prompts",
+      "Files",
+      "A window",
+      "An issue",
     ]);
+    // An issue is picked by the app shell, which hears the request and opens its issue picker.
+    const asked = vi.fn();
+    const stop = onIssueRequest(asked);
+    await act(async () => items()[2]?.click());
+    stop();
+    expect(asked).toHaveBeenCalledTimes(1);
+    await act(async () => attach?.click());
 
     const pickFiles = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => undefined);
     await act(async () => items()[0]?.click());
@@ -570,18 +603,13 @@ describe("ChatView", () => {
     pickFiles.mockRestore();
     expect(document.querySelector('[role="menu"]')).toBeNull();
 
-    await act(async () => add?.click());
+    await act(async () => attach?.click());
     await act(async () => items()[1]?.click());
     // The window picker loads on first use.
     for (let tick = 0; tick < 50 && !container.querySelector('section[aria-label="Attach a window"]'); tick += 1)
       await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
     expect(container.querySelector('section[aria-label="Attach a window"]')).not.toBeNull();
     expect(sources).toHaveBeenCalledTimes(1);
-
-    await act(async () => add?.click());
-    await act(async () => items()[2]?.click());
-    expect(document.querySelector('[role="listbox"][aria-label="Saved prompts"]')).not.toBeNull();
-    expect(document.activeElement).toBe(container.querySelector('textarea[aria-label="Message Droid"]'));
   });
 
   it("dims an unset model, marks it with the agent's logo, and tints only the Full access lock", async () => {
@@ -762,6 +790,74 @@ describe("ChatView", () => {
     expect(container.querySelector(".turn-fold-body")?.textContent).toContain("helper.ts");
   });
 
+  it("reads the agent's latest line of thought under the chat and times the turn from its start", async () => {
+    const turnId = thread.activeTurnId as string;
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "working" }],
+        messages: [
+          { messageId: "m1", threadId, turnId, role: "user", text: "Fix the cache" },
+        ] as RuntimeProjection["messages"],
+        activities: [
+          {
+            activityId: "k1",
+            threadId,
+            turnId,
+            kind: "reasoning",
+            title: "Thinking",
+            status: "running",
+            text: "**Plan**\n\nCheck how the fetches are tagged.",
+          },
+        ] as RuntimeProjection["activities"],
+        turns: [
+          { threadId, turnId, startedAt: new Date(Date.now() - 75_000).toISOString() },
+        ] as RuntimeProjection["turns"],
+      }),
+    );
+    const label = container.querySelector(".chat-working-label");
+    expect(label?.textContent).toBe("Check how the fetches are tagged.");
+    expect(label?.classList.contains("shimmer-text")).toBe(true);
+    expect(container.querySelector(".chat-working-time")?.textContent).toBe("1m 15s");
+    expect(container.querySelector(".thought-label")?.textContent).toBe("Thinking…");
+  });
+
+  it("says how long finished turns worked, and lists and cites the pages a turn searched", async () => {
+    const url = "https://nextjs.org/docs/revalidate";
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        messages: [
+          { messageId: "m1", threadId, role: "user", text: "Rename the helper" },
+          { messageId: "m2", threadId, turnId: "t1", role: "assistant", text: "Renamed it." },
+          { messageId: "m3", threadId, role: "user", text: "Why are pages stale?" },
+          { messageId: "m4", threadId, turnId: "t2", role: "assistant", text: `The fetch is [not tagged](${url}).` },
+        ] as RuntimeProjection["messages"],
+        activities: [
+          { activityId: "a1", threadId, turnId: "t1", kind: "command", title: "npm test", status: "completed" },
+          {
+            activityId: "a2",
+            threadId,
+            turnId: "t2",
+            kind: "web",
+            title: "Search the web",
+            status: "completed",
+            urls: [{ url, title: "revalidateTag" }],
+          },
+        ] as RuntimeProjection["activities"],
+        turns: [
+          { threadId, turnId: "t1", startedAt: "2026-01-01T12:00:00.000Z", completedAt: "2026-01-01T12:01:05.000Z" },
+          { threadId, turnId: "t2", startedAt: "2026-01-01T12:02:00.000Z", completedAt: "2026-01-01T12:02:14.000Z" },
+        ] as RuntimeProjection["turns"],
+      }),
+    );
+    expect(container.querySelector(".turn-fold-time")?.textContent).toBe("Worked for 1m 05s");
+    expect([...container.querySelectorAll(".chat-reply-time")].map((node) => node.textContent)).toEqual([
+      "Worked for 14s",
+    ]);
+    expect(container.querySelector(".sources-toggle")?.textContent).toBe("Sources (1)");
+    expect(container.querySelector(".chat-message-assistant .md-cite")?.textContent).toBe("1");
+  });
+
   it("copies a finished reply, and offers no copy while the reply is still being written", async () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
@@ -848,7 +944,7 @@ describe("ChatView", () => {
     expect(container.querySelector(".chat-start")).toBeNull();
   });
 
-  it("holds Send now until the agent's request is answered", async () => {
+  it("keeps the queue behind the agent's request, one card above the box at a time", async () => {
     const { container } = await render(
       projectionWith({
         requests: [
@@ -857,7 +953,9 @@ describe("ChatView", () => {
         queuedMessages: [{ queueId: "q1", threadId, text: "next" }] as RuntimeProjection["queuedMessages"],
       }),
     );
-    expect(button(container, "Send now: next")?.disabled).toBe(true);
+    expect(container.querySelectorAll(".chat-slot-item")).toHaveLength(1);
+    expect(container.querySelector(".chat-request")).not.toBeNull();
+    expect(container.querySelector('[aria-label="Queued messages"]')).toBeNull();
   });
 
   it("switches permission mode for the next message when the provider allows it", async () => {
@@ -972,7 +1070,16 @@ describe("ChatView", () => {
     const card = container.querySelector('[aria-label="Approval request"]');
     expect(card?.querySelector(".chat-request-heading")?.textContent).toBe("Run a command");
     expect(card?.textContent).toContain("pnpm test");
-    expect(card?.textContent).toContain("1 more waiting");
+    expect(card?.querySelector(".chat-request-count")?.textContent).toBe("1 of 2");
+    // The card pages through every open request, and comes back to the first. The others stay mounted but
+    // hidden, so what was typed into one is still there when it comes back.
+    const shown = () => [...container.querySelectorAll("section.chat-request")].find((el) => !el.closest("[hidden]"));
+    await act(async () => button(container, "Next request")?.click());
+    expect(shown()?.querySelector(".chat-request-count")?.textContent).toBe("2 of 2");
+    expect(shown()?.querySelector(".chat-request-heading")?.textContent).not.toBe("Run a command");
+    expect(container.querySelectorAll("section.chat-request")).toHaveLength(2);
+    await act(async () => button(container, "Previous request")?.click());
+    expect(shown()?.querySelector(".chat-request-heading")?.textContent).toBe("Run a command");
     await act(async () => button(container, "Allow Bash for this chat")?.click());
     expect(dispatched.at(-1)?.command).toEqual({
       type: "thread.respond",
@@ -1006,12 +1113,18 @@ describe("ChatView", () => {
         ] as unknown as RuntimeProjection["requests"],
       }),
     );
-    const send = () => button(container, "Send answers");
-    expect(send()?.disabled).toBe(true);
+    // One question at a time: picking a choice moves on to the next by itself.
+    expect(container.textContent).toContain("Question 1 of 2");
+    expect(container.querySelector('input[aria-label="Project name?"]')).toBeNull();
+    expect(button(container, "Next")?.disabled).toBe(true);
     await act(async () => {
       const radio = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')][0];
       radio?.click();
     });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 200)));
+    expect(container.textContent).toContain("Question 2 of 2");
+    const send = () => button(container, "Send answers");
+    expect(send()?.disabled).toBe(true);
     const input = container.querySelector<HTMLInputElement>('input[aria-label="Project name?"]');
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
@@ -1069,11 +1182,8 @@ describe("ChatView context meter", () => {
       }),
     );
     const meter = container.querySelector(".composer-context");
-    expect(meter?.querySelector("[aria-hidden]")?.textContent).toBe("85% context");
-    expect(meter?.classList.contains("is-full")).toBe(true);
-    expect(meter?.querySelector(".sr-only")?.textContent).toBe(
-      "85% of context used. 170k of 200k tokens in context after the last turn",
-    );
+    expect(meter?.getAttribute("aria-label")).toBe("85% of context used, 170k of 200k tokens");
+    expect(meter?.classList.contains("is-full")).toBe(false);
   });
 
   it("pins the agent's plan over the message box and keeps it out of the steps", async () => {
@@ -1127,6 +1237,30 @@ describe("ChatView context meter", () => {
     expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", text: "Continue where you left off." });
   });
 
+  it("puts a reply's suggested next steps right under it, not above the message box", async () => {
+    const turnId = thread.activeTurnId as string;
+    const idle = { ...thread, status: "idle" } as ThreadProjection;
+    const { container } = await render(
+      projectionWith({
+        threads: [idle],
+        messages: [
+          { messageId: "m1", threadId, turnId, role: "user", text: "Fix the login" },
+          {
+            messageId: "m2",
+            threadId,
+            turnId,
+            role: "assistant",
+            text: "Fixed it.\n\nNext steps:\n- Add a test for the expired token",
+          },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    const steps = container.querySelector('[aria-label="Suggested next steps"]');
+    expect(steps?.textContent).toContain("Add a test for the expired token");
+    expect(steps?.closest(".chat-log")).not.toBeNull();
+    expect(container.querySelector(".chat-dock [aria-label='Suggested next steps']")).toBeNull();
+  });
+
   it("lets the person edit their last message once the reply is in", async () => {
     const turnId = thread.activeTurnId as string;
     const idle = { ...thread, status: "idle" } as ThreadProjection;
@@ -1144,6 +1278,6 @@ describe("ChatView context meter", () => {
     await act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
     const box = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
     expect(box?.value).toBe("Make it blue");
-    expect(container.querySelector(".chat-editing")?.textContent).toContain("Editing your last message");
+    expect(container.querySelector(".chat-note.is-editing")?.textContent).toContain("Editing your last message");
   });
 });

@@ -27,7 +27,7 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await expect(page.locator(".chat-log").getByText("Mock response: [usage] summarize the repo")).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.locator(".composer-context [aria-hidden]")).toHaveText("7% context");
+    await expect(page.locator(".composer-context")).toHaveAttribute("aria-label", /^7% of context used/u);
 
     const limits = page.getByRole("button", { name: "Plan limits", exact: true });
     await expect(limits).toHaveCount(0);

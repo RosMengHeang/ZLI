@@ -22,21 +22,12 @@
 .agent-tile.is-active .tile-mark { color: var(--zli-text); }
 .tile-title { min-width: 40px; flex: 0 1 auto; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-base); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .agent-tile.is-active .tile-title { color: var(--zli-text); }
-.tile-branch { display: inline-flex; min-width: 0; flex: 0 100 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); white-space: nowrap; }
-.tile-run { flex: 0 0 auto; padding: 1px var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); font-size: var(--zli-text-2xs); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tile-branch span { overflow: hidden; text-overflow: ellipsis; }
-/* The name chip already says who this is, so the title may give up its space before the actions do. */
-.tile-name ~ .tile-title { min-width: 0; flex-shrink: 1000; }
-.tile-name { min-width: 32px; max-width: 120px; flex: 0 1 auto; overflow: hidden; padding: 1px var(--zli-space-1-5); border: 0; border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-text); font: inherit; font-size: var(--zli-text-2xs); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-button.tile-name { cursor: pointer; }
-button.tile-name:hover { background: var(--zli-hover); }
-button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
-.tile-parent { min-width: 0; max-width: 160px; flex: 0 1000 auto; overflow: hidden; padding: 1px var(--zli-space-1-5); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
-.tile-parent:hover { background: var(--zli-hover); color: var(--zli-text); }
-.tile-parent:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
-.tile-account { display: inline-flex; min-width: 0; max-width: 140px; flex: 0 50 auto; align-items: center; gap: var(--zli-space-1); overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); white-space: nowrap; }
-.tile-account span { overflow: hidden; text-overflow: ellipsis; }
-.tile-spacer { flex: 1; }
+/* The branch and the run number are quiet text after the title: no chips, no icons, first to give way. */
+.tile-branch { min-width: 0; flex: 0 100 auto; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.tile-run { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The one state the header shows: a failed agent, marked by a small red glyph beside its title. */
+.tile-failed { display: inline-grid; flex: 0 0 auto; place-items: center; color: var(--zli-red); }
+.tile-spacer { min-width: var(--zli-space-2); flex: 1; }
 .tile-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1px; }
 .tile-actions .tile-stop { margin: 0 var(--zli-space-1); }
 .tile-body { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; }
@@ -54,15 +45,6 @@ button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-of
 @container tile (max-width: 560px) {
   .tile-branch { display: none; }
 }
-@container tile (max-width: 440px) {
-  /* The sidebar nests sub-agents under their starter, so a narrow tile drops the chip and keeps its actions. */
-  .tile-parent { display: none; }
-}
-@container tile (max-width: 400px) {
-  .tile-status .badge-label { display: none; }
-  /* The sidebar row repeats the title, and a few letters of it would read as a glitch. */
-  .tile-name ~ .tile-title { display: none; }
-}
 @media (max-width: 1240px) {
   .tile-branch { display: none; }
 }
@@ -75,7 +57,7 @@ button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-of
 .env-row.is-action:focus-visible { outline: none; background: var(--zli-hover); box-shadow: inset 0 0 0 1px var(--zli-accent-line); }
 .env-row-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
 .env-row-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.env-row-detail { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.env-row-detail { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .env-row-end { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 .env-add { color: var(--zli-green); }
 .env-del { color: var(--zli-red); }
@@ -93,14 +75,14 @@ button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-of
 /* Pinned to the chat's top-right corner as one list of rows: where the agent works, then its Git state.
    The host lets clicks through, so only the card itself takes them. The header's screen button hides it. */
 .env-card-host { position: absolute; top: var(--zli-space-3); right: var(--zli-space-3); z-index: 4; display: flex; pointer-events: none; }
-.env-card { display: flex; width: 272px; max-height: min(70vh, 560px); flex-direction: column; overflow: auto; border: 1px solid var(--zli-border-strong); border-radius: 14px; background: var(--zli-raised); box-shadow: var(--zli-highlight), 0 16px 36px -20px rgba(0, 0, 0, .9); pointer-events: auto; animation: env-card-in 220ms cubic-bezier(.22, 1, .36, 1) both; }
+.env-card { display: flex; width: 272px; max-height: min(70vh, 560px); flex-direction: column; overflow: auto; border: 1px solid var(--zli-border-strong); border-radius: 14px; background: var(--zli-raised); box-shadow: var(--zli-highlight), 0 16px 36px -20px rgba(0, 0, 0, .9); pointer-events: auto; animation: env-card-in var(--zli-duration-base) var(--zli-ease) both; }
 @keyframes env-card-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
 .env-card-group { display: flex; flex-direction: column; gap: 1px; padding: var(--zli-space-1-5); }
 .env-card-group + .env-card-group { border-top: 1px solid var(--zli-border); }
 .env-card .env-row { min-height: 34px; padding: 0 var(--zli-space-2-5); }
 .env-card .env-row > svg:last-child { flex: 0 0 auto; color: var(--zli-dim); }
 .env-card-folder .env-row-label { font-weight: 600; }
-.env-card-kind { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 7px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-muted); font-size: 11px; line-height: 20px; }
+.env-card-kind { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 7px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: 20px; }
 .env-card-kind.is-worktree { background: var(--zli-accent-soft); color: var(--zli-accent-hover); }
 .env-card-kind > svg { color: currentColor; }
 /* "Open in <app>": the row opens the last-used app, the chevron at its end picks another. */
@@ -110,8 +92,6 @@ button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-of
 .open-in-row-main:hover, .open-in-row-more:hover, .open-in-row-more[aria-expanded="true"] { background: var(--zli-hover); color: var(--zli-text); }
 .open-in-row-main:focus-visible, .open-in-row-more:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--zli-accent-line); }
 .open-in-row .app-mark { width: 15px; height: 15px; flex: 0 0 auto; }
-.env-card-commit { padding: 0 var(--zli-space-1) var(--zli-space-1); animation: zli-fade-in var(--zli-duration-base) var(--zli-ease) both; }
-.env-card-commit .env-commit { margin-top: 0; padding-top: var(--zli-space-1); border-top: 0; }
 .env-pr-state { padding: 0 6px; border-radius: var(--zli-radius-xs); font-size: var(--zli-text-xs); font-weight: 500; }
 .env-pr-state.is-open { background: var(--zli-green-soft); color: var(--zli-green); }
 .env-pr-state.is-draft, .env-pr-state.is-closed { background: var(--zli-hover); color: var(--zli-muted); }
@@ -134,7 +114,7 @@ button.tile-name:focus-visible { outline: 2px solid var(--zli-focus); outline-of
 .env-pr-meta .env-checks { display: inline-flex; align-items: center; gap: 3px; }
 .env-pr-merge { margin-left: auto; }
 /* Commit & push: the row says what is waiting; the panel says what the button will do before it does it. */
-.env-commit-count { flex: 0 0 auto; padding: 0 7px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-dim); font-size: 11px; font-variant-numeric: tabular-nums; line-height: 18px; }
+.env-commit-count { flex: 0 0 auto; padding: 0 7px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; line-height: 18px; }
 .env-commit-count.is-waiting { background: var(--zli-accent-soft); color: var(--zli-accent-hover); }
 .env-commit-row.is-idle { cursor: default; }
 .env-commit-row.is-idle:hover { background: transparent; }

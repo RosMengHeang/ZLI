@@ -64,15 +64,12 @@ test("clears an open approval when the turn is stopped or ZLI restarts, so the c
     await newAgent.getByRole("button", { name: "Start agent" }).click();
 
     const approval = page.getByRole("region", { name: "Approval request" });
-    const attention = page.getByRole("complementary", { name: "Attention required" });
     const composer = page.getByRole("textbox", { name: "Message Codex" });
     await sendChatMessage(page, "[approval] clean the build folder");
     await expect(approval).toBeVisible({ timeout: 30_000 });
-    await expect(attention).toContainText("Agent approval required");
 
     await page.getByRole("button", { name: "Stop Codex" }).click();
     await expect(approval).toHaveCount(0);
-    await expect(attention).toHaveCount(0);
     await composer.fill("hello after stop");
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled({ timeout: 20_000 });
     await composer.press("Enter");
@@ -111,7 +108,6 @@ test("clears an open approval when the turn is stopped or ZLI restarts, so the c
       timeout: 20_000,
     });
     await expect(approval).toHaveCount(0);
-    await expect(attention).toHaveCount(0);
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

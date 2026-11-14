@@ -169,8 +169,8 @@ describe("ChatView with more than one agent", () => {
   it("brings any installed agent in from the people icon, named after the buddy it wears", async () => {
     const onBringIn = vi.fn(async () => ({ threadId: guestId }));
     const { container } = await render(projectionWith(), { onBringIn });
-    // Bring in sits in the message box's + menu while the agent is alone in the chat.
-    await act(async () => button(container, "Add files and more")?.click());
+    // Bring in sits behind the people icon beside the paperclip while the agent is alone in the chat.
+    await act(async () => button(container, "Other agents")?.click());
     const bring = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) =>
       node.textContent?.includes("Bring in an agent"),
     );

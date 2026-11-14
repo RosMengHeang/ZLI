@@ -54,7 +54,8 @@ test("runs a chat under an API key account picked in the New agent dialog", asyn
     await newAgent.getByText("Chat", { exact: true }).click();
     await newAgent.getByRole("button", { name: "Start agent" }).click();
 
-    await expect(page.locator(".agent-tile .tile-account")).toHaveText("Work key");
+    // The tile names the account in its title's hover text rather than in the header.
+    await expect(page.locator(".agent-tile .tile-title")).toHaveAttribute("title", /Account: Work key/u);
     await sendChatMessage(page, "[account] which login");
     await expect(page.getByText("Account environment: CODEX_HOME")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("button", { name: /, Codex \(Work key\),/u })).toBeVisible();

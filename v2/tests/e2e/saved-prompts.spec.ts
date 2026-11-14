@@ -11,7 +11,7 @@ import {
   openNewAgentOptions,
 } from "./desktop-fixtures.js";
 
-test("inserts shared and personal prompts with / in the composer", async () => {
+test("inserts a project's shared prompts with / in the composer", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
   await writeFile(
@@ -48,37 +48,6 @@ test("inserts shared and personal prompts with / in the composer", async () => {
     await expect(page.locator(".chat-log").getByText("Mock response: inspect workspace")).toBeVisible({
       timeout: 30_000,
     });
-
-    await composer.fill("review the diff for typos");
-    await page.getByRole("button", { name: "Add files and more", exact: true }).click();
-    await page.getByRole("menuitem", { name: /^Saved prompts/u }).click();
-    await page.getByRole("button", { name: "Save draft" }).click();
-    const manager = page.getByRole("dialog", { name: "Saved prompts" });
-    await expect(manager.getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue(
-      "review the diff for typos",
-    );
-    await manager.getByRole("textbox", { name: "Name", exact: true }).fill("Typos");
-    await manager.getByRole("button", { name: "Save prompt" }).click();
-    await expect(manager.locator(".prompt-row", { hasText: "Typos" })).toBeVisible();
-    await expect(manager).toContainText("inspect workspace");
-    await page.keyboard.press("Escape");
-    await expect(manager).toHaveCount(0);
-
-    await composer.fill("/typ");
-    const composerOptions = page.getByRole("listbox", { name: "Saved prompts" });
-    await expect(composerOptions.getByRole("option")).toHaveCount(1);
-    await composer.press("Enter");
-    await expect(composer).toHaveValue("review the diff for typos");
-    await composer.press("Enter");
-    await expect(page.locator(".chat-log").getByText("Mock response: review the diff for typos")).toBeVisible({
-      timeout: 20_000,
-    });
-
-    // Personal prompts live on this computer and survive a reload.
-    await page.reload();
-    await expect(page.locator(".project-label")).toContainText("repo", { timeout: 20_000 });
-    const stored = await page.evaluate(() => window.localStorage.getItem("zli.prompts.v1") ?? "");
-    expect(stored).toContain("Typos");
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

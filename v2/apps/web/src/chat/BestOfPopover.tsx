@@ -25,7 +25,6 @@ const RUN_COUNTS = Array.from({ length: MAX_RUNS - MIN_RUNS + 1 }, (_, index) =>
 export function BestOfPopover({
   agents,
   current,
-  retryText,
   starting,
   error,
   onStart,
@@ -34,8 +33,6 @@ export function BestOfPopover({
   agents: readonly BestOfAgentOption[];
   /** The chat's own agent and model, used for every run until the person changes one. */
   current: RunAgent;
-  /** Try N ways: the earlier message every run sends again. */
-  retryText?: string | undefined;
   starting: boolean;
   error?: string | undefined;
   onStart(runs: RunAgent[]): void;
@@ -82,16 +79,10 @@ export function BestOfPopover({
 
   const count = runs.length;
   return (
-    <div
-      ref={ref}
-      className="best-of"
-      role="dialog"
-      aria-label={retryText ? "Try N ways" : "Send as Best of N"}
-      onKeyDown={onKeyDown}
-    >
+    <div ref={ref} className="best-of" role="dialog" aria-label="Send as Best of N" onKeyDown={onKeyDown}>
       <div className="best-of-head">
         <Icon name="split" size={14} />
-        <span className="best-of-title">{retryText ? "Try N ways" : "Best of N"}</span>
+        <span className="best-of-title">Best of N</span>
         <fieldset className="best-of-counts" aria-label="Runs">
           {RUN_COUNTS.map((option) => (
             <button
@@ -108,11 +99,6 @@ export function BestOfPopover({
         </fieldset>
         <IconButton label="Close" icon="x" size="xs" iconSize={12} onClick={onClose} />
       </div>
-      {retryText ? (
-        <p className="best-of-prompt" title={retryText}>
-          {retryText.trim().split(/\r?\n/u)[0]}
-        </p>
-      ) : null}
       <ol className="best-of-runs">
         {runs.map((run, index) => {
           const agent = agents.find((entry) => entry.provider === run.provider);
@@ -154,9 +140,7 @@ export function BestOfPopover({
         </p>
       ) : null}
       <div className="best-of-footer">
-        <span>
-          Creates {count} worktrees from {retryText ? "the state before this message" : "the current state"}
-        </span>
+        <span>Creates {count} worktrees from the current state</span>
         <Button ref={startRef} variant="primary" size="sm" disabled={starting} onClick={() => onStart(runs)}>
           {starting ? "Starting" : "Start runs"}
         </Button>

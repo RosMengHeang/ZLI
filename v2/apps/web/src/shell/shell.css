@@ -49,19 +49,10 @@
 
 /* ---------- Notices ---------- */
 /* Notices take the island shape so they read as part of the workbench, not a strip across the window. */
-.main-workspace > .banner, .attention-panel { margin: 0 var(--zli-gutter) var(--zli-gutter) 0; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); }
-.app-shell.is-sidebar-hidden .main-workspace > .banner, .app-shell.is-sidebar-hidden .attention-panel { margin-left: var(--zli-gutter); }
+.main-workspace > .banner { margin: 0 var(--zli-gutter) var(--zli-gutter) 0; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); }
+.app-shell.is-sidebar-hidden .main-workspace > .banner { margin-left: var(--zli-gutter); }
 
 /* ---------- Attention ---------- */
-.attention-panel { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2) var(--zli-space-5); padding: var(--zli-space-1-5) var(--zli-space-4); border-color: var(--zli-amber-line); background: var(--zli-amber-soft); }
-.attention-heading { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-amber); font-size: var(--zli-text-sm); font-weight: 600; }
-.attention-item { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-sm); }
-.attention-item div { display: flex; align-items: baseline; gap: var(--zli-space-2); }
-.attention-item strong { font-weight: 550; }
-.attention-kind { color: var(--zli-muted); font-size: var(--zli-text-xs); }
-.attention-mark { display: inline-block; width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; }
-.attention-approval, .attention-user-input, .attention-conflict { background: var(--zli-amber); }
-.attention-failure { background: var(--zli-red); }
 
 /* ---------- Status dots ---------- */
 .status-dot, .connection-dot { display: inline-block; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--zli-disabled); }
@@ -195,17 +186,27 @@
  */
 .app-shell.is-columns .main-workspace { position: relative; }
 .app-shell.is-columns .topbar { position: absolute; top: 0; right: 0; z-index: 5; padding-left: var(--zli-space-2); background: transparent; }
+/* Laid over the chat's header, a thin line keeps the chat's own actions apart from the app's panel switches. */
+.app-shell.is-columns .topbar-tools::before { width: 1px; height: 16px; flex: 0 0 auto; margin-right: var(--zli-space-1-5); background: var(--zli-border-strong); content: ""; }
 /* The project and branch already show on the message box; the dev server chip stays with the tools. */
 .app-shell.is-columns :is(.topbar-project, .topbar-separator, .topbar-branch, .topbar-spacer) { display: none; }
 .app-shell.is-columns .sidebar { border-right: 1px solid var(--zli-border-strong); }
 .app-shell.is-columns .workspace-body, .app-shell.is-columns.is-sidebar-hidden .workspace-body { padding: 0; }
-.app-shell.is-columns .main-workspace > .banner, .app-shell.is-columns .attention-panel { margin: 0; padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); border-width: 0 0 1px; border-radius: 0; }
+.app-shell.is-columns .main-workspace > .banner { margin: 0; padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); border-width: 0 0 1px; border-radius: 0; }
 /* Chats on a board meet at hairlines: the grid shows its border color through a 1px gap. */
 .app-shell.is-columns .agent-grid { gap: 1px; background: var(--zli-border-strong); }
 .app-shell.is-columns .agent-tile, .app-shell.is-columns .tool-panel, .app-shell.is-columns .agent-grid-region:has(> .empty-state) { border: 0; border-radius: 0; }
 .app-shell.is-columns .agent-grid:has(> .agent-tile + .agent-tile) .agent-tile.is-active .tile-header { box-shadow: inset 0 2px 0 var(--zli-accent-edge); }
 .app-shell.is-columns :is(.tile-header, .panel-tabs) { height: var(--zli-bar-height); border-bottom: 1px solid var(--zli-border); -webkit-app-region: drag; }
 .app-shell.is-columns :is(.tile-header, .panel-tabs) :is(button, a, input, select, [role="menu"], [role="tab"]) { -webkit-app-region: no-drag; }
+/*
+ * The first-run chat and the empty states have no header, so their content reaches the top edge. This strip
+ * keeps the first row draggable over them. A tile header lies on top of it and works the same way. Controls
+ * in the chat area opt out, so any that scroll under the strip stay clickable.
+ */
+.app-shell.is-columns .agent-grid-region { position: relative; }
+.app-shell.is-columns .agent-grid-region::before { position: absolute; top: 0; right: 0; left: 0; height: var(--zli-bar-height); content: ""; pointer-events: none; -webkit-app-region: drag; }
+.app-shell.is-columns .agent-grid-region :is(button, a, input, select, textarea, [role="menu"], [role="tab"]) { -webkit-app-region: no-drag; }
 .app-shell.is-columns:not(.has-panel) .tile-header, .app-shell.is-columns .panel-tabs { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-1-5)); }
 /* The resizer keeps a 7px grip but draws as the 1px seam between the chat and the panel. */
 .app-shell.is-columns .panel-resizer { flex-basis: 7px; margin: 0 -3px; border-inline: 3px solid transparent; background: var(--zli-border-strong); background-clip: padding-box; }

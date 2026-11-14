@@ -1,11 +1,10 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useContext } from "react";
 
 import type { FileLinks } from "../files/FileIndex.js";
-import { openExternalLink } from "../review/links.js";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Icon } from "../ui/Icon.js";
 import { ChatImage, isImagePath } from "./ChatImage.js";
 import { CodeBlock } from "./CodeBlock.js";
+import { CitationChip, CitationContext, sourceKey, useOpenWebLink } from "./Sources.js";
 
 export type ListItem = { text: string; checked?: boolean; children: ListBlock[] };
 export type ListBlock = { kind: "list"; ordered: boolean; start?: number; items: ListItem[] };
@@ -209,10 +208,12 @@ function imagePath(href: string, links: FileLinks | undefined): string | undefin
 
 /**
  * A web link. It opens in the system browser, never in the app window, and its address shows on
- * hover so the label cannot hide where it goes.
+ * hover so the label cannot hide where it goes. A link to a page the turn searched becomes a
+ * numbered citation after its words; a bare address of one is the number alone.
  */
 function WebLink({ href, children }: { href: string; children: ReactNode }) {
-  const { bridge } = useRuntime();
+  const open = useOpenWebLink();
+  const citation = useContext(CitationContext)?.get(sourceKey(href));
   if (!WEB_URL.test(href)) {
     return (
       <span className="md-link is-inert" title={href}>
@@ -220,16 +221,16 @@ function WebLink({ href, children }: { href: string; children: ReactNode }) {
       </span>
     );
   }
+  if (citation) {
+    return (
+      <>
+        {children === href ? null : children}
+        <CitationChip citation={citation} />
+      </>
+    );
+  }
   return (
-    <button
-      className="md-link"
-      type="button"
-      title={`Open ${href} in your browser`}
-      onClick={() => {
-        if (bridge?.app.openExternal) void openExternalLink(bridge, href);
-        else window.open(href, "_blank", "noopener,noreferrer");
-      }}
-    >
+    <button className="md-link" type="button" title={`Open ${href} in your browser`} onClick={() => open(href)}>
       {children}
     </button>
   );
