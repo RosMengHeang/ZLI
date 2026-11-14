@@ -137,6 +137,8 @@ type Props = {
   onNewAgent(project?: ProjectProjection): void;
   /** The New agent dialog with every option, for this project: agent, view, worktree and name. */
   onNewAgentOptions?: ((project: ProjectProjection) => void) | undefined;
+  /** Opens the issue picker for the project, to start a chat from an issue. */
+  onStartFromIssue?: ((project: ProjectProjection) => void) | undefined;
   onOpenProject(): void;
   onCreateWorktree(project?: ProjectProjection): void;
   /** Removes a project from ZLI, leaving its folder on disk. Resolves to what went wrong, if anything. */
@@ -190,6 +192,7 @@ export function Sidebar({
   onSelectWorktree,
   onNewAgent,
   onNewAgentOptions,
+  onStartFromIssue,
   onOpenProject,
   onCreateWorktree,
   onRemoveProject,
@@ -553,6 +556,9 @@ export function Sidebar({
       title: project.git === false ? "Worktrees need Git. This folder is not a Git repository." : "New worktree here",
       run: () => onCreateWorktree(project),
     },
+    ...(onStartFromIssue
+      ? [{ label: "Start from issue", icon: "issue" as const, run: () => onStartFromIssue(project) }]
+      : []),
     ...projectAgentItems(project),
     { separator: true },
     {
@@ -948,26 +954,6 @@ export function Sidebar({
               {withProject && runIndex === undefined ? (
                 <span className="session-project">{projectOf(session)?.name}</span>
               ) : null}
-              <span className="session-side">
-                {quiet ? (
-                  background ? (
-                    <span className="session-background">Background</span>
-                  ) : (
-                    <>
-                      {isUnread ? <span className="session-unread" aria-hidden="true" /> : null}
-                      <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
-                    </>
-                  )
-                ) : live && session.status === "working" ? null : (
-                  <span
-                    // A failure the person has already opened stays labelled, without the red that calls for a look.
-                    className={`session-status is-${runStatus === "running" ? "working" : (runStatus ?? session.status)}${runStatus === undefined && session.status === "failed" && !isUnread ? " is-seen" : ""}`}
-                  >
-                    <span className="dot" aria-hidden="true" />
-                    <span className="session-status-label">{status}</span>
-                  </span>
-                )}
-              </span>
             </span>
             {live ? (
               <span className={`session-state is-${session.status}`}>
@@ -1002,6 +988,27 @@ export function Sidebar({
                 ) : null}
               </span>
             ) : null}
+          </span>
+          {/* The time or status sits at the end of the row, centred on it however many lines the row has. */}
+          <span className="session-side">
+            {quiet ? (
+              background ? (
+                <span className="session-background">Background</span>
+              ) : (
+                <>
+                  {isUnread ? <span className="session-unread" aria-hidden="true" /> : null}
+                  <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+                </>
+              )
+            ) : live && session.status === "working" ? null : (
+              <span
+                // A failure the person has already opened stays labelled, without the red that calls for a look.
+                className={`session-status is-${runStatus === "running" ? "working" : (runStatus ?? session.status)}${runStatus === undefined && session.status === "failed" && !isUnread ? " is-seen" : ""}`}
+              >
+                <span className="dot" aria-hidden="true" />
+                <span className="session-status-label">{status}</span>
+              </span>
+            )}
           </span>
           {runIndex === undefined && session.mode !== "chat" ? (
             <span className="session-agent" aria-hidden="true">
@@ -1276,7 +1283,6 @@ export function Sidebar({
                 .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
               const open = layout.projectOpen(project.projectId);
               const pinned = layout.pinned(project.projectId);
-              const idleOpen = layout.idleOpen(project.projectId);
               const agentCount = projectSessions.filter((session) => !runIds.has(session.sessionId)).length;
               const busy = projectSessions.some(
                 (session) => session.status === "working" || session.status === "starting",
@@ -1285,16 +1291,15 @@ export function Sidebar({
               const idle = projectWorktrees.filter(
                 (worktree) => !projectSessions.some((session) => session.worktreeId === worktree.worktreeId),
               );
-              // A folded row still shows the worktree the person is in, and any that is busy or needs them.
-              const idleShown = idleOpen
-                ? idle
-                : idle.filter(
-                    (worktree) =>
-                      worktree.worktreeId === activeWorktreeId ||
-                      worktree.worktreeId === confirmRemoveId ||
-                      worktree.status !== "ready" ||
-                      worktreeInfo(worktree).needsAttention,
-                  );
+              // Worktrees without a chat stay out of the list, except the one the person is in and any that
+              // is busy or needs them, such as a setup that failed.
+              const idleShown = idle.filter(
+                (worktree) =>
+                  worktree.worktreeId === activeWorktreeId ||
+                  worktree.worktreeId === confirmRemoveId ||
+                  worktree.status !== "ready" ||
+                  worktreeInfo(worktree).needsAttention,
+              );
               const empty = projectSessions.length === 0;
               // Sub-agents and best-of runs list under the chat they came from, in this project too.
               // Pinned chats list once, at the top of the sidebar.
@@ -1368,15 +1373,6 @@ export function Sidebar({
                         <span className="sr-only">{agentCount}</span>
                       </span>
                     )}
-                    <IconButton
-                      className={`project-action${empty || project.projectId === currentProjectId ? " is-shown" : ""}`}
-                      label={`New chat in ${project.name}`}
-                      tooltip="New chat here"
-                      icon="agentNew"
-                      size="xs"
-                      iconSize={13}
-                      onClick={() => onNewAgent(project)}
-                    />
                     <MenuButton
                       className="project-action"
                       label={`${project.name} actions`}
@@ -1387,19 +1383,7 @@ export function Sidebar({
                   </div>
                   {!open ? null : (
                     <>
-                      {empty ? (
-                        <p className="sidebar-note">
-                          No chats yet.{" "}
-                          <button
-                            className="sidebar-note-action"
-                            type="button"
-                            aria-label={`Start a chat in ${project.name}`}
-                            onClick={() => onNewAgent(project)}
-                          >
-                            Start one
-                          </button>
-                        </p>
-                      ) : (
+                      {empty ? null : (
                         <ul className="session-list">
                           {shown.map((session) => {
                             // Every chat is one card. A chat in a worktree of its own names its branch on the card.
@@ -1441,21 +1425,6 @@ export function Sidebar({
                           >
                             <Icon name="chevronRight" size={11} className="worktree-toggle-chevron" />
                             {olderShown ? "Hide older chats" : `${older.length} older chats`}
-                          </button>
-                        </div>
-                      ) : null}
-                      {idle.length > 0 ? (
-                        <div className="worktree-heading">
-                          <button
-                            className="worktree-toggle"
-                            type="button"
-                            aria-expanded={idleOpen}
-                            onClick={() => layout.toggleIdle(project.projectId)}
-                          >
-                            <Icon name="chevronRight" size={11} className="worktree-toggle-chevron" />
-                            {idle.length === 1
-                              ? "1 worktree without agents"
-                              : `${idle.length} worktrees without agents`}
                           </button>
                         </div>
                       ) : null}
@@ -1619,7 +1588,7 @@ function ProjectLantern({ name, state }: { name: string; state: "idle" | "workin
   );
 }
 
-/** The project's own hue, from its name, shared by its lantern and the tint behind its heading and chats. */
+/** The project's own hue, from its name, shared by its lantern and the tint behind its heading. */
 function lanternHue(name: string): number {
   let hash = 0;
   for (const character of name) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;

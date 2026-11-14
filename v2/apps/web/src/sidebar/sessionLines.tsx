@@ -2,6 +2,7 @@ import { describeApproval, describeQuestions } from "@zli-v2/client-runtime";
 import type { RuntimeProjection } from "@zli-v2/contracts";
 import { useCallback } from "react";
 
+import { liveStatus } from "../chat/liveStatus.js";
 import { useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { entriesForThread } from "../runtime/runtimeStore.js";
 
@@ -31,12 +32,12 @@ export function LiveStep({ threadId, turnId }: { threadId: string; turnId: strin
         const steps = entriesForThread(value?.activities, threadId).filter(
           (activity) => turnId !== undefined && activity.turnId === turnId,
         );
-        return (steps.findLast((activity) => activity.status === "running") ?? steps.at(-1))?.title;
+        return liveStatus(steps);
       },
       [threadId, turnId],
     ),
   );
-  return <>{step ?? "Thinking"}</>;
+  return <>{step}</>;
 }
 
 /** What a waiting agent asked for: the action it wants approved, or its question. */

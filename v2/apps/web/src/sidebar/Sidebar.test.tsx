@@ -67,6 +67,7 @@ type MountOptions = {
   onRenameProject?: (projectId: string, name: string) => void;
   onNewAgent?: (project?: { projectId: string }) => void;
   currentProjectId?: string;
+  activeWorktreeId?: string;
   selectedProjectId?: string;
   projectAgentActions?: (projectId: string) => ProjectAgentActions;
   onOpenSettings?: (section?: string) => void;
@@ -84,7 +85,7 @@ async function mount(current: RuntimeProjection | undefined, options: MountOptio
           sessions={options.sessions ?? []}
           activeSessionId={undefined}
           backgroundSessionIds={new Set()}
-          activeWorktreeId={undefined}
+          activeWorktreeId={options.activeWorktreeId}
           currentProjectId={options.currentProjectId}
           selectedProjectId={options.selectedProjectId}
           onSelectSession={options.onSelectSession ?? noop}
@@ -189,37 +190,24 @@ describe("Sidebar next step in an empty project", () => {
   };
   const newAgentButton = (root: ParentNode) => root.querySelector('[aria-label="New chat in repo"]');
 
-  it("offers Start one in a project with no agents, and keeps its New agent button in view", async () => {
+  it("keeps an empty project quiet: no note and no New chat button, with New chat in its menu", async () => {
     const onNewAgent = vi.fn();
-    const { container } = await mount(projection([checkout]), { onNewAgent });
-    expect(container.querySelector(".sidebar-project .sidebar-note")?.textContent).toBe("No chats yet. Start one");
-    const startOne = button(container, "Start a chat in repo");
-    expect(startOne.textContent).toBe("Start one");
-    expect(startOne.type).toBe("button");
-    await act(async () => startOne.click());
+    const { container } = await mount(projection([checkout]), { onNewAgent, currentProjectId: projectId });
+    expect(container.querySelector(".sidebar-project .sidebar-note")).toBeNull();
+    expect(container.textContent).not.toContain("No chats yet.");
+    expect(newAgentButton(container)).toBeNull();
+    expect(await openMenu(container, "repo actions")).toContain("New chat");
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+      (entry) => entry.textContent === "New chat",
+    );
+    await act(async () => item?.click());
     expect(onNewAgent).toHaveBeenCalledWith(expect.objectContaining({ projectId }));
-    expect(newAgentButton(container)?.classList.contains("is-shown")).toBe(true);
-    expect(newAgentButton(container)?.getAttribute("data-tooltip")).toBe("New chat here");
-  });
-
-  it("shows no hint once the project has an agent, and New agent stays in view only while it is current", async () => {
-    const sessions = [agent(checkoutId)];
-    const other = await mount(projection([checkout]), { sessions });
-    expect(other.container.textContent).not.toContain("No chats yet.");
-    expect(has(other.container, "Start a chat in repo")).toBe(false);
-    expect(newAgentButton(other.container)?.classList.contains("is-shown")).toBe(false);
-    await other.unmount();
-    document.body.replaceChildren();
-
-    const current = await mount(projection([checkout]), { sessions, currentProjectId: projectId });
-    expect(newAgentButton(current.container)?.classList.contains("is-shown")).toBe(true);
   });
 
   it("opens a folded project when it is the one just added", async () => {
     window.localStorage.setItem("zli.sidebar.collapsed", JSON.stringify({ projects: [projectId] }));
     const { container } = await mount(projection([checkout]), { selectedProjectId: projectId });
     expect(button(container, "repo, collapse").getAttribute("aria-expanded")).toBe("true");
-    expect(has(container, "Start a chat in repo")).toBe(true);
     expect(parseSidebarCollapsed(window.localStorage.getItem("zli.sidebar.collapsed")).projects).toEqual([]);
   });
 });
@@ -268,27 +256,26 @@ describe("Sidebar projects", () => {
         kind: "checkout",
       },
     ]);
-    const first = await mount(current);
+    const sessions = [agent(checkoutId)];
+    const first = await mount(current, { sessions });
     const toggle = button(first.container, "repo, collapse");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(first.container.textContent).toContain("No chats yet.");
-    expect(first.container.querySelector(".worktree-heading")).not.toBeNull();
+    expect(first.container.querySelector(".session-list")).not.toBeNull();
 
     await act(async () => toggle.click());
     expect(button(first.container, "repo, expand").getAttribute("aria-expanded")).toBe("false");
-    expect(first.container.textContent).not.toContain("No chats yet.");
-    expect(first.container.querySelector(".worktree-heading")).toBeNull();
+    expect(first.container.querySelector(".session-list")).toBeNull();
     expect(first.container.querySelector(".project-summary")).toBeNull();
     await first.unmount();
 
-    const again = await mount(current);
-    expect(again.container.querySelector(".worktree-heading")).toBeNull();
+    const again = await mount(current, { sessions });
+    expect(again.container.querySelector(".session-list")).toBeNull();
     await act(async () => button(again.container, "repo, expand").click());
-    expect(again.container.querySelector(".worktree-heading")).not.toBeNull();
+    expect(again.container.querySelector(".session-list")).not.toBeNull();
     expect(parseSidebarCollapsed(window.localStorage.getItem("zli.sidebar.collapsed")).projects).toEqual([]);
   });
 
-  it("folds worktrees without agents into one row and remembers when it is opened", async () => {
+  it("leaves worktrees without chats out of the list unless the person is in one or it needs them", async () => {
     const current = projection([
       {
         worktreeId: checkoutId,
@@ -306,19 +293,14 @@ describe("Sidebar projects", () => {
         status: "ready",
       },
     ]);
-    const first = await mount(current);
-    const toggle = first.container.querySelector<HTMLButtonElement>(".worktree-toggle");
-    expect(toggle?.textContent).toBe("2 worktrees without agents");
-    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-    expect(first.container.querySelector(".worktree-list")).toBeNull();
+    const quiet = await mount(current);
+    expect(quiet.container.querySelector(".worktree-toggle")).toBeNull();
+    expect(quiet.container.querySelectorAll(".worktree-row")).toHaveLength(0);
+    await quiet.unmount();
+    document.body.replaceChildren();
 
-    await act(async () => toggle?.click());
-    expect(first.container.querySelectorAll(".worktree-row")).toHaveLength(2);
-    await first.unmount();
-
-    const again = await mount(current);
-    expect(again.container.querySelector(".worktree-toggle")?.getAttribute("aria-expanded")).toBe("true");
-    expect(again.container.querySelectorAll(".worktree-row")).toHaveLength(2);
+    const inside = await mount(current, { activeWorktreeId: featureId });
+    expect(inside.container.querySelectorAll(".worktree-row")).toHaveLength(1);
   });
 
   it("lists an agent in its own worktree under a row for the branch, not a second line", async () => {
@@ -347,7 +329,7 @@ describe("Sidebar projects", () => {
     expect(row?.classList.contains("has-branch")).toBe(true);
     expect(row?.querySelector(".session-branch .worktree-name")?.textContent).toBe("feat/login");
     expect(row?.querySelector(".worktree-status")).toBeNull();
-    expect(container.querySelector(".worktree-toggle")?.textContent).toBe("1 worktree without agents");
+    expect(container.querySelector(".worktree-toggle")).toBeNull();
   });
 
   it("names a worktree's branch on its newest chat only, and leaves chats on the checkout to one line", async () => {
@@ -691,8 +673,8 @@ describe("Sidebar projects", () => {
           status: "ready",
         },
       ]),
+      { activeWorktreeId: featureId },
     );
-    await act(async () => container.querySelector<HTMLButtonElement>(".worktree-toggle")?.click());
     expect(await openMenu(container, "Worktree actions")).toEqual(["Delete worktree"]);
     await act(async () => button(document.body, "Delete worktree").click());
     expect(has(container, "Delete worktree")).toBe(true);

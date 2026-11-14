@@ -816,12 +816,15 @@ describe("Add project", () => {
     expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
     expect(container.querySelector(".board-project-notice")?.textContent).toContain("No chats in guider-crm yet.");
     const section = container.querySelector<HTMLElement>('.sidebar-project[aria-label="guider-crm"]');
-    expect(section?.textContent).toContain("No chats yet.");
-    expect(section?.querySelector('[aria-label="New chat in guider-crm"]')?.classList.contains("is-shown")).toBe(true);
+    expect(section?.textContent).not.toContain("No chats yet.");
+    expect(section?.querySelector('[aria-label="New chat in guider-crm"]')).toBeNull();
 
-    const startOne = section ? button(section, "Start a chat in guider-crm") : undefined;
-    expect(startOne?.textContent).toBe("Start one");
-    await act(async () => startOne?.click());
+    // An empty project keeps New chat in its menu.
+    await act(async () => (section ? button(section, "guider-crm actions") : undefined)?.click());
+    const newChat = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+      (item) => item.textContent === "New chat",
+    );
+    await act(async () => newChat?.click());
     expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
     await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
 
@@ -833,11 +836,6 @@ describe("Add project", () => {
     // Picking an agent in another project moves on from the added one.
     await act(async () => container.querySelector<HTMLButtonElement>(".session-row")?.click());
     expect(container.querySelector(".board-project-notice")).toBeNull();
-    expect(
-      container
-        .querySelector('.sidebar-project[aria-label="guider-crm"] [aria-label="New chat in guider-crm"]')
-        ?.classList.contains("is-shown"),
-    ).toBe(true);
   });
 
   it("names the added project on an empty board", async () => {

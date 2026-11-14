@@ -9,7 +9,7 @@
 .brand-mark { display: block; flex: 0 0 auto; }
 .wordmark { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 650; letter-spacing: .06em; }
 
-.sidebar-primary { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-0-5); padding: var(--zli-space-1) var(--zli-space-2) var(--zli-space-5); }
+.sidebar-primary { display: flex; flex: 0 0 auto; flex-direction: column; }
 .sidebar-primary .btn { width: 100%; height: var(--zli-control-lg); justify-content: flex-start; gap: var(--zli-space-2-5); padding: 0 var(--zli-space-1-5) 0 var(--zli-space-2-5); }
 .sidebar-primary .btn > span:not(.kbd-group) { flex: 1; text-align: left; }
 .sidebar-add-project { color: var(--zli-text); font-weight: 450; }
@@ -23,16 +23,14 @@
 .sidebar-scroll { min-height: 0; flex: 1; overflow: auto; padding: 0 var(--zli-space-2) var(--zli-space-3); }
 .sidebar-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--zli-space-3); padding: var(--zli-space-1) var(--zli-space-2-5); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .sidebar-empty p { margin: 0; }
-.sidebar-heading { margin: 0 0 var(--zli-space-1); padding: 0 var(--zli-space-2-5); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; line-height: 24px; }
-.sidebar-project + .sidebar-project { margin-top: var(--zli-space-4); }
-.project-label { display: flex; align-items: center; gap: var(--zli-space-1); height: 30px; padding: 0 var(--zli-space-1) 0 0; border-radius: var(--zli-radius-md); color: var(--zli-muted); font-size: var(--zli-text-base); font-weight: 500; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.project-label { display: flex; align-items: center; gap: var(--zli-space-1); padding: 0 var(--zli-space-1) 0 0; border-radius: var(--zli-radius-md); color: var(--zli-muted); font-weight: 500; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
 .project-label:hover { background: var(--zli-hover); }
-.project-toggle { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-2); height: 100%; padding: 0 var(--zli-space-1) 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.project-toggle { display: flex; min-width: 0; flex: 1; align-items: center; height: 100%; padding: 0 var(--zli-space-1) 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
 .project-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 .project-toggle > svg:first-child { flex: 0 0 auto; color: var(--zli-dim); }
 .project-label:hover .project-toggle > svg:first-child { color: var(--zli-muted); }
 .project-confirm-problem { display: block; margin-top: var(--zli-space-1); color: var(--zli-red); overflow-wrap: anywhere; }
-.project-name { min-width: 0; overflow: hidden; color: var(--zli-text); text-overflow: ellipsis; white-space: nowrap; }
+.project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-pin { flex: 0 0 auto; color: var(--zli-dim); }
 .project-rename { min-width: 0; flex: 1; height: 100%; padding: 0 var(--zli-space-2); border: 1px solid var(--zli-focus); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text); font: inherit; outline: none; }
 /* The chevron says the folder folds. It stays out of the way until the row is pointed at, or the folder is closed. */
@@ -54,9 +52,6 @@
 /* Without hover there is no way to reveal the row's actions, so they stay in view. */
 @media (hover: none) { .project-action { opacity: 1; } }
 .sidebar-note { margin: var(--zli-space-0-5) var(--zli-space-2) var(--zli-space-1-5) 32px; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
-.sidebar-note-action { padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: none; color: var(--zli-accent); cursor: pointer; font: inherit; }
-.sidebar-note-action:hover { text-decoration: underline; }
-.sidebar-note-action:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 .sidebar-note.is-error { margin-left: 24px; color: var(--zli-red); overflow-wrap: anywhere; }
 
 .session-list, .worktree-list { margin: 0; padding: 0; list-style: none; }
@@ -71,35 +66,28 @@
 }
 /* An agent in a worktree shows its branch on a second line, so the worktree needs no row of its own. */
 .session-row.has-branch { height: 44px; }
-.session-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; justify-content: center; gap: 2px; }
-.session-line { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
-.session-name { max-width: 45%; flex: 0 0 auto; overflow: hidden; padding: 0 var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-text); font-size: var(--zli-text-2xs); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.session-branch { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-dim); line-height: 14px; }
-.session-branch > svg { flex: 0 0 auto; }
-.session-branch .worktree-name { flex: 0 1 auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); }
-.session-row:hover .session-branch .worktree-name, .session-row.is-active .session-branch .worktree-name { color: var(--zli-muted); }
-.session-branch .worktree-status, .session-branch .count { font-size: var(--zli-text-2xs); }
-.session-branch .count { margin-left: auto; }
+.session-copy { display: flex; flex-direction: column; justify-content: center; }
+.session-line { display: flex; min-width: 0; align-items: center; }
+.session-name { max-width: 45%; flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-branch .worktree-status, .session-branch .count { font-size: var(--zli-text-xs); }
 .session-worktree-alert .sidebar-note.is-error { margin-left: 46px; }
 .session-worktree-alert .worktree-actions { margin-left: 40px; }
-.session-row:hover { background: var(--zli-hover); }
 .session-row.is-active { background: var(--zli-active); }
 .session-title { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-base); text-overflow: ellipsis; white-space: nowrap; }
 .session-row:hover .session-title, .session-row.is-active .session-title { color: var(--zli-text); }
 .session-background { color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .session-side { display: flex; flex: 0 0 auto; align-items: center; }
-.session-status { display: inline-flex; align-items: center; gap: 5px; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
+.session-status { display: inline-flex; align-items: center; gap: 5px; color: var(--zli-muted); }
 .session-status .dot { width: 6px; height: 6px; flex-basis: 6px; }
 .session-status.is-working, .session-status.is-starting, .session-status.is-preparing { color: var(--zli-blue); }
 .session-status.is-waiting { color: var(--zli-amber); }
 .session-status.is-failed { color: var(--zli-red); }
-.session-time { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 /*
  * Each row has one "..." menu at its end, in the spot of its time or status. It shows while the row is pointed
  * at, focused, or its menu is open, and the time or status steps aside for it.
  */
-.row-more { position: absolute; top: 16px; right: var(--zli-space-1); display: flex; opacity: 0; pointer-events: none; transform: translateY(-50%); transition: opacity var(--zli-duration-fast) var(--zli-ease); }
-.session-row.has-branch ~ .row-more { top: 14px; }
+.row-more { position: absolute; display: flex; opacity: 0; pointer-events: none; transform: translateY(-50%); transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.session-row.has-branch ~ .row-more { top: 22px; }
 .session-entry.is-run > .row-more, .worktree-entry > .row-more { top: 14px; }
 .row-more .btn { color: var(--zli-muted); }
 .row-more .btn:hover:not(:disabled), .row-more .btn[aria-expanded="true"] { background: var(--zli-pressed); color: var(--zli-text); }
@@ -122,7 +110,6 @@
 .worktree-toggle:hover { color: var(--zli-muted); }
 .worktree-toggle-chevron { transition: transform var(--zli-duration-fast) var(--zli-ease); }
 .worktree-toggle[aria-expanded="true"] .worktree-toggle-chevron { transform: rotate(90deg); }
-.worktree-count { color: var(--zli-dim); font-weight: 500; font-variant-numeric: tabular-nums; }
 .worktree-row {
   display: flex; align-items: center; gap: var(--zli-space-2); width: 100%; height: 28px; padding: 0 var(--zli-space-2) 0 var(--zli-space-6);
   border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; text-align: left;
@@ -132,9 +119,9 @@
 .worktree-row.is-active { background: var(--zli-active); color: var(--zli-text); }
 .worktree-row .status-dot { width: 6px; height: 6px; flex-basis: 6px; }
 .worktree-name { min-width: 0; flex: 1; overflow: hidden; font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.worktree-track { flex: 0 0 auto; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
-.worktree-kind { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); }
-.worktree-pr { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; font-family: var(--zli-mono); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
+.worktree-track { flex: 0 0 auto; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.worktree-kind { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.worktree-pr { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 .worktree-pr.is-success { color: var(--zli-green); }
 .worktree-pr.is-warning { color: var(--zli-amber); }
 .worktree-pr.is-danger { color: var(--zli-red); }
@@ -165,7 +152,7 @@
 .usage-strip-toggle:focus-visible { outline-offset: -1px; }
 .usage-strip-chevron { flex: 0 0 auto; margin-left: auto; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
 .usage-strip-toggle[aria-expanded="true"] .usage-strip-chevron { transform: rotate(180deg); }
-.usage-strip-head { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+.usage-strip-head { color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .usage-strip-summary { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
 .usage-strip-summary > .provider-mark { flex: 0 0 auto; color: var(--zli-muted); }
 /* The share never shrinks; a long model label gives way first. */
@@ -184,8 +171,8 @@
 .usage-strip-name { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
 .usage-strip-name > .provider-mark { flex: 0 0 auto; color: var(--zli-dim); }
 .usage-strip-provider { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.usage-strip-account { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; }
-.usage-strip-state { margin-left: auto; flex: 0 0 auto; color: var(--zli-amber); font-size: var(--zli-text-2xs); }
+.usage-strip-account { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; }
+.usage-strip-state { margin-left: auto; flex: 0 0 auto; color: var(--zli-amber); font-size: var(--zli-text-xs); }
 /* Labels, shares, and resets line up across logins; a long model name widens only its own login's labels. */
 .usage-strip-windows { display: grid; grid-template-columns: 14px auto 30px minmax(0, 1fr); align-items: center; column-gap: var(--zli-space-1-5); row-gap: 2px; padding-left: 1px; }
 .usage-strip-window { display: contents; }
@@ -193,9 +180,9 @@
 .usage-strip-ring-track, .usage-strip-ring-fill { fill: none; stroke-width: 2.5; }
 .usage-strip-ring-track { stroke: var(--zli-border-strong); }
 .usage-strip-ring-fill { stroke: var(--zli-muted); stroke-linecap: round; transition: stroke-dasharray var(--zli-duration-fast) var(--zli-ease); }
-.usage-strip-window-label { min-width: 38px; max-width: 72px; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.usage-strip-window-label { min-width: 38px; max-width: 72px; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .usage-strip-window-percent { color: var(--zli-text); text-align: right; }
-.usage-strip-window-reset { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.usage-strip-window-reset { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .usage-strip-window.is-warning .usage-strip-ring-fill { stroke: var(--zli-amber); }
 .usage-strip-window.is-warning .usage-strip-window-percent { color: var(--zli-amber); }
 .usage-strip-window.is-full .usage-strip-ring-fill { stroke: var(--zli-red); }
@@ -207,7 +194,7 @@
 .usage-strip-toggle:hover .usage-strip-provider { color: var(--zli-text); }
 .usage-strip-settings {
   align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--zli-dim); cursor: pointer;
-  font-size: var(--zli-text-2xs); text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px;
+  font-size: var(--zli-text-xs); text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px;
 }
 .usage-strip-settings:hover { color: var(--zli-text); text-decoration-color: currentColor; }
 .sidebar-usage { margin-left: auto; }
@@ -230,7 +217,7 @@
 .sub-agent-list { display: flex; flex-direction: column; gap: 1px; margin: 1px 0 var(--zli-space-1) var(--zli-space-6); padding-left: var(--zli-space-2); border-left: 1px solid var(--zli-border); }
 .sub-agent-list > .session-entry > .session-row { padding-left: var(--zli-space-1); }
 .session-entry.is-run .session-row { height: 28px; padding-left: var(--zli-space-1); }
-.run-badge { flex: 0 0 auto; padding: 1px var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); font-size: var(--zli-text-2xs); font-weight: 500; font-variant-numeric: tabular-nums; }
+.run-badge { flex: 0 0 auto; padding: 1px var(--zli-space-1-5); border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; font-variant-numeric: tabular-nums; }
 .session-entry.is-run .session-title { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
 .session-status.is-done { color: var(--zli-green); }
 
@@ -257,22 +244,20 @@
 /* ---------- Waiting on you ---------- */
 /* Agents that asked for something, and chats that finished out of view, from every project. It is the one
    boxed part of the sidebar, so it reads as apart from the project tree and is gone when nothing waits. */
-.sidebar-shelf { margin: 0 0 var(--zli-space-4); padding: var(--zli-space-1); border-radius: var(--zli-radius-lg); background: color-mix(in srgb, var(--zli-raised) 70%, var(--zli-sidebar)); box-shadow: inset 0 0 0 1px var(--zli-border); }
-.shelf-head { display: flex; align-items: center; gap: var(--zli-space-1-5); height: 26px; padding: 0 var(--zli-space-0-5) 0 var(--zli-space-2); }
-.shelf-heading { margin: 0; color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 600; }
+.shelf-head { display: flex; align-items: center; gap: var(--zli-space-1-5); }
+.shelf-heading { margin: 0; }
 .shelf-count { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 .shelf-clear { margin-left: auto; color: var(--zli-dim); }
 .shelf-list { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
-.shelf-row { display: flex; width: 100%; align-items: flex-start; gap: var(--zli-space-2); padding: 6px var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
-.shelf-row:hover { background: var(--zli-hover); }
+.shelf-row { display: flex; width: 100%; border: 0; background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
 .shelf-row.is-active { background: var(--zli-active); }
 .shelf-row:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 .shelf-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
 .shelf-line { display: flex; min-width: 0; align-items: baseline; gap: var(--zli-space-2); }
-.shelf-title { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
-.shelf-project { max-width: 42%; flex: 0 1 auto; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.shelf-title { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-text); text-overflow: ellipsis; white-space: nowrap; }
+.shelf-project { max-width: 42%; flex: 0 1 auto; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 /* Two lines, so a finished reply or a question says enough to decide whether to open it now. */
-.shelf-reason { display: -webkit-box; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: 16px; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.shelf-reason { display: -webkit-box; overflow: hidden; color: var(--zli-muted); line-height: 16px; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .shelf-row.is-waiting .shelf-reason { color: var(--zli-amber); }
 .shelf-row.is-failed .shelf-reason { color: var(--zli-red); }
 
@@ -280,22 +265,12 @@
 /* A live agent's row grows a line that says what it is doing, or what it asked. */
 .session-row.has-state { height: 44px; }
 .session-row.has-branch.has-state { height: 60px; }
-.session-row.has-state ~ .row-more { top: 14px; }
-.session-state { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.session-row:hover .session-state, .session-row.is-active .session-state { color: var(--zli-muted); }
+.session-row.has-state ~ .row-more { top: 22px; }
+.session-row.has-branch.has-state ~ .row-more { top: 30px; }
 .session-state.is-waiting, .session-row:hover .session-state.is-waiting, .session-row.is-active .session-state.is-waiting { color: var(--zli-amber); }
 /* Finished while the person was elsewhere: the title stands out until the chat is opened. */
 .session-row.is-unread .session-title { color: var(--zli-text); font-weight: 600; }
-.session-unread { width: 6px; height: 6px; flex: 0 0 6px; margin-right: 6px; border-radius: 50%; background: var(--zli-accent); }
 
-/* Chats that share a worktree sit under one row for its branch. */
-.worktree-group > .session-list { display: flex; flex-direction: column; gap: 1px; }
-.session-entry + .worktree-group, .worktree-group + .session-entry, .worktree-group + .worktree-group { margin-top: var(--zli-space-1); }
-.worktree-row.worktree-group-row { height: 24px; color: var(--zli-dim); }
-.worktree-row.worktree-group-row > svg { flex: 0 0 auto; }
-.worktree-row.worktree-group-row .worktree-name { color: var(--zli-muted); }
-.worktree-row.worktree-group-row:hover .worktree-name { color: var(--zli-text); }
-.worktree-entry.worktree-group > .row-more { top: 12px; }
 .older-toggle { display: inline-flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-control-sm); padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-dim); cursor: pointer; font-size: var(--zli-text-xs); font-weight: 500; text-align: left; }
 .older-toggle:hover { color: var(--zli-muted); }
 .older-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
@@ -318,7 +293,7 @@
 .sidebar-primary-row { display: flex; align-items: center; gap: 4px; }
 .sidebar-primary-row .sidebar-new-agent,
 .sidebar-primary-row .sidebar-add-project {
-  flex: 0 0 auto; width: 34px; height: 34px; padding: 0; justify-content: center; border: 1px solid var(--zli-border); border-radius: 10px;
+  flex: 0 0 auto; width: 34px; height: 34px; border: 1px solid var(--zli-border); border-radius: 10px;
   background: transparent; box-shadow: none; color: var(--zli-muted);
 }
 .sidebar-primary-row .sidebar-new-agent { color: var(--zli-text); }
@@ -331,15 +306,16 @@
 }
 .sidebar-search:hover, .sidebar-search:focus-within { background: var(--zli-hover); border-color: var(--zli-border-strong); }
 .sidebar-search > svg { flex: 0 0 auto; }
-.sidebar-search input { min-width: 0; flex: 1; height: 100%; padding: 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: 13px; font-weight: 600; }
+.sidebar-search input { min-width: 0; flex: 1; height: 100%; padding: 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-base); }
 .sidebar-search input::placeholder { color: var(--zli-dim); font-weight: 600; }
+.sidebar-search input { font-weight: 600; }
 .sidebar-search input::-webkit-search-cancel-button { cursor: pointer; }
 
 /* Projects: a lantern in the project's colour, then the name. A heading, not a folder. */
 .sidebar-project + .sidebar-project { margin-top: var(--zli-space-5); }
-.project-label { height: 28px; margin-bottom: 2px; font-size: 12px; }
+.project-label { height: 28px; margin-bottom: 2px; font-size: var(--zli-text-sm); }
 .project-toggle { gap: 8px; padding-left: 10px; }
-.project-name { color: var(--zli-muted); font-size: 12.5px; font-weight: 600; }
+.project-name { color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 600; }
 .project-label:hover .project-name { color: var(--zli-text); }
 /* Colored headings (Settings > Appearance, on by default): each project heading takes a soft tint of its
    lantern's colour, so each project reads as its own place. Off leaves the plain heading above. */
@@ -352,8 +328,8 @@
 /* Chats under a project (Settings > Appearance). Card, the default: a faint wash of the project colour holds
    the heading and its chats together. Selection: only the open and pointed-at chat take the colour. None:
    the plain grey rows. The open chat is lit in the project colour in both coloured modes, so it is always
-   clear which project it belongs to. The heading fills the card edge to edge, so no lighter rim shows around
-   it (a rim read as a glow). */
+   clear which project it belongs to. */
+/* The heading fills the card edge to edge, so no lighter rim shows around it (a rim read as a glow). */
 .chat-tint-card .sidebar-project { padding: 0; border-radius: 10px; background: color-mix(in srgb, var(--lantern) 5%, transparent); }
 .chat-tint-card .sidebar-project:not(.is-collapsed) { padding-bottom: 3px; }
 .chat-tint-card .sidebar-project > .project-label { margin-bottom: 2px; border-radius: 10px; }
@@ -363,7 +339,7 @@
 :is(.chat-tint-card, .chat-tint-selection) .sidebar-project .session-row.is-active,
 :is(.chat-tint-card, .chat-tint-selection) .sidebar-project .session-row.is-active:hover { background: color-mix(in srgb, var(--lantern) 16%, transparent); }
 :is(.chat-tint-card, .chat-tint-selection) .sidebar-project .session-row.is-active .session-title { color: color-mix(in srgb, var(--lantern) 25%, var(--zli-text)); }
-.sidebar-heading { margin: var(--zli-space-1) 0 2px; padding: 0 10px; color: var(--zli-dim); font-size: 12px; font-weight: 500; line-height: 24px; }
+.sidebar-heading { margin: var(--zli-space-1) 0 2px; padding: 0 10px; color: var(--zli-dim); font-size: var(--zli-text-sm); font-weight: 500; line-height: 24px; }
 
 /* Chat cards. One line when nothing is new: face, title, time. A second line only for news. */
 .sidebar-project > .session-list, .sidebar-pinned > .session-list, .sidebar-results > .session-list { display: flex; flex-direction: column; gap: 1px; }
@@ -381,23 +357,23 @@
 .session-team > .buddy-avatar { margin-left: -5px; }
 .session-copy { min-width: 0; flex: 1; gap: 2px; padding-top: 2px; }
 .session-line { gap: var(--zli-space-2); }
-.session-row .session-title { color: var(--zli-muted); font-size: 13px; font-weight: 450; line-height: 18px; }
+.session-row .session-title { color: var(--zli-muted); font-size: var(--zli-text-base); font-weight: 450; line-height: 18px; }
 .session-row:hover .session-title, .session-row.is-active .session-title, .session-row.is-unread .session-title { color: var(--zli-text); }
 .session-row.is-active .session-title, .session-row.is-unread .session-title { font-weight: 550; }
-.session-name { padding: 0 5px; border-radius: 4px; background: var(--zli-hover); color: var(--zli-muted); font-size: 11px; font-weight: 550; }
-.session-time { color: var(--zli-dim); font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: 1; }
-.session-status { font-size: 11.5px; font-weight: 500; }
+.session-name { padding: 0 5px; border-radius: 4px; background: var(--zli-hover); color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 550; }
+.session-time { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; opacity: 1; }
+.session-status { font-size: var(--zli-text-xs); font-weight: 500; }
 .session-status .dot { display: none; }
 .session-unread { width: 6px; height: 6px; flex: 0 0 6px; margin-right: 6px; border-radius: 50%; background: var(--zli-text); }
-.session-state { display: block; overflow: hidden; color: var(--zli-dim); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.session-state { display: block; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .session-row:hover .session-state, .session-row.is-active .session-state { color: var(--zli-muted); }
 .session-state.is-waiting, .session-row .session-state.is-waiting { color: var(--zli-amber); }
 .session-state.is-failed, .session-row .session-state.is-failed { color: var(--zli-red); }
 .session-branch { display: flex; min-width: 0; align-items: center; gap: 5px; margin-top: 1px; color: var(--zli-dim); line-height: 16px; }
 .session-branch > svg { flex: 0 0 auto; opacity: .8; }
-.session-branch .worktree-name { flex: 0 1 auto; color: var(--zli-dim); font-family: inherit; font-size: 12px; }
+.session-branch .worktree-name { flex: 0 1 auto; color: var(--zli-dim); font-family: inherit; font-size: var(--zli-text-sm); }
 .session-row:hover .session-branch .worktree-name, .session-row.is-active .session-branch .worktree-name { color: var(--zli-muted); }
-.session-branch .count { margin-left: auto; color: var(--zli-dim); font-size: 11.5px; }
+.session-branch .count { margin-left: auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .row-more { top: 18px; right: 6px; }
 .session-row.has-state ~ .row-more, .session-row.has-branch ~ .row-more { top: 18px; }
 .session-entry.is-run .session-row { min-height: 30px; padding: 5px 8px; align-items: center; }
@@ -413,15 +389,15 @@
 /* Waiting on you: the one place with a tint, so news out of view is the first thing seen. */
 .sidebar-shelf { margin: 0 0 var(--zli-space-5); padding: 4px; border-radius: 12px; background: var(--zli-hover); box-shadow: none; }
 .shelf-head { height: 26px; padding: 0 4px 0 10px; }
-.shelf-heading { color: var(--zli-muted); font-size: 12px; font-weight: 550; }
+.shelf-heading { color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 550; }
 .shelf-row { align-items: flex-start; gap: 10px; padding: 7px 8px; border-radius: 9px; }
 .shelf-row:hover { background: var(--zli-active); }
 .shelf-row > .session-avatar { flex: 0 0 auto; margin-top: 0; }
-.shelf-title { font-size: 13px; font-weight: 550; }
-.shelf-reason { font-size: 12px; }
+.shelf-title { font-size: var(--zli-text-base); font-weight: 550; }
+.shelf-reason { font-size: var(--zli-text-sm); }
 
 .sidebar-pinned { margin-bottom: var(--zli-space-5); }
-.sidebar-results-empty { margin: 0; padding: 0 10px; color: var(--zli-dim); font-size: 12px; line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.sidebar-results-empty { margin: 0; padding: 0 10px; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .sidebar-results .session-row:focus-visible, .sidebar-scroll .session-row:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 
 /* ---------- Project lanterns ---------- */
@@ -439,7 +415,7 @@
   50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--lantern) 30%, transparent); }
 }
 @media (prefers-reduced-motion: reduce) { .project-lantern.is-working { animation: none; } }
-.project-faces { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1px; padding: 0 4px; color: var(--zli-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.project-faces { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1px; padding: 0 4px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 .project-faces-more { margin-left: 3px; }
 .project-label:hover .project-faces { display: none; }
 
@@ -449,7 +425,7 @@
 .session-row .session-state {
   position: relative; display: block; width: fit-content; max-width: 100%; margin-top: 3px; padding: 2px 8px 3px;
   border-radius: 3px 9px 9px 9px; background: var(--zli-hover); color: var(--zli-muted);
-  font-size: 11.5px; line-height: 16px;
+  font-size: var(--zli-text-xs); line-height: 16px;
 }
 .session-row.is-active .session-state, .session-row:hover .session-state { background: color-mix(in srgb, var(--zli-text) 9%, transparent); color: var(--zli-text); }
 .session-row .session-state.is-waiting { background: var(--zli-amber-soft); color: var(--zli-amber); }
