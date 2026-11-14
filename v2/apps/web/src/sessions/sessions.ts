@@ -39,6 +39,8 @@ export type PendingLaunch = {
    * change at once; sending starts the agent.
    */
   draft?: boolean;
+  /** The draft gets its own worktree on a new branch when its first message is sent. */
+  isolate?: boolean;
   /** First message for the agent, moved to the workbench's delivery queue once the agent starts. */
   prompt?: string;
   /** Text that goes with the first message: attached in a chat, pasted after it in a terminal. */

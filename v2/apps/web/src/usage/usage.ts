@@ -110,12 +110,63 @@ export function tokenTotal(totals: Pick<UsageTotals, "inputTokens" | "outputToke
   return totals.inputTokens + totals.outputTokens;
 }
 
-/** How full the agent's context window was at the end of its latest turn that said so. */
-export function latestContext(records: readonly ThreadUsageRecord[]): { tokens: number; window?: number } | undefined {
+/** How full the context window is, with what the turn that reported it read and wrote when it says so. */
+export type ContextUsage = {
+  tokens: number;
+  window?: number;
+  turn?: {
+    input?: number;
+    cached?: number;
+    output?: number;
+    /** Most of a large input was resent without the prompt cache. Never set on a thread's first turn, which starts with an empty cache. */
+    cacheMissed?: boolean;
+  };
+  /** When the prompt cache runs out, in epoch milliseconds. Only Claude reports it. */
+  cacheExpiresAt?: number;
+};
+
+/** What the next message will pay for the thread so far: cache prices until expiry, full price after. */
+export function cacheStatus(
+  expiresAt: number | undefined,
+  now: number,
+): { warm: true; minutesLeft: number } | { warm: false } | undefined {
+  if (expiresAt === undefined) return undefined;
+  const left = expiresAt - now;
+  return left > 0 ? { warm: true, minutesLeft: Math.max(1, Math.floor(left / 60_000)) } : { warm: false };
+}
+
+/** Below this many input tokens a missed cache costs too little to point out. */
+const CACHE_MISS_MIN_INPUT = 20_000;
+const CACHE_MISS_SHARE = 0.5;
+
+/** The share of input tokens served from the prompt cache, from 0 to 1. */
+export function cachedShare(turn: { input?: number; cached?: number }): number | undefined {
+  if (!turn.input) return undefined;
+  return Math.min(1, (turn.cached ?? 0) / turn.input);
+}
+
+export function latestContext(records: readonly ThreadUsageRecord[]): ContextUsage | undefined {
   for (let index = records.length - 1; index >= 0; index -= 1) {
     const usage = records[index]?.usage;
     if (usage?.contextTokens === undefined) continue;
-    return { tokens: usage.contextTokens, ...(usage.contextWindow ? { window: usage.contextWindow } : {}) };
+    const share = cachedShare({
+      ...(usage.inputTokens !== undefined ? { input: usage.inputTokens } : {}),
+      ...(usage.cachedInputTokens !== undefined ? { cached: usage.cachedInputTokens } : {}),
+    });
+    const cacheMissed =
+      index > 0 && (usage.inputTokens ?? 0) >= CACHE_MISS_MIN_INPUT && share !== undefined && share < CACHE_MISS_SHARE;
+    const turn = {
+      ...(usage.inputTokens !== undefined ? { input: usage.inputTokens } : {}),
+      ...(usage.cachedInputTokens ? { cached: usage.cachedInputTokens } : {}),
+      ...(usage.outputTokens !== undefined ? { output: usage.outputTokens } : {}),
+      ...(cacheMissed ? { cacheMissed: true } : {}),
+    };
+    return {
+      tokens: usage.contextTokens,
+      ...(usage.contextWindow ? { window: usage.contextWindow } : {}),
+      ...(Object.keys(turn).length > 0 ? { turn } : {}),
+      ...(usage.promptCacheExpiresAt !== undefined ? { cacheExpiresAt: usage.promptCacheExpiresAt } : {}),
+    };
   }
   return undefined;
 }

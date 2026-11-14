@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { EnvironmentId, ProjectId, type RuntimeProjection } from "@zli-v2/contracts";
+import { EnvironmentId, ProjectId, type RpcResponse, type RuntimeProjection } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -38,7 +38,7 @@ function projectionFor(git: boolean | undefined): RuntimeProjection {
   } as RuntimeProjection;
 }
 
-async function render(git: boolean | undefined) {
+async function render(git: boolean | undefined, dispatch?: (request: unknown) => Promise<RpcResponse | undefined>) {
   const projection = projectionFor(git);
   const onSubmit = vi.fn(async (_request: NewAgentRequest) => undefined);
   const container = document.createElement("div");
@@ -51,6 +51,7 @@ async function render(git: boolean | undefined) {
         projection={projection}
         initialProject={projection.projects[0]}
         initialWorktreeId={undefined}
+        {...(dispatch ? { dispatch } : {})}
         onClose={() => undefined}
         onSubmit={onSubmit}
       />,
@@ -79,6 +80,83 @@ describe("NewAgentDialog workspace", () => {
 
     expect(placements.map((input) => input.value)).toEqual(["new", "checkout"]);
     expect(placements.find((input) => input.checked)?.value).toBe("new");
+  });
+});
+
+describe("NewAgentDialog branch", () => {
+  it("reads the branch of a folder that has no checkout yet and shows it", async () => {
+    const dispatch = vi.fn(
+      async (request: unknown) =>
+        ({
+          commandId: (request as { commandId: string }).commandId,
+          accepted: true,
+          result: { git: true, branch: "feature/login" },
+        }) as RpcResponse,
+    );
+    const { placements } = await render(undefined, dispatch);
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0]?.[0]).toMatchObject({ command: { type: "project.branch", projectId } });
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Start from"]')?.placeholder).toBe(
+      "feature/login",
+    );
+
+    await act(async () => {
+      placements.find((input) => input.value === "checkout")?.click();
+    });
+    expect(document.querySelector(".workspace-path .folder-branch")?.textContent).toBe("feature/login");
+  });
+
+  const answers = (...results: (Record<string, unknown> | undefined)[]) => {
+    const queue = [...results];
+    return vi.fn(async (request: unknown) => {
+      const result = queue.shift();
+      return result
+        ? ({ commandId: (request as { commandId: string }).commandId, accepted: true, result } as RpcResponse)
+        : undefined;
+    });
+  };
+  const status = () => document.querySelector(".workspace-hint .folder-branch");
+
+  it("says the branch is being read until git answers", async () => {
+    let answer: (value: RpcResponse | undefined) => void = () => undefined;
+    const dispatch = vi.fn(() => new Promise<RpcResponse | undefined>((resolve) => (answer = resolve)));
+    await render(undefined, dispatch);
+    expect(status()?.textContent).toBe("Reading branch…");
+
+    await act(async () => {
+      answer({
+        commandId: (dispatch.mock.calls[0] as unknown as [{ commandId: string }])[0].commandId,
+        accepted: true,
+        result: { git: true, branch: "main" },
+      } as RpcResponse);
+    });
+    expect(status()).toBeNull();
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Start from"]')?.placeholder).toBe("main");
+  });
+
+  it("says when the branch could not be read and reads it again on Retry", async () => {
+    const dispatch = answers(undefined, { git: true, branch: "main" });
+    await render(undefined, dispatch);
+    expect(status()?.textContent).toContain("Couldn't read the branch");
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Start from"]')?.placeholder).toBe("HEAD");
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".folder-branch-retry")?.click();
+    });
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(status()).toBeNull();
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Start from"]')?.placeholder).toBe("main");
+  });
+
+  it("names a detached HEAD by its commit instead of showing nothing", async () => {
+    const { placements } = await render(undefined, answers({ git: true, detachedAt: "abc1234" }));
+    expect(status()?.textContent).toBe("Detachedabc1234");
+
+    await act(async () => {
+      placements.find((input) => input.value === "checkout")?.click();
+    });
+    expect(document.querySelector(".workspace-path .folder-branch")?.textContent).toBe("Detachedabc1234");
   });
 });
 

@@ -153,8 +153,12 @@ test("lists GitHub issues and starts an agent from one", async () => {
 
     // The pull request from this worktree closes the issue.
     await writeFile(join(worktreePath, "fix.txt"), "fixed\n", "utf8");
-    await git(worktreePath, ["add", "fix.txt"]);
-    await git(worktreePath, ["commit", "-m", "Fix the login button"]);
+    // The app reads this worktree's status in the background, and git refuses to write while it holds
+    // index.lock, so the commit is tried again until the lock is free.
+    await expect(async () => {
+      await git(worktreePath, ["add", "fix.txt"]);
+      await git(worktreePath, ["commit", "-m", "Fix the login button"]);
+    }).toPass({ timeout: 20_000 });
     await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     const section = page.getByRole("group", { name: "Pull request" });
