@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_TYPOGRAPHY } from "../theme/typography.js";
+
 import {
   type AppSettings,
   branchFromTemplate,
@@ -42,6 +44,7 @@ describe("app settings", () => {
       archiveMergedChats: true,
       severalChats: false,
       layout: "columns",
+      typography: DEFAULT_TYPOGRAPHY,
     });
   });
 
@@ -67,7 +70,7 @@ describe("app settings", () => {
     expect(parseAppSettings(JSON.stringify({ fileTreePosition: "right" })).fileTreePosition).toBe("right");
   });
 
-  it("colors project headings and chat cards unless the person turned them off", () => {
+  it("colors project headings unless the person turned it off", () => {
     expect(DEFAULT_SETTINGS.tintProjects).toBe(true);
     expect(parseAppSettings(JSON.stringify({})).tintProjects).toBe(true);
     expect(parseAppSettings(JSON.stringify({ tintProjects: false })).tintProjects).toBe(false);

@@ -2,11 +2,6 @@
  * Appearance: theme tiles with no frames around them. Each preview carries its theme's tokens, so the
  * miniature window draws in that theme while the page stays in the current one.
  */
-.appearance { display: flex; flex-direction: column; gap: var(--zli-space-6); }
-.appearance-block { display: flex; flex-direction: column; gap: var(--zli-space-3); }
-.appearance-heading-row { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); min-height: var(--zli-control-md); }
-.appearance-heading { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
-.appearance-empty { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); }
 
 .theme-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: var(--zli-space-4) var(--zli-space-3); }
 .theme-tile { position: relative; min-width: 0; }
@@ -59,3 +54,13 @@
 .theme-tile-pick:hover .layout-preview { border-color: var(--zli-border-hover); }
 .theme-tile-pick:has(input:checked) .layout-preview { box-shadow: 0 0 0 2px var(--zli-surface), 0 0 0 4px var(--zli-accent); }
 .theme-tile-pick:has(input:focus-visible) .layout-preview { outline: 2px solid var(--zli-focus); outline-offset: 4px; }
+
+/* Text: fonts and sizes. A font row shows each choice in its own face; a size row is a slider and its value. */
+.type-font { display: inline-flex; align-items: center; gap: var(--zli-space-2); }
+.type-font-name { width: 180px; }
+.type-sample { display: inline-grid; width: 22px; place-items: center; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.type-size { display: inline-flex; align-items: center; gap: var(--zli-space-3); }
+.type-size-range { width: 160px; accent-color: var(--zli-text); cursor: pointer; }
+.type-size-value { min-width: 38px; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-align: right; }
+.type-size-value.is-changed { color: var(--zli-text); }
+

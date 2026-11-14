@@ -105,15 +105,25 @@
   --zli-space-10: 40px;
 
   /* Type. */
-  --zli-font: "Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --zli-mono: "JetBrains Mono Variable", "JetBrains Mono", "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
-  --zli-text-2xs: 10.5px;
-  --zli-text-xs: 11px;
-  --zli-text-sm: 12px;
-  --zli-text-base: 13px;
-  --zli-text-md: 14px;
-  --zli-text-lg: 16px;
-  --zli-text-xl: 20px;
+  --zli-font: "Geist Variable", Geist, "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --zli-mono: "Geist Mono Variable", "Geist Mono", "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
+  /* Chat uses four roles: xs for meta, sm for secondary and small code, base for body, lead for emphasis. */
+  /*
+   * Every interface size scales with --zli-ui-scale, the person's interface size over 16 (Settings > Appearance).
+   * At 1 the scale is 12px small text, 14px body, 16px emphasis. Chat text and code have their own
+   * sizes, so a conversation can be read larger without the whole window growing.
+   */
+  --zli-ui-scale: 1;
+  --zli-text-2xs: calc(11px * var(--zli-ui-scale));
+  --zli-text-xs: calc(12px * var(--zli-ui-scale));
+  --zli-text-sm: calc(13px * var(--zli-ui-scale));
+  --zli-text-base: calc(14px * var(--zli-ui-scale));
+  --zli-text-md: calc(15px * var(--zli-ui-scale));
+  --zli-text-lead: calc(16px * var(--zli-ui-scale));
+  --zli-text-lg: calc(17px * var(--zli-ui-scale));
+  --zli-text-xl: calc(21px * var(--zli-ui-scale));
+  --zli-text-chat: 14px;
+  --zli-text-code: 13px;
   --zli-leading-tight: 1.3;
   --zli-leading-normal: 1.5;
   --zli-leading-relaxed: 1.65;
@@ -149,10 +159,12 @@
   --zli-shadow-lift: 0 14px 32px -18px rgba(0, 0, 0, .8);
   --zli-shadow-dialog: 0 0 0 1px rgba(0, 0, 0, .55), 0 32px 80px -20px rgba(0, 0, 0, .85);
 
-  /* Motion. */
-  --zli-ease: cubic-bezier(.2, 0, 0, 1);
-  --zli-duration-fast: 100ms;
-  --zli-duration-base: 160ms;
+  /* Motion. Fast for hover, color, and opacity; base for movement, size, and entrances. */
+  --zli-ease: cubic-bezier(.22, 1, .36, 1);
+  /* Overshoot, kept for the few deliberate pops: a dial needle, a check mark. */
+  --zli-ease-spring: cubic-bezier(.34, 1.45, .55, 1);
+  --zli-duration-fast: 140ms;
+  --zli-duration-base: 220ms;
   --zli-duration-enter: 150ms;
 
   /* Stacking. */

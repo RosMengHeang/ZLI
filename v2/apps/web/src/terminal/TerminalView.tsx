@@ -8,7 +8,9 @@ import "@xterm/xterm/css/xterm.css";
 import type { RpcResponse } from "@zli-v2/contracts";
 import type { FileLinks } from "../files/FileIndex.js";
 import { getBridge, type ZliBridge } from "../runtime/bridge.js";
+import { useAppSettings } from "../settings/appSettings.js";
 import { useActiveTheme } from "../theme/applyTheme.js";
+import { fontStack } from "../theme/typography.js";
 import { extendScreenBackground } from "./screenBackground.js";
 import { registerTerminalModes } from "./terminalModes.js";
 
@@ -26,8 +28,6 @@ type Props = {
 };
 
 const RESIZE_DEBOUNCE_MS = 80;
-const TERMINAL_FONT = '"JetBrains Mono Variable", "JetBrains Mono", "SFMono-Regular", Consolas, monospace';
-const TERMINAL_FONT_SIZE = 12;
 const ATTACH_ATTEMPTS = 30;
 
 export function TerminalView({
@@ -45,6 +45,14 @@ export function TerminalView({
   const terminalTheme: ITheme = useActiveTheme().terminal;
   const themeRef = useRef(terminalTheme);
   themeRef.current = terminalTheme;
+  // The code font and the terminal size from Settings > Appearance. A change applies to open terminals too.
+  const typography = useAppSettings().typography;
+  const font = fontStack(typography.mono, "mono");
+  const fontSize = typography.terminalSize;
+  const fontRef = useRef({ font, fontSize });
+  fontRef.current = { font, fontSize };
+  /** Measures the cells again and tells the shell its new size; set while the terminal is open. */
+  const refitRef = useRef<(() => void) | undefined>(undefined);
   const fileLinksRef = useRef(fileLinks);
   fileLinksRef.current = fileLinks;
   const autoFocusRef = useRef(autoFocus);
@@ -61,8 +69,8 @@ export function TerminalView({
     const host = hostRef.current;
     if (!host) return;
     const terminal = new Terminal({
-      fontFamily: TERMINAL_FONT,
-      fontSize: TERMINAL_FONT_SIZE,
+      fontFamily: fontRef.current.font,
+      fontSize: fontRef.current.fontSize,
       lineHeight: 1.15,
       scrollback: 5_000,
       cursorBlink: false,
@@ -209,7 +217,8 @@ export function TerminalView({
     } catch {
       // Sizing is retried by the resize observer once the host has layout.
     }
-    remeasureWhenFontLoads(terminal, () => active, scheduleResize);
+    remeasureWhenFontLoads(terminal, fontRef.current, () => (active ? fontRef.current : undefined), scheduleResize);
+    refitRef.current = scheduleResize;
     if (autoFocusRef.current) terminal.focus();
     const focusSubscription = terminal.textarea
       ? (() => {
@@ -233,6 +242,7 @@ export function TerminalView({
       unregisterModes();
       unsubscribe();
       terminalRef.current = undefined;
+      refitRef.current = undefined;
       terminal.dispose();
     };
   }, [bridge, terminalId]);
@@ -247,6 +257,23 @@ export function TerminalView({
     const terminal = terminalRef.current;
     if (terminal) terminal.options.theme = terminalTheme;
   }, [terminalTheme]);
+
+  // A new font or size from Settings reaches an open terminal: xterm measures its cells again and the shell
+  // learns the new number of columns and rows.
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    if (terminal.options.fontFamily === font && terminal.options.fontSize === fontSize) return;
+    terminal.options.fontFamily = font;
+    terminal.options.fontSize = fontSize;
+    refitRef.current?.();
+    remeasureWhenFontLoads(
+      terminal,
+      { font, fontSize },
+      () => (terminalRef.current === terminal ? fontRef.current : undefined),
+      () => refitRef.current?.(),
+    );
+  }, [font, fontSize]);
 
   return (
     <div
@@ -299,17 +326,25 @@ function loadWebglRenderer(terminal: Terminal, onFallback: () => void): void {
  * xterm measures its cell size once, when it opens. If the bundled font is still loading at that point
  * the grid is sized for the fallback font, so the cells are measured again after the font arrives.
  */
-function remeasureWhenFontLoads(terminal: Terminal, isActive: () => boolean, onMeasured: () => void): void {
+function remeasureWhenFontLoads(
+  terminal: Terminal,
+  { font, fontSize }: { font: string; fontSize: number },
+  /** The font the terminal should show now, or undefined once it is gone. */
+  wanted: () => { font: string; fontSize: number } | undefined,
+  onMeasured: () => void,
+): void {
   const fonts = typeof document === "undefined" ? undefined : document.fonts;
-  const spec = `${TERMINAL_FONT_SIZE}px ${TERMINAL_FONT}`;
+  const spec = `${fontSize}px ${font}`;
   if (!fonts || fonts.check(spec)) return;
   void fonts
     .load(spec)
     .then(() => {
-      if (!isActive()) return;
+      // A later pick may have replaced this font while it loaded; only the font still wanted is applied.
+      const now = wanted();
+      if (!now || now.font !== font || now.fontSize !== fontSize) return;
       // xterm only re-measures when the option value changes, so it is set away and back.
       terminal.options.fontFamily = "monospace";
-      terminal.options.fontFamily = TERMINAL_FONT;
+      terminal.options.fontFamily = font;
       onMeasured();
     })
     .catch(() => undefined);

@@ -1,8 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-// The optical-size cut: small UI text gets looser spacing and larger headings get tighter, on their own.
-import "@fontsource-variable/inter/opsz.css";
+// Geist for text and Geist Mono for code, terminals, and paths. Both are variable, so every weight is one file.
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
+// The other fonts Settings > Appearance offers. A browser loads a font's files only once text uses it.
+import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "@zli-v2/ui/tokens.css";
 import { rootView } from "./rootView.js";

@@ -6,10 +6,10 @@ import {
 } from "@zli-v2/contracts";
 import { DEFAULT_THEME, isThemeId } from "@zli-v2/ui/themes";
 import { useSyncExternalStore } from "react";
-
 import type { SessionMode } from "../sessions/sessions.js";
 import { parseTeammates, type Teammate } from "../teammates/teammates.js";
 import { type CustomTheme, parseCustomThemes } from "../theme/customThemes.js";
+import { DEFAULT_TYPOGRAPHY, parseTypography, type Typography } from "../theme/typography.js";
 
 const STORAGE_KEY = "zli.settings.v1";
 export const DEFAULT_BRANCH_TEMPLATE = "{agent}-{random}";
@@ -98,6 +98,8 @@ export type AppSettings = {
   severalChats: boolean;
   /** Columns: each column carries its own header on one row, no top bar. Classic: a top bar over separate panels. */
   layout: WindowLayout;
+  /** Text sizes and fonts, from Settings > Appearance. */
+  typography: Typography;
 };
 
 export type WindowLayout = "columns" | "classic";
@@ -119,6 +121,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   archiveMergedChats: true,
   severalChats: false,
   layout: "columns",
+  typography: DEFAULT_TYPOGRAPHY,
 };
 
 const modes: readonly SessionMode[] = ["terminal", "chat"];
@@ -218,6 +221,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     archiveMergedChats: value.archiveMergedChats !== false,
     severalChats: value.severalChats === true,
     layout: value.layout === "classic" ? "classic" : "columns",
+    typography: parseTypography(value.typography),
   };
 }
 
