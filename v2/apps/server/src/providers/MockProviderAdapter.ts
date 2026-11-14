@@ -74,6 +74,43 @@ export class MockProviderAdapter implements ProviderAdapter {
         });
         return;
       }
+      // "[ask]" asks the way Claude Code and Codex do: several questions, each with picks and room for another answer.
+      if (input.text.includes("[ask]")) {
+        session.status = "waiting";
+        this.pausedTurns.set(input.threadId, turnId);
+        this.emit({
+          type: "user-input.requested",
+          threadId: input.threadId,
+          requestId: randomUUID(),
+          payload: {
+            title: "A few questions before I start",
+            questions: [
+              {
+                id: "auth",
+                header: "Sign-in",
+                question: "How should people sign in?",
+                isOther: true,
+                options: [
+                  { label: "Email and password", description: "Simplest; we store hashed passwords." },
+                  { label: "Magic link", description: "No passwords; a link arrives by email." },
+                  { label: "GitHub OAuth", description: "One click for developers." },
+                ],
+              },
+              {
+                id: "session",
+                header: "Sessions",
+                question: "How long should a session last?",
+                options: [
+                  { label: "1 day", description: "Safer on shared computers." },
+                  { label: "30 days", description: "Fewer sign-ins." },
+                ],
+              },
+              { id: "notes", header: "Anything else", question: "Anything else I should know?" },
+            ],
+          },
+        });
+        return;
+      }
       if (input.text.includes("[input]")) {
         session.status = "waiting";
         this.pausedTurns.set(input.threadId, turnId);
@@ -93,10 +130,26 @@ export class MockProviderAdapter implements ProviderAdapter {
         this.emit({ type: "session.closed", threadId: input.threadId, reason: "The mock agent exited unexpectedly." });
         return;
       }
+      // "[limit]" stands in for the plan's usage limit stopping the turn, with a reset two hours out.
+      if (input.text.includes("[limit]")) {
+        session.status = "failed";
+        this.emit({
+          type: "provider.error",
+          threadId: input.threadId,
+          message: "You've hit your limit · resets in 2h",
+          usageLimit: { resetsAt: new Date(Date.now() + 2 * 3_600_000).toISOString() },
+        });
+        return;
+      }
       // "[steps]" plays a short turn with text between reads, an edit, and a command, each running for a moment.
       // "[plan]" adds the agent's todo list, updated as the steps finish.
       // Read from the person's own words, the last paragraph: context put before them can quote earlier tags.
       const own = input.text.split("\n\n").at(-1) ?? input.text;
+      // "[showcase]" plays one turn with every kind of step the chat can show, spaced out so each live state is seen.
+      if (own.includes("[showcase]")) {
+        this.playShowcase(input.threadId, turnId);
+        return;
+      }
       if (own.includes("[steps]") || own.includes("[plan]")) {
         this.playSteps(input.threadId, turnId, own.includes("[slow]") ? 1_500 : 150, own.includes("[plan]"));
         return;
@@ -303,6 +356,216 @@ export class MockProviderAdapter implements ProviderAdapter {
         }
         if (index === script.length - 1) this.context(threadId).status = "idle";
       }, index * pause);
+    });
+  }
+
+  /**
+   * Thinking streamed in parts, a run of reads, a command with long output, a tool called with
+   * arguments, a web search with its pages, a test run that fails with a stack trace, an edit, a reply
+   * that cites one of the pages, and a context window most of the way full.
+   */
+  private playShowcase(threadId: ThreadId, turnId: string): void {
+    type Fields = Omit<Extract<ProviderEvent, { type: "activity" }>["activity"], "activityId" | "status">;
+    const prefix = `${turnId}:`;
+    const activity = (id: string, status: "running" | "completed" | "failed", fields: Fields): ProviderEvent => ({
+      type: "activity",
+      threadId,
+      turnId,
+      activity: { activityId: prefix + id, status, ...fields },
+    });
+    const text = (value: string): ProviderEvent => ({ type: "assistant.delta", threadId, turnId, text: value });
+    const think = (id: string, value: string): ProviderEvent => ({
+      type: "reasoning.delta",
+      threadId,
+      turnId,
+      reasoningId: prefix + id,
+      text: value,
+    });
+    const thought = (id: string): ProviderEvent => ({
+      type: "reasoning.completed",
+      threadId,
+      turnId,
+      reasoningId: prefix + id,
+    });
+    const read = (file: string): Fields => ({ kind: "file-read", title: `Read ${file}`, files: [file] });
+    const search: Fields = {
+      kind: "search",
+      title: "Search revalidate",
+      input: [
+        { key: "pattern", value: "revalidate(Tag|Path)" },
+        { key: "path", value: "src" },
+      ],
+    };
+    const build: Fields = { kind: "command", title: "Build the app", command: "npm run build" };
+    const buildOutput = [
+      "> app@1.4.0 build",
+      "> next build",
+      "",
+      "   ▲ Next.js 15.0.3",
+      "",
+      "   Creating an optimized production build ...",
+      " ✓ Compiled successfully",
+      "   Linting and checking validity of types ...",
+      "   Collecting page data ...",
+      " ✓ Generating static pages (24/24)",
+      "   Finalizing page optimization ...",
+      "",
+      "Route (app)                              Size     First Load JS",
+      ...Array.from(
+        { length: 22 },
+        (_, index) =>
+          `├ ○ /docs/page-${String(index + 1).padStart(2, "0")}                     ${(1.2 + index / 10).toFixed(1)} kB         ${(88 + index).toString()} kB`,
+      ),
+      "└ ○ /settings                             3.1 kB         102 kB",
+      "+ First Load JS shared by all            84.2 kB",
+      "  ├ chunks/framework-8e0e0f4a6b.js       45.2 kB",
+      "  ├ chunks/main-app-c4a3e9e1b2.js        31.6 kB",
+      "  └ other shared chunks (total)          7.4 kB",
+      "",
+      "○  (Static)  prerendered as static content",
+    ].join("\n");
+    const docs: Fields = {
+      kind: "tool",
+      title: "context7: get library docs",
+      input: [
+        { key: "libraryId", value: "/vercel/next.js" },
+        { key: "topic", value: "revalidateTag and the data cache" },
+        { key: "tokens", value: "5000" },
+        {
+          key: "filter",
+          value: JSON.stringify(
+            { sections: ["caching", "data-fetching", "route-handlers"], version: "15", includeExamples: true },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+    const web: Fields = {
+      kind: "web",
+      title: "Search the web: next.js revalidateTag fetch cache",
+      input: [{ key: "query", value: "next.js revalidateTag fetch cache" }],
+    };
+    const pages = [
+      { url: "https://nextjs.org/docs/app/api-reference/functions/revalidateTag", title: "Functions: revalidateTag" },
+      { url: "https://github.com/vercel/next.js/discussions/54075", title: "revalidateTag does not clear the cache" },
+      { url: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching", title: "HTTP caching - MDN" },
+    ];
+    const test: Fields = { kind: "command", title: "Run the cache tests", command: "npm test -- cache" };
+    const trace = [
+      "FAIL src/lib/cache.test.ts",
+      "TypeError: Cannot read properties of undefined (reading 'tags')",
+      "    at revalidateAll (src/lib/cache.ts:42:18)",
+      "    at Object.<anonymous> (src/lib/cache.test.ts:17:5)",
+      "    at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)",
+      "    at new Promise (<anonymous>)",
+      "    at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)",
+      "    at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)",
+      "    at processTicksAndRejections (node:internal/process/task_queues:95:5)",
+    ].join("\n");
+    const edit: Fields = {
+      kind: "file-edit",
+      title: "Edit src/lib/cache.ts",
+      files: ["src/lib/cache.ts"],
+      lines: { added: 6, removed: 2 },
+    };
+    // Each entry waits its delay after the one before, so the whole turn takes about fourteen seconds.
+    const script: Array<[delay: number, events: ProviderEvent[]]> = [
+      [300, [think("think-1", "")]],
+      [350, [think("think-1", "**Reading the request**\n\nThe person wants stale pages fixed after a deploy. ")]],
+      [350, [think("think-1", "That points at the data cache: `revalidateTag` is called, but the fetch calls ")]],
+      [
+        350,
+        [think("think-1", "may not be tagged.\n\n**Plan**\n\nRead the cache helpers, check how fetches are tagged, ")],
+      ],
+      [350, [think("think-1", "then build to see which routes are static.")]],
+      [400, [think("think-1", " After that, look up whether `revalidateTag` clears tagged fetches in Next 15.")]],
+      [300, [thought("think-1")]],
+      [200, [text("I'll look at how the cache is wired first.")]],
+      [300, [activity("read-1", "running", read("src/lib/cache.ts"))]],
+      [
+        500,
+        [
+          activity("read-1", "completed", read("src/lib/cache.ts")),
+          activity("read-2", "running", read("src/app/api/revalidate/route.ts")),
+        ],
+      ],
+      [
+        500,
+        [
+          activity("read-2", "completed", read("src/app/api/revalidate/route.ts")),
+          activity("search-1", "running", search),
+        ],
+      ],
+      [
+        600,
+        [
+          activity("search-1", "completed", {
+            ...search,
+            detail: "src/lib/cache.ts:40\nsrc/app/api/revalidate/route.ts:12",
+          }),
+        ],
+      ],
+      [300, [activity("build-1", "running", build)]],
+      [1_800, [activity("build-1", "completed", { ...build, detail: buildOutput })]],
+      [300, [activity("docs-1", "running", docs)]],
+      [
+        1_200,
+        [
+          activity("docs-1", "completed", {
+            ...docs,
+            detail:
+              "revalidateTag(tag) purges every fetch tagged with `tag` from the Data Cache.\nFetches need `next: { tags: [...] }` to be tagged.",
+          }),
+        ],
+      ],
+      [300, [activity("web-1", "running", web)]],
+      [1_100, [activity("web-1", "completed", { ...web, urls: pages })]],
+      [300, [think("think-2", "The fetch in getPosts has no tags, so revalidateTag never reaches it. ")]],
+      [500, [think("think-2", "Run the tests before changing anything.")]],
+      [300, [thought("think-2")]],
+      [200, [activity("test-1", "running", test)]],
+      [1_400, [activity("test-1", "failed", { ...test, detail: trace })]],
+      [300, [activity("edit-1", "running", edit)]],
+      [700, [activity("edit-1", "completed", edit)]],
+      [
+        300,
+        [
+          text(
+            "\n\nThe pages stayed stale because `getPosts` fetched without tags, so `revalidateTag('posts')` had nothing to purge. " +
+              `I tagged the fetch in \`src/lib/cache.ts\`; [revalidateTag only clears tagged fetches](${pages[0]?.url}). ` +
+              "The cache test still fails on an undefined `tags` field, which the next step fixes.",
+          ),
+        ],
+      ],
+      [
+        200,
+        [
+          {
+            type: "usage",
+            threadId,
+            turnId,
+            usage: {
+              inputTokens: 148_200,
+              cachedInputTokens: 120_000,
+              outputTokens: 3_400,
+              costUsd: 0.61,
+              contextTokens: 161_600,
+              contextWindow: 200_000,
+            },
+          },
+        ],
+      ],
+      [200, [{ type: "turn.completed", threadId, turnId, status: "completed" }]],
+    ];
+    let at = 0;
+    script.forEach(([delay, events], index) => {
+      at += delay;
+      setTimeout(() => {
+        if (!this.sessions.has(threadId)) return;
+        for (const event of events) this.emit(event);
+        if (index === script.length - 1) this.context(threadId).status = "idle";
+      }, at);
     });
   }
 
