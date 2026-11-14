@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { freeAgentName, leadingMentions, parseTeammates, roomAnimals } from "./teammates.js";
+import { freeAgentName, leadingMentions, parseTeammates, roomBuddies } from "./teammates.js";
 
 describe("teammates", () => {
   it("reads the names a message opens with, longest name first, and leaves the rest", () => {
@@ -18,29 +18,35 @@ describe("teammates", () => {
     expect(freeAgentName("Fox", ["Owl"])).toBe("Fox");
   });
 
-  it("gives saved teammates their own animal and everyone else their agent's, or the next free one", () => {
-    const animals = roomAnimals(
+  it("gives saved teammates their own buddy and everyone else their agent's, or the next free body", () => {
+    const buddies = roomBuddies(
       [
         { id: "a", provider: "claude-code" },
         { id: "b", provider: "claude-code" },
         { id: "c", provider: "codex", name: "reviewer" },
+        { id: "d", provider: "cursor-agent" },
       ],
-      [{ id: "t", name: "Reviewer", animal: "panda", provider: "codex" }],
+      [{ id: "t", name: "Reviewer", buddy: "cloud/jade", provider: "codex" }],
     );
-    expect(Object.fromEntries(animals)).toEqual({ a: "fox", b: "owl", c: "panda" });
+    // The saved Reviewer is a jade Cloud, so the Cursor agent's own Cloud is taken by body, not by color.
+    expect(Object.fromEntries(buddies)).toEqual({ a: "gumdrop", b: "capsule", c: "cloud/jade", d: "plus" });
   });
 
   it("keeps only well-formed teammates with unique names", () => {
     expect(
       parseTeammates([
-        { id: "1", name: "Reviewer!", animal: "owl", provider: "codex", permissionMode: "read-only" },
-        { id: "2", name: "reviewer", animal: "cat", provider: "droid" },
+        { id: "1", name: "Reviewer!", buddy: "cloud/jade", provider: "codex", permissionMode: "read-only" },
+        { id: "2", name: "reviewer", buddy: "cloud", provider: "droid" },
         { id: "3", name: "", provider: "codex" },
         { id: "4", name: "Tester", animal: "dragon", provider: "claude-code" },
       ]),
     ).toEqual([
-      { id: "1", name: "Reviewer", animal: "owl", provider: "codex", permissionMode: "read-only" },
-      { id: "4", name: "Tester", animal: "fox", provider: "claude-code" },
+      { id: "1", name: "Reviewer", buddy: "cloud/jade", provider: "codex", permissionMode: "read-only" },
+      { id: "4", name: "Tester", buddy: "gumdrop", provider: "claude-code" },
     ]);
+  });
+
+  it("gives teammates saved with an animal the matching buddy", () => {
+    expect(parseTeammates([{ id: "1", name: "Owl", animal: "owl", provider: "codex" }])[0]?.buddy).toBe("squircle");
   });
 });

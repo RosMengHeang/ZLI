@@ -10,7 +10,7 @@ import { HuddleHeldPill, TileHuddleChip, useHuddleEntries } from "../huddle/Tile
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { setupProgress, worktreeSetup } from "../setup/setup.js";
-import { useChatAnimal } from "../teammates/chatAnimals.js";
+import { useChatBuddy } from "../teammates/chatBuddies.js";
 import { LazyTerminalView } from "../terminal/LazyTerminalView.js";
 import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -177,7 +177,7 @@ export function AgentTile({
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const face = useChatAnimal(session.sessionId);
+  const face = useChatBuddy(session.sessionId);
   const [envCardOpen, setEnvCardOpen] = useState(false);
   const [cardHost, setCardHost] = useState<HTMLDivElement | null>(null);
   // The environment card floats over the chat, so a click elsewhere or Escape puts it away. Clicks in the
@@ -579,7 +579,7 @@ export function AgentTile({
             <div className="tile-chat-start">
               <ChatStart
                 provider={session.provider}
-                animal={face}
+                buddy={face}
                 folder={projection.projects.find((project) => project.projectId === worktree.projectId)?.name}
               />
             </div>

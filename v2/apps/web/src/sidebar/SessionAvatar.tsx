@@ -1,7 +1,7 @@
 import type { AgentSession, SessionStatus } from "../sessions/sessions.js";
 import { useAppSettings } from "../settings/appSettings.js";
-import { AnimalAvatar, useAvatarMood } from "../teammates/AnimalAvatar.js";
-import { useChatAnimal } from "../teammates/chatAnimals.js";
+import { BuddyAvatar, useAvatarMood } from "../teammates/BuddyAvatar.js";
+import { useChatBuddy } from "../teammates/chatBuddies.js";
 import { teammateNamed } from "../teammates/teammates.js";
 
 /** A session's status in the words the avatar's mood understands. */
@@ -17,8 +17,8 @@ const moodStatus: Record<SessionStatus, string> = {
 };
 
 /**
- * The chat's own animal in the sidebar. It belongs to the chat, so switching agent or model leaves it alone;
- * a chat started as a saved teammate wears that teammate's animal. It bobs while the chat works, raises a paw
+ * The chat's own buddy in the sidebar. It belongs to the chat, so switching agent or model leaves it alone;
+ * a chat started as a saved teammate wears that teammate's buddy. It bobs while the chat works, raises a paw
  * when it needs the person, and nods once when a turn ends.
  */
 export function SessionAvatar({
@@ -33,9 +33,9 @@ export function SessionAvatar({
 }) {
   const { teammates } = useAppSettings();
   const name = session.thread?.name ?? session.terminal?.name;
-  const own = useChatAnimal(session.sessionId);
-  const animal = teammateNamed(teammates, name)?.animal ?? own;
+  const own = useChatBuddy(session.sessionId);
+  const buddy = teammateNamed(teammates, name)?.buddy ?? own;
   const status = quietStart && moodStatus[session.status] === "starting" ? "idle" : moodStatus[session.status];
   const mood = useAvatarMood(status, true);
-  return <AnimalAvatar animal={animal} mood={mood} size={size} className="session-avatar" />;
+  return <BuddyAvatar buddy={buddy} mood={mood} size={size} className="session-avatar" />;
 }

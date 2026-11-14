@@ -621,18 +621,6 @@ span.room-person-chip { color: var(--zli-muted); }
 /* The first chat before any project. It is the same chat as any other; the folder tab is the way in. */
 .no-project-start { gap: var(--zli-space-3); animation: no-project-rise 420ms cubic-bezier(.22, 1, .36, 1) both; }
 .no-project-start .chat-start-title { margin-top: var(--zli-space-1); }
-/* The one soft light in the screen sits behind the animal, in its own colour. */
-.no-project-face { position: relative; display: grid; place-items: center; width: 96px; height: 96px; }
-.no-project-face::before {
-  position: absolute; inset: 0; border-radius: 50%; content: "";
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--face) 26%, transparent), transparent);
-}
-.no-project-face > .animal-avatar { position: relative; }
-.no-project-face.is-fox { --face: #e8956a; } .no-project-face.is-owl { --face: #a795ec; }
-.no-project-face.is-otter { --face: #6cc4a4; } .no-project-face.is-cat { --face: #7ea8ee; }
-.no-project-face.is-panda { --face: #eeece6; } .no-project-face.is-penguin { --face: #82c4e6; }
-.no-project-face.is-bear { --face: #e3b36e; } .no-project-face.is-rabbit { --face: #ec97be; }
-.no-project-face.is-frog { --face: #9ccc78; } .no-project-face.is-chick { --face: #ebd173; }
 .no-project-hint { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: center; }
 .no-project-hint-folder { color: var(--zli-text); font-weight: 550; }
 .composer-workspace-item.is-unset { color: var(--zli-text); }
@@ -756,7 +744,7 @@ span.room-person-chip { color: var(--zli-muted); }
 /* Asked and answered inside the tray, so the conversation stays in view above it. The answer area grows to a
    few lines, then scrolls. */
 .side-chat-head { padding-left: var(--zli-space-3); }
-.side-chat-head .animal-avatar { flex: 0 0 auto; margin-right: 2px; }
+.side-chat-head .buddy-avatar { flex: 0 0 auto; margin-right: 2px; }
 .side-chat-head .tray-meta::before { margin-right: 6px; content: "·"; }
 .side-chat-log { display: flex; max-height: 200px; flex-direction: column; gap: var(--zli-space-2); overflow-y: auto; padding: 2px var(--zli-space-3) var(--zli-space-2); scrollbar-width: thin; }
 .side-chat-ask { align-self: flex-end; max-width: 85%; margin: 0; padding: 3px 10px; border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-text); font-size: var(--zli-text-sm); white-space: pre-wrap; }

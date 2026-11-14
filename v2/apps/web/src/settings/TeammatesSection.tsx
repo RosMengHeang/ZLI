@@ -1,18 +1,21 @@
 import { agentNameKey, type PermissionMode, type RuntimeProjection } from "@zli-v2/contracts";
-import { useId, useState } from "react";
+import { type CSSProperties, useId, useState } from "react";
 
 import { isSelectableProvider, listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { makeCommandId } from "../runtime/commandId.js";
-import { AnimalAvatar } from "../teammates/AnimalAvatar.js";
 import {
-  ANIMALS,
-  type Animal,
-  animalLabel,
-  cleanTeammateName,
-  MAX_TEAMMATE_INSTRUCTIONS,
-  MAX_TEAMMATES,
-  type Teammate,
-} from "../teammates/teammates.js";
+  BUDDY_BODIES,
+  BUDDY_COLOR_NAMES,
+  BUDDY_COLORS,
+  type Buddy,
+  bodyLabel,
+  buddyBody,
+  buddyColor,
+  buddyName,
+  makeBuddy,
+} from "../teammates/buddies.js";
+import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
+import { cleanTeammateName, MAX_TEAMMATE_INSTRUCTIONS, MAX_TEAMMATES, type Teammate } from "../teammates/teammates.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Field, Select } from "../ui/Field.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
@@ -33,7 +36,7 @@ const accessLabel: Record<PermissionMode, string> = {
 type Draft = {
   id?: string | undefined;
   name: string;
-  animal: Animal;
+  buddy: Buddy;
   provider: string;
   model: string;
   access: string;
@@ -41,7 +44,7 @@ type Draft = {
 };
 
 /**
- * Saved teammates: an agent and model with a name, an animal, and standing instructions. They are brought
+ * Saved teammates: an agent and model with a name, a buddy, and standing instructions. They are brought
  * into a chat from its team bar, or called there with @Name.
  */
 export function TeammatesSection({ projection }: { projection: RuntimeProjection | undefined }) {
@@ -54,12 +57,13 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
   const ids = useId();
 
   const startNew = () => {
-    const used = new Set(teammates.map((teammate) => teammate.animal));
-    const animal = ANIMALS.find((candidate) => !used.has(candidate)) ?? "fox";
+    // A new teammate starts as a buddy no other saved teammate wears yet, in its own color.
+    const used = new Set(teammates.map((teammate) => buddyBody(teammate.buddy)));
+    const buddy = BUDDY_BODIES.find((body) => !used.has(body)) ?? "gumdrop";
     setProblem(undefined);
     setDraft({
       name: "",
-      animal,
+      buddy,
       provider: agents[0]?.provider ?? "claude-code",
       model: DEFAULT_MODEL,
       access: SAME_ACCESS,
@@ -71,7 +75,7 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
     setDraft({
       id: teammate.id,
       name: teammate.name,
-      animal: teammate.animal,
+      buddy: teammate.buddy,
       provider: teammate.provider,
       model: teammate.model ?? DEFAULT_MODEL,
       access: teammate.permissionMode ?? SAME_ACCESS,
@@ -97,7 +101,7 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
     const saved: Teammate = {
       id: draft.id ?? makeCommandId(),
       name,
-      animal: draft.animal,
+      buddy: draft.buddy,
       provider: draft.provider as Teammate["provider"],
       ...(draft.model !== DEFAULT_MODEL ? { model: draft.model } : {}),
       ...(draft.access !== SAME_ACCESS ? { permissionMode: draft.access as PermissionMode } : {}),
@@ -118,7 +122,7 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
   return (
     <>
       <SectionHeader title="Teammates">
-        Save the agents you work with as teammates, each with a name and an animal. In any chat, bring one in from Bring
+        Save the agents you work with as teammates, each with a name and a buddy. In any chat, bring one in from Bring
         in above the message box, or type @ and its name. It reads the chat so far and answers there.
       </SectionHeader>
       <SettingGroup
@@ -141,7 +145,7 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
         <ul className="teammates-list">
           {teammates.map((teammate) => (
             <li key={teammate.id} className="teammate-row">
-              <AnimalAvatar animal={teammate.animal} provider={teammate.provider} size={30} />
+              <BuddyAvatar buddy={teammate.buddy} provider={teammate.provider} size={30} />
               <span className="teammate-copy">
                 <span className="teammate-name">@{teammate.name}</span>
                 <span className="teammate-meta">
@@ -170,29 +174,58 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
               save();
             }}
           >
-            <fieldset className="teammate-animals">
-              <legend className="field-label">Animal</legend>
-              {ANIMALS.map((animal) => (
-                <button
-                  key={animal}
-                  type="button"
-                  className={`teammate-animal${draft.animal === animal ? " is-picked" : ""}`}
-                  aria-pressed={draft.animal === animal}
-                  aria-label={animalLabel[animal]}
-                  title={animalLabel[animal]}
-                  onClick={() => setDraft({ ...draft, animal })}
-                >
-                  <AnimalAvatar animal={animal} size={30} mood={draft.animal === animal ? "done" : "idle"} />
-                </button>
-              ))}
-            </fieldset>
+            <div className="teammate-look">
+              <span className="teammate-look-preview" aria-hidden="true">
+                <BuddyAvatar buddy={draft.buddy} size={72} />
+              </span>
+              <div className="teammate-look-pickers">
+                <fieldset className="teammate-buddies">
+                  <legend className="field-label">Buddy</legend>
+                  {BUDDY_BODIES.map((body) => {
+                    const picked = buddyBody(draft.buddy) === body;
+                    const buddy = makeBuddy(body, buddyColor(draft.buddy));
+                    return (
+                      <button
+                        key={body}
+                        type="button"
+                        className={`teammate-buddy${picked ? " is-picked" : ""}`}
+                        aria-pressed={picked}
+                        aria-label={bodyLabel[body]}
+                        title={bodyLabel[body]}
+                        onClick={() => setDraft({ ...draft, buddy })}
+                      >
+                        <BuddyAvatar buddy={buddy} size={30} full />
+                      </button>
+                    );
+                  })}
+                </fieldset>
+                <fieldset className="teammate-colors">
+                  <legend className="field-label">Color</legend>
+                  {BUDDY_COLOR_NAMES.map((color) => {
+                    const picked = buddyColor(draft.buddy) === color;
+                    return (
+                      <button
+                        key={color}
+                        type="button"
+                        className={`teammate-color${picked ? " is-picked" : ""}`}
+                        style={{ "--swatch": BUDDY_COLORS[color].hex } as CSSProperties}
+                        aria-pressed={picked}
+                        aria-label={BUDDY_COLORS[color].label}
+                        title={BUDDY_COLORS[color].label}
+                        onClick={() => setDraft({ ...draft, buddy: makeBuddy(buddyBody(draft.buddy), color) })}
+                      />
+                    );
+                  })}
+                </fieldset>
+              </div>
+            </div>
             <Field label="Name" hint="What you type after @, such as Reviewer.">
               <input
                 id={`${ids}-name`}
                 className="input"
                 value={draft.name}
                 maxLength={40}
-                placeholder={animalLabel[draft.animal]}
+                placeholder={buddyName(draft.buddy)}
                 onChange={(event) => setDraft({ ...draft, name: event.target.value })}
               />
             </Field>
@@ -264,7 +297,7 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
       <SettingGroup title="Avatars">
         <Switch
           label="Animate avatars"
-          hint="Avatars move while their agent works and raise a paw when it needs you. Off keeps them still."
+          hint="Buddies hop and blink while their agent works, and hop when it needs you. Off keeps them still."
           checked={animateTeammates}
           onChange={(checked) => updateAppSettings((settings) => ({ ...settings, animateTeammates: checked }))}
         />

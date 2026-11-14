@@ -28,16 +28,15 @@ import {
   sessionTitle,
 } from "../sessions/sessions.js";
 import { groupFinished } from "../sessions/useRunStates.js";
+import { useAppSettings } from "../settings/appSettings.js";
 import type { SettingsSection } from "../settings/SettingsDialog.js";
 import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
-import { assignChatAnimals } from "../teammates/chatAnimals.js";
+import { assignChatBuddies } from "../teammates/chatBuddies.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { Kbd } from "../ui/Kbd.js";
 import { Menu, type MenuAction, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
-import { ariaShortcut } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
 import { SessionAvatar } from "./SessionAvatar.js";
 import { SidebarPlanLimits } from "./SidebarUsageStrip.js";
@@ -238,13 +237,13 @@ export function Sidebar({
   );
   // An agent brought into a chat answers inside that chat, so its replies are read there, not flagged here.
   const ownChats = useMemo(() => sessions.filter((session) => !session.thread?.joins), [sessions]);
-  // Every chat gets an animal the first time it is listed, picked so the chats around it look different.
+  // Every chat gets a buddy the first time it is listed, picked so the chats around it look different.
   const chatOrder = [...sessions]
     .sort((left, right) => (left.createdAt ?? "").localeCompare(right.createdAt ?? ""))
     .map((session) => session.sessionId)
     .join(" ");
   useEffect(() => {
-    if (chatOrder) assignChatAnimals(chatOrder.split(" "));
+    if (chatOrder) assignChatBuddies(chatOrder.split(" "));
   }, [chatOrder]);
   const { unread, clear: clearUnread } = useUnread(ownChats, activeSessionId, projection !== undefined);
   /** Projects whose older chats the person unfolded. */
@@ -304,6 +303,7 @@ export function Sidebar({
   const quietProjects = fold ? quiet : [];
 
   const asideRef = useRef<HTMLElement>(null);
+  const { tintProjects, chatTint } = useAppSettings();
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const { expandProject } = layout;
@@ -1171,7 +1171,11 @@ export function Sidebar({
   );
 
   return (
-    <aside className="sidebar" aria-label="Projects and agents" ref={asideRef}>
+    <aside
+      className={`sidebar${tintProjects ? " has-project-tint" : ""} chat-tint-${chatTint}`}
+      aria-label="Projects and agents"
+      ref={asideRef}
+    >
       <div className="sidebar-top">
         <span className="brand">
           <ZliLogo className="brand-mark" />
@@ -1182,17 +1186,43 @@ export function Sidebar({
         </span>
       </div>
       <div className="sidebar-primary">
+        {/* One line: search takes the width, New chat and Add project sit beside it as square buttons. */}
         <div className="sidebar-primary-row">
-          <button
-            className="btn btn-secondary sidebar-new-agent"
-            type="button"
+          {projects.length > 0 ? (
+            <label className="sidebar-search">
+              <Icon name="search" size={13} />
+              <input
+                ref={searchRef}
+                type="search"
+                placeholder="Search"
+                aria-label="Find a chat"
+                value={query}
+                onChange={(event) => setQuery(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setQuery("");
+                    return;
+                  }
+                  if (event.key === "ArrowDown" || event.key === "Enter") {
+                    const first = asideRef.current?.querySelector<HTMLButtonElement>(
+                      ".sidebar-scroll .session-row, .sidebar-scroll .shelf-row",
+                    );
+                    if (!first) return;
+                    event.preventDefault();
+                    if (event.key === "Enter") first.click();
+                    else first.focus();
+                  }
+                }}
+              />
+            </label>
+          ) : null}
+          <IconButton
+            className="sidebar-new-agent"
+            label="New chat"
+            icon="squarePen"
+            shortcut={newAgentShortcut}
             onClick={() => onNewAgent()}
-            aria-keyshortcuts={ariaShortcut(newAgentShortcut)}
-          >
-            <Icon name="squarePen" size={15} />
-            <span>New chat</span>
-            <Kbd shortcut={newAgentShortcut} />
-          </button>
+          />
           <IconButton
             className="sidebar-add-project"
             label="Add project"
@@ -1201,34 +1231,6 @@ export function Sidebar({
             onClick={onOpenProject}
           />
         </div>
-        {projects.length > 0 ? (
-          <label className="sidebar-search">
-            <Icon name="search" size={13} />
-            <input
-              ref={searchRef}
-              type="search"
-              placeholder="Find a chat"
-              aria-label="Find a chat"
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setQuery("");
-                  return;
-                }
-                if (event.key === "ArrowDown" || event.key === "Enter") {
-                  const first = asideRef.current?.querySelector<HTMLButtonElement>(
-                    ".sidebar-scroll .session-row, .sidebar-scroll .shelf-row",
-                  );
-                  if (!first) return;
-                  event.preventDefault();
-                  if (event.key === "Enter") first.click();
-                  else first.focus();
-                }
-              }}
-            />
-          </label>
-        ) : null}
       </div>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the chat buttons inside. */}
       <div className="sidebar-scroll" onKeyDown={moveBetweenChats}>
@@ -1327,6 +1329,7 @@ export function Sidebar({
                   key={project.projectId}
                   aria-label={project.name}
                   data-project-id={project.projectId}
+                  style={{ "--lantern-hue": lanternHue(project.name) } as CSSProperties}
                 >
                   {/* biome-ignore lint/a11y/noStaticElementInteractions: Shift+F10 or the Menu key on the focused toggle opens this menu too. */}
                   <div
@@ -1607,13 +1610,18 @@ export function Sidebar({
  * the person.
  */
 function ProjectLantern({ name, state }: { name: string; state: "idle" | "working" | "waiting" }) {
-  let hash = 0;
-  for (const character of name) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
   return (
     <span
       className={`project-lantern is-${state}`}
-      style={{ "--lantern-hue": hash % 360 } as CSSProperties}
+      style={{ "--lantern-hue": lanternHue(name) } as CSSProperties}
       aria-hidden="true"
     />
   );
+}
+
+/** The project's own hue, from its name, shared by its lantern and the tint behind its heading and chats. */
+function lanternHue(name: string): number {
+  let hash = 0;
+  for (const character of name) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
+  return hash % 360;
 }

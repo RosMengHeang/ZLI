@@ -4,7 +4,7 @@ import { useState } from "react";
 import { providerDisplayName } from "../agent/providers.js";
 import type { ChatPlace } from "../sessions/launch.js";
 import type { PendingLaunch } from "../sessions/sessions.js";
-import { useChatAnimal } from "../teammates/chatAnimals.js";
+import { useChatBuddy } from "../teammates/chatBuddies.js";
 import { Icon } from "../ui/Icon.js";
 import { accountPlan, otherAgents } from "./agentModels.js";
 import { chatBranch } from "./branches.js";
@@ -61,7 +61,7 @@ export function DraftChat({
     (chosenEffort && reasoning.levels.includes(chosenEffort) ? chosenEffort : undefined) ?? startingEffort;
   const project = projection.projects.find((candidate) => candidate.projectId === worktree.projectId);
   const name = providerDisplayName(provider, projection.providers);
-  const face = useChatAnimal(launch.sessionId);
+  const face = useChatBuddy(launch.sessionId);
   const [branch] = useState(() => chatBranch(launch.sessionId));
   const [insertRequest, setInsertRequest] = useState<{ text: string; nonce: number; replace?: boolean }>();
 
@@ -78,7 +78,7 @@ export function DraftChat({
               </span>
             </p>
           ) : null}
-          <ChatStart provider={provider} folder={project?.name} animal={face} />
+          <ChatStart provider={provider} folder={project?.name} buddy={face} />
           {branch ? null : (
             <StartSuggestions
               folder={project?.name}

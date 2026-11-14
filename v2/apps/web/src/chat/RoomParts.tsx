@@ -1,8 +1,8 @@
 import type { ThreadActivityProjection } from "@zli-v2/contracts";
 import { useEffect, useState } from "react";
 
-import { AnimalAvatar, useAvatarMood } from "../teammates/AnimalAvatar.js";
-import type { Animal } from "../teammates/teammates.js";
+import { BuddyAvatar, useAvatarMood } from "../teammates/BuddyAvatar.js";
+import type { Buddy } from "../teammates/buddies.js";
 import { Button } from "../ui/Button.js";
 import { MenuButton, type MenuItem } from "../ui/Menu.js";
 import { elapsedLabel } from "./WorkLog.js";
@@ -14,7 +14,7 @@ export type RoomPerson = {
   /** The agent CLI, such as Codex, and the model when one was picked. */
   agent: string;
   provider: string;
-  animal: Animal;
+  buddy: Buddy;
   status: string | undefined;
   /** The step running now, which reads as "reading src/app.ts". */
   step: ThreadActivityProjection | undefined;
@@ -25,7 +25,7 @@ export type RoomPerson = {
 
 export function PersonAvatar({ person, size = 22 }: { person: RoomPerson; size?: number }) {
   const mood = useAvatarMood(person.status, person.step !== undefined);
-  return <AnimalAvatar animal={person.animal} mood={mood} size={size} provider={person.provider} name={person.name} />;
+  return <BuddyAvatar buddy={person.buddy} mood={mood} size={size} provider={person.provider} name={person.name} />;
 }
 
 /** The line over a reply when more than one agent talks in the chat: who is speaking. */

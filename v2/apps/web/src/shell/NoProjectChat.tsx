@@ -1,11 +1,20 @@
 import type { HistoryFolder } from "@zli-v2/contracts";
-import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type FormEvent,
+  type KeyboardEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { relativeTime } from "../sessions/sessions.js";
-import { AnimalAvatar } from "../teammates/AnimalAvatar.js";
-import { hashedAnimal } from "../teammates/chatAnimals.js";
+import { buddyHex } from "../teammates/buddies.js";
+import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
+import { hashedBuddy } from "../teammates/chatBuddies.js";
 import { scrollMovesAnchor, useAnchoredPlacement } from "../ui/anchoredPopup.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
@@ -43,7 +52,7 @@ export function NoProjectChat({
   const [recent, setRecent] = useState<readonly HistoryFolder[]>();
   const [menuOpen, setMenuOpen] = useState(false);
   const [starting, setStarting] = useState(false);
-  const [animal] = useState(() => hashedAnimal(Math.random().toString(36)));
+  const [buddy] = useState(() => hashedBuddy(Math.random().toString(36)));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // The folders the person's agents worked in before are the likeliest place for this chat.
@@ -94,8 +103,8 @@ export function NoProjectChat({
       <div className="chat-log" role="log" aria-label="Agent conversation">
         <div className="chat-column">
           <div className="chat-start no-project-start">
-            <span className={`no-project-face is-${animal}`}>
-              <AnimalAvatar animal={animal} mood={starting ? "working" : "idle"} size={56} />
+            <span className="buddy-glow" style={{ "--face": buddyHex(buddy) } as CSSProperties}>
+              <BuddyAvatar buddy={buddy} mood={starting ? "working" : "idle"} size={92} />
             </span>
             <h2 className="chat-start-title">What should we work on?</h2>
             <p className="no-project-hint">

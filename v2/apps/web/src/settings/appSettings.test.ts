@@ -37,6 +37,8 @@ describe("app settings", () => {
       customThemes: [],
       teammates: [],
       animateTeammates: true,
+      tintProjects: true,
+      chatTint: "card",
       archiveMergedChats: true,
       severalChats: false,
       layout: "columns",
@@ -63,6 +65,15 @@ describe("app settings", () => {
     expect(DEFAULT_SETTINGS.fileTreePosition).toBe("right");
     expect(parseAppSettings(JSON.stringify({ fileTreePosition: "left" })).fileTreePosition).toBe("left");
     expect(parseAppSettings(JSON.stringify({ fileTreePosition: "right" })).fileTreePosition).toBe("right");
+  });
+
+  it("colors project headings and chat cards unless the person turned them off", () => {
+    expect(DEFAULT_SETTINGS.tintProjects).toBe(true);
+    expect(parseAppSettings(JSON.stringify({})).tintProjects).toBe(true);
+    expect(parseAppSettings(JSON.stringify({ tintProjects: false })).tintProjects).toBe(false);
+    expect(DEFAULT_SETTINGS.chatTint).toBe("card");
+    expect(parseAppSettings(JSON.stringify({ chatTint: "selection" })).chatTint).toBe("selection");
+    expect(parseAppSettings(JSON.stringify({ chatTint: "loud" })).chatTint).toBe("card");
   });
 
   it("starts in the columns layout and keeps classic once chosen", () => {

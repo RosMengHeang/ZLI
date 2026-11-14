@@ -10,8 +10,11 @@ import {
 } from "../theme/customThemes.js";
 import { openThemeEditor, THEME_LIMIT_MESSAGE } from "../theme/themeEditorStore.js";
 import { Button } from "../ui/Button.js";
+import { Field } from "../ui/Field.js";
 import { MenuButton } from "../ui/Menu.js";
-import { updateAppSettings, useAppSettings, type WindowLayout } from "./appSettings.js";
+import { Segmented } from "../ui/Segmented.js";
+import { Switch } from "../ui/Switch.js";
+import { type ChatTint, updateAppSettings, useAppSettings, type WindowLayout } from "./appSettings.js";
 import { SectionHeader } from "./SectionHeader.js";
 import "./appearance.css";
 
@@ -176,6 +179,33 @@ export function AppearanceSection() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="appearance-block" aria-labelledby={`${name}-sidebar`}>
+        <h4 id={`${name}-sidebar`} className="appearance-heading">
+          Sidebar
+        </h4>
+        <Switch
+          label="Color project headings"
+          hint="Each project heading takes a soft tint of its own color, the same as its ring. Off keeps headings plain."
+          checked={settings.tintProjects}
+          onChange={(checked) => updateAppSettings((current) => ({ ...current, tintProjects: checked }))}
+        />
+        <Field
+          label="Chats under a project"
+          hint="Card: a faint wash of the project color holds its chats. Selection: only the open chat and the one you point at take the color. None: chats stay plain."
+        >
+          <Segmented<ChatTint>
+            label="Chats under a project"
+            value={settings.chatTint}
+            options={[
+              { value: "card", label: "Card" },
+              { value: "selection", label: "Selection" },
+              { value: "none", label: "None" },
+            ]}
+            onChange={(chatTint) => updateAppSettings((current) => ({ ...current, chatTint }))}
+          />
+        </Field>
       </section>
 
       <section className="appearance-block" aria-labelledby={`${name}-yours`}>

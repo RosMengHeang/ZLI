@@ -12,6 +12,7 @@ import {
   type WorktreeProjection,
 } from "@zli-v2/contracts";
 import {
+  type CSSProperties,
   Fragment,
   memo,
   type ReactNode,
@@ -35,16 +36,15 @@ import { takeoverContext } from "../sessions/handoff.js";
 import type { ChatPlace } from "../sessions/launch.js";
 import { buildTimeline, conversationThreads, type TimelineItem } from "../sessions/sessions.js";
 import { useAppSettings } from "../settings/appSettings.js";
-import { AnimalAvatar } from "../teammates/AnimalAvatar.js";
-import { useChatAnimal } from "../teammates/chatAnimals.js";
+import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
+import { useChatBuddy } from "../teammates/chatBuddies.js";
+import { type Buddy, buddyHex, buddyName } from "../teammates/buddies.js";
 import {
-  ANIMALS,
-  type Animal,
-  animalLabel,
-  defaultAnimal,
+  defaultBuddy,
   freeAgentName,
+  freeBuddy,
   leadingMentions,
-  roomAnimals,
+  roomBuddies,
   teammateNamed,
 } from "../teammates/teammates.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -225,8 +225,8 @@ export function ChatView({
   const chainKey = earlierKey ? `${earlierKey} ${threadId}` : threadId;
   // The agents the person brought into this chat talk in it, so the chat reads as one room.
   const { teammates } = useAppSettings();
-  // The chat's own animal, the same one the sidebar shows for it.
-  const hostAnimal = useChatAnimal(thread.sessionId ?? thread.threadId);
+  // The chat's own buddy, the same one the sidebar shows for it.
+  const hostBuddy = useChatBuddy(thread.sessionId ?? thread.threadId);
   const chainIds = useMemo(() => new Set(chain.map((entry) => entry.threadId)), [chain]);
   const guests = useMemo(() => roomGuests(chainIds, projection.threads), [chainIds, projection.threads]);
   const guestIds = useMemo(() => new Set(guests.map((guest) => guest.threadId)), [guests]);
@@ -575,19 +575,19 @@ export function ChatView({
     });
   };
 
-  // The room: who is in this chat, the animal each one wears, and how the person calls them.
+  // The room: who is in this chat, the buddy each one wears, and how the person calls them.
   function nameOfThread(entry: ThreadProjection): string {
     return entry.name ?? providerDisplayName(entry.provider, projection.providers);
   }
-  const animals = useMemo(
+  const buddies = useMemo(
     () =>
-      roomAnimals(
+      roomBuddies(
         [
           {
             id: thread.threadId,
             provider: thread.provider,
             name: thread.name,
-            animal: hostAnimal,
+            buddy: hostBuddy,
           },
           ...guests.map((guest) => ({ id: guest.threadId, provider: guest.provider, name: guest.name })),
           ...chain.slice(0, -1).map((entry) => ({ id: entry.threadId, provider: entry.provider, name: entry.name })),
@@ -599,9 +599,9 @@ export function ChatView({
         ],
         teammates,
       ),
-    [thread, guests, chain, helpers, teammates, hostAnimal],
+    [thread, guests, chain, helpers, teammates, hostBuddy],
   );
-  const animalOf = (id: string, provider: string): Animal => animals.get(id) ?? defaultAnimal(provider);
+  const buddyOf = (id: string, provider: string): Buddy => buddies.get(id) ?? defaultBuddy(provider);
   const people = useMemo((): RoomPerson[] => {
     const providerName = (provider: string) => providerDisplayName(provider, projection.providers);
     const stepOf = (list: readonly ThreadActivityProjection[], id: string) =>
@@ -612,7 +612,7 @@ export function ChatView({
         name: displayName,
         agent: providerName(thread.provider),
         provider: thread.provider,
-        animal: animals.get(thread.threadId) ?? defaultAnimal(thread.provider),
+        buddy: buddies.get(thread.threadId) ?? defaultBuddy(thread.provider),
         status: thread.status,
         step,
         role: "host",
@@ -623,7 +623,7 @@ export function ChatView({
           name: guest.name ?? providerName(guest.provider),
           agent: providerName(guest.provider),
           provider: guest.provider,
-          animal: animals.get(guest.threadId) ?? defaultAnimal(guest.provider),
+          buddy: buddies.get(guest.threadId) ?? defaultBuddy(guest.provider),
           status: guest.status,
           step: guest.status === "working" ? stepOf(guestActivities, guest.threadId) : undefined,
           role: "guest",
@@ -636,7 +636,7 @@ export function ChatView({
             name: helper.thread.name ?? providerName(helper.thread.provider),
             agent: providerName(helper.thread.provider),
             provider: helper.thread.provider,
-            animal: animals.get(helper.id) ?? defaultAnimal(helper.thread.provider),
+            buddy: buddies.get(helper.id) ?? defaultBuddy(helper.thread.provider),
             status: helper.thread.status,
             step: helper.thread.status === "working" ? stepOf(helperActivities, helper.id) : undefined,
             role: "helper",
@@ -649,7 +649,7 @@ export function ChatView({
           name: helper.terminal.name ?? providerName(provider),
           agent: providerName(provider),
           provider,
-          animal: animals.get(helper.id) ?? defaultAnimal(provider),
+          buddy: buddies.get(helper.id) ?? defaultBuddy(provider),
           status: status === "running" ? "working" : status === "starting" ? "starting" : "stopped",
           step: undefined,
           role: "helper",
@@ -657,7 +657,7 @@ export function ChatView({
         };
       }),
     ];
-  }, [thread, displayName, step, guests, helpers, animals, guestActivities, helperActivities, projection.providers]);
+  }, [thread, displayName, step, guests, helpers, buddies, guestActivities, helperActivities, projection.providers]);
   const personFor = (threadId: string): RoomPerson => {
     const known = people.find((person) => person.id === threadId);
     if (known) return known;
@@ -667,7 +667,7 @@ export function ChatView({
       name: nameOfThread(earlier),
       agent: providerDisplayName(earlier.provider, projection.providers),
       provider: earlier.provider,
-      animal: animalOf(earlier.threadId, earlier.provider),
+      buddy: buddyOf(earlier.threadId, earlier.provider),
       status: "stopped",
       step: undefined,
       role: "host",
@@ -726,11 +726,7 @@ export function ChatView({
     if (announce) callOut(name);
     return { threadId: result.threadId, name };
   };
-  const nextAnimal = (provider: string): Animal => {
-    const taken = new Set(animals.values());
-    const preferred = defaultAnimal(provider);
-    return taken.has(preferred) ? (ANIMALS.find((animal) => !taken.has(animal)) ?? preferred) : preferred;
-  };
+  const nextBuddy = (provider: string): Buddy => freeBuddy(provider, buddies.values());
   const presentNames = new Set(
     people.filter((person) => person.role !== "host").map((person) => agentNameKey(person.name)),
   );
@@ -748,7 +744,7 @@ export function ChatView({
               items.push({
                 id: `teammate-${teammate.id}`,
                 label: teammate.name,
-                media: <AnimalAvatar animal={teammate.animal} provider={teammate.provider} size={20} />,
+                media: <BuddyAvatar buddy={teammate.buddy} provider={teammate.provider} size={20} />,
                 title: `${providerDisplayName(teammate.provider, projection.providers)}${teammate.model ? `, ${teammate.model}` : ""}`,
                 run: () =>
                   void bringIn(
@@ -769,13 +765,13 @@ export function ChatView({
           if (agents.length > 0) {
             items.push({ heading: saved.length > 0 ? "Or any agent" : "Any agent" });
             for (const entry of agents) {
-              const animal = nextAnimal(entry.provider);
+              const buddy = nextBuddy(entry.provider);
               items.push({
                 id: `agent-${entry.provider}`,
                 label: entry.displayName,
-                media: <AnimalAvatar animal={animal} provider={entry.provider} size={20} />,
-                title: `Joins as ${animalLabel[animal]}`,
-                run: () => void bringIn({ provider: entry.provider, name: animalLabel[animal] }, true),
+                media: <BuddyAvatar buddy={buddy} provider={entry.provider} size={20} />,
+                title: `Joins as ${buddyName(buddy)}`,
+                run: () => void bringIn({ provider: entry.provider, name: buddyName(buddy) }, true),
               });
             }
           }
@@ -825,7 +821,7 @@ export function ChatView({
       .filter((person) => person.role !== "host" && !person.terminal)
       .map((person) => ({
         name: person.name,
-        animal: person.animal,
+        buddy: person.buddy,
         provider: person.provider,
         detail: `${person.agent} · ${person.role === "helper" ? "helper" : "in this chat"}`,
       }));
@@ -835,7 +831,7 @@ export function ChatView({
           .filter((teammate) => !present.has(agentNameKey(teammate.name)))
           .map((teammate) => ({
             name: teammate.name,
-            animal: teammate.animal,
+            buddy: teammate.buddy,
             provider: teammate.provider,
             detail: `${providerDisplayName(teammate.provider, projection.providers)} · joins when you send`,
           }))
@@ -1140,7 +1136,7 @@ export function ChatView({
   const sideChat =
     aside || sideChatSlot ? (
       <SideChat
-        animal={hostAnimal}
+        buddy={hostBuddy}
         threadId={aside?.threadId}
         starting={aside?.starting ?? false}
         error={aside?.error}
@@ -1194,7 +1190,7 @@ export function ChatView({
             <div className="chat-column">
               {timeline.length === 0 && earlyMessages.length === 0 ? (
                 <>
-                  <ChatStart provider={thread.provider} folder={project?.name} animal={animals.get(thread.threadId)} />
+                  <ChatStart provider={thread.provider} folder={project?.name} buddy={buddies.get(thread.threadId)} />
                   {canSend ? (
                     <StartSuggestions
                       folder={project?.name}
@@ -2034,16 +2030,22 @@ function SignInNotice({
 export function ChatStart({
   provider,
   folder,
-  animal,
+  buddy,
 }: {
   provider: string;
   folder: string | undefined;
-  /** The chat's own animal, which stays when the chat moves to another agent. */
-  animal?: Animal | undefined;
+  /** The chat's own buddy, which stays when the chat moves to another agent. */
+  buddy?: Buddy | undefined;
 }) {
   return (
     <div className="chat-start">
-      {animal ? <AnimalAvatar animal={animal} size={44} /> : <ProviderMark provider={provider} size={28} />}
+      {buddy ? (
+        <span className="buddy-glow" style={{ "--face": buddyHex(buddy) } as CSSProperties}>
+          <BuddyAvatar buddy={buddy} size={92} />
+        </span>
+      ) : (
+        <ProviderMark provider={provider} size={28} />
+      )}
       <h2 className="chat-start-title">
         What should we work on
         {folder ? (

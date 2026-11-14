@@ -1,13 +1,13 @@
 import { agentNameKey } from "@zli-v2/contracts";
 import { type KeyboardEvent, type RefObject, useId, useMemo, useState } from "react";
 
-import { AnimalAvatar } from "../teammates/AnimalAvatar.js";
-import type { Animal } from "../teammates/teammates.js";
+import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
+import type { Buddy } from "../teammates/buddies.js";
 
 /** Someone the person can call with @Name: a member of the chat, or a saved teammate who joins when called. */
 export type MentionOption = {
   name: string;
-  animal: Animal;
+  buddy: Buddy;
   provider: string;
   /** Says who it is and whether it is in the chat yet, such as "Codex · in this chat". */
   detail: string;
@@ -109,7 +109,7 @@ export function useMentionPicker({
             onMouseMove={() => setActiveIndex(matches.indexOf(option))}
             onClick={() => pick(option)}
           >
-            <AnimalAvatar animal={option.animal} provider={option.provider} size={22} />
+            <BuddyAvatar buddy={option.buddy} provider={option.provider} size={22} />
             <span className="mention-option-copy">
               <span className="prompt-option-name">{option.name}</span>
               <span className="prompt-option-text">{option.detail}</span>

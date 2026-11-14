@@ -26,7 +26,7 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
     await sendChatMessage(page, "Add a login page");
     await expect(page.locator(".chat-message-assistant").first()).toBeVisible({ timeout: 30_000 });
 
-    // Bring in: the other agent joins under its animal's name, and the message box calls it.
+    // Bring in: the other agent joins under its buddy's name, and the message box calls it.
     await page.getByRole("button", { name: "Add files and more" }).last().click();
     await page.getByRole("menuitem", { name: /^Bring in an agent/u }).click();
     await page.getByRole("menuitem", { name: /Codex/u }).click();
@@ -56,7 +56,8 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
     const settings = page.getByRole("dialog", { name: "Settings" });
     await settings.getByRole("tab", { name: "Teammates" }).click();
     await settings.getByRole("button", { name: "Add teammate" }).click();
-    await settings.getByRole("button", { name: "Panda" }).click();
+    await settings.getByRole("button", { name: "Bean", exact: true }).click();
+    await settings.getByRole("button", { name: "Jade", exact: true }).click();
     await settings.getByLabel("Name").fill("Reviewer");
     await settings.getByLabel("Instructions").fill("Look for missing tests.");
     if (process.env.ZLI_E2E_SHOT)
