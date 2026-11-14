@@ -1,7 +1,8 @@
 /*
- * Settings is laid out like the window behind it: a canvas-colored sidebar with the section list, and the open
- * section on a surface island inset by the window gutter. Groups of rows sit on that island the way IDE
- * settings pages split one page into titled blocks.
+ * Settings is laid out like the window behind it: a canvas-colored sidebar with the page list, and the open page
+ * on a surface island inset by the window gutter. Every page has one shape: a title and a line under it, then
+ * titled groups. A group's rows sit on one quiet bordered surface, separated by hairlines; lists of things
+ * (servers, accounts, folders) get that same surface. The group that removes things goes last, edged in red.
  */
 .dialog-backdrop:has(> .settings-dialog) { padding-top: 7vh; }
 .dialog.settings-dialog { width: min(980px, 100%); height: min(680px, calc(100vh - 7vh - var(--zli-space-6))); max-height: none; background: var(--zli-canvas); }
@@ -25,62 +26,59 @@
 .settings-tab:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 .settings-tab[aria-selected="true"] { background: var(--zli-active); color: var(--zli-text); font-weight: 500; }
 .settings-tab[aria-selected="true"] > svg { color: var(--zli-text); }
-.settings-main { display: flex; min-width: 0; min-height: 0; flex-direction: column; border-radius: var(--zli-radius-lg); background: var(--zli-surface); box-shadow: inset 0 0 0 1px var(--zli-border); }
-.settings-crumbs { display: flex; align-items: center; gap: var(--zli-space-1-5); height: var(--zli-bar-height); flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 var(--zli-space-6); color: var(--zli-dim); }
-.settings-crumb { min-width: 0; overflow: hidden; font-size: var(--zli-text-base); text-overflow: ellipsis; white-space: nowrap; }
-.settings-crumb.is-current { color: var(--zli-text); font-weight: 600; }
-.settings-close { margin-left: auto; }
-.settings-panel { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; gap: var(--zli-space-5); padding: 0 var(--zli-space-6) var(--zli-space-6); overflow: auto; scrollbar-gutter: stable; }
-.settings-section-header { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
-/* The breadcrumb above already names the section, so its heading stays for screen readers only. */
-.settings-section-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.settings-section-note { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); }
-.settings-section-note .kbd-group { vertical-align: 1px; }
+.settings-main { position: relative; display: flex; min-width: 0; min-height: 0; flex-direction: column; border-radius: var(--zli-radius-lg); background: var(--zli-surface); box-shadow: inset 0 0 0 1px var(--zli-border); }
+.settings-close { position: absolute; top: var(--zli-space-3); right: var(--zli-space-3); z-index: 1; }
+.settings-panel { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; gap: var(--zli-space-6); padding: var(--zli-space-6) var(--zli-space-6) var(--zli-space-8); overflow: auto; scrollbar-gutter: stable; }
+.settings-page-header { display: flex; flex-direction: column; gap: var(--zli-space-1); padding-right: var(--zli-space-8); }
+.settings-page-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-lg); font-weight: 600; letter-spacing: -.01em; line-height: var(--zli-leading-tight); }
+.settings-page-note { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); }
+.settings-page-note .kbd-group { vertical-align: 1px; }
 .settings-group { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-2); }
 .settings-group-head { display: flex; align-items: center; gap: var(--zli-space-2); min-height: var(--zli-control-sm); }
 .settings-group-title { min-width: 0; flex: 1; margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.settings-group-title-mark { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); }
 .settings-group-actions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); }
 .settings-group-note { margin: -2px 0 var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.settings-group-body { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-3); }
+/* An empty list keeps the list's place, so the page does not jump when the first item arrives. */
+.settings-group-body > .settings-empty { padding: var(--zli-space-3) var(--zli-space-4); border: 1px dashed var(--zli-border-strong); border-radius: var(--zli-radius-md); color: var(--zli-dim); font-size: var(--zli-text-sm); }
+/* The group that removes things: last on the page, a little apart, and edged in red. */
+.settings-group.is-danger { margin-top: var(--zli-space-2); }
+.settings-group.is-danger .settings-group-title { color: var(--zli-red); }
+.settings-group.is-danger > .setting-list { border-color: var(--zli-red-line); }
+/* One surface for every list of rows: setting rows, servers, accounts, skills, plugins, folders, shortcuts. */
+.setting-list, .mcp-rows, .project-list { display: flex; min-width: 0; flex-direction: column; margin: 0; padding: 0 var(--zli-space-4); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: color-mix(in srgb, var(--zli-raised) 55%, var(--zli-surface)); list-style: none; }
+.setting-list > * + *, .mcp-rows > * + *, .project-list > * + * { border-top: 1px solid var(--zli-border); }
+/* Sub-labels inside a group, such as the categories of the Browse cards. */
+.mcp-subhead { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
 .setting-placeholder { margin: 0; padding: var(--zli-space-3) 0; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .setting-placeholder.is-problem { color: var(--zli-red); }
 .settings-empty { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); }
-/* An empty list under its heading keeps the list's place, so the page does not jump when the first item arrives. */
-.mcp-subhead + .settings-empty { padding: var(--zli-space-3) var(--zli-space-4); border: 1px dashed var(--zli-border-strong); border-radius: var(--zli-radius-md); color: var(--zli-dim); font-size: var(--zli-text-sm); }
 .settings-value { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); text-overflow: ellipsis; white-space: nowrap; }
 .settings-value.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-sm); }
 .settings-actions { display: flex; justify-content: flex-start; }
 .settings-done { display: flex; align-items: flex-start; gap: var(--zli-space-2); margin: 0; color: var(--zli-green); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .settings-done > svg { flex: 0 0 auto; margin-top: 3px; }
 .settings-done .text-link, .settings-empty .text-link, .settings-footnote .text-link { font-size: inherit; }
-/* Projects: every folder in ZLI, one row each. Removing asks inside the row that started it. */
-.project-tile { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; box-sizing: border-box; width: 32px; height: 32px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: var(--zli-raised); color: var(--zli-muted); transition: color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
-.project-empty { display: flex; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-4); border: 1px dashed var(--zli-border-strong); border-radius: var(--zli-radius-md); }
-.project-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: var(--zli-space-1); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: color-mix(in srgb, var(--zli-raised) 55%, var(--zli-surface)); list-style: none; }
-.project-row { display: flex; flex-direction: column; border-radius: var(--zli-radius-md); transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+/* Projects: one row per folder; the selected one shows its defaults and its Remove action below the list. */
+.project-list { padding: 0; overflow: hidden; }
+.project-row { display: flex; flex-direction: column; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
 .project-row:hover { background: var(--zli-hover); }
 .project-row.is-selected { background: var(--zli-active); }
-.project-row.is-confirming { background: var(--zli-red-soft); box-shadow: inset 0 0 0 1px var(--zli-red-line); }
-.project-row-main { display: flex; align-items: center; gap: var(--zli-space-1); min-width: 0; padding-right: var(--zli-space-2); }
-.project-pick { display: flex; flex: 1 1 auto; align-items: center; gap: var(--zli-space-3); min-width: 0; padding: var(--zli-space-2-5) var(--zli-space-3); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.project-pick { display: flex; width: 100%; align-items: center; gap: var(--zli-space-3); min-width: 0; min-height: 52px; padding: var(--zli-space-2-5) var(--zli-space-4); border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.project-pick > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.project-row.is-selected .project-pick > svg { color: var(--zli-text); }
 .project-pick:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
-.project-row:hover .project-tile { color: var(--zli-text); }
-.project-row.is-selected .project-tile { border-color: var(--zli-accent-line); background: var(--zli-accent-soft); color: var(--zli-accent); }
-.project-pick-copy { display: flex; flex: 1 1 auto; flex-direction: column; gap: 3px; min-width: 0; }
+.project-pick-copy { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
 .project-pick-title { display: flex; align-items: center; gap: var(--zli-space-1-5); min-width: 0; }
-.project-pick-title strong { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.project-pick-title strong { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .project-pick-path { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.project-row-actions { display: flex; flex: 0 0 auto; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
-.project-row:hover .project-row-actions, .project-row.is-selected .project-row-actions, .project-row-actions:focus-within { opacity: 1; }
-@media (hover: none) { .project-row-actions { opacity: 1; } }
-.project-remove { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--zli-space-2) var(--zli-space-3); margin: 0 var(--zli-space-3) var(--zli-space-3); padding-top: var(--zli-space-3); border-top: 1px solid var(--zli-red-line); animation: project-remove-in var(--zli-duration-enter) var(--zli-ease); }
-.project-remove-mark { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: var(--zli-radius-md); background: var(--zli-red-soft); color: var(--zli-red); box-shadow: inset 0 0 0 1px var(--zli-red-line); }
-.project-remove-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-top: 1px; }
-.project-remove-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
-.project-remove-detail { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.project-remove { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-3) var(--zli-space-6); min-height: 52px; padding: var(--zli-space-3) 0; }
+.project-remove-copy { display: flex; min-width: 200px; flex: 1; flex-direction: column; gap: 2px; }
+.project-remove-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; }
+.project-remove-detail { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .project-remove-problem { margin: var(--zli-space-1) 0 0; color: var(--zli-red); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
-.project-remove-actions { display: flex; grid-column: 2; justify-content: flex-end; gap: var(--zli-space-1-5); }
-@keyframes project-remove-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .project-remove { animation: none; } }
+.project-remove-actions { display: flex; flex: 0 0 auto; gap: var(--zli-space-1-5); }
 .integrations-tabs { display: flex; gap: 2px; padding: 3px; align-self: flex-start; border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); }
 .integrations-tab {
   height: var(--zli-control-sm); padding: 0 var(--zli-space-3); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); font-weight: 500;
@@ -90,16 +88,8 @@
 .integrations-tab:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -1px; }
 .integrations-tab[aria-selected="true"] { background: var(--zli-active); color: var(--zli-text); }
 .integrations-panel { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-4); }
-.integrations-group { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-3); }
-.integrations-group-head { display: flex; flex-direction: column; gap: 2px; }
-.integrations-kind { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
-.integrations-note { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .mcp-row-logo { flex: 0 0 auto; }
 
-/* Rows are separated by hairlines inside one quiet group, the way native settings panes read. */
-/* Lists sit one step above the island, the way a raised control does, so a group reads as one block. */
-.setting-list { display: flex; flex-direction: column; margin: 0; padding: 0 var(--zli-space-4); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: color-mix(in srgb, var(--zli-raised) 55%, var(--zli-surface)); list-style: none; }
-.setting-list > * + * { border-top: 1px solid var(--zli-border); }
 .setting-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 260px); align-items: center; gap: var(--zli-space-6); min-height: 52px; padding: var(--zli-space-2-5) 0; }
 .setting-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .setting-label { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; }
@@ -124,19 +114,19 @@
 .shortcut-reset { display: inline-flex; justify-content: center; }
 .shortcut-problem { grid-column: 1 / -1; margin: 0 0 var(--zli-space-2); color: var(--zli-red); font-size: var(--zli-text-xs); }
 
-.mcp-rows { margin: 0; padding: 0 var(--zli-space-4); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: color-mix(in srgb, var(--zli-raised) 55%, var(--zli-surface)); list-style: none; }
 .mcp-row { display: flex; align-items: center; gap: var(--zli-space-3); min-height: 52px; padding: var(--zli-space-2-5) 0; }
-.mcp-row + .mcp-row { border-top: 1px solid var(--zli-border); }
 .mcp-row > .switch { flex: 0 0 auto; }
 .mcp-row-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
 .mcp-row-copy strong { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .mcp-row-command { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .mcp-row.is-off .mcp-row-copy strong { color: var(--zli-muted); }
 .mcp-row-detail { color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+/* Accounts: the line that says who an agent is signed in as reads in body text, so it is the first thing seen in each group; the sentence under it stays dim. */
+.accounts-status { color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.accounts-usual .mcp-row-detail code { font-size: var(--zli-text-xs); }
+.accounts-check { display: flex; min-height: 28px; align-items: center; justify-content: space-between; gap: var(--zli-space-3); }
+.accounts-check > p { margin: 0; }
 .mcp-row > .picker-field { width: auto; flex: 0 0 auto; }
-.accounts-provider { display: flex; flex-direction: column; gap: var(--zli-space-2); }
-.accounts-subhead { display: flex; align-items: center; gap: var(--zli-space-1-5); }
-.mcp-subhead { margin: var(--zli-space-1) 0 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
 .mcp-editor { display: flex; flex-direction: column; gap: var(--zli-space-3); padding: var(--zli-space-4); border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: color-mix(in srgb, var(--zli-raised) 55%, var(--zli-surface)); }
 .mcp-editor .textarea.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
 .mcp-editor-actions { display: flex; justify-content: flex-end; gap: var(--zli-space-1-5); }
@@ -151,6 +141,7 @@
 .mcp-status-dot.is-warning { background: var(--zli-amber); }
 .mcp-chip { flex: 0 0 auto; padding: 0 var(--zli-space-1-5); border: 1px solid var(--zli-border); border-radius: 999px; color: var(--zli-muted); font-size: var(--zli-text-2xs); line-height: 16px; white-space: nowrap; }
 .mcp-row-tools { padding: 0 0 var(--zli-space-3); }
+.mcp-rows > .mcp-row-tools { border-top: 0; }
 .mcp-row-tools + .mcp-row { border-top: 1px solid var(--zli-border); }
 .mcp-tools { display: flex; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-2-5) var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-surface); }
 .mcp-tools-head { display: flex; align-items: center; gap: var(--zli-space-2); }
@@ -219,6 +210,7 @@ fieldset.mobile-device-confirm { margin: 0; padding: 0; border: 0; gap: var(--zl
   .settings-tab { flex: 0 0 auto; }
   .setting-row { grid-template-columns: minmax(0, 1fr); gap: var(--zli-space-2); }
   .setting-control { justify-content: flex-start; }
+  .settings-panel { padding: var(--zli-space-5) var(--zli-space-4) var(--zli-space-6); }
 }
 
 /* Phone access: the pairing QR code is black on white with a quiet zone, because phone scanners expect that. */

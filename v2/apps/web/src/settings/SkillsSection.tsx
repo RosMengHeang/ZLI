@@ -15,7 +15,7 @@ import { Badge } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
-import { SectionHeader } from "./SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader } from "./SettingsLayout.js";
 import {
   agentNames,
   deleteSkill,
@@ -61,10 +61,10 @@ export function SkillsSection({
   const sourceRef = useRef<HTMLInputElement>(null);
 
   const header = (
-    <SectionHeader title="Skills">
+    <SettingsPageHeader title="Skills">
       Instructions agents load when a task calls for them. Your skills reach every agent ZLI can find. Project skills
       live in the repository for the whole team.
-    </SectionHeader>
+    </SettingsPageHeader>
   );
 
   if (state.status === "loading") {
@@ -312,22 +312,22 @@ export function SkillsSection({
         </div>
       ) : null}
 
-      <h3 className="mcp-subhead">Your skills</h3>
-      {userSkills.length > 0 ? (
-        <ul className="mcp-rows">{userSkills.map(skillRow)}</ul>
-      ) : (
-        <p className="settings-empty">No skills yet. Write one here or install one from GitHub.</p>
-      )}
+      <SettingsGroup title="Your skills" bare>
+        {userSkills.length > 0 ? (
+          <ul className="mcp-rows">{userSkills.map(skillRow)}</ul>
+        ) : (
+          <p className="settings-empty">No skills yet. Write one here or install one from GitHub.</p>
+        )}
+      </SettingsGroup>
 
       {project ? (
-        <>
-          <h3 className="mcp-subhead">Project skills in {project.name}</h3>
+        <SettingsGroup title={`Project skills in ${project.name}`} bare>
           {projectSkills.length > 0 ? (
             <ul className="mcp-rows">{projectSkills.map(skillRow)}</ul>
           ) : (
             <p className="settings-empty">No skills in {PROJECT_SKILLS_DIR} yet.</p>
           )}
-        </>
+        </SettingsGroup>
       ) : null}
 
       {errorLine}
@@ -489,14 +489,13 @@ export function SkillsSection({
       )}
 
       {result.found.length > 0 ? (
-        <>
-          <h3 className="mcp-subhead">Already in agent folders</h3>
+        <SettingsGroup title="Already in agent folders" bare>
           <ul className="mcp-rows">
             {result.found.map((skill) => (
               <FoundRow key={skill.path} skill={skill} />
             ))}
           </ul>
-        </>
+        </SettingsGroup>
       ) : null}
 
       <SyncFootnote result={result} />

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { MobileBridge } from "../../../runtime/bridge.js";
-import { SettingGroup } from "../../../settings/SectionHeader.js";
+import { SettingsGroup } from "../../../settings/SettingsLayout.js";
 import { Switch } from "../../../ui/Switch.js";
 import { errorText } from "../../mobile.js";
 
@@ -47,7 +47,7 @@ export function CrashWatchSettingGroup({ mobile }: { mobile: MobileBridge }) {
   );
 
   return (
-    <SettingGroup title="Crash watch">
+    <SettingsGroup title="Crash watch">
       <Switch
         label="Watch for crashes"
         hint={error ?? HINT}
@@ -55,6 +55,6 @@ export function CrashWatchSettingGroup({ mobile }: { mobile: MobileBridge }) {
         disabled={crashWatch === undefined}
         onChange={change}
       />
-    </SettingGroup>
+    </SettingsGroup>
   );
 }

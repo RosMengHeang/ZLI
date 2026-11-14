@@ -7,7 +7,7 @@ import { resetPlanLimitsStore } from "../limits/limits.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import { DEFAULT_SETTINGS, readAppSettings, updateAppSettings } from "./appSettings.js";
-import { matchingSections, SettingsDialog } from "./SettingsDialog.js";
+import { matchingSections, SettingsDialog, settingsPageFor } from "./SettingsDialog.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -58,7 +58,10 @@ describe("matchingSections", () => {
     expect(matchingSections("").length).toBeGreaterThan(10);
     expect(matchingSections("emulator").map((entry) => entry.id)).toEqual(["mobile"]);
     expect(matchingSections("MCP").map((entry) => entry.id)).toEqual(["integrations"]);
-    expect(matchingSections("workspace").map((entry) => entry.id)).toEqual(["projects", "worktrees", "files"]);
+    expect(matchingSections("workspace").map((entry) => entry.id)).toEqual(["projects", "worktrees"]);
+    // Settings that moved into General are still found by the words people use for them.
+    expect(matchingSections("notifications").map((entry) => entry.id)).toEqual(["general"]);
+    expect(matchingSections("file tree").map((entry) => entry.id)).toEqual(["general"]);
     expect(matchingSections("branch template").map((entry) => entry.id)).toEqual(["worktrees"]);
     expect(matchingSections("plan limits").map((entry) => entry.id)).toEqual(["usage"]);
     expect(matchingSections("nothing like this")).toEqual([]);
@@ -66,18 +69,41 @@ describe("matchingSections", () => {
 });
 
 describe("SettingsDialog", () => {
-  it("groups the sections, and names the open one in the breadcrumb", async () => {
+  it("groups the pages, opens on General, and titles the open page", async () => {
     const container = await render();
     const headings = [...container.querySelectorAll(".settings-nav-heading")].map((node) => node.textContent);
-    expect(headings).toEqual(["Agents", "Workspace", "Tools", "App"]);
+    expect(headings).toEqual(["App", "Agents", "Projects", "Tools"]);
+    expect(tabs(container)[0]).toBe("General");
     expect(tabs(container)).toContain("Mobile");
-    expect(container.querySelector(".settings-crumbs")?.textContent).toBe("AgentsNew agents");
+    expect(tabs(container)).not.toContain("Notifications");
+    expect(container.querySelector(".settings-page-title")?.textContent).toBe("General");
+    const groups = [...container.querySelectorAll(".settings-group-title")].map((node) => node.textContent);
+    expect(groups).toEqual(["New agents", "Chats", "Notifications", "Files"]);
     const mobile = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
       (tab) => tab.textContent === "Mobile",
     );
     await act(async () => mobile?.click());
     expect(mobile?.getAttribute("aria-selected")).toBe("true");
-    expect(container.querySelector(".settings-crumbs")?.textContent).toBe("ToolsMobile");
+    expect(container.querySelector(".settings-page-title")?.textContent).toBe("Mobile");
+  });
+
+  it("opens the pages that moved into General from their old names", async () => {
+    expect(settingsPageFor("agents")).toBe("general");
+    expect(settingsPageFor("files")).toBe("general");
+    expect(settingsPageFor("notifications")).toBe("general");
+    expect(settingsPageFor("usage")).toBe("usage");
+  });
+
+  it("moves between pages with the arrow keys", async () => {
+    const container = await render();
+    const first = container.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]');
+    first?.focus();
+    await act(async () => {
+      first?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    const selected = container.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]');
+    expect(selected?.textContent).toBe("Appearance");
+    expect(document.activeElement).toBe(selected);
   });
 
   it("filters the section list as you type, opens the first match on Enter, and clears on Escape", async () => {

@@ -2,7 +2,7 @@ import type { MobileWorkspace } from "@zli-v2/contracts";
 import { useEffect, useState } from "react";
 
 import type { MobileBridge } from "../../../runtime/bridge.js";
-import { SettingGroup, SettingRow } from "../../../settings/SectionHeader.js";
+import { SettingsGroup, SettingsRow } from "../../../settings/SettingsLayout.js";
 import { Badge } from "../../../ui/Badge.js";
 import { LoadingState } from "../../../ui/Pane.js";
 import { errorText } from "../../mobile.js";
@@ -44,7 +44,7 @@ export function WorktreesSettingGroup({ mobile }: { mobile: MobileBridge }) {
 
   if (!api) return null;
   return (
-    <SettingGroup
+    <SettingsGroup
       title="Worktrees"
       className="mobile-worktrees"
       description="Each worktree gets its own Metro port so agents never test another branch's app."
@@ -61,7 +61,7 @@ export function WorktreesSettingGroup({ mobile }: { mobile: MobileBridge }) {
         list.map((workspace) => {
           const badge = ownerBadge(workspace.metro);
           return (
-            <SettingRow
+            <SettingsRow
               key={workspace.worktreeId}
               label={workspace.branch}
               description={
@@ -76,10 +76,10 @@ export function WorktreesSettingGroup({ mobile }: { mobile: MobileBridge }) {
                 <span className="settings-value is-mono">{workspace.metroPort}</span>
                 <Badge tone={badge.tone}>{badge.label}</Badge>
               </span>
-            </SettingRow>
+            </SettingsRow>
           );
         })
       )}
-    </SettingGroup>
+    </SettingsGroup>
   );
 }

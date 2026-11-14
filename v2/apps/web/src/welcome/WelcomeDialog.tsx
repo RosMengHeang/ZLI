@@ -9,8 +9,10 @@ import type {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { listedDiscoveries } from "../agent/providers.js";
+import { BranchStatus } from "../sessions/BranchStatus.js";
 import { samePath } from "../sessions/launch.js";
 import type { NewAgentRequest } from "../sessions/NewAgentDialog.js";
+import { type BranchRead, readBranchState } from "../sessions/projectBranch.js";
 import { relativeTime } from "../sessions/sessions.js";
 import {
   readAppSettings,
@@ -75,6 +77,8 @@ export function WelcomeDialog({
   const [folders, setFolders] = useState<HistoryFolder[] | "loading" | { error: string }>("loading");
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [added, setAdded] = useState<ProjectProjection[]>([]);
+  // What git says about each added folder, by project.
+  const [branches, setBranches] = useState<Record<string, BranchRead>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const primary = useRef<HTMLButtonElement>(null);
@@ -149,6 +153,13 @@ export function WelcomeDialog({
     // A folder that was already found is ticked again rather than listed twice.
     const match = Array.isArray(folders) ? folders.find((folder) => samePath(folder.path, path)) : undefined;
     if (match) setSelected((current) => new Set([...current, match.path]));
+    await readBranch(result.project.projectId);
+  };
+
+  const readBranch = async (projectId: string) => {
+    setBranches((current) => ({ ...current, [projectId]: { status: "loading" } }));
+    const read = await readBranchState(dispatch, projectId);
+    setBranches((current) => ({ ...current, [projectId]: read }));
   };
 
   const finish = async () => {
@@ -284,6 +295,8 @@ export function WelcomeDialog({
               folders={folders}
               selected={selected}
               added={added}
+              branches={branches}
+              onRetryBranch={(projectId) => void readBranch(projectId)}
               canPickFolder={pickFolder !== undefined}
               busy={busy}
               onToggle={(path) =>
@@ -653,6 +666,8 @@ function ProjectsStep({
   folders,
   selected,
   added,
+  branches,
+  onRetryBranch,
   canPickFolder,
   busy,
   onToggle,
@@ -664,6 +679,8 @@ function ProjectsStep({
   folders: HistoryFolder[] | "loading" | { error: string };
   selected: ReadonlySet<string>;
   added: readonly ProjectProjection[];
+  branches: Readonly<Record<string, BranchRead>>;
+  onRetryBranch(projectId: string): void;
   canPickFolder: boolean;
   busy: boolean;
   onToggle(path: string): void;
@@ -673,6 +690,16 @@ function ProjectsStep({
   onRetry(): void;
 }) {
   const found = Array.isArray(folders) ? folders : [];
+  // A picked folder that was already found keeps its history row, so the branch shows there.
+  const branchOf = (path: string) => added.find((candidate) => samePath(candidate.path, path))?.projectId;
+  const branchStatus = (projectId: string | undefined) =>
+    projectId ? (
+      <BranchStatus
+        className="welcome-folder-branch"
+        read={branches[projectId]}
+        onRetry={() => onRetryBranch(projectId)}
+      />
+    ) : null;
   return (
     <>
       <StepHeader step={3} title="Your projects">
@@ -723,6 +750,7 @@ function ProjectsStep({
                 <span className="welcome-row-title">{folder.name}</span>
                 <span className="welcome-row-detail is-mono">{folder.path}</span>
               </span>
+              {branchStatus(branchOf(folder.path))}
               <span className="welcome-folder-meta">
                 <span className="welcome-folder-marks">
                   {folder.sources.map((source) => (
@@ -745,6 +773,7 @@ function ProjectsStep({
                 <span className="welcome-row-title">{project.name}</span>
                 <span className="welcome-row-detail is-mono">{project.path}</span>
               </span>
+              {branchStatus(project.projectId)}
               <IconButton
                 label={`Remove ${project.name}`}
                 tooltip="Remove"

@@ -5,7 +5,7 @@ import { Button } from "../ui/Button.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { AGENT_ACCESS_LABELS, AGENT_SCOPE_LABELS, useMcpServers } from "./mcpServers.js";
-import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader, SettingsRow } from "./SettingsLayout.js";
 
 const ACCESS_HINTS: Record<AgentToolAccess, string> = {
   full: "Agents can list, read, start, and message other agents.",
@@ -39,10 +39,10 @@ export function AgentMessagesSection() {
   };
 
   const header = (
-    <SectionHeader title="Agent messages">
+    <SettingsPageHeader title="Agent messages">
       Agents talk to each other with the zli tool, or the zli command in terminals, and call each other by name. New
       agents always start in the caller's project.
-    </SectionHeader>
+    </SettingsPageHeader>
   );
 
   if (state.status === "loading")
@@ -75,8 +75,8 @@ export function AgentMessagesSection() {
   return (
     <>
       {header}
-      <SettingGroup title="Other agents">
-        <SettingRow label="What agents may do" description={ACCESS_HINTS[agentAccess]} htmlFor={`${ids}-access`}>
+      <SettingsGroup title="Other agents">
+        <SettingsRow label="What agents may do" description={ACCESS_HINTS[agentAccess]} htmlFor={`${ids}-access`}>
           <Select<AgentToolAccess>
             id={`${ids}-access`}
             label="What agents may do with other agents"
@@ -85,8 +85,8 @@ export function AgentMessagesSection() {
             options={AgentToolAccess.options.map((access) => ({ value: access, label: AGENT_ACCESS_LABELS[access] }))}
             onChange={(access) => void run(() => setAgentAccess(access))}
           />
-        </SettingRow>
-        <SettingRow
+        </SettingsRow>
+        <SettingsRow
           label="Which agents they can reach"
           description={agentAccess === "off" ? "Agent tools are off." : SCOPE_HINTS[agentScope]}
           htmlFor={`${ids}-scope`}
@@ -99,8 +99,8 @@ export function AgentMessagesSection() {
             options={AgentToolScope.options.map((scope) => ({ value: scope, label: AGENT_SCOPE_LABELS[scope] }))}
             onChange={(scope) => void run(() => setAgentScope(scope))}
           />
-        </SettingRow>
-      </SettingGroup>
+        </SettingsRow>
+      </SettingsGroup>
       {problem ? (
         <p className="inline-error" role="alert">
           <Icon name="alert" size={13} />

@@ -26,7 +26,7 @@ import { Kbd } from "../ui/Kbd.js";
 import { Switch } from "../ui/Switch.js";
 import { useAppSettings } from "./appSettings.js";
 import { RemoteMacRows } from "./RemoteMacRows.js";
-import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader, SettingsRow } from "./SettingsLayout.js";
 
 const AVD_PREFIX = "android-avd:";
 
@@ -38,10 +38,10 @@ export function MobileSection() {
   const shortcut = settings.shortcuts.toggleMobile ?? defaultShortcut("toggleMobile");
   return (
     <>
-      <SectionHeader title="Mobile">
+      <SettingsPageHeader title="Mobile">
         Android emulators, Android phones on USB or Wi-Fi, and iPhone simulators open in the Mobile panel. Show it with{" "}
         <Kbd shortcut={shortcut} />.
-      </SectionHeader>
+      </SettingsPageHeader>
       {mobile ? (
         <MobileSettingsBody mobile={mobile} />
       ) : (
@@ -140,7 +140,7 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
 
   return (
     <>
-      <SettingGroup
+      <SettingsGroup
         title="Devices"
         className="mobile-devices-group"
         actions={
@@ -233,18 +233,18 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
             onClose={() => setCreating(false)}
           />
         ) : null}
-      </SettingGroup>
+      </SettingsGroup>
 
-      <SettingGroup title="Screen">
+      <SettingsGroup title="Screen">
         <Switch
           label="Show device frame"
           hint="Draw a phone or tablet body around the screen, with side buttons you can click."
           checked={showFrame}
           onChange={setShowFrame}
         />
-      </SettingGroup>
+      </SettingsGroup>
 
-      <SettingGroup title="Agents">
+      <SettingsGroup title="Agents">
         <Switch
           label="Let agents use devices"
           hint={
@@ -255,11 +255,11 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
           disabled={!agentSettings}
           onChange={setAgentTools}
         />
-      </SettingGroup>
+      </SettingsGroup>
 
       <MobileDevSettingGroups mobile={mobile} />
 
-      <SettingGroup
+      <SettingsGroup
         title="Android SDK"
         actions={
           <Button size="xs" variant="ghost" icon="reload" loading={checking} onClick={() => void check(true)}>
@@ -276,10 +276,10 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
         ) : (
           <AndroidRows status={status} />
         )}
-      </SettingGroup>
+      </SettingsGroup>
 
       {status ? (
-        <SettingGroup title="iPhone simulator">
+        <SettingsGroup title="iPhone simulator">
           {status.ios.host ? (
             <>
               <ToolRow
@@ -305,9 +305,9 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
               />
             </>
           ) : (
-            <SettingRow label="Xcode" description="iPhone simulators need a Mac with Xcode.">
+            <SettingsRow label="Xcode" description="iPhone simulators need a Mac with Xcode.">
               <Badge tone="quiet">Not on this computer</Badge>
-            </SettingRow>
+            </SettingsRow>
           )}
           <RemoteMacRows
             mobile={mobile}
@@ -320,7 +320,7 @@ function MobileSettingsBody({ mobile }: { mobile: MobileBridge }) {
               void refreshDevices();
             }}
           />
-        </SettingGroup>
+        </SettingsGroup>
       ) : null}
     </>
   );
@@ -455,7 +455,7 @@ function AndroidRows({ status }: { status: MobileSetupStatus }) {
   const slow = accelerationProblem(android);
   return (
     <>
-      <SettingRow label="SDK location" description={SDK_SOURCE[android.sdkSource]}>
+      <SettingsRow label="SDK location" description={SDK_SOURCE[android.sdkSource]}>
         {android.sdkRoot ? (
           <span className="settings-value is-mono" title={android.sdkRoot}>
             {android.sdkRoot}
@@ -463,12 +463,12 @@ function AndroidRows({ status }: { status: MobileSetupStatus }) {
         ) : (
           <Badge tone="warning">Not found</Badge>
         )}
-      </SettingRow>
+      </SettingsRow>
       <ToolRow label="Platform tools" detail="adb, which talks to emulators and phones" probe={android.adb} />
       <ToolRow label="Emulator" detail="Runs Android virtual devices" probe={android.emulator} />
       <ToolRow label="Command-line tools" detail="sdkmanager and avdmanager" probe={android.sdkmanager} />
       <ToolRow label="Java" detail="Version 17 or newer, for the command-line tools" probe={android.java} />
-      <SettingRow
+      <SettingsRow
         label="Hardware acceleration"
         description={
           slow ??
@@ -485,8 +485,8 @@ function AndroidRows({ status }: { status: MobileSetupStatus }) {
         ) : (
           <Badge tone="quiet">Not checked</Badge>
         )}
-      </SettingRow>
-      <SettingRow
+      </SettingsRow>
+      <SettingsRow
         label="System images"
         description={
           android.systemImages.length > 0
@@ -497,7 +497,7 @@ function AndroidRows({ status }: { status: MobileSetupStatus }) {
         <span className="settings-value">
           {android.systemImages.length === 0 ? "None" : `${android.systemImages.length} installed`}
         </span>
-      </SettingRow>
+      </SettingsRow>
     </>
   );
 }
@@ -514,7 +514,7 @@ function ToolRow({
   optional?: boolean;
 }) {
   return (
-    <SettingRow label={label} description={detail}>
+    <SettingsRow label={label} description={detail}>
       <span className="mobile-tool-state" title={probe.path}>
         {probe.found && probe.version ? <span className="mobile-tool-version">{probe.version}</span> : null}
         {probe.found ? (
@@ -525,6 +525,6 @@ function ToolRow({
           <Badge tone={optional ? "quiet" : "warning"}>Missing</Badge>
         )}
       </span>
-    </SettingRow>
+    </SettingsRow>
   );
 }

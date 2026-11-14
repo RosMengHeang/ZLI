@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 
-import { SectionHeader, SettingRow } from "../settings/SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader, SettingsRow } from "../settings/SettingsLayout.js";
 import { Button } from "../ui/Button.js";
 import { Select } from "../ui/Field.js";
 import { Switch } from "../ui/Switch.js";
@@ -14,8 +14,10 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
   if (!updates?.available || !status) {
     return (
       <>
-        <SectionHeader title="Updates" />
-        <p className="settings-empty">Updates are only available in the ZLI desktop app.</p>
+        <SettingsPageHeader title="Updates" />
+        <SettingsGroup title="This version" bare>
+          <p className="settings-empty">Updates are only available in the ZLI desktop app.</p>
+        </SettingsGroup>
       </>
     );
   }
@@ -32,10 +34,10 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
   };
   return (
     <>
-      <SectionHeader title="Updates">
+      <SettingsPageHeader title="Updates">
         ZLI looks for a new version on GitHub when it starts and every 4 hours.
-      </SectionHeader>
-      <div className="setting-list">
+      </SettingsPageHeader>
+      <SettingsGroup title="This version">
         <div className="update-status">
           <div className="update-status-copy">
             <p className="update-status-text" role="status">
@@ -73,12 +75,10 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
             <progress className="update-progress" max={100} value={state.percent} aria-label="Download progress" />
           ) : null}
         </div>
-      </div>
-      <div className="setting-list">
-        <SettingRow label="Version" description="The version running now.">
+        <SettingsRow label="Version" description="The version running now.">
           <span className="settings-value is-mono">{status.currentVersion}</span>
-        </SettingRow>
-        <SettingRow label="Channel" description="Only stable releases are offered for now." htmlFor={channelId}>
+        </SettingsRow>
+        <SettingsRow label="Channel" description="Only stable releases are offered for now." htmlFor={channelId}>
           <Select
             id={channelId}
             label="Update channel"
@@ -87,7 +87,9 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
             onChange={() => undefined}
             disabled
           />
-        </SettingRow>
+        </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title="Installing">
         <Switch
           label="Install updates automatically"
           hint="Downloads new versions in the background and installs them when ZLI restarts."
@@ -95,7 +97,7 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
           disabled={disabled}
           onChange={(autoInstall) => void updates.setAutoInstall(autoInstall)}
         />
-      </div>
+      </SettingsGroup>
     </>
   );
 }

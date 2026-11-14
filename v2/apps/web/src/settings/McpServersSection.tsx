@@ -34,7 +34,7 @@ import {
   useMcpServers,
   withDisabledTools,
 } from "./mcpServers.js";
-import { TextLink } from "./SectionHeader.js";
+import { SettingsGroup, TextLink } from "./SettingsLayout.js";
 
 type Editing = { index?: number; draft: McpDraft };
 
@@ -466,127 +466,130 @@ export function McpServersSection({
   return (
     <>
       {storeAlert}
-      <h3 className="mcp-subhead">Built into ZLI</h3>
-      <ul className="mcp-rows">
-        <li className="mcp-row">
-          <ZliLogo size={28} className="mcp-row-logo" />
-          <span className="mcp-row-copy">
-            <strong>zli</strong>
-            <span className="mcp-row-detail">
-              Lets agents list, read, start, and message other agents. Also available as the zli command in terminals.{" "}
-              {zliStatus} Change it in <TextLink onClick={onAgentMessages}>Agent messages</TextLink>.
-            </span>
-          </span>
-        </li>
-        <li className="mcp-row">
-          <ZliLogo size={28} className="mcp-row-logo" />
-          <span className="mcp-row-copy">
-            <strong>zli-browser</strong>
-            <span className="mcp-row-detail">
-              Lets agents open and test pages in the Browser panel. Always on, and available as the zli-browser command
-              in terminals.
-            </span>
-          </span>
-        </li>
-        <ZliMobileRow />
-      </ul>
-      <h3 className="mcp-subhead">Your MCP servers</h3>
-      {servers.length === 0 ? (
-        <p className="settings-empty">
-          No servers yet. Connect one in <TextLink onClick={onBrowse}>Browse</TextLink>, or add your own in{" "}
-          <TextLink onClick={onCustom}>Custom</TextLink>.
-        </p>
-      ) : null}
-      {servers.length > 0 ? (
+      <SettingsGroup title="Built into ZLI" bare>
         <ul className="mcp-rows">
-          {servers.map((server, index) => (
-            <Fragment key={server.name}>
-              <li className={`mcp-row${server.enabled ? "" : " is-off"}`}>
-                <ConnectorLogo id={serverLogoId(server)} title={server.name} size={28} />
-                <span className="mcp-row-copy">
-                  {rowTitle(server.name, server.projects)}
-                  <span className="mcp-row-command" title={serverSummary(server)}>
-                    {serverSummary(server)}
+          <li className="mcp-row">
+            <ZliLogo size={28} className="mcp-row-logo" />
+            <span className="mcp-row-copy">
+              <strong>zli</strong>
+              <span className="mcp-row-detail">
+                Lets agents list, read, start, and message other agents. Also available as the zli command in terminals.{" "}
+                {zliStatus} Change it in <TextLink onClick={onAgentMessages}>Agent messages</TextLink>.
+              </span>
+            </span>
+          </li>
+          <li className="mcp-row">
+            <ZliLogo size={28} className="mcp-row-logo" />
+            <span className="mcp-row-copy">
+              <strong>zli-browser</strong>
+              <span className="mcp-row-detail">
+                Lets agents open and test pages in the Browser panel. Always on, and available as the zli-browser
+                command in terminals.
+              </span>
+            </span>
+          </li>
+          <ZliMobileRow />
+        </ul>
+      </SettingsGroup>
+      <SettingsGroup title="Your MCP servers" bare>
+        {servers.length === 0 ? (
+          <p className="settings-empty">
+            No servers yet. Connect one in <TextLink onClick={onBrowse}>Browse</TextLink>, or add your own in{" "}
+            <TextLink onClick={onCustom}>Custom</TextLink>.
+          </p>
+        ) : null}
+        {servers.length > 0 ? (
+          <ul className="mcp-rows">
+            {servers.map((server, index) => (
+              <Fragment key={server.name}>
+                <li className={`mcp-row${server.enabled ? "" : " is-off"}`}>
+                  <ConnectorLogo id={serverLogoId(server)} title={server.name} size={28} />
+                  <span className="mcp-row-copy">
+                    {rowTitle(server.name, server.projects)}
+                    <span className="mcp-row-command" title={serverSummary(server)}>
+                      {serverSummary(server)}
+                    </span>
                   </span>
-                </span>
-                {confirmDelete === server.name ? null : signInControls(server.name)}
-                {confirmDelete === server.name ? null : testButton(server.name)}
-                {confirmDelete === server.name ? (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      className="is-danger"
-                      disabled={saving}
-                      onClick={async () => {
-                        if (await persist(servers.filter((_, at) => at !== index))) {
-                          setConfirmDelete(undefined);
-                          if (editing?.index === index) setEditing(undefined);
-                        }
-                      }}
-                    >
-                      Remove
-                    </Button>
-                    <Button variant="ghost" size="xs" onClick={() => setConfirmDelete(undefined)}>
-                      Keep
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <IconButton
-                      label={`Edit ${server.name}`}
-                      icon="pencil"
-                      size="xs"
-                      iconSize={12}
-                      disabled={saving}
-                      onClick={() => startEdit(index)}
-                    />
-                    <IconButton
-                      label={`Remove ${server.name}`}
-                      icon="trash"
-                      size="xs"
-                      iconSize={12}
-                      disabled={saving}
-                      onClick={() => setConfirmDelete(server.name)}
-                    />
-                  </>
-                )}
-                <input
-                  className="switch"
-                  type="checkbox"
-                  role="switch"
-                  checked={server.enabled}
-                  aria-checked={server.enabled}
-                  aria-label={`Give agents ${server.name}`}
-                  disabled={saving}
-                  onChange={(event) =>
-                    void persist(
-                      servers.map((entry, at) => (at === index ? { ...entry, enabled: event.target.checked } : entry)),
-                    )
-                  }
-                />
-              </li>
-              {openTools.has(server.name) && tests[server.name] ? (
-                <li className="mcp-row-tools">
-                  <McpToolsPanel
-                    test={tests[server.name] as NonNullable<(typeof tests)[string]>}
-                    disabledTools={server.disabledTools ?? []}
-                    saving={saving}
-                    onChange={(disabledTools) => saveDisabledTools(server.name, disabledTools)}
-                    onClose={() => setToolsOpen(server.name, false)}
+                  {confirmDelete === server.name ? null : signInControls(server.name)}
+                  {confirmDelete === server.name ? null : testButton(server.name)}
+                  {confirmDelete === server.name ? (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="is-danger"
+                        disabled={saving}
+                        onClick={async () => {
+                          if (await persist(servers.filter((_, at) => at !== index))) {
+                            setConfirmDelete(undefined);
+                            if (editing?.index === index) setEditing(undefined);
+                          }
+                        }}
+                      >
+                        Remove
+                      </Button>
+                      <Button variant="ghost" size="xs" onClick={() => setConfirmDelete(undefined)}>
+                        Keep
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <IconButton
+                        label={`Edit ${server.name}`}
+                        icon="pencil"
+                        size="xs"
+                        iconSize={12}
+                        disabled={saving}
+                        onClick={() => startEdit(index)}
+                      />
+                      <IconButton
+                        label={`Remove ${server.name}`}
+                        icon="trash"
+                        size="xs"
+                        iconSize={12}
+                        disabled={saving}
+                        onClick={() => setConfirmDelete(server.name)}
+                      />
+                    </>
+                  )}
+                  <input
+                    className="switch"
+                    type="checkbox"
+                    role="switch"
+                    checked={server.enabled}
+                    aria-checked={server.enabled}
+                    aria-label={`Give agents ${server.name}`}
+                    disabled={saving}
+                    onChange={(event) =>
+                      void persist(
+                        servers.map((entry, at) =>
+                          at === index ? { ...entry, enabled: event.target.checked } : entry,
+                        ),
+                      )
+                    }
                   />
                 </li>
-              ) : null}
-            </Fragment>
-          ))}
-        </ul>
-      ) : null}
-      {servers.map((server) => (
-        <div key={server.name}>{signInProblem(server.name)}</div>
-      ))}
+                {openTools.has(server.name) && tests[server.name] ? (
+                  <li className="mcp-row-tools">
+                    <McpToolsPanel
+                      test={tests[server.name] as NonNullable<(typeof tests)[string]>}
+                      disabledTools={server.disabledTools ?? []}
+                      saving={saving}
+                      onChange={(disabledTools) => saveDisabledTools(server.name, disabledTools)}
+                      onClose={() => setToolsOpen(server.name, false)}
+                    />
+                  </li>
+                ) : null}
+              </Fragment>
+            ))}
+          </ul>
+        ) : null}
+        {servers.map((server) => (
+          <div key={server.name}>{signInProblem(server.name)}</div>
+        ))}
+      </SettingsGroup>
       {pluginSignIns.length > 0 ? (
-        <>
-          <h3 className="mcp-subhead">Servers from plugins</h3>
+        <SettingsGroup title="Servers from plugins" bare>
           <ul className="mcp-rows">
             {pluginSignIns.map((entry) => (
               <Fragment key={entry.name}>
@@ -615,7 +618,7 @@ export function McpServersSection({
           {pluginSignIns.map((entry) => (
             <div key={entry.name}>{signInProblem(entry.name)}</div>
           ))}
-        </>
+        </SettingsGroup>
       ) : null}
       {saveError && !editing ? (
         <p className="inline-error" role="alert">

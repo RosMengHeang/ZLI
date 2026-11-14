@@ -34,7 +34,7 @@ test("changes New agent defaults, branch names, and shortcuts from Settings", as
     await page.keyboard.press("Control+Shift+Y");
     await expect(settings.getByRole("button", { name: /^New agent, .+Y\. Change shortcut$/u })).toBeVisible();
 
-    await settings.getByRole("tab", { name: "Notifications" }).click();
+    await settings.getByRole("tab", { name: "General" }).click();
     const notify = settings.getByRole("switch", { name: /^Desktop notifications/u });
     await expect(notify).toBeChecked();
     await notify.click();

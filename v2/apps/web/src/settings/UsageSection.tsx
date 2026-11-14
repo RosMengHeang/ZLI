@@ -7,8 +7,10 @@ import { limitProviders, usePlanLimits } from "../limits/limits.js";
 import { Select } from "../ui/Field.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { Switch } from "../ui/Switch.js";
+import { formatTokens } from "../usage/usage.js";
+import { AUTO_COMPACT_CHOICES, useAgentSettings } from "./agentSettings.js";
 import { type SidebarLimits, updateAppSettings, useAppSettings } from "./appSettings.js";
-import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader, SettingsRow } from "./SettingsLayout.js";
 
 const AUTOMATIC = "automatic";
 
@@ -36,18 +38,18 @@ export function UsageSection({ projection }: { projection: RuntimeProjection | u
 
   return (
     <>
-      <SectionHeader title="Usage">
+      <SettingsPageHeader title="Usage">
         Plan limits show how much of a subscription's 5-hour, weekly, or monthly allowance you have used. Tokens and
         cost are always under Usage in the sidebar.
-      </SectionHeader>
-      <SettingGroup title="Sidebar">
+      </SettingsPageHeader>
+      <SettingsGroup title="Sidebar">
         <Switch
           label="Show plan limits"
           hint="A line beside Settings with the fullest limit. Click it to see every limit and when it resets."
           checked={sidebarLimits.enabled}
           onChange={(enabled) => change((current) => ({ ...current, enabled }))}
         />
-        <SettingRow
+        <SettingsRow
           label="Agent in the footer"
           description="Automatic follows the selected agent. Pick one to always show its limit."
           htmlFor={pinId}
@@ -67,9 +69,9 @@ export function UsageSection({ projection }: { projection: RuntimeProjection | u
             ]}
             onChange={pin}
           />
-        </SettingRow>
-      </SettingGroup>
-      <SettingGroup title="Agents" description="Choose which agents the card shows.">
+        </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title="Agents" description="Choose which agents the card shows.">
         {limits.status === "loading" ? (
           <p className="settings-empty" role="status">
             Checking your agents…
@@ -87,7 +89,50 @@ export function UsageSection({ projection }: { projection: RuntimeProjection | u
             />
           ))
         )}
-      </SettingGroup>
+      </SettingsGroup>
+      <ClaudeContextGroup />
     </>
+  );
+}
+
+const DEFAULT_CHOICE = "default";
+
+/** When Claude summarizes older context in chat agents. The runtime keeps it and applies it to new Claude chats. */
+function ClaudeContextGroup() {
+  const { state, save } = useAgentSettings();
+  const id = useId();
+  const saved = state.status === "ready" ? state.settings.claudeAutoCompactTokens : undefined;
+  const choices = AUTO_COMPACT_CHOICES.some((choice) => choice.tokens === saved)
+    ? AUTO_COMPACT_CHOICES
+    : [...AUTO_COMPACT_CHOICES, { tokens: saved, label: `${formatTokens(saved ?? 0)} tokens` }];
+  const description =
+    state.status === "error"
+      ? state.message
+      : state.status === "ready" && state.saveError
+        ? state.saveError
+        : "Claude summarizes older messages once a chat reaches this size. Lower makes each message cost less, but Claude forgets older details sooner. Applies to Claude chats started after you change it.";
+  return (
+    <SettingsGroup title="Claude">
+      <SettingsRow
+        label="Summarize older context at"
+        description={description}
+        descriptionTone={
+          state.status === "error" || (state.status === "ready" && state.saveError) ? "warning" : undefined
+        }
+        htmlFor={id}
+      >
+        <Select<string>
+          id={id}
+          label="Summarize older context at"
+          value={saved === undefined ? DEFAULT_CHOICE : String(saved)}
+          disabled={state.status !== "ready"}
+          options={choices.map((choice) => ({
+            value: choice.tokens === undefined ? DEFAULT_CHOICE : String(choice.tokens),
+            label: choice.label,
+          }))}
+          onChange={(value) => void save(value === DEFAULT_CHOICE ? {} : { claudeAutoCompactTokens: Number(value) })}
+        />
+      </SettingsRow>
+    </SettingsGroup>
   );
 }

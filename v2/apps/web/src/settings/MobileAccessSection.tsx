@@ -7,7 +7,7 @@ import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Switch } from "../ui/Switch.js";
 import { countdown, deviceDetail, newlyPaired, qrPath } from "./mobileAccessView.js";
-import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader, SettingsRow } from "./SettingsLayout.js";
 import { useMobileAccess } from "./useMobileAccess.js";
 
 const QUIET_ZONE = 4;
@@ -82,10 +82,10 @@ export function MobileAccessSection() {
   const [confirmRemove, setConfirmRemove] = useState<string>();
 
   const header = (
-    <SectionHeader title="Phone access">
+    <SettingsPageHeader title="Phone access">
       Follow agents, answer their requests, and start new work from the ZLI Remote app. The phone has to be on the same
       network as this computer.
-    </SectionHeader>
+    </SettingsPageHeader>
   );
 
   if (access.state.status === "unavailable") {
@@ -134,7 +134,7 @@ export function MobileAccessSection() {
     <>
       {header}
 
-      <SettingGroup
+      <SettingsGroup
         title="Connection"
         actions={
           value.state === "starting" ? (
@@ -165,7 +165,7 @@ export function MobileAccessSection() {
           }}
         />
         {listening ? (
-          <SettingRow label="Address" description="Paired phones reach this computer here.">
+          <SettingsRow label="Address" description="Paired phones reach this computer here.">
             {addresses.length > 0 ? (
               <span className="settings-value is-mono mobile-addresses">
                 {addresses.map((address) => (
@@ -175,7 +175,7 @@ export function MobileAccessSection() {
             ) : (
               <span className="settings-value">No network connection</span>
             )}
-          </SettingRow>
+          </SettingsRow>
         ) : null}
         {value.errorMessage ? (
           <p className="setting-placeholder is-problem" role="alert">
@@ -187,9 +187,9 @@ export function MobileAccessSection() {
             {access.actionError}
           </p>
         ) : null}
-      </SettingGroup>
+      </SettingsGroup>
 
-      <SettingGroup title="Pair a phone">
+      <SettingsGroup title="Pair a phone">
         {!listening ? (
           <p className="setting-placeholder">Turn on Allow phones on this network to pair a phone.</p>
         ) : value.pairing ? (
@@ -238,7 +238,7 @@ export function MobileAccessSection() {
                 The pairing code expired or was already used. Make a new one to pair a phone.
               </p>
             ) : null}
-            <SettingRow
+            <SettingsRow
               label="New phone"
               description={
                 value.hosts.length === 0
@@ -259,12 +259,12 @@ export function MobileAccessSection() {
               >
                 Pair a new phone
               </Button>
-            </SettingRow>
+            </SettingsRow>
           </>
         )}
-      </SettingGroup>
+      </SettingsGroup>
 
-      <SettingGroup
+      <SettingsGroup
         title="Paired phones"
         actions={
           value.devices.length > 0 ? (
@@ -333,7 +333,7 @@ export function MobileAccessSection() {
             ))}
           </ul>
         )}
-      </SettingGroup>
+      </SettingsGroup>
 
       <p className="settings-footnote mobile-security">
         <Icon name="lock" size={13} />
