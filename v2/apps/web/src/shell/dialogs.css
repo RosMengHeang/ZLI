@@ -83,7 +83,23 @@
 }
 .workspace-path > svg { flex: 0 0 auto; color: var(--zli-dim); }
 .workspace-path > span:first-of-type { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-branch { flex: 0 0 auto; color: var(--zli-text); }
+.workspace-path > .folder-branch { max-width: 45%; }
+.workspace-path > .folder-branch.is-branch { color: var(--zli-text); }
+.workspace-hint { display: flex; margin-top: var(--zli-space-1-5); }
+
+/* A folder's branch is secondary: one small dim line. Only a branch name truncates; other states keep their width. */
+.folder-branch { display: inline-flex; min-width: 0; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
+.folder-branch.is-branch { flex-shrink: 1; }
+.folder-branch > svg { flex: 0 0 auto; }
+.folder-branch-name { min-width: 0; overflow: hidden; font-family: var(--zli-mono); text-overflow: ellipsis; }
+/* Ink, not plain amber: Daylight's amber is 4.26:1 on the setup canvas, its ink passes in every theme. */
+.folder-branch.is-failed { color: var(--zli-amber-ink); }
+.folder-branch-retry {
+  padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: none; color: var(--zli-muted); cursor: pointer; font: inherit;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.folder-branch-retry:hover { color: var(--zli-text); }
+.folder-branch-retry:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 .dialog-footer-note code { padding: 0; background: none; color: var(--zli-muted); font-size: var(--zli-text-xs); }
 @media (max-width: 560px) {
   .form-grid { grid-template-columns: minmax(0, 1fr); }

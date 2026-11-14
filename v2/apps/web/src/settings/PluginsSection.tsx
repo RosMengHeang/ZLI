@@ -29,7 +29,7 @@ import { Icon, type IconName } from "../ui/Icon.js";
 import { ConnectorLogo, hasConnectorLogo } from "./connectorLogos.js";
 import { PluginExportForm } from "./PluginExportForm.js";
 import { PluginGallery } from "./PluginGallery.js";
-import { TextLink } from "./SectionHeader.js";
+import { SettingsGroup, TextLink } from "./SettingsLayout.js";
 import { formatBytes } from "./skills.js";
 import "../plugins/plugins.css";
 
@@ -494,8 +494,7 @@ export function PluginsSection({
       ) : null}
 
       {view === "installed" ? (
-        <>
-          <h3 className="mcp-subhead">Your plugins</h3>
+        <SettingsGroup title="Your plugins" bare>
           {result.plugins.length > 0 ? (
             <ul className="mcp-rows">{result.plugins.map(pluginRow)}</ul>
           ) : (
@@ -505,7 +504,7 @@ export function PluginsSection({
             </p>
           )}
           {checkProblem ? <p className="settings-footnote">{checkProblem}</p> : null}
-        </>
+        </SettingsGroup>
       ) : null}
 
       {error && !installing && !configuring ? (

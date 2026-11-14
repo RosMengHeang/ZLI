@@ -85,6 +85,8 @@
 /* Which agents worked in the folder and when, so the person can tell old projects from current ones. */
 .welcome-folder-meta { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); font-variant-numeric: tabular-nums; }
 .welcome-folder-marks { display: inline-flex; align-items: center; gap: var(--zli-space-1); }
+/* The branch matters more than the tail of a long path, so the path gives way first. */
+.welcome-row .folder-branch.welcome-folder-branch { max-width: 40%; flex-shrink: 0; }
 
 /* ---------- How you work ---------- */
 .welcome-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-4); }

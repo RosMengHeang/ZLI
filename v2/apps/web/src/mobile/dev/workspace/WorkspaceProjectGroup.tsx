@@ -1,4 +1,4 @@
-import { SettingGroup, SettingRow } from "../../../settings/SectionHeader.js";
+import { SettingsGroup, SettingsRow } from "../../../settings/SettingsLayout.js";
 import { Badge } from "../../../ui/Badge.js";
 import { IconButton } from "../../../ui/Button.js";
 import { LoadingState } from "../../../ui/Pane.js";
@@ -12,7 +12,7 @@ export function WorkspaceProjectGroup({ context }: { context: MobileDevContext }
   if (!context.mobile.dev?.workspace) return null;
   if (!workspace)
     return (
-      <SettingGroup title="This worktree" className="mobile-workspace-group">
+      <SettingsGroup title="This worktree" className="mobile-workspace-group">
         {error ? (
           <p className="inline-error" role="alert">
             {error}
@@ -20,7 +20,7 @@ export function WorkspaceProjectGroup({ context }: { context: MobileDevContext }
         ) : (
           <LoadingState label="Reading this worktree's Metro port" />
         )}
-      </SettingGroup>
+      </SettingsGroup>
     );
   const badge = ownerBadge(workspace.metro);
   const copy = () => {
@@ -31,8 +31,8 @@ export function WorkspaceProjectGroup({ context }: { context: MobileDevContext }
     );
   };
   return (
-    <SettingGroup title="This worktree" className="mobile-workspace-group">
-      <SettingRow
+    <SettingsGroup title="This worktree" className="mobile-workspace-group">
+      <SettingsRow
         label="Metro port"
         description={
           workspace.checkout
@@ -46,22 +46,22 @@ export function WorkspaceProjectGroup({ context }: { context: MobileDevContext }
             {badge.label}
           </Badge>
         </span>
-      </SettingRow>
-      <SettingRow label="Open on a device" description={workspace.devClient ? "Development build" : "Expo Go"}>
+      </SettingsRow>
+      <SettingsRow label="Open on a device" description={workspace.devClient ? "Development build" : "Expo Go"}>
         <span className="mobile-workspace-value">
           <span className="settings-value is-mono mobile-workspace-url" title={workspace.openUrl}>
             {workspace.openUrl}
           </span>
           <IconButton label="Copy URL" icon="copy" size="xs" iconSize={12} onClick={copy} />
         </span>
-      </SettingRow>
-      <SettingRow label="Emulator port">
+      </SettingsRow>
+      <SettingsRow label="Emulator port">
         {workspace.emulatorPort !== undefined ? (
           <span className="settings-value is-mono">emulator-{workspace.emulatorPort}</span>
         ) : (
           <span className="settings-value">Any free port</span>
         )}
-      </SettingRow>
-    </SettingGroup>
+      </SettingsRow>
+    </SettingsGroup>
   );
 }

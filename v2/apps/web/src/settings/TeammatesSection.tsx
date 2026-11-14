@@ -21,7 +21,7 @@ import { Field, Select } from "../ui/Field.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { Switch } from "../ui/Switch.js";
 import { updateAppSettings, useAppSettings } from "./appSettings.js";
-import { SectionHeader, SettingGroup } from "./SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader } from "./SettingsLayout.js";
 import "../teammates/teammates.css";
 
 const DEFAULT_MODEL = "__default__";
@@ -121,11 +121,11 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
 
   return (
     <>
-      <SectionHeader title="Teammates">
+      <SettingsPageHeader title="Teammates">
         Save the agents you work with as teammates, each with a name and a buddy. In any chat, bring one in from Bring
         in above the message box, or type @ and its name. It reads the chat so far and answers there.
-      </SectionHeader>
-      <SettingGroup
+      </SettingsPageHeader>
+      <SettingsGroup
         title="Your teammates"
         actions={
           draft || teammates.length >= MAX_TEAMMATES ? null : (
@@ -293,15 +293,15 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
             </div>
           </form>
         ) : null}
-      </SettingGroup>
-      <SettingGroup title="Avatars">
+      </SettingsGroup>
+      <SettingsGroup title="Avatars">
         <Switch
           label="Animate avatars"
           hint="Buddies hop and blink while their agent works, and hop when it needs you. Off keeps them still."
           checked={animateTeammates}
           onChange={(checked) => updateAppSettings((settings) => ({ ...settings, animateTeammates: checked }))}
         />
-      </SettingGroup>
+      </SettingsGroup>
     </>
   );
 }

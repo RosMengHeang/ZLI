@@ -14,7 +14,7 @@ import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { ConnectorLogo, hasConnectorLogo } from "./connectorLogos.js";
-import { TextLink } from "./SectionHeader.js";
+import { TextLink } from "./SettingsLayout.js";
 import "./connectors.css";
 import "../plugins/plugins.css";
 

@@ -5,7 +5,7 @@ import { connectLinear, disconnectLinear, linearStatus } from "../issues/issuesC
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { SectionHeader, SettingRow } from "./SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader, SettingsRow } from "./SettingsLayout.js";
 import "../issues/issues.css";
 
 export function IssuesSection() {
@@ -46,11 +46,8 @@ export function IssuesSection() {
 
   return (
     <>
-      <SectionHeader title="Issues">
-        GitHub and GitLab issues come from their CLIs, gh and glab, run in each project folder. Sign in to a self-hosted
-        GitLab with glab auth login --hostname and its host name. Linear issues need a personal API key.
-      </SectionHeader>
-      <div className="setting-list">
+      <SettingsPageHeader title="Issues">Where ZLI finds the issues you can start agents from.</SettingsPageHeader>
+      <SettingsGroup title="Linear">
         {loadError ? (
           <p className="inline-error" role="alert">
             <Icon name="alert" size={13} />
@@ -62,7 +59,7 @@ export function IssuesSection() {
             Checking Linear
           </p>
         ) : status.connected ? (
-          <SettingRow
+          <SettingsRow
             label="Linear"
             description={
               status.problem ? status.problem : `Connected as ${status.viewer?.name ?? "your Linear account"}.`
@@ -72,9 +69,9 @@ export function IssuesSection() {
             <Button size="sm" loading={busy} onClick={() => void run(() => disconnectLinear(dispatch))}>
               Disconnect
             </Button>
-          </SettingRow>
+          </SettingsRow>
         ) : (
-          <SettingRow
+          <SettingsRow
             label="Linear API key"
             htmlFor={inputId}
             description="Create one in Linear under Settings, Security and access. ZLI keeps it on this computer and only sends it to Linear."
@@ -101,7 +98,7 @@ export function IssuesSection() {
                 Connect
               </Button>
             </form>
-          </SettingRow>
+          </SettingsRow>
         )}
         {error ? (
           <p className="inline-error" role="alert">
@@ -109,7 +106,21 @@ export function IssuesSection() {
             {error}
           </p>
         ) : null}
-      </div>
+      </SettingsGroup>
+      <SettingsGroup title="GitHub and GitLab">
+        <SettingsRow
+          label="GitHub"
+          description="Read with the gh CLI in each project folder. Sign in with gh auth login."
+        >
+          <code className="settings-value is-mono">gh</code>
+        </SettingsRow>
+        <SettingsRow
+          label="GitLab"
+          description="Read with the glab CLI. For a self-hosted GitLab, sign in with glab auth login --hostname and its host name."
+        >
+          <code className="settings-value is-mono">glab</code>
+        </SettingsRow>
+      </SettingsGroup>
     </>
   );
 }

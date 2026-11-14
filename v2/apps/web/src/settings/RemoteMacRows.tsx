@@ -4,7 +4,7 @@ import { useId, useState } from "react";
 import { errorText, macName } from "../mobile/mobile.js";
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button, IconButton } from "../ui/Button.js";
-import { SettingRow } from "./SectionHeader.js";
+import { SettingsRow } from "./SettingsLayout.js";
 
 type TestResult = MobileIosHostTestResult & { host: string };
 
@@ -83,7 +83,7 @@ export function RemoteMacRows({
 
   return (
     <>
-      <SettingRow
+      <SettingsRow
         label="Mac for iPhone simulators"
         htmlFor={inputId}
         description={description}
@@ -125,9 +125,9 @@ export function RemoteMacRows({
             />
           ) : null}
         </div>
-      </SettingRow>
+      </SettingsRow>
       {address ? (
-        <SettingRow
+        <SettingsRow
           label="Connection"
           description={
             connection ? <span role="status">{connection}</span> : "Signs in to the Mac and counts its simulators."
@@ -143,7 +143,7 @@ export function RemoteMacRows({
           >
             Test connection
           </Button>
-        </SettingRow>
+        </SettingsRow>
       ) : null}
     </>
   );

@@ -4,7 +4,7 @@ import { type KeyboardEvent, useId, useRef, useState } from "react";
 import { ConnectorsSection } from "./ConnectorsSection.js";
 import { McpServersSection } from "./McpServersSection.js";
 import { PluginsSection } from "./PluginsSection.js";
-import { SectionHeader, TextLink } from "./SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader, TextLink } from "./SettingsLayout.js";
 import "./connectors.css";
 
 export type IntegrationsView = "browse" | "installed" | "custom";
@@ -68,10 +68,10 @@ export function IntegrationsSection({
 
   return (
     <>
-      <SectionHeader title="Integrations">
+      <SettingsPageHeader title="Integrations">
         Connect services, add MCP servers, and install plugins. Every agent ZLI starts can use them, in terminals and
         chats, from the next time it starts.
-      </SectionHeader>
+      </SettingsPageHeader>
       <div className="integrations-tabs" role="tablist" aria-label="Integrations" onKeyDown={onTabKey}>
         {views.map((entry) => (
           <button
@@ -120,31 +120,22 @@ export function IntegrationsSection({
               ))}
             </div>
             {kind === "plugins" ? null : (
-              <section className="integrations-group" aria-labelledby={`${ids}-connectors-title`}>
-                <header className="integrations-group-head">
-                  <h3 className="integrations-kind" id={`${ids}-connectors-title`}>
-                    Connectors
-                  </h3>
-                  <p className="integrations-note">
-                    Services and local tools you set up once. Sign-ins stay on this computer, in ZLI's data folder.
-                  </p>
-                </header>
+              <SettingsGroup
+                title="Connectors"
+                description="Services and local tools you set up once. Sign-ins stay on this computer, in ZLI's data folder."
+                bare
+              >
                 <ConnectorsSection query={query} />
-              </section>
+              </SettingsGroup>
             )}
             {kind === "connectors" ? null : (
-              <section className="integrations-group" aria-labelledby={`${ids}-plugins-title`}>
-                <header className="integrations-group-head">
-                  <h3 className="integrations-kind" id={`${ids}-plugins-title`}>
-                    Plugins
-                  </h3>
-                  <p className="integrations-note">
-                    Claude Code and Codex bundles of skills, prompts, and MCP servers. ZLI hands their parts to every
-                    agent.
-                  </p>
-                </header>
+              <SettingsGroup
+                title="Plugins"
+                description="Claude Code and Codex bundles of skills, prompts, and MCP servers. ZLI hands their parts to every agent."
+                bare
+              >
                 <PluginsSection view="browse" query={query} onInstalled={toInstalled} />
-              </section>
+              </SettingsGroup>
             )}
             <p className="settings-footnote">
               Not listed? Add any MCP server by its address or command, or install a plugin from GitHub, in{" "}
@@ -165,30 +156,20 @@ export function IntegrationsSection({
         ) : null}
         {view === "custom" ? (
           <>
-            <section className="integrations-group" aria-labelledby={`${ids}-server-title`}>
-              <header className="integrations-group-head">
-                <h3 className="integrations-kind" id={`${ids}-server-title`}>
-                  MCP server
-                </h3>
-                <p className="integrations-note">
-                  Add a server by its web address or the command that starts it, or copy the servers set up in Claude,
-                  Cursor, VS Code, or Windsurf.
-                </p>
-              </header>
+            <SettingsGroup
+              title="MCP server"
+              description="Add a server by its web address or the command that starts it, or copy the servers set up in Claude, Cursor, VS Code, or Windsurf."
+              bare
+            >
               <McpServersSection view="custom" onInstalled={toInstalled} />
-            </section>
-            <section className="integrations-group" aria-labelledby={`${ids}-plugin-title`}>
-              <header className="integrations-group-head">
-                <h3 className="integrations-kind" id={`${ids}-plugin-title`}>
-                  Plugin
-                </h3>
-                <p className="integrations-note">
-                  Install one from a GitHub repository or a folder on this computer, or save your own skills and MCP
-                  servers as a plugin to share.
-                </p>
-              </header>
+            </SettingsGroup>
+            <SettingsGroup
+              title="Plugin"
+              description="Install one from a GitHub repository or a folder on this computer, or save your own skills and MCP servers as a plugin to share."
+              bare
+            >
               <PluginsSection view="custom" onInstalled={toInstalled} />
-            </section>
+            </SettingsGroup>
           </>
         ) : null}
       </div>

@@ -41,49 +41,85 @@ import { IntegrationsSection, type IntegrationsView } from "./IntegrationsSectio
 import { IssuesSection } from "./IssuesSection.js";
 import { MobileAccessSection } from "./MobileAccessSection.js";
 import { MobileSection } from "./MobileSection.js";
-import { SectionHeader, SettingGroup, SettingRow } from "./SectionHeader.js";
+import { SettingsGroup, SettingsPageHeader, SettingsRow } from "./SettingsLayout.js";
 import { SkillsSection } from "./SkillsSection.js";
 import { TeammatesSection } from "./TeammatesSection.js";
 import { UsageSection } from "./UsageSection.js";
 import "./settings.css";
 
-export type SettingsSection =
-  | "agents"
-  | "agentMessages"
-  | "teammates"
-  | "accounts"
-  | "usage"
-  | "projects"
-  | "worktrees"
-  | "files"
-  | "integrations"
-  | "skills"
-  | "issues"
-  | "mobile"
+/** The pages in the Settings sidebar. */
+export type SettingsPage =
+  | "general"
   | "appearance"
   | "shortcuts"
-  | "phoneAccess"
-  | "notifications"
-  | "updates";
+  | "updates"
+  | "accounts"
+  | "usage"
+  | "skills"
+  | "teammates"
+  | "agentMessages"
+  | "projects"
+  | "worktrees"
+  | "issues"
+  | "integrations"
+  | "mobile"
+  | "phoneAccess";
 
-type SectionGroup = "Agents" | "Workspace" | "Tools" | "App";
+/**
+ * Where Settings can be asked to open. "agents", "files", and "notifications" were pages of their own before
+ * they moved into General, and still open it, so older links and callers keep working.
+ */
+export type SettingsSection = SettingsPage | "agents" | "files" | "notifications";
 
-type SectionEntry = {
-  id: SettingsSection;
+const movedPages: Partial<Record<SettingsSection, SettingsPage>> = {
+  agents: "general",
+  files: "general",
+  notifications: "general",
+};
+
+/** The page a section id opens. */
+export function settingsPageFor(section: SettingsSection): SettingsPage {
+  return movedPages[section] ?? (section as SettingsPage);
+}
+
+type PageGroup = "App" | "Agents" | "Projects" | "Tools";
+
+type PageEntry = {
+  id: SettingsPage;
   label: string;
   icon: IconName;
-  group: SectionGroup;
+  group: PageGroup;
   /** Words people may search for that the label does not contain. */
   keywords: string;
 };
 
-const sections: readonly SectionEntry[] = [
+/** In sidebar order: the settings people change most come first. */
+const pages: readonly PageEntry[] = [
   {
-    id: "agents",
-    label: "New agents",
-    icon: "squarePen",
+    id: "general",
+    label: "General",
+    icon: "settings",
+    group: "App",
+    keywords: "new agents defaults model view permissions chats archive notifications sound alerts files tree setup",
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    icon: "palette",
+    group: "App",
+    keywords: "theme colors dark light pink black sidebar project heading tint",
+  },
+  { id: "shortcuts", label: "Shortcuts", icon: "command", group: "App", keywords: "keys keyboard bindings" },
+  { id: "updates", label: "Updates", icon: "download", group: "App", keywords: "version channel" },
+  { id: "accounts", label: "Accounts", icon: "user", group: "Agents", keywords: "sign in api key login" },
+  { id: "usage", label: "Usage", icon: "gauge", group: "Agents", keywords: "plan limits sidebar quota subscription" },
+  { id: "skills", label: "Skills", icon: "sparkle", group: "Agents", keywords: "prompts instructions" },
+  {
+    id: "teammates",
+    label: "Teammates",
+    icon: "users",
     group: "Agents",
-    keywords: "defaults model view permissions",
+    keywords: "bring in mention @ avatar buddy animal reviewer second opinion chat",
   },
   {
     id: "agentMessages",
@@ -93,18 +129,20 @@ const sections: readonly SectionEntry[] = [
     keywords: "zli other agents projects reach cross-project talk send",
   },
   {
-    id: "teammates",
-    label: "Teammates",
-    icon: "users",
-    group: "Agents",
-    keywords: "bring in mention @ avatar buddy animal reviewer second opinion chat",
+    id: "projects",
+    label: "Projects",
+    icon: "folder",
+    group: "Projects",
+    keywords: "folders remove defaults workspace",
   },
-  { id: "accounts", label: "Accounts", icon: "user", group: "Agents", keywords: "sign in api key login" },
-  { id: "usage", label: "Usage", icon: "gauge", group: "Agents", keywords: "plan limits sidebar quota subscription" },
-  { id: "skills", label: "Skills", icon: "sparkle", group: "Agents", keywords: "prompts instructions" },
-  { id: "projects", label: "Projects", icon: "folder", group: "Workspace", keywords: "folders remove" },
-  { id: "worktrees", label: "Worktrees", icon: "branch", group: "Workspace", keywords: "branch name template" },
-  { id: "files", label: "Files", icon: "fileText", group: "Workspace", keywords: "tree position editor" },
+  {
+    id: "worktrees",
+    label: "Worktrees",
+    icon: "branch",
+    group: "Projects",
+    keywords: "branch name template workspace",
+  },
+  { id: "issues", label: "Issues", icon: "issue", group: "Projects", keywords: "github linear" },
   {
     id: "integrations",
     label: "Integrations",
@@ -112,7 +150,6 @@ const sections: readonly SectionEntry[] = [
     group: "Tools",
     keywords: "mcp servers connectors plugins",
   },
-  { id: "issues", label: "Issues", icon: "issue", group: "Tools", keywords: "github linear" },
   {
     id: "mobile",
     label: "Mobile",
@@ -128,25 +165,15 @@ const sections: readonly SectionEntry[] = [
     group: "Tools",
     keywords: "zli remote pair phone qr code mobile access",
   },
-  {
-    id: "appearance",
-    label: "Appearance",
-    icon: "palette",
-    group: "App",
-    keywords: "theme colors dark light pink black sidebar project heading tint",
-  },
-  { id: "shortcuts", label: "Shortcuts", icon: "command", group: "App", keywords: "keys keyboard bindings" },
-  { id: "notifications", label: "Notifications", icon: "bell", group: "App", keywords: "sound alerts" },
-  { id: "updates", label: "Updates", icon: "download", group: "App", keywords: "version channel" },
 ];
 
-const groups: readonly SectionGroup[] = ["Agents", "Workspace", "Tools", "App"];
+const pageGroups: readonly PageGroup[] = ["App", "Agents", "Projects", "Tools"];
 
-/** The sections whose label, group, or keywords contain every typed word. */
-export function matchingSections(query: string): readonly SectionEntry[] {
+/** The pages whose label, group, or keywords contain every typed word. */
+export function matchingSections(query: string): readonly PageEntry[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return sections;
-  return sections.filter((entry) => {
+  if (words.length === 0) return pages;
+  return pages.filter((entry) => {
     const haystack = `${entry.label} ${entry.group} ${entry.keywords}`.toLowerCase();
     return words.every((word) => haystack.includes(word));
   });
@@ -188,7 +215,7 @@ type Props = {
 export function SettingsDialog({
   projection,
   initialProjectId,
-  initialSection = "agents",
+  initialSection = "general",
   integrationsView,
   focusConnector,
   notifications,
@@ -200,24 +227,23 @@ export function SettingsDialog({
   onRemoveProject,
   onClose,
 }: Props) {
-  const [section, setSection] = useState<SettingsSection>(initialSection);
+  const [page, setPage] = useState<SettingsPage>(() => settingsPageFor(initialSection));
   const [query, setQuery] = useState("");
   const tabsId = useId();
-  const tabRefs = useRef<Partial<Record<SettingsSection, HTMLButtonElement | null>>>({});
+  const tabRefs = useRef<Partial<Record<SettingsPage, HTMLButtonElement | null>>>({});
   const panelRef = useRef<HTMLElement>(null);
   const visible = matchingSections(query);
-  const current = sections.find((entry) => entry.id === section) ?? sections[0];
-  // While a search hides the open section, the first match takes its place in the tab order.
-  const focusable = visible.some((entry) => entry.id === section) ? section : visible[0]?.id;
+  // While a search hides the open page, the first match takes its place in the tab order.
+  const focusable = visible.some((entry) => entry.id === page) ? page : visible[0]?.id;
 
-  const select = (next: SettingsSection) => {
-    setSection(next);
+  const select = (next: SettingsPage) => {
+    setPage(next);
     if (panelRef.current) panelRef.current.scrollTop = 0;
   };
 
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (visible.length === 0) return;
-    const index = visible.findIndex((entry) => entry.id === section);
+    const index = visible.findIndex((entry) => entry.id === page);
     const next =
       event.key === "ArrowDown"
         ? visible[(index + 1) % visible.length]
@@ -269,7 +295,7 @@ export function SettingsDialog({
             aria-orientation="vertical"
             onKeyDown={onTabKey}
           >
-            {groups.map((group) => {
+            {pageGroups.map((group) => {
               const entries = visible.filter((entry) => entry.group === group);
               if (entries.length === 0) return null;
               return (
@@ -287,7 +313,7 @@ export function SettingsDialog({
                       type="button"
                       role="tab"
                       id={`${tabsId}-${entry.id}`}
-                      aria-selected={section === entry.id}
+                      aria-selected={page === entry.id}
                       aria-controls={`${tabsId}-panel`}
                       tabIndex={focusable === entry.id ? 0 : -1}
                       onClick={() => select(entry.id)}
@@ -307,27 +333,28 @@ export function SettingsDialog({
           </div>
         </aside>
         <div className="settings-main">
-          <header className="settings-crumbs">
-            <span className="settings-crumb">{current?.group}</span>
-            <Icon name="chevronRight" size={12} />
-            <span className="settings-crumb is-current">{current?.label}</span>
-            <IconButton label="Close" icon="x" size="sm" className="settings-close" onClick={onClose} />
-          </header>
+          <IconButton label="Close" icon="x" size="sm" className="settings-close" onClick={onClose} />
           <section
             ref={panelRef}
             className="settings-panel"
             role="tabpanel"
             id={`${tabsId}-panel`}
-            aria-labelledby={`${tabsId}-${section}`}
+            aria-labelledby={`${tabsId}-${page}`}
           >
-            {section === "agents" ? <AgentDefaults projection={projection} onRunSetup={onRunSetup} /> : null}
-            {section === "agentMessages" ? <AgentMessagesSection /> : null}
-            {section === "teammates" ? <TeammatesSection projection={projection} /> : null}
-            {section === "accounts" ? (
+            {page === "general" ? (
+              <GeneralSettings projection={projection} notifications={notifications} onRunSetup={onRunSetup} />
+            ) : null}
+            {page === "appearance" ? <AppearanceSection /> : null}
+            {page === "shortcuts" ? <ShortcutSettings /> : null}
+            {page === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
+            {page === "accounts" ? (
               <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
             ) : null}
-            {section === "usage" ? <UsageSection projection={projection} /> : null}
-            {section === "projects" ? (
+            {page === "usage" ? <UsageSection projection={projection} /> : null}
+            {page === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}
+            {page === "teammates" ? <TeammatesSection projection={projection} /> : null}
+            {page === "agentMessages" ? <AgentMessagesSection /> : null}
+            {page === "projects" ? (
               <ProjectsSection
                 projection={projection}
                 initialProjectId={initialProjectId}
@@ -335,25 +362,17 @@ export function SettingsDialog({
                 onRemoveProject={onRemoveProject}
               />
             ) : null}
-            {section === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
-            {section === "files" ? <FilesSettings /> : null}
-            {section === "integrations" ? (
+            {page === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
+            {page === "issues" ? <IssuesSection /> : null}
+            {page === "integrations" ? (
               <IntegrationsSection
                 initialView={integrationsView}
                 focusConnector={focusConnector}
                 onAgentMessages={() => select("agentMessages")}
               />
             ) : null}
-            {section === "skills" ? (
-              <SkillsSection projection={projection} initialProjectId={initialProjectId} />
-            ) : null}
-            {section === "issues" ? <IssuesSection /> : null}
-            {section === "appearance" ? <AppearanceSection /> : null}
-            {section === "shortcuts" ? <ShortcutSettings /> : null}
-            {section === "notifications" ? <NotificationSection {...notifications} /> : null}
-            {section === "mobile" ? <MobileSection /> : null}
-            {section === "phoneAccess" ? <MobileAccessSection /> : null}
-            {section === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
+            {page === "mobile" ? <MobileSection /> : null}
+            {page === "phoneAccess" ? <MobileAccessSection /> : null}
           </section>
         </div>
       </div>
@@ -387,7 +406,7 @@ function LaunchFields({
   };
   return (
     <>
-      <SettingRow label="Agent" description="The CLI selected when the dialog opens." htmlFor={`${ids}-agent`}>
+      <SettingsRow label="Agent" description="The CLI selected when the dialog opens." htmlFor={`${ids}-agent`}>
         <Select
           id={`${ids}-agent`}
           label="Agent"
@@ -402,9 +421,9 @@ function LaunchFields({
           ]}
           onChange={(provider) => set({ provider, model: "" })}
         />
-      </SettingRow>
+      </SettingsRow>
       {value.provider && models.length > 0 ? (
-        <SettingRow label="Model" description="Used when the agent lets you choose one." htmlFor={`${ids}-model`}>
+        <SettingsRow label="Model" description="Used when the agent lets you choose one." htmlFor={`${ids}-model`}>
           <Select
             id={`${ids}-model`}
             label="Model"
@@ -412,9 +431,9 @@ function LaunchFields({
             options={modelOptions(models, value.model, value.provider)}
             onChange={(model) => set({ model })}
           />
-        </SettingRow>
+        </SettingsRow>
       ) : null}
-      <SettingRow
+      <SettingsRow
         label="View"
         description={style ? workStyleHint[style] : "Chat shows messages and changes. Terminal runs the agent's CLI."}
         htmlFor={`${ids}-view`}
@@ -426,8 +445,8 @@ function LaunchFields({
           options={[inherit, ...modeOptions]}
           onChange={(next) => onChange(withWorkStyle(value, (next || undefined) as WorkStyle | undefined))}
         />
-      </SettingRow>
-      <SettingRow
+      </SettingsRow>
+      <SettingsRow
         label="Permissions"
         description={
           value.permissionMode ? permissionHint[value.permissionMode] : "What the agent may do without asking."
@@ -441,61 +460,111 @@ function LaunchFields({
           options={[inherit, ...permissionOptions]}
           onChange={(permissionMode) => set({ permissionMode })}
         />
-      </SettingRow>
+      </SettingsRow>
     </>
   );
 }
 
-function AgentDefaults({
+/** The settings people change most: what new agents start with, how chats behave, and alerts. */
+function GeneralSettings({
   projection,
+  notifications,
   onRunSetup,
 }: {
   projection: RuntimeProjection | undefined;
+  notifications: { settings: NotificationSettings | undefined; update(patch: Partial<NotificationSettings>): void };
   onRunSetup?: (() => void) | undefined;
 }) {
   const settings = useAppSettings();
+  const treeId = useId();
+  const alerts = notifications.settings;
   return (
     <>
-      <SectionHeader title="New agents">
-        What the New agent dialog starts with. Fields set to Last used repeat your previous choice.
-      </SectionHeader>
-      <SettingGroup title="Defaults">
+      <SettingsPageHeader title="General">Defaults for new agents, chats, notifications, and files.</SettingsPageHeader>
+      <SettingsGroup
+        title="New agents"
+        description="What the New agent dialog starts with. Last used repeats your previous choice."
+      >
         <LaunchFields
           projection={projection}
           value={settings.defaults}
           inheritLabel="Last used"
           onChange={(defaults) => updateAppSettings((current) => ({ ...current, defaults }))}
         />
-      </SettingGroup>
-      <SettingGroup title="Chats">
+      </SettingsGroup>
+      <SettingsGroup title="Chats">
         <Switch
           label="Show several chats at once"
-          hint="Open chats share the screen side by side. Off shows one chat at a time; pick another from the sidebar."
+          hint="Open chats share the screen side by side. Off shows one chat at a time."
           checked={settings.severalChats}
           onChange={(checked) => updateAppSettings((current) => ({ ...current, severalChats: checked }))}
         />
         <Switch
           label="Archive chats when their pull request merges"
-          hint="The chat moves to Archived at the bottom of the sidebar once its pull request merges or closes. Unarchive it from there."
+          hint="The chat moves to Archived at the bottom of the sidebar once its pull request merges or closes."
           checked={settings.archiveMergedChats}
           onChange={(checked) => updateAppSettings((current) => ({ ...current, archiveMergedChats: checked }))}
         />
-      </SettingGroup>
+      </SettingsGroup>
+      <SettingsGroup
+        title="Notifications"
+        description={alerts ? "Agents already on screen stay quiet while the ZLI window has focus." : undefined}
+      >
+        {alerts ? (
+          <>
+            <Switch
+              label="Desktop notifications"
+              hint="Notify when an agent finishes or needs input, and badge the taskbar or dock icon."
+              checked={alerts.enabled}
+              onChange={(enabled) => notifications.update({ enabled })}
+            />
+            <Switch
+              label="Sound"
+              hint="Play a sound with each notification."
+              checked={alerts.sound}
+              disabled={!alerts.enabled}
+              onChange={(sound) => notifications.update({ sound })}
+            />
+          </>
+        ) : (
+          <p className="setting-placeholder">Notifications are available in the ZLI desktop app only.</p>
+        )}
+      </SettingsGroup>
+      <SettingsGroup title="Files">
+        <SettingsRow
+          label="File tree position"
+          description="Where the tree sits when the Files panel is wide enough for the tree and a file."
+          htmlFor={treeId}
+        >
+          <Select
+            id={treeId}
+            label="File tree position"
+            value={settings.fileTreePosition}
+            options={treePositionOptions}
+            onChange={(fileTreePosition) => updateAppSettings((current) => ({ ...current, fileTreePosition }))}
+          />
+        </SettingsRow>
+      </SettingsGroup>
       {onRunSetup ? (
-        <SettingGroup title="Setup">
-          <SettingRow
+        <SettingsGroup title="Setup">
+          <SettingsRow
             label="Welcome setup"
-            description="Check your agents, pick how new agents open, and add projects from your Claude Code or Codex history."
+            description="Check your agents, pick how new agents open, and add projects from your agent history."
           >
             <Button size="sm" icon="reload" onClick={onRunSetup}>
               Run setup again
             </Button>
-          </SettingRow>
-        </SettingGroup>
+          </SettingsRow>
+        </SettingsGroup>
       ) : null}
     </>
   );
 }
+
+const treePositionOptions: readonly PickerOption<FileTreePosition>[] = [
+  { value: "right", label: "Right" },
+  { value: "left", label: "Left" },
+];
 
 function ProjectsSection({
   projection,
@@ -513,49 +582,40 @@ function ProjectsSection({
   const [projectId, setProjectId] = useState(
     projects.find((project) => project.projectId === initialProjectId)?.projectId ?? projects[0]?.projectId,
   );
-  const [confirmId, setConfirmId] = useState<string>();
+  const [confirming, setConfirming] = useState(false);
   const [removed, setRemoved] = useState<string>();
   // A project removed from here, or from elsewhere while Settings is open, falls back to the first one left.
   const project = projects.find((candidate) => candidate.projectId === projectId) ?? projects[0];
 
   const addButton = onAddProject ? (
-    <div className="settings-actions">
-      <Button size="sm" icon="folderPlus" onClick={onAddProject}>
-        Add project
-      </Button>
-    </div>
-  ) : null;
+    <Button size="sm" icon="folderPlus" onClick={onAddProject}>
+      Add project
+    </Button>
+  ) : undefined;
   const removedNote = removed ? (
     <p className="settings-done" role="status">
       <Icon name="check" size={14} />
       <span>Removed {removed} from ZLI. Its folder is still on disk.</span>
     </p>
   ) : null;
+  const header = (
+    <SettingsPageHeader title="Projects">
+      Folders you added to ZLI. Select one to give it its own agent defaults.
+    </SettingsPageHeader>
+  );
 
   if (!project) {
     return (
       <>
-        <SectionHeader title="Projects">Folders you added to ZLI. Agents start in one of them.</SectionHeader>
+        {header}
         {removedNote}
-        <div className="project-empty">
-          <span className="project-tile" aria-hidden="true">
-            <Icon name="folder" size={16} />
-          </span>
+        <SettingsGroup title="Folders" actions={addButton} bare>
           <p className="settings-empty">No projects yet. Add a folder to start agents in it.</p>
-        </div>
-        {addButton}
+        </SettingsGroup>
       </>
     );
   }
 
-  const remove = async (target: ProjectProjection) => {
-    const problem = await onRemoveProject?.(target.projectId);
-    if (!problem) {
-      setConfirmId(undefined);
-      setRemoved(target.name);
-    }
-    return problem;
-  };
   const override = settings.projects[project.projectId] ?? {};
   const setOverride = (next: LaunchDefaults) =>
     updateAppSettings((current) => {
@@ -565,15 +625,9 @@ function ProjectsSection({
 
   return (
     <>
-      <SectionHeader title="Projects">
-        Folders you added to ZLI. Select one to give it its own agent defaults.
-      </SectionHeader>
+      {header}
       {removedNote}
-      <section className="accounts-provider" aria-label="Project folders">
-        <h3 className="mcp-subhead accounts-subhead">
-          Folders
-          <span className="mcp-chip">{projects.length}</span>
-        </h3>
+      <SettingsGroup title={`Folders (${projects.length})`} actions={addButton} bare>
         <ul className="project-list" aria-label="Projects">
           {projects.map((candidate) => (
             <ProjectRow
@@ -581,42 +635,55 @@ function ProjectsSection({
               projection={projection}
               project={candidate}
               selected={candidate.projectId === project.projectId}
-              confirming={confirmId === candidate.projectId}
-              canRemove={onRemoveProject !== undefined}
               onSelect={() => {
                 setRemoved(undefined);
+                setConfirming(false);
                 setProjectId(candidate.projectId);
               }}
-              onAsk={() => {
-                setRemoved(undefined);
-                setConfirmId(candidate.projectId);
-              }}
-              onCancel={() => setConfirmId(undefined)}
-              onRemove={() => remove(candidate)}
             />
           ))}
         </ul>
-        {addButton}
-      </section>
-      <section className="accounts-provider" aria-label={`Defaults for ${project.name}`}>
-        <h3 className="mcp-subhead accounts-subhead">Defaults for {project.name}</h3>
-        <div className="setting-list">
-          <LaunchFields
-            key={project.projectId}
-            projection={projection}
-            value={override}
-            inheritLabel="Same as New agents"
-            onChange={setOverride}
-          />
-        </div>
-        {Object.keys(override).length > 0 ? (
-          <div className="settings-actions">
+      </SettingsGroup>
+      <SettingsGroup
+        title={`Defaults for ${project.name}`}
+        description="Fields set to Default use the New agents defaults from General."
+        actions={
+          Object.keys(override).length > 0 ? (
             <Button size="sm" variant="ghost" icon="rotate" onClick={() => setOverride({})}>
-              Reset {project.name} to New agents
+              Reset all to Default
             </Button>
-          </div>
-        ) : null}
-      </section>
+          ) : undefined
+        }
+      >
+        <LaunchFields
+          key={project.projectId}
+          projection={projection}
+          value={override}
+          inheritLabel="Default"
+          onChange={setOverride}
+        />
+      </SettingsGroup>
+      {onRemoveProject ? (
+        <ProjectRemoval
+          key={project.projectId}
+          projection={projection}
+          project={project}
+          confirming={confirming}
+          onAsk={() => {
+            setRemoved(undefined);
+            setConfirming(true);
+          }}
+          onCancel={() => setConfirming(false)}
+          onRemove={async () => {
+            const problem = await onRemoveProject(project.projectId);
+            if (!problem) {
+              setConfirming(false);
+              setRemoved(project.name);
+            }
+            return problem;
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -653,24 +720,53 @@ function removalDetail(stats: ProjectStats): string {
   return parts.join(" ");
 }
 
-/** Removing takes two clicks on purpose: the trash button only asks, so a stray click removes nothing. */
+/** One folder in the list. Selecting it shows its defaults and its Remove action below the list. */
 function ProjectRow({
   projection,
   project,
   selected,
-  confirming,
-  canRemove,
   onSelect,
+}: {
+  projection: RuntimeProjection | undefined;
+  project: ProjectProjection;
+  selected: boolean;
+  onSelect(): void;
+}) {
+  const stats = projectStats(projection, project);
+  return (
+    <li className={`project-row${selected ? " is-selected" : ""}`}>
+      <button type="button" className="project-pick" aria-current={selected ? "true" : undefined} onClick={onSelect}>
+        <Icon name="folder" size={15} />
+        <span className="project-pick-copy">
+          <span className="project-pick-title">
+            <strong>{project.name}</strong>
+            {stats.running > 0 ? (
+              <Badge tone="success" dot>
+                {stats.running} running
+              </Badge>
+            ) : null}
+            {stats.agents > 0 ? <span className="mcp-chip">{plural(stats.agents, "agent")}</span> : null}
+            {stats.worktrees > 0 ? <span className="mcp-chip">{plural(stats.worktrees, "worktree")}</span> : null}
+          </span>
+          <span className="project-pick-path">{project.path}</span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
+/** Removing takes two clicks on purpose: the first button only asks, so a stray click removes nothing. */
+function ProjectRemoval({
+  projection,
+  project,
+  confirming,
   onAsk,
   onCancel,
   onRemove,
 }: {
   projection: RuntimeProjection | undefined;
   project: ProjectProjection;
-  selected: boolean;
   confirming: boolean;
-  canRemove: boolean;
-  onSelect(): void;
   onAsk(): void;
   onCancel(): void;
   onRemove(): Promise<string | undefined>;
@@ -698,46 +794,9 @@ function ProjectRow({
   };
 
   return (
-    <li className={`project-row${selected ? " is-selected" : ""}${confirming ? " is-confirming" : ""}`}>
-      <div className="project-row-main">
-        <button type="button" className="project-pick" aria-current={selected ? "true" : undefined} onClick={onSelect}>
-          <span className="project-tile" aria-hidden="true">
-            <Icon name="folder" size={16} />
-          </span>
-          <span className="project-pick-copy">
-            <span className="project-pick-title">
-              <strong>{project.name}</strong>
-              {stats.running > 0 ? (
-                <Badge tone="success" dot>
-                  {stats.running} running
-                </Badge>
-              ) : null}
-              {stats.agents > 0 ? <span className="mcp-chip">{plural(stats.agents, "agent")}</span> : null}
-              {stats.worktrees > 0 ? <span className="mcp-chip">{plural(stats.worktrees, "worktree")}</span> : null}
-            </span>
-            <span className="project-pick-path">{project.path}</span>
-          </span>
-        </button>
-        {canRemove && !confirming ? (
-          <span className="project-row-actions">
-            <IconButton
-              ref={askRef}
-              label={`Remove ${project.name}`}
-              tooltip="Remove from ZLI. The folder stays on disk."
-              icon="trash"
-              size="sm"
-              iconSize={14}
-              tone="danger"
-              onClick={onAsk}
-            />
-          </span>
-        ) : null}
-      </div>
+    <SettingsGroup title="Remove project" tone="danger">
       {confirming ? (
         <div className="project-remove">
-          <span className="project-remove-mark" aria-hidden="true">
-            <Icon name="alert" size={15} />
-          </span>
           <div className="project-remove-copy">
             <p className="project-remove-title">Remove {project.name} from ZLI?</p>
             <p className="project-remove-detail">{removalDetail(stats)}</p>
@@ -756,10 +815,17 @@ function ProjectRow({
             </Button>
           </div>
         </div>
-      ) : null}
-    </li>
+      ) : (
+        <SettingsRow label={`Remove ${project.name}`} description="Takes it out of ZLI. The folder stays on disk.">
+          <Button ref={askRef} size="sm" icon="trash" onClick={onAsk}>
+            Remove {project.name}
+          </Button>
+        </SettingsRow>
+      )}
+    </SettingsGroup>
   );
 }
+
 function WorktreeSettings({ projection }: { projection: RuntimeProjection | undefined }) {
   const settings = useAppSettings();
   const [draft, setDraft] = useState(settings.branchTemplate);
@@ -776,9 +842,9 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
   };
   return (
     <>
-      <SectionHeader title="Worktrees">How ZLI names the branch for each new worktree.</SectionHeader>
-      <SettingGroup title="Branch names">
-        <SettingRow
+      <SettingsPageHeader title="Worktrees">How ZLI names the branch for each new worktree.</SettingsPageHeader>
+      <SettingsGroup title="Branch names">
+        <SettingsRow
           label="Branch name"
           htmlFor={inputId}
           description={
@@ -812,8 +878,8 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
               />
             ) : null}
           </div>
-        </SettingRow>
-        <SettingRow
+        </SettingsRow>
+        <SettingsRow
           label="Preview"
           description={
             template.includes("{random}")
@@ -823,36 +889,8 @@ function WorktreeSettings({ projection }: { projection: RuntimeProjection | unde
           descriptionTone={template.includes("{random}") ? undefined : "warning"}
         >
           <span className="settings-value is-mono">{preview}</span>
-        </SettingRow>
-      </SettingGroup>
-    </>
-  );
-}
-
-const treePositionOptions: readonly PickerOption<FileTreePosition>[] = [
-  { value: "right", label: "Right" },
-  { value: "left", label: "Left" },
-];
-
-function FilesSettings() {
-  const settings = useAppSettings();
-  const selectId = useId();
-  return (
-    <>
-      <SectionHeader title="Files">
-        Layout of the Files panel when it is wide enough for the tree and a file.
-      </SectionHeader>
-      <SettingGroup title="Layout">
-        <SettingRow label="Tree position" description="The open file takes the other side." htmlFor={selectId}>
-          <Select
-            id={selectId}
-            label="File tree position"
-            value={settings.fileTreePosition}
-            options={treePositionOptions}
-            onChange={(fileTreePosition) => updateAppSettings((current) => ({ ...current, fileTreePosition }))}
-          />
-        </SettingRow>
-      </SettingGroup>
+        </SettingsRow>
+      </SettingsGroup>
     </>
   );
 }
@@ -894,114 +932,80 @@ function ShortcutSettings() {
 
   return (
     <>
-      <SectionHeader title="Shortcuts">
+      <SettingsPageHeader title="Shortcuts">
         Select a shortcut, then press the new keys. Esc cancels. Ctrl and Cmd count as the same key.
-      </SectionHeader>
-      <ul className="setting-list shortcut-list">
-        {shortcutActions.map((action) => {
-          const current = settings.shortcuts[action.id] ?? action.shortcut;
-          const isRecording = recording === action.id;
-          const changed = settings.shortcuts[action.id] !== undefined;
-          return (
-            <li className="shortcut-row" key={action.id}>
-              <span className="shortcut-label">{action.label}</span>
-              <span className="shortcut-reset">
-                {changed ? (
-                  <IconButton
-                    label={`Reset ${action.label} to ${shortcutText(action.shortcut)}`}
-                    tooltip={`Reset to ${shortcutText(action.shortcut)}`}
-                    icon="rotate"
-                    size="xs"
-                    iconSize={12}
-                    onClick={() => {
-                      setProblem(undefined);
-                      assign(action.id, undefined);
-                    }}
-                  />
+      </SettingsPageHeader>
+      <SettingsGroup
+        title="Keyboard shortcuts"
+        bare
+        actions={
+          customized ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="rotate"
+              onClick={() => {
+                setProblem(undefined);
+                updateAppSettings((current: AppSettings) => ({ ...current, shortcuts: {} }));
+              }}
+            >
+              Reset all shortcuts
+            </Button>
+          ) : undefined
+        }
+      >
+        <ul className="setting-list shortcut-list">
+          {shortcutActions.map((action) => {
+            const current = settings.shortcuts[action.id] ?? action.shortcut;
+            const isRecording = recording === action.id;
+            const changed = settings.shortcuts[action.id] !== undefined;
+            return (
+              <li className="shortcut-row" key={action.id}>
+                <span className="shortcut-label">{action.label}</span>
+                <span className="shortcut-reset">
+                  {changed ? (
+                    <IconButton
+                      label={`Reset ${action.label} to ${shortcutText(action.shortcut)}`}
+                      tooltip={`Reset to ${shortcutText(action.shortcut)}`}
+                      icon="rotate"
+                      size="xs"
+                      iconSize={12}
+                      onClick={() => {
+                        setProblem(undefined);
+                        assign(action.id, undefined);
+                      }}
+                    />
+                  ) : null}
+                </span>
+                <button
+                  className={`shortcut-key${isRecording ? " is-recording" : ""}`}
+                  type="button"
+                  aria-label={
+                    isRecording
+                      ? `Press the new keys for ${action.label}`
+                      : `${action.label}, ${shortcutText(current)}. Change shortcut`
+                  }
+                  onClick={() => {
+                    setProblem(undefined);
+                    setRecording(isRecording ? undefined : action.id);
+                  }}
+                  onKeyDown={isRecording ? (event) => onRecordKey(action.id, event) : undefined}
+                  onBlur={() => {
+                    if (isRecording) setRecording(undefined);
+                  }}
+                >
+                  {isRecording ? <span className="shortcut-waiting">Press keys</span> : <Kbd shortcut={current} />}
+                </button>
+                {problem?.id === action.id ? (
+                  <p className="shortcut-problem" role="alert">
+                    {problem.message}
+                  </p>
                 ) : null}
-              </span>
-              <button
-                className={`shortcut-key${isRecording ? " is-recording" : ""}`}
-                type="button"
-                aria-label={
-                  isRecording
-                    ? `Press the new keys for ${action.label}`
-                    : `${action.label}, ${shortcutText(current)}. Change shortcut`
-                }
-                onClick={() => {
-                  setProblem(undefined);
-                  setRecording(isRecording ? undefined : action.id);
-                }}
-                onKeyDown={isRecording ? (event) => onRecordKey(action.id, event) : undefined}
-                onBlur={() => {
-                  if (isRecording) setRecording(undefined);
-                }}
-              >
-                {isRecording ? <span className="shortcut-waiting">Press keys</span> : <Kbd shortcut={current} />}
-              </button>
-              {problem?.id === action.id ? (
-                <p className="shortcut-problem" role="alert">
-                  {problem.message}
-                </p>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
-      {customized ? (
-        <div className="settings-actions">
-          <Button
-            size="sm"
-            variant="ghost"
-            icon="rotate"
-            onClick={() => {
-              setProblem(undefined);
-              updateAppSettings((current: AppSettings) => ({ ...current, shortcuts: {} }));
-            }}
-          >
-            Reset all shortcuts
-          </Button>
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function NotificationSection({
-  settings,
-  update,
-}: {
-  settings: NotificationSettings | undefined;
-  update(patch: Partial<NotificationSettings>): void;
-}) {
-  if (!settings) {
-    return (
-      <>
-        <SectionHeader title="Notifications" />
-        <p className="settings-empty">Notifications are available in the ZLI desktop app only.</p>
-      </>
-    );
-  }
-  return (
-    <>
-      <SectionHeader title="Notifications">
-        Agents already on screen stay quiet while the ZLI window has focus.
-      </SectionHeader>
-      <SettingGroup title="Alerts">
-        <Switch
-          label="Desktop notifications"
-          hint="Notify when an agent finishes or needs input, and badge the taskbar or dock icon."
-          checked={settings.enabled}
-          onChange={(enabled) => update({ enabled })}
-        />
-        <Switch
-          label="Sound"
-          hint="Play a sound with each notification."
-          checked={settings.sound}
-          disabled={!settings.enabled}
-          onChange={(sound) => update({ sound })}
-        />
-      </SettingGroup>
+              </li>
+            );
+          })}
+        </ul>
+      </SettingsGroup>
     </>
   );
 }

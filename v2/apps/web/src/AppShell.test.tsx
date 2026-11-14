@@ -1090,10 +1090,10 @@ describe("Settings", () => {
     updateAppSettings((current) => ({ ...current, defaults: { permissionMode: "full-access" } }));
     const container = await render(makeBridge(discovered));
     const settings = await openSettings(container, "Projects");
-    expect(picker(settings, "Permissions").getAttribute("aria-label")).toBe("Permissions: Same as New agents");
+    expect(picker(settings, "Permissions").getAttribute("aria-label")).toBe("Permissions: Default");
     await choose(settings, "Permissions", "Edit files");
     expect(document.querySelector('[role="listbox"]')).toBeNull();
-    expect(button(settings, "Reset repo to New agents")).not.toBeUndefined();
+    expect(button(settings, "Reset all to Default")).not.toBeUndefined();
 
     await press(window, { key: "Escape", code: "Escape" });
     await openNewAgentOptions(container);
