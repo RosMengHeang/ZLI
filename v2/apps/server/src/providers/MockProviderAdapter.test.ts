@@ -2,6 +2,7 @@ import { ThreadId } from "@zli-v2/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { MockProviderAdapter } from "./MockProviderAdapter.js";
+import type { ProviderEvent } from "./ProviderService.js";
 
 describe("MockProviderAdapter", () => {
   it("emits a deterministic structured turn without an external provider", async () => {
@@ -22,6 +23,50 @@ describe("MockProviderAdapter", () => {
         { type: "assistant.delta", threadId, turnId: result.turnId, text: "Mock response: hello" },
         { type: "turn.completed", threadId, turnId: result.turnId, status: "completed" },
       ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("plays a showcase turn with thinking, every kind of step, sources, and a nearly full context", async () => {
+    vi.useFakeTimers();
+    try {
+      const adapter = new MockProviderAdapter();
+      const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000004");
+      const events: ProviderEvent[] = [];
+      adapter.subscribe((event) => events.push(event));
+      await adapter.startSession({ threadId, cwd: "C:/repo" });
+      await adapter.sendTurn({ threadId, text: "[showcase]" });
+      await vi.advanceTimersByTimeAsync(1_000);
+      // Partway through, the thinking is still arriving and the turn has not ended.
+      expect(events.some((event) => event.type === "reasoning.delta")).toBe(true);
+      expect(events.some((event) => event.type === "turn.completed")).toBe(false);
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(events[0]?.type).toBe("turn.started");
+      expect(events.at(-1)).toMatchObject({ type: "turn.completed", status: "completed" });
+      const deltas = events.filter((event) => event.type === "reasoning.delta");
+      expect(deltas.length).toBeGreaterThanOrEqual(5);
+      expect(events.filter((event) => event.type === "reasoning.completed")).toHaveLength(2);
+      const finished = events.flatMap((event) =>
+        event.type === "activity" && event.activity.status !== "running" ? [event.activity] : [],
+      );
+      expect(new Set(finished.map((activity) => activity.kind))).toEqual(
+        new Set(["file-read", "search", "command", "tool", "web", "file-edit"]),
+      );
+      const build = finished.find((activity) => activity.command === "npm run build");
+      expect(build?.detail?.split("\n").length).toBeGreaterThanOrEqual(35);
+      expect(finished.find((activity) => activity.kind === "tool")?.input?.length).toBeGreaterThan(0);
+      const pages = finished.find((activity) => activity.kind === "web")?.urls ?? [];
+      expect(pages).toHaveLength(3);
+      const failed = finished.find((activity) => activity.status === "failed");
+      expect(failed?.detail).toContain("node_modules/");
+      const reply = events.flatMap((event) => (event.type === "assistant.delta" ? [event.text] : [])).join("");
+      expect(reply).toContain(`](${pages[0]?.url})`);
+      const usage = events.find((event) => event.type === "usage");
+      expect(
+        usage?.type === "usage" && (usage.usage.contextTokens ?? 0) / (usage.usage.contextWindow ?? 1),
+      ).toBeCloseTo(0.8, 1);
     } finally {
       vi.useRealTimers();
     }
