@@ -1,8 +1,8 @@
 import { ThreadId } from "@zli-v2/contracts";
 import {
   type AcpPermissionAnswer,
-  type AcpProviderEvent,
   AcpProviderError,
+  type AcpProviderEvent,
   type AcpTranscriptTurn,
 } from "@zli-v2/provider-acp";
 import { describe, expect, it } from "vitest";

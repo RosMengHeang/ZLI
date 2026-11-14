@@ -27,6 +27,8 @@ export type CodexToolUpdate = {
   status: "running" | "completed" | "failed";
   output?: string;
   lines?: { added: number; removed: number };
+  /** Pages a webSearch item opened or returned as results. */
+  sources?: Array<{ url: string; title?: string }>;
 };
 
 const ItemNotification = z.object({
@@ -53,6 +55,7 @@ export function codexItemTool(
   const status = completed ? completedStatus(item) : "running";
   const output = completed ? itemOutput(item) : undefined;
   const lines = shape.name === "fileChange" && status !== "failed" ? changeLines(item) : undefined;
+  const sources = shape.name === "webSearch" ? webSources(item) : [];
   return {
     providerThreadId: parsed.data.threadId,
     providerTurnId: parsed.data.turnId,
@@ -63,8 +66,62 @@ export function codexItemTool(
       status,
       ...(output ? { output } : {}),
       ...(lines ? { lines } : {}),
+      ...(sources.length > 0 ? { sources } : {}),
     },
   };
+}
+
+/**
+ * A reasoning item { id, summary: string[], content: string[] }. summary is the readable summary
+ * Codex shows by default; content is the raw reasoning, sent only when the model exposes it.
+ */
+export function codexReasoningItem(
+  params: unknown,
+): { providerThreadId: string; providerTurnId: string; itemId: string; text: string } | undefined {
+  const parsed = ItemNotification.safeParse(params);
+  if (!parsed.success || parsed.data.item.type !== "reasoning") return undefined;
+  const { item } = parsed.data;
+  const parts = (value: unknown) =>
+    Array.isArray(value) ? value.filter((part): part is string => typeof part === "string" && part.length > 0) : [];
+  const summary = parts(item.summary);
+  return {
+    providerThreadId: parsed.data.threadId,
+    providerTurnId: parsed.data.turnId,
+    itemId: item.id,
+    text: (summary.length > 0 ? summary : parts(item.content)).join("\n\n"),
+  };
+}
+
+const ReasoningDelta = z.object({
+  threadId: z.string().min(1),
+  turnId: z.string().min(1),
+  itemId: z.string().min(1),
+  delta: z.string(),
+  summaryIndex: z.number().int().optional(),
+  contentIndex: z.number().int().optional(),
+});
+export type CodexReasoningDelta = z.infer<typeof ReasoningDelta>;
+
+/** item/reasoning/summaryTextDelta, item/reasoning/textDelta, and item/reasoning/summaryPartAdded. */
+export function codexReasoningDelta(params: unknown): CodexReasoningDelta | undefined {
+  const parsed = ReasoningDelta.safeParse({ delta: "", ...asRecord(params) });
+  return parsed.success ? parsed.data : undefined;
+}
+
+function webSources(item: Record<string, unknown>): Array<{ url: string; title?: string }> {
+  const sources: Array<{ url: string; title?: string }> = [];
+  const url = asRecord(item.action)?.url;
+  if (typeof url === "string" && url) sources.push({ url });
+  if (Array.isArray(item.results)) {
+    for (const raw of item.results) {
+      const result = asRecord(raw);
+      const link = result?.url ?? result?.link;
+      if (typeof link !== "string" || !link) continue;
+      const title = result?.title;
+      sources.push({ url: link, ...(typeof title === "string" && title ? { title } : {}) });
+    }
+  }
+  return sources;
 }
 
 function itemShape(item: Record<string, unknown>): { name: string; input?: Record<string, unknown> } | undefined {
@@ -98,8 +155,21 @@ function itemShape(item: Record<string, unknown>): { name: string; input?: Recor
       const input = asRecord(item.arguments);
       return { name: `${server}${tool}`, ...(input ? { input } : {}) };
     }
-    case "websearch":
-      return { name: "webSearch", input: typeof item.query === "string" ? { query: item.query } : {} };
+    case "websearch": {
+      const action = asRecord(item.action);
+      const queries = Array.isArray(action?.queries)
+        ? action.queries.filter((query): query is string => typeof query === "string" && query.length > 0)
+        : [];
+      return {
+        name: "webSearch",
+        input: {
+          ...(typeof item.query === "string" && item.query ? { query: item.query } : {}),
+          ...(queries.length > 1 ? { queries } : {}),
+          ...(typeof action?.url === "string" && action.url ? { url: action.url } : {}),
+          ...(typeof action?.pattern === "string" && action.pattern ? { pattern: action.pattern } : {}),
+        },
+      };
+    }
     case "imageview":
       return { name: "view", input: typeof item.path === "string" ? { path: item.path } : {} };
     default:

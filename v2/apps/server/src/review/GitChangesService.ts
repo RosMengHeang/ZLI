@@ -6,6 +6,7 @@ import {
   type GitStashAction,
   GitStashListResult,
   GitStashResult,
+  type ProjectBranchResult,
   type RuntimeProjection,
 } from "@zli-v2/contracts";
 
@@ -191,6 +192,22 @@ export class GitChangesService {
   private async hasConflicts(cwd: string): Promise<boolean> {
     const status = await this.git(["status", "--porcelain=v1", "-z"], cwd);
     return status.code === 0 && parseStatusZ(status.stdout).some((entry) => isConflict(entry.xy));
+  }
+
+  /** The branch checked out in a folder, or `git: false` when the folder is not a repository. Reads only. */
+  async checkedOutBranch(cwd: string): Promise<ProjectBranchResult> {
+    const inside = await this.git(["rev-parse", "--is-inside-work-tree"], cwd);
+    if (inside.code !== 0) {
+      if (/not a git repository/iu.test(inside.stderr)) return { git: false };
+      throw new GitChangesError(gitFailure("could not read the folder", inside));
+    }
+    // symbolic-ref also names the unborn branch of a repository without commits, and fails when HEAD is detached.
+    const head = await this.git(["symbolic-ref", "--quiet", "--short", "HEAD"], cwd);
+    const branch = head.code === 0 ? head.stdout.trim() : "";
+    if (branch) return { git: true, branch };
+    const commit = await this.git(["rev-parse", "--short", "HEAD"], cwd);
+    const detachedAt = commit.code === 0 ? commit.stdout.trim() : "";
+    return detachedAt ? { git: true, detachedAt } : { git: true };
   }
 
   private git(args: readonly string[], cwd: string, maxOutputBytes?: number): Promise<ProcessResult> {

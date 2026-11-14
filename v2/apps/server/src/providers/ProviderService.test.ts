@@ -246,3 +246,55 @@ describe("ProviderService", () => {
     await expect(service.sendTurn({ threadId, text: "hello" })).rejects.toMatchObject({ code: "session_missing" });
   });
 });
+
+describe("ProviderService run problems", () => {
+  const probe = {
+    pathEntries: ["/tools"],
+    platform: "linux" as const,
+    fileExists: (filePath: string) => filePath === "/tools/codex",
+  };
+
+  it("records an account failure from a usual-login run and clears it after a completed turn", async () => {
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]), probe);
+    const changes: number[] = [];
+    service.onProvidersChanged(() => changes.push(1));
+    await service.startSession({ provider: "codex", threadId, cwd: "/w" });
+
+    adapter.notify({
+      type: "turn.completed",
+      threadId,
+      turnId: "turn-1",
+      status: "failed",
+      errorMessage: "You exceeded your current quota, please check your plan and billing details.",
+    });
+    const codex = (await service.discoverProviders()).find((entry) => entry.provider === "codex");
+    expect(codex).toMatchObject({ status: "found", problem: { kind: "no-plan" } });
+
+    adapter.notify({ type: "turn.completed", threadId, turnId: "turn-2", status: "completed" });
+    const after = (await service.discoverProviders()).find((entry) => entry.provider === "codex");
+    expect(after).not.toHaveProperty("problem");
+    expect(changes).toHaveLength(2);
+  });
+
+  it("ignores failures of a thread that runs under another account", async () => {
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]), probe);
+    await service.startSession({
+      provider: "codex",
+      threadId,
+      cwd: "/w",
+      account: { accountId: "work", env: {} },
+    });
+    adapter.notify({ type: "provider.error", threadId, message: "Please log in again." });
+    expect(service.runProblems.get("codex")).toBeUndefined();
+  });
+
+  it("records a failed start on the usual login", async () => {
+    const adapter = new FakeAdapter();
+    adapter.failStart = new Error("401 Unauthorized: token_expired");
+    const service = new ProviderService(new ProviderRegistry([adapter]), probe);
+    await expect(service.startSession({ provider: "codex", threadId, cwd: "/w" })).rejects.toThrow();
+    expect(service.runProblems.get("codex")).toMatchObject({ kind: "signed-out" });
+  });
+});

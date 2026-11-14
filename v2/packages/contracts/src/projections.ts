@@ -7,12 +7,14 @@ import { EnvironmentId, ProjectId, ThreadId, WorktreeId } from "./ids.js";
 import { LegacyImportProjection } from "./import.js";
 import { SetupTrustProjection, WorktreeSetupProjection } from "./projectConfig.js";
 import {
+  MAX_REASONING_TEXT,
   ProviderDiscovery,
   ThreadActivityProjection,
   ThreadMessageProjection,
   ThreadProjection,
   ThreadQueuedMessage,
   ThreadRequestProjection,
+  ThreadTurnProjection,
   ThreadUsageRecord,
 } from "./provider.js";
 import { ReviewProjection } from "./review.js";
@@ -124,6 +126,7 @@ export const RuntimeProjection = z.object({
   usage: z.array(ThreadUsageRecord).optional(),
   checkpoints: z.array(ThreadCheckpoint).optional(),
   activities: z.array(ThreadActivityProjection).optional(),
+  turns: z.array(ThreadTurnProjection).optional(),
   terminals: z.array(TerminalProjection),
   browserTabs: z.array(BrowserTabProjection),
   devServers: z.array(DevServerProjection).optional(),
@@ -147,6 +150,7 @@ export const MAX_MESSAGES_PER_THREAD = 1_000;
 export const MAX_ACTIVITIES_PER_THREAD = 2_000;
 export const MAX_CHECKPOINTS_PER_THREAD = 200;
 export const MAX_USAGE_PER_THREAD = 1_000;
+export const MAX_TURNS_PER_THREAD = 1_000;
 
 /** Drops the oldest entries of one thread beyond `max`, leaving every other thread's entries in place. */
 export function trimThread<T extends { threadId: string }>(items: T[], threadId: string, max: number): T[] {
@@ -185,6 +189,7 @@ export function removeSession(
     ...(projection.activities
       ? { activities: projection.activities.filter((activity) => !threads.has(activity.threadId)) }
       : {}),
+    ...(projection.turns ? { turns: projection.turns.filter((turn) => !threads.has(turn.threadId)) } : {}),
     ...(projection.requests ? { requests: requests.filter((request) => !threads.has(request.threadId)) } : {}),
     ...(projection.queuedMessages
       ? { queuedMessages: projection.queuedMessages.filter((queued) => !threads.has(queued.threadId)) }
@@ -252,22 +257,91 @@ export function upsertUsageRecord(
   return [...records.slice(0, index), record, ...records.slice(index + 1)];
 }
 
-/** A later update for the same tool call replaces it in place so the work log keeps its order. */
+/**
+ * A later update for the same tool call replaces it in place so the work log keeps its order.
+ * `at` is when the event was recorded: the first update stamps startedAt and the first finished one
+ * stamps completedAt. A reasoning step's text arrives in parts, so each update adds to it.
+ */
 export function upsertThreadActivity(
   activities: readonly ThreadActivityProjection[],
   activity: ThreadActivityProjection,
+  at?: string,
 ): ThreadActivityProjection[] {
   const index = activities.findIndex((candidate) => candidate.activityId === activity.activityId);
-  if (index === -1) return trimThread([...activities, activity], activity.threadId, MAX_ACTIVITIES_PER_THREAD);
-  const previous = activities[index];
-  const merged: ThreadActivityProjection = {
-    ...previous,
+  const previous = index === -1 ? undefined : activities[index];
+  const startedAt = previous?.startedAt ?? activity.startedAt ?? at;
+  const completedAt = activity.status === "running" ? undefined : (previous?.completedAt ?? activity.completedAt ?? at);
+  const text = activity.kind === "reasoning" ? reasoningText(previous?.text, activity.text) : undefined;
+  const truncated = previous?.truncated === true || activity.truncated === true || text?.truncated === true;
+  const stamped: ThreadActivityProjection = {
     ...activity,
-    ...(activity.files || previous?.files ? { files: activity.files ?? previous?.files } : {}),
+    ...(startedAt ? { startedAt } : {}),
+    ...(completedAt ? { completedAt } : {}),
+    ...(text?.value ? { text: text.value } : {}),
+    ...(truncated ? { truncated } : {}),
+  };
+  if (!previous) return trimThread([...activities, stamped], activity.threadId, MAX_ACTIVITIES_PER_THREAD);
+  const { completedAt: _previousCompletedAt, ...kept } = previous;
+  const merged: ThreadActivityProjection = {
+    ...(activity.status === "running" ? kept : previous),
+    ...stamped,
+    ...(activity.files || previous.files ? { files: activity.files ?? previous.files } : {}),
     // A call keeps its place in the reply when later updates report it again.
-    ...(previous?.textOffset !== undefined ? { textOffset: previous.textOffset } : {}),
+    ...(previous.textOffset !== undefined ? { textOffset: previous.textOffset } : {}),
   };
   return [...activities.slice(0, index), merged, ...activities.slice(index + 1)];
+}
+
+function reasoningText(
+  previous: string | undefined,
+  added: string | undefined,
+): { value: string; truncated: boolean } | undefined {
+  if (previous === undefined && added === undefined) return undefined;
+  const joined = (previous ?? "") + (added ?? "");
+  if (joined.length <= MAX_REASONING_TEXT) return { value: joined, truncated: false };
+  return { value: joined.slice(0, MAX_REASONING_TEXT), truncated: true };
+}
+
+/**
+ * Keeps each turn's start and end from the thread's status changes. Working on a new turn starts it;
+ * idle, stopped, or failed ends the open turn the change names, or every open turn of the thread when
+ * it names none. Turns are keyed by the agent's own turn id, the one messages and activities carry.
+ */
+export function recordTurnStatus(
+  turns: readonly ThreadTurnProjection[],
+  change: {
+    threadId: ThreadId;
+    status: ThreadProjection["status"];
+    turnId?: string | undefined;
+    providerTurnId?: string | undefined;
+  },
+  at: string,
+): ThreadTurnProjection[] {
+  const named = change.providerTurnId ?? change.turnId;
+  if (change.status === "working") {
+    if (!named) return [...turns];
+    const known = turns.some((turn) => turn.threadId === change.threadId && turn.turnId === named);
+    if (known) return [...turns];
+    return trimThread(
+      [...turns, { threadId: change.threadId, turnId: named, startedAt: at }],
+      change.threadId,
+      MAX_TURNS_PER_THREAD,
+    );
+  }
+  const ended =
+    change.status === "idle"
+      ? "completed"
+      : change.status === "failed"
+        ? "failed"
+        : change.status === "stopped"
+          ? "stopped"
+          : undefined;
+  if (!ended) return [...turns];
+  return turns.map((turn) =>
+    turn.threadId === change.threadId && !turn.completedAt && (!named || turn.turnId === named)
+      ? { ...turn, completedAt: at, status: ended }
+      : turn,
+  );
 }
 
 const retiredWorktreeStatuses = new Set<WorktreeProjection["status"]>(["cancelled"]);

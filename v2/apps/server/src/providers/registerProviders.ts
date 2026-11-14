@@ -30,6 +30,7 @@ import { DroidProviderAdapter } from "./DroidProviderAdapter.js";
 import { type CliProbe, createDefaultCliProbe, discoverCliProviders } from "./discoverCliProviders.js";
 import { MockProviderAdapter } from "./MockProviderAdapter.js";
 import { type ProviderAccount, ProviderRegistry } from "./ProviderService.js";
+import { writeZliInstructions } from "./zliInstructions.js";
 
 export async function resolveClaudeCommand(probe: CliProbe = createDefaultCliProbe()): Promise<string> {
   const discovered = await discoverCliProviders(probe, { models: false });
@@ -141,6 +142,10 @@ export type ProviderRegistryOptions = {
   writeWorktreeFile?: WorktreeFileWriter;
   /** The worktree's Metro port variables, added to every chat agent started in that worktree. */
   metroEnv?: MetroEnvSource;
+  /** Where Claude chat agents read their ZLI instructions from. Without it they start with Claude Code's prompt alone. */
+  instructionsDir?: string;
+  /** Read at each Claude chat start: the token count at which Claude summarizes older context, or undefined for Claude's own setting. */
+  claudeAutoCompactTokens?: () => number | undefined;
 };
 
 export type { MetroEnvSource };
@@ -205,6 +210,19 @@ export function createProviderRegistry(
       return {};
     }
   };
+  // Rewritten at each start so an update to the text reaches new chats. A failed write starts the chat without it.
+  const claudeInstructions = async (): Promise<{ appendSystemPromptFile?: string }> => {
+    if (!options.instructionsDir) return {};
+    try {
+      return {
+        appendSystemPromptFile: await writeZliInstructions(options.instructionsDir, {
+          browserTool: Boolean(browserTool),
+        }),
+      };
+    } catch {
+      return {};
+    }
+  };
   // Resolves true when the worktree's project MCP file is ZLI's and holds this chat's servers.
   const worktreeMcpFile = async (provider: "cursor-agent" | "droid", cwd: string, worktreeId: string | undefined) =>
     options.writeWorktreeFile
@@ -235,13 +253,17 @@ export function createProviderRegistry(
       },
     }),
     new ClaudeCodeProviderAdapter({
-      createClient: async ({ worktreeId, account, trustedProjectPath, ...input }) => {
+      createClient: async ({ worktreeId, account, trustedProjectPath, title, ...input }) => {
         await trustFolder("claude-code", { cwd: input.cwd, account, trustedProjectPath });
+        const autoCompactTokens = options.claudeAutoCompactTokens?.();
         return ClaudeCodeClient.start({
           ...input,
           command: await resolveClaudeCommand(),
           ...(await chatEnv(worktreeId, account)),
           ...(await claudeMcpConfig(worktreeId)),
+          ...(await claudeInstructions()),
+          ...(title ? { name: title } : {}),
+          ...(autoCompactTokens !== undefined ? { autoCompactTokens } : {}),
         });
       },
     }),

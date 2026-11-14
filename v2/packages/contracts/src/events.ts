@@ -30,6 +30,7 @@ import {
   ThreadQueuedMessage,
   ThreadRequestProjection,
   ThreadUsageRecord,
+  UsageLimitStop,
 } from "./provider.js";
 import { ReviewProjection } from "./review.js";
 import { TerminalProjection, TerminalStatus } from "./terminal.js";
@@ -105,6 +106,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     text: z.string(),
     model: z.string().min(1).optional(),
     reasoningEffort: ReasoningEffort.optional(),
+    fast: z.string().min(1).max(60).optional(),
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachment).max(8).optional(),
     /** Read by the agent before the message, and not shown in the chat. */
@@ -137,10 +139,14 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     threadId: ThreadId,
     status: ThreadProjection.shape.status,
     turnId: TurnId.optional(),
+    /** The agent's own id for the turn, which messages and activities carry as their turnId. */
+    providerTurnId: z.string().min(1).max(200).optional(),
     capabilities: ProviderCapabilities.optional(),
     errorMessage: z.string().min(1).optional(),
+    usageLimit: UsageLimitStop.optional(),
   }),
   z.object({ type: z.literal("thread.message.appended"), message: ThreadMessageProjection }),
+  z.object({ type: z.literal("thread.limit.resume.changed"), threadId: ThreadId, autoResume: z.boolean() }),
   z.object({
     type: z.literal("thread.provider-session.recorded"),
     threadId: ThreadId,

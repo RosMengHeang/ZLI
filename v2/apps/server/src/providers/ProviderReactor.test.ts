@@ -1,6 +1,7 @@
 import {
   CommandId,
   EnvironmentId,
+  MAX_REASONING_TEXT,
   ProjectId,
   ThreadId,
   type ThreadId as ThreadIdValue,
@@ -592,6 +593,8 @@ describe("ProviderReactor", () => {
         status: "failed",
         textOffset: 15,
         connector: { server: "linear", reason: "sign-in" },
+        startedAt: expect.any(String),
+        completedAt: expect.any(String),
       },
       {
         activityId: expect.stringMatching(new RegExp(`^${threadId}:[0-9a-f]{40}$`, "u")),
@@ -600,6 +603,8 @@ describe("ProviderReactor", () => {
         title: "Tool call",
         status: "completed",
         files: ["a.ts"],
+        startedAt: expect.any(String),
+        completedAt: expect.any(String),
       },
     ]);
 
@@ -1288,6 +1293,7 @@ describe("ProviderReactor folder trust", () => {
         worktreeId: tree,
         provider: "codex",
         cwd: `C:\\workspace\\trust-${n}`,
+        ...(n === 2 ? { name: "Fix login" } : {}),
       });
       await reactor.waitForIdle();
       // The fake reports one session for every thread, so the next start would look like a duplicate.
@@ -1298,6 +1304,148 @@ describe("ProviderReactor folder trust", () => {
     await start(2);
 
     expect(adapter.startInputs.map((input) => input.trustedProjectPath)).toEqual([undefined, "C:\\workspace\\trust"]);
+    // The agent's name rides along as the session title, so Claude does not spend a request naming it.
+    expect(adapter.startInputs.map((input) => input.title)).toEqual([undefined, "Fix login"]);
+    reactor.stop();
+  });
+});
+
+describe("ProviderReactor reasoning", () => {
+  async function setup() {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`30000000-0000-4000-8000-0000000009${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    await dispatch({ type: "project.register", path: "C:\\workspace\\reasoning" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:\\workspace\\reasoning-tree",
+      workspaceRoot: "C:\\workspace",
+      branch: "feature/reasoning",
+    });
+    await dispatch({
+      type: "thread.start",
+      threadId,
+      worktreeId,
+      provider: "codex",
+      cwd: "C:\\workspace\\reasoning-tree",
+    });
+    await reactor.waitForIdle();
+    return { engine, adapter, reactor };
+  }
+
+  it("streams thinking into one reasoning step placed after the reply text before it", async () => {
+    const { engine, adapter, reactor } = await setup();
+    adapter.emit({ type: "turn.started", threadId, turnId: "turn-r" });
+    adapter.emit({ type: "assistant.delta", threadId, turnId: "turn-r", text: "Hi." });
+    adapter.emit({ type: "reasoning.delta", threadId, turnId: "turn-r", reasoningId: "r1", text: "" });
+    for (const text of ["Look ", "at ", "tests."]) {
+      adapter.emit({ type: "reasoning.delta", threadId, turnId: "turn-r", reasoningId: "r1", text });
+    }
+    await reactor.waitForIdle();
+    const running = (await engine.projection()).activities?.[0];
+    expect(running).toMatchObject({ kind: "reasoning", status: "running", text: "Look at tests.", textOffset: 3 });
+    expect(running?.startedAt).toEqual(expect.any(String));
+    expect(running?.completedAt).toBeUndefined();
+
+    adapter.emit({ type: "reasoning.delta", threadId, turnId: "turn-r", reasoningId: "r1", text: " Done." });
+    adapter.emit({ type: "reasoning.completed", threadId, turnId: "turn-r", reasoningId: "r1", text: "ignored" });
+    // A provider that only reports the block whole when it ends.
+    adapter.emit({ type: "reasoning.completed", threadId, turnId: "turn-r", reasoningId: "r2", text: "Whole." });
+    // A block the provider never closes ends with its turn.
+    adapter.emit({ type: "reasoning.delta", threadId, turnId: "turn-r", reasoningId: "r3", text: "Cut" });
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-r", status: "interrupted" });
+    await reactor.waitForIdle();
+
+    const projection = await engine.projection();
+    expect(
+      projection.activities?.map((activity) => [activity.activityId, activity.status, activity.text, activity.title]),
+    ).toEqual([
+      [`${threadId}:reasoning:r1`, "completed", "Look at tests. Done.", "Thinking"],
+      [`${threadId}:reasoning:r2`, "completed", "Whole.", "Thinking"],
+      [`${threadId}:reasoning:r3`, "completed", "Cut", "Thinking"],
+    ]);
+    expect(projection.activities?.every((activity) => activity.completedAt)).toBe(true);
+    expect(projection.turns).toEqual([
+      expect.objectContaining({
+        threadId,
+        turnId: "turn-r",
+        startedAt: expect.any(String),
+        completedAt: expect.any(String),
+        status: "completed",
+      }),
+    ]);
+    reactor.stop();
+  });
+
+  it("leaves the next turn's thinking running when an earlier turn reports completion late", async () => {
+    const { engine, adapter, reactor } = await setup();
+    adapter.emit({ type: "turn.started", threadId, turnId: "turn-a" });
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-a", status: "completed" });
+    adapter.emit({ type: "turn.started", threadId, turnId: "turn-b" });
+    adapter.emit({ type: "reasoning.delta", threadId, turnId: "turn-b", reasoningId: "b1", text: "Thinking about B." });
+    await reactor.waitForIdle();
+    // Turn A's completion arrives again, after B began thinking.
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-a", status: "completed" });
+    await reactor.waitForIdle();
+    const step = (await engine.projection()).activities?.find((activity) => activity.kind === "reasoning");
+    expect(step).toMatchObject({ status: "running", text: "Thinking about B." });
+    expect(step?.completedAt).toBeUndefined();
+    reactor.stop();
+  });
+
+  it("ends an interrupted turn's thinking when that turn's completion arrives after the next turn began", async () => {
+    const { engine, adapter, reactor } = await setup();
+    adapter.emit({ type: "turn.started", threadId, turnId: "turn-x" });
+    adapter.emit({ type: "reasoning.delta", threadId, turnId: "turn-x", reasoningId: "x1", text: "About X." });
+    await reactor.waitForIdle();
+    // The turn was ended by an interrupt, so the runtime already counts it as over.
+    (reactor as unknown as { endTurn(threadId: string, turnId: string): void }).endTurn(threadId, "turn-x");
+    adapter.emit({ type: "turn.started", threadId, turnId: "turn-y" });
+    adapter.emit({ type: "reasoning.delta", threadId, turnId: "turn-y", reasoningId: "y1", text: "About Y." });
+    await reactor.waitForIdle();
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-x", status: "interrupted" });
+    await reactor.waitForIdle();
+    const steps = (await engine.projection()).activities?.filter((activity) => activity.kind === "reasoning") ?? [];
+    expect(steps.find((step) => step.text === "About X.")).toMatchObject({ status: "completed" });
+    expect(steps.find((step) => step.text === "About Y.")).toMatchObject({ status: "running" });
+    reactor.stop();
+  });
+
+  it("keeps the start of very long thinking and marks it truncated", async () => {
+    const { engine, adapter, reactor } = await setup();
+    adapter.emit({ type: "turn.started", threadId, turnId: "turn-long" });
+    adapter.emit({ type: "reasoning.delta", threadId, turnId: "turn-long", reasoningId: "long", text: "a" });
+    adapter.emit({
+      type: "reasoning.delta",
+      threadId,
+      turnId: "turn-long",
+      reasoningId: "long",
+      text: "b".repeat(MAX_REASONING_TEXT),
+    });
+    await reactor.waitForIdle();
+    adapter.emit({ type: "reasoning.delta", threadId, turnId: "turn-long", reasoningId: "long", text: "c" });
+    adapter.emit({ type: "reasoning.completed", threadId, turnId: "turn-long", reasoningId: "long" });
+    await reactor.waitForIdle();
+    const [activity] = (await engine.projection()).activities ?? [];
+    expect(activity?.text).toHaveLength(MAX_REASONING_TEXT);
+    expect(activity?.text?.startsWith("ab")).toBe(true);
+    expect(activity).toMatchObject({ truncated: true, status: "completed" });
     reactor.stop();
   });
 });

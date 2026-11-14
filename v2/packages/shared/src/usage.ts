@@ -10,6 +10,8 @@ export type ProviderUsage = {
   /** Tokens in the context window at the end of the turn, out of contextWindow. */
   contextTokens?: number;
   contextWindow?: number;
+  /** When the prompt cache from this turn's last request runs out, in epoch milliseconds. A message after it pays full price for the whole thread again. */
+  promptCacheExpiresAt?: number;
 };
 
 /** A whole, non-negative count, or undefined when the value is missing or not a number. */
@@ -55,4 +57,5 @@ const USAGE_KEYS = [
   "costUsd",
   "contextTokens",
   "contextWindow",
+  "promptCacheExpiresAt",
 ] as const satisfies ReadonlyArray<keyof ProviderUsage>;

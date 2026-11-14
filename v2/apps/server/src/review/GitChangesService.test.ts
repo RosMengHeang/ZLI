@@ -132,6 +132,11 @@ describe("GitChangesService with a fake runner", () => {
     });
   });
 
+  it("reports a Git failure that is not a missing repository instead of hiding it", async () => {
+    const { runner } = fakeRunner(() => ({ code: 128, stdout: "", stderr: "fatal: detected dubious ownership" }));
+    await expect(new GitChangesService(runner).checkedOutBranch("/repo")).rejects.toThrow(/dubious ownership/u);
+  });
+
   it("checks the stash commit before dropping it, since indexes shift", async () => {
     const { runner, calls } = fakeRunner((args) => (args[0] === "rev-parse" ? ok(`${"b".repeat(40)}\n`) : undefined));
     const service = new GitChangesService(runner);
@@ -238,6 +243,27 @@ describe("GitChangesService with real Git", { timeout: 30_000 }, () => {
       expect(await readFile(join(cwd, "list.txt"), "utf8")).toBe(numbered());
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("reads the checked-out branch, an unborn one, a detached HEAD, and a folder without Git", async () => {
+    const service = new GitChangesService();
+    const repo = await repository();
+    const unborn = await mkdtemp(join(tmpdir(), "zli-branch-unborn-"));
+    const plain = await mkdtemp(join(tmpdir(), "zli-branch-plain-"));
+    try {
+      await git(repo, "checkout", "--quiet", "-b", "feature/branch-chip");
+      expect(await service.checkedOutBranch(repo)).toEqual({ git: true, branch: "feature/branch-chip" });
+      await git(repo, "checkout", "--quiet", "--detach");
+      const short = (await git(repo, "rev-parse", "--short", "HEAD")).trim();
+      expect(await service.checkedOutBranch(repo)).toEqual({ git: true, detachedAt: short });
+
+      await git(unborn, "init", "--quiet", "--initial-branch=trunk");
+      expect(await service.checkedOutBranch(unborn)).toEqual({ git: true, branch: "trunk" });
+
+      expect(await service.checkedOutBranch(plain)).toEqual({ git: false });
+    } finally {
+      await Promise.all([repo, unborn, plain].map((cwd) => rm(cwd, { recursive: true, force: true })));
     }
   });
 

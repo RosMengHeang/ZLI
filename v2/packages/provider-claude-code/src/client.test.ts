@@ -152,6 +152,67 @@ describe("ClaudeCodeClient", () => {
     expect(client.transcript()).toEqual([{ providerTurnId: turn.providerTurnId, text: "hello", status: "completed" }]);
   });
 
+  it("streams main-conversation thinking and skips subagent and redacted thinking", async () => {
+    const { client, peer, events } = await startedClient();
+    const turn = await client.sendTurn({ text: "Think" });
+    const stream = (event: unknown, parent: string | null = null) =>
+      peer.emit({ type: "stream_event", parent_tool_use_id: parent, event });
+    stream({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } });
+    stream({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Check " } });
+    stream({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig" } });
+    stream({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "tests." } });
+    stream(
+      { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "hidden" } },
+      "toolu_sub",
+    );
+    stream({ type: "content_block_stop", index: 0 });
+    peer.emit({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { role: "assistant", content: [{ type: "thinking", thinking: "Check tests.", signature: "sig" }] },
+    });
+    stream({ type: "content_block_start", index: 1, content_block: { type: "redacted_thinking", data: "x" } });
+    stream({ type: "content_block_stop", index: 1 });
+    // A block left open when the turn ends is closed with it.
+    stream({ type: "content_block_start", index: 2, content_block: { type: "thinking", thinking: "" } });
+    peer.emit({ type: "result", subtype: "success", is_error: false, result: "", session_id: "sess-1" });
+
+    const id = turn.providerTurnId;
+    expect(events.filter((event) => event.type.startsWith("reasoning."))).toEqual([
+      { type: "reasoning.delta", providerTurnId: id, reasoningId: `${id}-thinking-1`, text: "" },
+      { type: "reasoning.delta", providerTurnId: id, reasoningId: `${id}-thinking-1`, text: "Check " },
+      { type: "reasoning.delta", providerTurnId: id, reasoningId: `${id}-thinking-1`, text: "tests." },
+      { type: "reasoning.completed", providerTurnId: id, reasoningId: `${id}-thinking-1` },
+      { type: "reasoning.delta", providerTurnId: id, reasoningId: `${id}-thinking-2`, text: "" },
+      { type: "reasoning.completed", providerTurnId: id, reasoningId: `${id}-thinking-2` },
+    ]);
+    expect(events.at(-1)).toEqual({ type: "turn.completed", providerTurnId: id, status: "completed" });
+  });
+
+  it("reports whole thinking blocks when the CLI does not stream them", async () => {
+    const { client, peer, events } = await startedClient();
+    const turn = await client.sendTurn({ text: "Think" });
+    peer.emit({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "First idea." },
+          { type: "redacted_thinking", data: "x" },
+          { type: "text", text: "Answer" },
+        ],
+      },
+    });
+    expect(events.filter((event) => event.type === "reasoning.completed")).toEqual([
+      {
+        type: "reasoning.completed",
+        providerTurnId: turn.providerTurnId,
+        reasoningId: `${turn.providerTurnId}-thinking-1`,
+        text: "First idea.",
+      },
+    ]);
+  });
+
   it("uses the assistant message when the CLI does not stream deltas", async () => {
     const { client, peer, events } = await startedClient();
     const turn = await client.sendTurn({ text: "Hi" });
@@ -315,6 +376,44 @@ describe("ClaudeCodeClient", () => {
     ]);
   });
 
+  it("names ZLI as the entrypoint over an inherited one and keeps the user's tool search choice", async () => {
+    const saved = { entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT, toolSearch: process.env.ENABLE_TOOL_SEARCH };
+    process.env.CLAUDE_CODE_ENTRYPOINT = "cli";
+    process.env.ENABLE_TOOL_SEARCH = "false";
+    const envFor = async (env?: NodeJS.ProcessEnv): Promise<NodeJS.ProcessEnv> => {
+      const child = new FakeProcess();
+      let spawned: NodeJS.ProcessEnv = {};
+      const pending = ClaudeCodeClient.start({
+        command: "/usr/bin/claude",
+        cwd: "/work/tree",
+        ...(env ? { env } : {}),
+        spawnProcess: (_command, _args, options) => {
+          spawned = options.env;
+          return child;
+        },
+      });
+      child.stdout.emit("data", initializeReply(child.written));
+      await (await pending).close();
+      return spawned;
+    };
+    try {
+      const inherited = await envFor();
+      expect(inherited.CLAUDE_CODE_ENTRYPOINT).toBe("zli");
+      expect(inherited.ENABLE_TOOL_SEARCH).toBe("false");
+      const chosen = await envFor({ CLAUDE_CODE_ENTRYPOINT: "custom", ENABLE_TOOL_SEARCH: "auto" });
+      expect(chosen.CLAUDE_CODE_ENTRYPOINT).toBe("custom");
+      expect(chosen.ENABLE_TOOL_SEARCH).toBe("auto");
+    } finally {
+      for (const [name, value] of [
+        ["CLAUDE_CODE_ENTRYPOINT", saved.entrypoint],
+        ["ENABLE_TOOL_SEARCH", saved.toolSearch],
+      ] as const) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
   it("spawns the documented session args in the worktree and frames split stdout", async () => {
     const child = new FakeProcess();
     const calls: ClaudeSpawnOptions[] = [];
@@ -349,6 +448,10 @@ describe("ClaudeCodeClient", () => {
     expect(calls[0]?.env.PWD).toBe("/work/tree");
     expect(calls[0]?.env.CLAUDECODE).toBeUndefined();
     expect(calls[0]?.env.PATH).toBe("/usr/bin");
+    expect(calls[0]?.env.CLAUDE_CODE_ENTRYPOINT).toBe("zli");
+    expect(calls[0]?.env.ENABLE_TOOL_SEARCH).toBe("true");
+    // A new conversation has nothing to resume, so MCP servers keep connecting in the background.
+    expect(calls[0]?.env.MCP_CONNECTION_NONBLOCKING).toBe(process.env.MCP_CONNECTION_NONBLOCKING);
     expect(events).toEqual([
       { type: "turn.started", providerTurnId: turn.providerTurnId },
       { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "Hi" },
@@ -520,6 +623,10 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
       "stream-json",
       "--verbose",
       "--include-partial-messages",
+      "--thinking",
+      "adaptive",
+      "--thinking-display",
+      "summarized",
       "--permission-mode",
       "acceptEdits",
       "--permission-prompt-tool",
@@ -529,6 +636,48 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
       "--session-id",
       client.sessionId,
     ]);
+  });
+
+  it("names the session, sets auto-compact and ZLI's instructions, and waits for MCP servers on resume", async () => {
+    const child = new FakeProcess();
+    let args: readonly string[] = [];
+    let env: NodeJS.ProcessEnv = {};
+    const saved = process.env.MCP_CONNECTION_NONBLOCKING;
+    delete process.env.MCP_CONNECTION_NONBLOCKING;
+    try {
+      const pending = ClaudeCodeClient.start({
+        command: "/usr/bin/claude",
+        cwd: "/work/tree",
+        resumeSessionId: "sess-old",
+        name: "Fix login",
+        autoCompactTokens: 200_000,
+        appendSystemPromptFile: "/data/instructions/claude-zli-instructions.md",
+        mcpConfig: "/data/mcp/claude.json",
+        spawnProcess: (_command, spawnedArgs, options) => {
+          args = spawnedArgs;
+          env = options.env;
+          return child;
+        },
+      });
+      child.stdout.emit("data", initializeReply(child.written));
+      await (await pending).close();
+    } finally {
+      if (saved === undefined) delete process.env.MCP_CONNECTION_NONBLOCKING;
+      else process.env.MCP_CONNECTION_NONBLOCKING = saved;
+    }
+    expect(args.slice(-10)).toEqual([
+      "--resume",
+      "sess-old",
+      "--name",
+      "Fix login",
+      "--autocompact",
+      "200000",
+      "--append-system-prompt-file",
+      "/data/instructions/claude-zli-instructions.md",
+      "--mcp-config",
+      "/data/mcp/claude.json",
+    ]);
+    expect(env.MCP_CONNECTION_NONBLOCKING).toBe("0");
   });
 
   it("adds a per-session MCP config last, after the other flags", async () => {
@@ -692,6 +841,66 @@ describe("ClaudeCodeClient usage", () => {
         usage: { outputTokens: 10, costUsd: expect.closeTo(0.03, 9) },
       },
     ]);
+  });
+
+  it("reports when the prompt cache runs out, from the last main request and the tier a request wrote", async () => {
+    let clock = 1_000_000;
+    const peer = new FakePeer();
+    const pending = ClaudeCodeClient.start({ peer, cwd: "/work/tree", now: () => clock });
+    peer.emit({ type: "system", subtype: "init", session_id: "sess-1" });
+    const client = await pending;
+    const events: ClaudeProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    const messageStart = (cacheCreation: Record<string, number>, parent: string | null = null) => ({
+      type: "stream_event",
+      parent_tool_use_id: parent,
+      event: { type: "message_start", message: { usage: { cache_creation: cacheCreation } } },
+    });
+    const expiries = () =>
+      events.flatMap((event) => (event.type === "usage.updated" ? [event.usage.promptCacheExpiresAt] : []));
+
+    await client.sendTurn({ text: "One" });
+    peer.emit(messageStart({ ephemeral_1h_input_tokens: 5_000, ephemeral_5m_input_tokens: 0 }));
+    clock += 30_000;
+    peer.emit({ type: "result", subtype: "success", result: "A", usage: { output_tokens: 5 } });
+    // A read-only request keeps the 1h tier and restarts the clock; a subagent's request does not count.
+    await client.sendTurn({ text: "Two" });
+    clock += 600_000;
+    peer.emit(messageStart({ ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 0 }));
+    clock += 60_000;
+    peer.emit(messageStart({ ephemeral_5m_input_tokens: 100 }, "toolu_sub"));
+    peer.emit({ type: "result", subtype: "success", result: "B", usage: { output_tokens: 5 } });
+
+    expect(expiries()).toEqual([1_000_000 + 3_600_000, 1_630_000 + 3_600_000]);
+  });
+
+  it("fails a turn the usage limit refused and says when the limit resets", async () => {
+    const { client, peer, events } = await startedClient();
+    await client.sendTurn({ text: "One" });
+    peer.emit({
+      type: "rate_limit_event",
+      rate_limit_info: { status: "rejected", rateLimitType: "five_hour", resetsAt: 1_800_000_000 },
+    });
+    peer.emit({ type: "result", subtype: "success", is_error: true, result: "You've hit your limit · resets 3pm" });
+    expect(events.find((event) => event.type === "turn.failed")).toMatchObject({
+      message: "You've hit your limit · resets 3pm",
+      usageLimit: { resetsAt: new Date(1_800_000_000_000).toISOString() },
+    });
+  });
+
+  it("does not treat a limit that extra usage covers, or a later allowed report, as a stop", async () => {
+    const { client, peer, events } = await startedClient();
+    await client.sendTurn({ text: "One" });
+    peer.emit({
+      type: "rate_limit_event",
+      rate_limit_info: { status: "rejected", resetsAt: 1_800_000_000, overageStatus: "allowed" },
+    });
+    peer.emit({ type: "result", subtype: "success", result: "A" });
+    await client.sendTurn({ text: "Two" });
+    peer.emit({ type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt: 1_800_000_000 } });
+    peer.emit({ type: "rate_limit_event", rate_limit_info: { status: "allowed" } });
+    peer.emit({ type: "result", subtype: "success", result: "B" });
+    expect(events.some((event) => event.type === "turn.failed")).toBe(false);
   });
 
   it("reports nothing when a result has no usage", async () => {

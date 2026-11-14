@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ProviderDiscovery } from "./provider.js";
+import { ListedProviderKind, ProviderDiscovery } from "./provider.js";
 
 /** Agent CLIs whose past sessions tell ZLI which folders the person works in. */
 export const HistorySource = z.enum(["claude-code", "codex"]);
@@ -29,7 +29,11 @@ export type ProvidersDiscoverResult = z.infer<typeof ProvidersDiscoverResult>;
 export const HistoryCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("history.scan") }),
   /** Looks for agent CLIs again, skipping the cache, for example right after one was installed. */
-  z.object({ type: z.literal("providers.discover") }),
+  z.object({
+    type: z.literal("providers.discover"),
+    /** Forgets the failed run recorded for this agent first, so the person can try it again. */
+    clearProblem: ListedProviderKind.optional(),
+  }),
 ]);
 export type HistoryCommand = z.infer<typeof HistoryCommand>;
 export const HISTORY_COMMAND_TYPES = ["history.scan", "providers.discover"] as const;

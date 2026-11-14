@@ -123,6 +123,7 @@ export type DomainDecision = Extract<
       | "thread.status.changed"
       | "thread.message.appended"
       | "thread.provider-session.recorded"
+      | "thread.limit.resume.changed"
       | "thread.request.requested"
       | "thread.activity.updated"
       | "thread.request.resolved"
@@ -448,6 +449,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         text: command.text,
         ...(command.model ? { model: command.model } : {}),
         ...(command.reasoningEffort ? { reasoningEffort: command.reasoningEffort } : {}),
+        ...(command.fast ? { fast: command.fast } : {}),
         ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(command.context ? { context: command.context } : {}),
@@ -548,6 +550,21 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       }
       return [{ type: "session.deleted", sessionId: command.sessionId, terminalIds, threadIds }];
     }
+    case "thread.wake": {
+      const thread = requireThread(projection, command.threadId);
+      const ended = thread.status === "stopped" || thread.status === "failed";
+      if (!ended || !thread.providerSessionId || queuedFor(projection, command.threadId).length === 0) return [];
+      const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread.worktreeId);
+      if (!worktree) throw new DomainError("worktree_missing", "This chat's worktree is gone. Start a new chat.");
+      // The messages already queued go out once the resumed agent reports idle.
+      return [{ type: "thread.resume.requested", threadId: command.threadId, cwd: worktree.path }];
+    }
+    case "thread.limit.resume": {
+      const thread = requireThread(projection, command.threadId);
+      if (!thread.usageLimit) return [];
+      if (Boolean(thread.usageLimit.autoResume) === command.autoResume) return [];
+      return [{ type: "thread.limit.resume.changed", threadId: command.threadId, autoResume: command.autoResume }];
+    }
     case "thread.status":
       assertThread(projection, command.threadId);
       return [
@@ -557,8 +574,10 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           threadId: command.threadId,
           status: command.status,
           ...(command.turnId ? { turnId: command.turnId } : {}),
+          ...(command.providerTurnId ? { providerTurnId: command.providerTurnId } : {}),
           ...(command.capabilities ? { capabilities: command.capabilities } : {}),
           ...(command.errorMessage ? { errorMessage: command.errorMessage } : {}),
+          ...(command.usageLimit ? { usageLimit: command.usageLimit } : {}),
         },
       ];
     case "thread.provider-session": {
@@ -947,6 +966,7 @@ function sendRequested(
     text: string;
     model?: string | undefined;
     reasoningEffort?: string | undefined;
+    fast?: string | undefined;
     permissionMode?: PermissionMode | undefined;
     attachments?: readonly ThreadAttachment[] | undefined;
     context?: string | undefined;
@@ -961,6 +981,7 @@ function sendRequested(
     text: input.text,
     ...(input.model ? { model: input.model } : {}),
     ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+    ...(input.fast ? { fast: input.fast } : {}),
     ...(permissionChanged(thread, input.permissionMode) && input.permissionMode
       ? { permissionMode: input.permissionMode }
       : {}),

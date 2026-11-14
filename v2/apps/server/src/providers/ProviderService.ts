@@ -1,4 +1,5 @@
 import type {
+  ListedProviderKind,
   PermissionMode,
   ProviderCapabilities,
   ProviderDiscovery,
@@ -8,6 +9,7 @@ import type {
   TurnUsage,
 } from "@zli-v2/contracts";
 
+import { RunProblems } from "../accounts/runProblems.js";
 import { type CliProbe, createDefaultCliProbe, discoverCliProviders } from "./discoverCliProviders.js";
 import type { ProviderActivity } from "./toolActivity.js";
 
@@ -27,16 +29,25 @@ export type ProviderSession = {
 export type ProviderEvent =
   | { type: "assistant.delta"; threadId: ThreadId; turnId: string; text: string }
   | { type: "turn.started"; threadId: ThreadId; turnId: string }
-  | { type: "turn.completed"; threadId: ThreadId; turnId: string; status: string }
+  /** `errorMessage` is what the agent said went wrong, for agents that end a failed turn this way. */
+  | { type: "turn.completed"; threadId: ThreadId; turnId: string; status: string; errorMessage?: string }
   | { type: "approval.requested"; threadId: ThreadId; requestId: string; payload: Record<string, unknown> }
   | { type: "user-input.requested"; threadId: ThreadId; requestId: string; payload: Record<string, unknown> }
   | { type: "activity"; threadId: ThreadId; turnId?: string; activity: ProviderActivity }
+  /**
+   * Part of the agent's thinking for one reasoning block. The first one, which may be empty, starts the
+   * block; reasoningId is unique within the session.
+   */
+  | { type: "reasoning.delta"; threadId: ThreadId; turnId: string; reasoningId: string; text: string }
+  /** The block is done. text is its whole content, for an agent that did not stream it. */
+  | { type: "reasoning.completed"; threadId: ThreadId; turnId: string; reasoningId: string; text?: string }
   /** Usage so far for one turn. A later report for the same turn replaces it. */
   | { type: "usage"; threadId: ThreadId; turnId: string; usage: TurnUsage }
   | { type: "session.closed"; threadId: ThreadId; reason: string }
   /** The agent CLI named its conversation after the session started, for CLIs that only report it on the first turn. */
   | { type: "session.identified"; threadId: ThreadId; providerSessionId: string }
-  | { type: "provider.error"; threadId?: ThreadId; message: string };
+  /** usageLimit is set when the plan's usage limit stopped the turn. */
+  | { type: "provider.error"; threadId?: ThreadId; message: string; usageLimit?: { resetsAt?: string } };
 
 export type ProviderSessionStart = {
   threadId: ThreadId;
@@ -52,6 +63,8 @@ export type ProviderSessionStart = {
   resumeSessionId?: string;
   /** Set when the person let agents work in this project, so the CLI's own folder trust question is answered. */
   trustedProjectPath?: string;
+  /** The name the person gave the agent. Claude uses it as the session name instead of asking the model for one. */
+  title?: string;
 };
 
 export type ProviderAccount = { accountId: string; env: Readonly<Record<string, string>> };
@@ -62,6 +75,8 @@ export type ProviderTurnInput = {
   model?: string;
   /** Omitted runs the turn at the agent's default level. */
   reasoningEffort?: string;
+  /** The model's `fast` value: run this turn in its faster mode. Omitted runs at standard speed. */
+  fast?: string;
   /** Set only when the person changed it; adapters keep it for later turns. */
   permissionMode?: PermissionMode;
   /** Stored images. Their paths are already listed in `text`; adapters may also pass them natively. */
@@ -134,6 +149,10 @@ export class ProviderService {
   private discoveryCache: { at: number; value: readonly ProviderDiscovery[] } | undefined;
   /** Discovery spawns every installed CLI, so concurrent callers share one run. */
   private discoveryInFlight: Promise<readonly ProviderDiscovery[]> | undefined;
+  /** Threads running on the agent's usual login. Only their failures say something about that login. */
+  private readonly usualLogin = new Set<string>();
+  /** Account failures from runs, shown with each agent until a run succeeds or the login changes. */
+  readonly runProblems = new RunProblems();
 
   constructor(
     private readonly registry: ProviderRegistry,
@@ -148,7 +167,7 @@ export class ProviderService {
   async discoverProviders(refresh = false): Promise<readonly ProviderDiscovery[]> {
     if (refresh && !this.discoveryInFlight) this.discoveryCache = undefined;
     const cached = this.discoveryCache;
-    if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) return cached.value;
+    if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) return this.runProblems.apply(cached.value);
     this.discoveryInFlight ??= discoverCliProviders(this.cliProbe)
       .then((value) => {
         this.discoveryCache = { at: Date.now(), value };
@@ -157,7 +176,22 @@ export class ProviderService {
       .finally(() => {
         this.discoveryInFlight = undefined;
       });
-    return this.discoveryInFlight;
+    return this.runProblems.apply(await this.discoveryInFlight);
+  }
+
+  /** Called when an agent's recorded run problem appears or goes away, so clients can be told. */
+  onProvidersChanged(listener: () => void): () => void {
+    return this.runProblems.subscribe(listener);
+  }
+
+  private recordProblem(provider: ProviderKind, threadId: string | undefined, message: string | undefined): void {
+    if (threadId === undefined || !this.usualLogin.has(threadId)) return;
+    const login = this.discoveryCache?.value.find((entry) => entry.provider === provider);
+    this.runProblems.record(
+      provider as ListedProviderKind,
+      message,
+      login?.status === "found" ? login.login : undefined,
+    );
   }
 
   async startSession(input: ProviderSessionStart & { provider: ProviderKind }): Promise<ProviderSession> {
@@ -167,11 +201,14 @@ export class ProviderService {
     this.sessions.delete(input.threadId);
     const adapter = this.registry.get(input.provider);
     if (!adapter) throw new ProviderServiceError("provider_missing", `Provider is not available: ${input.provider}`);
+    if (input.account) this.usualLogin.delete(input.threadId);
+    else this.usualLogin.add(input.threadId);
     try {
       const session = await adapter.startSession(input);
       this.sessions.set(input.threadId, adapter);
       return session;
     } catch (error) {
+      this.recordProblem(input.provider, input.threadId, error instanceof Error ? error.message : undefined);
       const missing = missingCliError(error);
       if (missing) throw new ProviderServiceError("cli_missing", missing.message, { cause: error });
       const detail = error instanceof Error && error.message.trim() ? ` ${error.message.trim()}` : "";
@@ -180,7 +217,13 @@ export class ProviderService {
   }
 
   async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
-    return this.adapterFor(input.threadId).sendTurn(input);
+    const adapter = this.adapterFor(input.threadId);
+    try {
+      return await adapter.sendTurn(input);
+    } catch (error) {
+      this.recordProblem(adapter.provider, input.threadId, error instanceof Error ? error.message : undefined);
+      throw error;
+    }
   }
 
   async interruptTurn(input: { threadId: ThreadId; turnId?: string }): Promise<void> {
@@ -271,6 +314,14 @@ export class ProviderService {
       !adapter.hasSession({ threadId: event.threadId })
     ) {
       this.sessions.delete(event.threadId);
+    }
+    if (event.type === "provider.error") this.recordProblem(adapter.provider, event.threadId, event.message);
+    else if (event.type === "session.closed") this.recordProblem(adapter.provider, event.threadId, event.reason);
+    else if (event.type === "turn.completed" && event.errorMessage)
+      this.recordProblem(adapter.provider, event.threadId, event.errorMessage);
+    else if (event.type === "turn.completed" && event.status === "completed" && this.usualLogin.has(event.threadId)) {
+      // A turn that went through shows the login works, whatever an earlier run said.
+      this.runProblems.clear(adapter.provider as ListedProviderKind);
     }
     this.emit(event);
   }

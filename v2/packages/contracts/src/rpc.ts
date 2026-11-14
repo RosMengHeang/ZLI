@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AccountCommand } from "./accounts.js";
 import { AgentName, StartedBy } from "./agentName.js";
+import { AgentSettingsCommand } from "./agentSettings.js";
 import { BrowserTabProjection } from "./browser.js";
 import { CheckpointCommand, ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
@@ -46,6 +47,7 @@ import {
   ThreadProjection,
   ThreadRequestProjection,
   TurnUsage,
+  UsageLimitStop,
 } from "./provider.js";
 import { PullRequestCommand } from "./pullRequest.js";
 import { ReviewProjection } from "./review.js";
@@ -171,6 +173,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     model: z.string().min(1).optional(),
     /** Omitted runs the turn at the agent's default level. */
     reasoningEffort: ReasoningEffort.optional(),
+    /** The model's `fast` value, to run this turn in its faster mode. Omitted runs at standard speed. */
+    fast: z.string().min(1).max(60).optional(),
     /** Applies from this turn on. Only providers with permissionSwitch "in-session" accept a change. */
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
@@ -183,6 +187,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     text: z.string().min(1),
     model: z.string().min(1).optional(),
     reasoningEffort: ReasoningEffort.optional(),
+    fast: z.string().min(1).max(60).optional(),
     permissionMode: PermissionMode.optional(),
     attachments: z.array(ThreadAttachmentUpload).max(8).optional(),
     /**
@@ -214,9 +219,19 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     threadId: ThreadId,
     status: ThreadProjection.shape.status,
     turnId: TurnId.optional(),
+    /** The agent's own id for the turn, which messages and activities carry as their turnId. */
+    providerTurnId: z.string().min(1).max(200).optional(),
     capabilities: ProviderCapabilities.optional(),
     errorMessage: z.string().min(1).optional(),
+    usageLimit: UsageLimitStop.optional(),
   }),
+  /** Whether a chat stopped at the usage limit carries on by itself once the limit resets. */
+  z.object({ type: z.literal("thread.limit.resume"), threadId: ThreadId, autoResume: z.boolean() }),
+  /**
+   * Brings an ended chat back so the messages already queued on it go out, without adding one. ZLI sends it
+   * when a usage limit resets and the chat already has messages waiting.
+   */
+  z.object({ type: z.literal("thread.wake"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.message"), message: ThreadMessageProjection }),
   /** Reported by the runtime once the agent CLI names its own session, so a later process can resume it. */
   z.object({
@@ -303,6 +318,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   ...PluginCommand.options,
   ...AccountCommand.options,
   ...LimitsCommand.options,
+  ...AgentSettingsCommand.options,
   ...HistoryCommand.options,
   ...HuddleCommand.options,
   /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
@@ -316,6 +332,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   }),
   /** Reads zli.json from the project folder. Answered by the server; never stored in the event log. */
   z.object({ type: z.literal("project.config"), projectId: ProjectId }),
+  /** Reads the branch checked out in the project folder. Answered by the server; never stored in the event log. */
+  z.object({ type: z.literal("project.branch"), projectId: ProjectId }),
 ]);
 export type RuntimeCommand = z.infer<typeof RuntimeCommand>;
 
@@ -389,3 +407,14 @@ export type ServerWireMessage = z.infer<typeof ServerWireMessage>;
 
 export const ProjectRegisterResult = z.object({ projectId: ProjectId });
 export type ProjectRegisterResult = z.infer<typeof ProjectRegisterResult>;
+
+/**
+ * `git` is false when the folder is not a Git repository. When HEAD is detached, `branch` is unset and
+ * `detachedAt` holds the short commit it points at.
+ */
+export const ProjectBranchResult = z.object({
+  git: z.boolean(),
+  branch: z.string().min(1).optional(),
+  detachedAt: z.string().min(1).optional(),
+});
+export type ProjectBranchResult = z.infer<typeof ProjectBranchResult>;

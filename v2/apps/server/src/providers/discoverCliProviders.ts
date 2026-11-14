@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { statSync } from "node:fs";
+import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
 
 import {
@@ -52,6 +53,8 @@ export type CliProbe = {
 
 const VERSION_TIMEOUT_MS = 1_000;
 const MODEL_TIMEOUT_MS = 10_000;
+/** Starting a Claude Code or Codex session to ask for its models takes longer than a plain listing. */
+const SESSION_MODEL_TIMEOUT_MS = 25_000;
 /** Model lists change rarely and listing them spawns the CLI, so they outlive the 20 s discovery cache. */
 const MODEL_CACHE_MS = 10 * 60_000;
 const MODEL_FAILURE_CACHE_MS = 60_000;
@@ -231,7 +234,11 @@ export async function readCliModels(
 ): Promise<readonly ProviderModelOption[] | undefined> {
   switch (provider) {
     case "claude-code":
-      return CLAUDE_CODE_MODELS;
+      // The CLI lists the models this account can use, Fable and dated versions included. The built-in
+      // aliases stand in when it cannot be asked.
+      return (await readClaudeCodeModels(command)) ?? CLAUDE_CODE_MODELS;
+    case "codex":
+      return readCodexModels(command);
     case "cursor-agent":
       return parseCursorModels(
         await readCliOutput(command, ["models"], { timeoutMs: MODEL_TIMEOUT_MS, maxChars: MAX_MODEL_OUTPUT_CHARS }),
@@ -250,6 +257,196 @@ export async function readCliModels(
     default:
       return undefined;
   }
+}
+
+/**
+ * Starts the CLI, writes `input` one JSON line at a time, and resolves with the first stdout line `pick`
+ * accepts. The CLI is stopped as soon as it answers, or after the timeout.
+ */
+export function askCliJson<T>(
+  command: string,
+  args: readonly string[],
+  input: readonly unknown[],
+  pick: (message: unknown) => T | undefined,
+  options: { timeoutMs: number; cwd?: string },
+): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    let child: ChildProcess;
+    try {
+      child = spawnCli(command, args, {
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "ignore"],
+        ...(options.cwd ? { cwd: options.cwd } : {}),
+      });
+    } catch {
+      resolve(undefined);
+      return;
+    }
+    let settled = false;
+    let buffer = "";
+    let read = 0;
+    const finish = (value: T | undefined) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      killChild(child);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(undefined), options.timeoutMs);
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      read += chunk.length;
+      if (read > MAX_MODEL_OUTPUT_CHARS * 4) {
+        finish(undefined);
+        return;
+      }
+      buffer += chunk.toString();
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        newline = buffer.indexOf("\n");
+        if (!line.startsWith("{")) continue;
+        try {
+          const found = pick(JSON.parse(line));
+          if (found !== undefined) {
+            finish(found);
+            return;
+          }
+        } catch {
+          // Not JSON; keep reading.
+        }
+      }
+    });
+    child.once("error", () => finish(undefined));
+    child.once("close", () => finish(undefined));
+    child.stdin?.on("error", () => undefined);
+    for (const message of input) child.stdin?.write(`${JSON.stringify(message)}\n`);
+  });
+}
+
+/** Asks a Claude Code session for its models, the way its own model menu gets them. No turn runs. */
+async function readClaudeCodeModels(command: string): Promise<ProviderModelOption[] | undefined> {
+  return askCliJson(
+    command,
+    ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"],
+    [{ type: "control_request", request_id: "zli_models", request: { subtype: "initialize" } }],
+    (message) => {
+      const reply = message as { type?: string; response?: { request_id?: string; response?: unknown } };
+      if (reply.type !== "control_response" || reply.response?.request_id !== "zli_models") return undefined;
+      return parseClaudeCodeModels(reply.response.response) ?? null;
+    },
+    { timeoutMs: SESSION_MODEL_TIMEOUT_MS, cwd: homedir() },
+  ).then((models) => models ?? undefined);
+}
+
+type ClaudeModelInfo = {
+  value?: unknown;
+  resolvedModel?: unknown;
+  displayName?: unknown;
+  supportsEffort?: unknown;
+  supportedEffortLevels?: unknown;
+  supportsFastMode?: unknown;
+};
+
+/**
+ * Claude Code's initialize answer lists a "default" entry, its aliases (opus, sonnet, fable, haiku), then
+ * dated versions. The default entry is dropped: the menu's own "Default" row stands for it, and the model it
+ * resolves to is marked instead.
+ */
+export function parseClaudeCodeModels(response: unknown): ProviderModelOption[] | undefined {
+  const list = (response as { models?: unknown } | undefined)?.models;
+  if (!Array.isArray(list)) return undefined;
+  const entries = list as ClaudeModelInfo[];
+  const resolvedDefault = entries.find((entry) => entry.value === "default")?.resolvedModel;
+  const models: ProviderModelOption[] = [];
+  let markedDefault = false;
+  for (const entry of entries) {
+    if (typeof entry.value !== "string" || entry.value === "default") continue;
+    const label = typeof entry.displayName === "string" ? entry.displayName : entry.value;
+    const before = models.length;
+    pushModel(models, entry.value, label);
+    const model = models[before];
+    if (!model) continue;
+    const levels = Array.isArray(entry.supportedEffortLevels)
+      ? entry.supportedEffortLevels.filter((level): level is string => typeof level === "string")
+      : [];
+    model.reasoningEfforts = entry.supportsEffort === true ? levels.slice(0, 20) : [];
+    if (entry.supportsFastMode === true) model.fast = "on";
+    if (!markedDefault && resolvedDefault && entry.resolvedModel === resolvedDefault) {
+      model.isDefault = true;
+      markedDefault = true;
+    }
+  }
+  return models.length > 0 ? models : undefined;
+}
+
+/** Asks Codex's app server for the models this account can use. */
+async function readCodexModels(command: string): Promise<ProviderModelOption[] | undefined> {
+  return askCliJson(
+    command,
+    ["app-server"],
+    [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "zli", version: "2" } } },
+      { jsonrpc: "2.0", method: "initialized" },
+      { jsonrpc: "2.0", id: 2, method: "model/list", params: {} },
+    ],
+    (message) => {
+      const reply = message as { id?: unknown; result?: unknown; error?: unknown };
+      if (reply.id !== 2) return undefined;
+      return parseCodexModels(reply.result) ?? null;
+    },
+    { timeoutMs: SESSION_MODEL_TIMEOUT_MS, cwd: homedir() },
+  ).then((models) => models ?? undefined);
+}
+
+type CodexModelInfo = {
+  id?: unknown;
+  model?: unknown;
+  displayName?: unknown;
+  hidden?: unknown;
+  isDefault?: unknown;
+  defaultReasoningEffort?: unknown;
+  supportedReasoningEfforts?: unknown;
+  serviceTiers?: unknown;
+  additionalSpeedTiers?: unknown;
+};
+
+const FAST_TIER = /fast|priority/iu;
+
+/** `model/list` answers { data: Model[] }. Hidden models stay out of the menu. */
+export function parseCodexModels(result: unknown): ProviderModelOption[] | undefined {
+  const list = (result as { data?: unknown } | undefined)?.data;
+  if (!Array.isArray(list)) return undefined;
+  const models: ProviderModelOption[] = [];
+  for (const entry of list as CodexModelInfo[]) {
+    if (entry.hidden === true) continue;
+    const id = typeof entry.model === "string" ? entry.model : typeof entry.id === "string" ? entry.id : undefined;
+    if (!id) continue;
+    const before = models.length;
+    pushModel(models, id, typeof entry.displayName === "string" ? entry.displayName : id);
+    const model = models[before];
+    if (!model) continue;
+    if (Array.isArray(entry.supportedReasoningEfforts)) {
+      model.reasoningEfforts = entry.supportedReasoningEfforts
+        .map((level) => (level as { reasoningEffort?: unknown }).reasoningEffort)
+        .filter((level): level is string => typeof level === "string")
+        .slice(0, 20);
+    }
+    if (typeof entry.defaultReasoningEffort === "string") model.defaultReasoningEffort = entry.defaultReasoningEffort;
+    if (entry.isDefault === true) model.isDefault = true;
+    const tiers = Array.isArray(entry.serviceTiers) ? (entry.serviceTiers as { id?: unknown; name?: unknown }[]) : [];
+    const tier = tiers.find(
+      (candidate) => typeof candidate.id === "string" && FAST_TIER.test(`${candidate.id} ${String(candidate.name)}`),
+    )?.id;
+    const speed = Array.isArray(entry.additionalSpeedTiers)
+      ? entry.additionalSpeedTiers.find(
+          (candidate): candidate is string => typeof candidate === "string" && FAST_TIER.test(candidate),
+        )
+      : undefined;
+    const fast = typeof tier === "string" ? tier : speed;
+    if (fast) model.fast = fast.slice(0, 60);
+  }
+  return models.length > 0 ? models : undefined;
 }
 
 /** `cursor-agent models` prints "Available models", then one "id - Label" row per model. */

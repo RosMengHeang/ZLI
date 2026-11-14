@@ -1,9 +1,8 @@
+import { ThreadId } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { ThreadId } from "@zli-v2/contracts";
-
 import type { ProviderEvent } from "./ProviderService.js";
-import { TerminalCompatibilityAdapter, discoverTerminalProvider } from "./TerminalCompatibilityAdapter.js";
+import { discoverTerminalProvider, TerminalCompatibilityAdapter } from "./TerminalCompatibilityAdapter.js";
 
 const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000801");
 

@@ -10,6 +10,7 @@ import {
   type RuntimeEventEnvelope as RuntimeEventEnvelopeValue,
   RuntimeProjection,
   type RuntimeProjection as RuntimeProjectionValue,
+  recordTurnStatus,
   removeDevServer,
   removeSession,
   upsertDevServer,
@@ -222,9 +223,20 @@ export class ProjectionStore {
           ...current,
           threads: current.threads.map((thread) => {
             if (thread.threadId !== event.threadId) return thread;
-            const { errorMessage: _previousError, ...rest } = thread;
+            const { errorMessage: _previousError, usageLimit: _limit, ...rest } = thread;
             return { ...rest, status: "starting" as const, updatedAt: envelope.occurredAt };
           }),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "thread.limit.resume.changed":
+        this.#projection = {
+          ...current,
+          threads: current.threads.map((thread) =>
+            thread.threadId === event.threadId && thread.usageLimit
+              ? { ...thread, usageLimit: { ...thread.usageLimit, autoResume: event.autoResume } }
+              : thread,
+          ),
           lastSequence: envelope.sequence,
         };
         break;
@@ -248,7 +260,7 @@ export class ProjectionStore {
       case "thread.activity.updated":
         this.#projection = {
           ...current,
-          activities: upsertThreadActivity(current.activities ?? [], event.activity),
+          activities: upsertThreadActivity(current.activities ?? [], event.activity, envelope.occurredAt),
           threads: touchThread(current.threads, event.activity.threadId, envelope.occurredAt),
           lastSequence: envelope.sequence,
         };
@@ -381,18 +393,27 @@ export class ProjectionStore {
       case "thread.status.changed":
         this.#projection = {
           ...current,
-          threads: current.threads.map((thread) =>
-            thread.threadId === event.threadId
-              ? {
-                  ...thread,
-                  status: event.status,
-                  updatedAt: envelope.occurredAt,
-                  ...(event.turnId ? { activeTurnId: event.turnId } : {}),
-                  ...(event.capabilities ? { capabilities: event.capabilities } : {}),
-                  ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
-                }
-              : thread,
-          ),
+          turns: recordTurnStatus(current.turns ?? [], event, envelope.occurredAt),
+          threads: current.threads.map((thread) => {
+            if (thread.threadId !== event.threadId) return thread;
+            const { usageLimit: previousLimit, ...rest } = thread;
+            // Matches the server: a limit stop lasts until the agent runs again.
+            const ended = event.status === "failed" || event.status === "stopped";
+            const usageLimit = event.usageLimit
+              ? { ...event.usageLimit, ...(previousLimit?.autoResume ? { autoResume: true } : {}) }
+              : ended && !event.errorMessage
+                ? previousLimit
+                : undefined;
+            return {
+              ...rest,
+              status: event.status,
+              updatedAt: envelope.occurredAt,
+              ...(event.turnId ? { activeTurnId: event.turnId } : {}),
+              ...(event.capabilities ? { capabilities: event.capabilities } : {}),
+              ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+              ...(usageLimit ? { usageLimit } : {}),
+            };
+          }),
           lastSequence: envelope.sequence,
         };
         break;

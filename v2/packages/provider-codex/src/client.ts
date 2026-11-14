@@ -6,6 +6,8 @@ import { decodeJsonRpc, encodeJsonRpc, JsonRpcId, JsonRpcMessage, JsonRpcRespons
 import {
   type CodexToolUpdate,
   codexItemTool,
+  codexReasoningDelta,
+  codexReasoningItem,
   ThreadReadResponse,
   ThreadStartResponse,
   TurnStartResponse,
@@ -25,8 +27,25 @@ export type CodexProviderEvent =
   | { type: "thread.started"; providerThreadId: string }
   | { type: "turn.started"; providerThreadId: string; providerTurnId: string }
   | { type: "assistant.delta"; providerThreadId: string; providerTurnId: string; text: string }
-  | { type: "turn.completed"; providerThreadId: string; providerTurnId: string; status: string }
+  | {
+      type: "turn.completed";
+      providerThreadId: string;
+      providerTurnId: string;
+      status: string;
+      /** What Codex said went wrong, for a turn that failed. */
+      errorMessage?: string;
+    }
   | { type: "tool.updated"; providerThreadId: string; providerTurnId: string; tool: CodexToolUpdate }
+  /** Reasoning for one item. The first delta, which may be empty, starts it. reasoningId is the item id. */
+  | { type: "reasoning.delta"; providerThreadId: string; providerTurnId: string; reasoningId: string; text: string }
+  /** text is the whole item, sent only when none of it streamed. */
+  | {
+      type: "reasoning.completed";
+      providerThreadId: string;
+      providerTurnId: string;
+      reasoningId: string;
+      text?: string;
+    }
   | { type: "usage.updated"; providerThreadId: string; providerTurnId: string; usage: ProviderUsage }
   | {
       type: "approval.requested";
@@ -69,6 +88,8 @@ export type CodexTurnInput = {
   text: string;
   model?: string;
   effort?: string;
+  /** A faster service tier for this turn only, such as "fast". Omitted runs at the thread's own speed. */
+  serviceTier?: string;
   /** Local image files sent as localImage inputs next to the text. */
   imagePaths?: readonly string[];
 };
@@ -96,6 +117,11 @@ export class CodexAppServerClient {
    * old turn right after thread/resume; that is history, so it only sets the baseline for the next turn.
    */
   private readonly restoring = new Set<string>();
+  /**
+   * Reasoning items in progress, by item id, with the stream they follow. Codex can send both a
+   * summary and the raw reasoning; the first one to arrive is kept so the text is not doubled.
+   */
+  private readonly reasoningItems = new Map<string, { source?: "summary" | "content"; streamed: boolean }>();
   private readonly unsubscribeMessage: () => void;
   private readonly unsubscribeClose: () => void;
   private closed = false;
@@ -164,6 +190,7 @@ export class CodexAppServerClient {
         ],
         ...(input.model ? { model: input.model } : {}),
         ...(input.effort ? { effort: input.effort } : {}),
+        ...(input.serviceTier ? { serviceTierForTurn: input.serviceTier } : {}),
       }),
     );
     return { providerTurnId: result.turn.id };
@@ -242,7 +269,7 @@ export class CodexAppServerClient {
       if (usage) this.emit(usage);
       return;
     }
-    const event = normalizeNotification(method, params);
+    const event = this.reasoningEvent(method, params) ?? normalizeNotification(method, params);
     if (event && this.isRestoredHistory(event)) return;
     if (event) this.emit(event);
     else if (isKnownNotificationMethod(method))
@@ -303,6 +330,49 @@ export class CodexAppServerClient {
       contextWindow: tokenCount(tokenUsage.modelContextWindow),
     });
     return usage ? { type: "usage.updated", providerThreadId: threadId, providerTurnId: turnId, usage } : undefined;
+  }
+
+  private reasoningEvent(method: string, params: Record<string, unknown> | undefined): CodexProviderEvent | undefined {
+    if (method === "item/started" || method === "item/completed") {
+      const item = codexReasoningItem(params);
+      if (!item) return undefined;
+      const ids = {
+        providerThreadId: item.providerThreadId,
+        providerTurnId: item.providerTurnId,
+        reasoningId: item.itemId,
+      };
+      if (method === "item/started") {
+        this.reasoningItems.set(item.itemId, { streamed: false });
+        return { type: "reasoning.delta", ...ids, text: "" };
+      }
+      const streamed = this.reasoningItems.get(item.itemId)?.streamed ?? false;
+      this.reasoningItems.delete(item.itemId);
+      return { type: "reasoning.completed", ...ids, ...(!streamed && item.text ? { text: item.text } : {}) };
+    }
+    const source =
+      method === "item/reasoning/summaryTextDelta" || method === "item/reasoning/summaryPartAdded"
+        ? "summary"
+        : method === "item/reasoning/textDelta"
+          ? "content"
+          : undefined;
+    if (!source) return undefined;
+    const delta = codexReasoningDelta(params);
+    if (!delta) return undefined;
+    const state = this.reasoningItems.get(delta.itemId) ?? { streamed: false };
+    this.reasoningItems.set(delta.itemId, state);
+    state.source ??= source;
+    const ids = { providerThreadId: delta.threadId, providerTurnId: delta.turnId, reasoningId: delta.itemId };
+    // Ignored deltas still count as handled so they are not reported as unknown notifications.
+    if (state.source !== source) return { type: "reasoning.delta", ...ids, text: "" };
+    // Each summary part after the first is its own paragraph.
+    const text =
+      method === "item/reasoning/summaryPartAdded"
+        ? state.streamed && (delta.summaryIndex ?? 0) > 0
+          ? "\n\n"
+          : ""
+        : delta.delta;
+    if (text) state.streamed = true;
+    return { type: "reasoning.delta", ...ids, text };
   }
 
   private isRestoredHistory(event: CodexProviderEvent): boolean {
@@ -483,13 +553,16 @@ function normalizeNotification(
       providerTurnId: turnId,
       text: String(params.delta ?? params.text ?? ""),
     };
-  if (method === "turn/completed")
+  if (method === "turn/completed") {
+    const errorMessage = asRecord(turn?.error)?.message;
     return {
       type: "turn.completed",
       providerThreadId: threadId,
       providerTurnId: turnId,
       status: String(params.status ?? turn?.status ?? "completed"),
+      ...(typeof errorMessage === "string" && errorMessage.trim() ? { errorMessage: errorMessage.trim() } : {}),
     };
+  }
   return undefined;
 }
 

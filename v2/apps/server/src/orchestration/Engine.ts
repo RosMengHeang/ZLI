@@ -1,22 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
-import * as Effect from "effect/Effect";
-
 import {
+  type EnvironmentDescriptor,
+  EventId,
   ProjectRegisterResult,
   RpcRequest,
+  type RuntimeCommand,
   RuntimeEvent,
   RuntimeEventEnvelope,
   type RuntimeProjection,
-  EventId,
-  type EnvironmentDescriptor,
-  type RuntimeCommand,
 } from "@zli-v2/contracts";
+import * as Effect from "effect/Effect";
 
 import type { Database } from "../db/Database.js";
-import { StructuredLogger, type LogCorrelation } from "../diagnostics/StructuredLogger.js";
+import { type LogCorrelation, StructuredLogger } from "../diagnostics/StructuredLogger.js";
 import { DomainError, decide } from "./decider.js";
 import { createEmptyProjection, projectEvent } from "./projector.js";
-import { ReactorRunner, type NamedReactor, type Reactor, type ReactorContext } from "./ReactorRunner.js";
+import { type NamedReactor, type Reactor, type ReactorContext, ReactorRunner } from "./ReactorRunner.js";
 
 export type CommandReceipt = {
   commandId: string;

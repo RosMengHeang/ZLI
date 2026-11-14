@@ -1,9 +1,13 @@
 import { posix, win32 } from "node:path";
 
 import {
+  MAX_ACTIVITY_INPUT,
+  MAX_ACTIVITY_SOURCES,
   MCP_CATALOG,
   type ThreadActivityConnector,
+  type ThreadActivityInput,
   type ThreadActivityKind,
+  type ThreadActivitySource,
   type ThreadActivityTodo,
 } from "@zli-v2/contracts";
 
@@ -16,6 +20,8 @@ export type ToolCallUpdate = {
   output?: string;
   /** Line counts the CLI reported itself, preferred over counting from the input. */
   lines?: LineCounts;
+  /** Pages the CLI reported in its own fields, listed before any found in the output. */
+  sources?: ThreadActivitySource[];
 };
 
 export type LineCounts = { added: number; removed: number };
@@ -31,6 +37,11 @@ export type ProviderActivity = {
   command?: string;
   connector?: ThreadActivityConnector;
   todos?: ThreadActivityTodo[];
+  input?: ThreadActivityInput[];
+  urls?: ThreadActivitySource[];
+  /** Reasoning text that arrived since the last update of the same step. */
+  text?: string;
+  truncated?: boolean;
 };
 
 const MAX_TITLE = 500;
@@ -120,6 +131,9 @@ export function toolActivity(update: ToolCallUpdate, cwd?: string): ProviderActi
   const detail = showDetail ? tail(update.output) : undefined;
   const command = kind === "command" ? commandText(input) : undefined;
   const lines = kind === "file-edit" && update.status !== "failed" ? (update.lines ?? editLines(input)) : undefined;
+  // Commands, reads, and edits already show their arguments as the command line, files, and line counts.
+  const args = kind === "command" || kind === "file-read" || kind === "file-edit" ? [] : inputEntries(input);
+  const urls = kind === "web" ? webSources(input, update.sources, update.output) : [];
   return {
     activityId: update.callId,
     kind,
@@ -130,7 +144,105 @@ export function toolActivity(update: ToolCallUpdate, cwd?: string): ProviderActi
     ...(lines && (lines.added > 0 || lines.removed > 0) ? { lines } : {}),
     ...(command && command !== title ? { command: clip(command, MAX_COMMAND) } : {}),
     ...(connector ? { connector } : {}),
+    ...(args.length > 0 ? { input: args } : {}),
+    ...(urls.length > 0 ? { urls } : {}),
   };
+}
+
+const MAX_INPUT_ENTRIES = 30;
+const MAX_INPUT_KEY = 100;
+
+/**
+ * The call's arguments as key and text pairs, in the order the agent sent them. Values that are not
+ * strings become JSON. All values together stay within MAX_ACTIVITY_INPUT characters, so a long
+ * argument is cut and the ones after it may be left out.
+ */
+export function inputEntries(input: Record<string, unknown>): ThreadActivityInput[] {
+  const entries: ThreadActivityInput[] = [];
+  let budget = MAX_ACTIVITY_INPUT;
+  for (const [key, raw] of Object.entries(input)) {
+    if (entries.length >= MAX_INPUT_ENTRIES || budget <= 0) break;
+    if (raw === undefined || raw === null || !key) continue;
+    const text = typeof raw === "string" ? raw : jsonText(raw);
+    if (text === undefined) continue;
+    const value = text.length > budget ? `${text.slice(0, Math.max(0, budget - 1))}…` : text;
+    budget -= value.length;
+    entries.push({ key: key.slice(0, MAX_INPUT_KEY), value });
+  }
+  return entries;
+}
+
+function jsonText(value: unknown): string | undefined {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Pages a web step used: the URL it fetched, the ones the CLI reported, and for a search the ones in its output.
+ * Claude's WebSearch prints them as `Links: [{"title", "url"}]`; other output is read for markdown
+ * links and bare URLs.
+ */
+export function webSources(
+  input: Record<string, unknown>,
+  reported: readonly ThreadActivitySource[] | undefined,
+  output: string | undefined,
+): ThreadActivitySource[] {
+  const found: ThreadActivitySource[] = [];
+  const fetched = firstString(input, ["url", "uri", "href"]);
+  if (fetched) found.push({ url: fetched });
+  found.push(...(reported ?? []));
+  // A fetched page's own links are its content, not sources, so only searches are read for them.
+  if (output && !fetched) found.push(...outputSources(output));
+  const seen = new Map<string, ThreadActivitySource>();
+  for (const source of found) {
+    const url = source.url.trim();
+    if (!/^https?:\/\//iu.test(url) || url.length > 2_000) continue;
+    const title = source.title?.trim().slice(0, 300);
+    const known = seen.get(url);
+    if (known) {
+      if (!known.title && title) known.title = title;
+      continue;
+    }
+    if (seen.size >= MAX_ACTIVITY_SOURCES) break;
+    seen.set(url, { url, ...(title ? { title } : {}) });
+  }
+  return [...seen.values()];
+}
+
+function outputSources(output: string): ThreadActivitySource[] {
+  const linked = linksJson(output);
+  if (linked.length > 0) return linked;
+  const sources: ThreadActivitySource[] = [];
+  for (const match of output.matchAll(/\[([^\]\n]{1,300})\]\((https?:\/\/[^\s)]+)\)/giu)) {
+    if (match[1] && match[2]) sources.push({ url: match[2], title: match[1].trim() });
+  }
+  for (const match of output.matchAll(/https?:\/\/[^\s<>"'`)\]]+/giu)) {
+    sources.push({ url: match[0].replace(/[.,;:]+$/u, "") });
+  }
+  return sources;
+}
+
+function linksJson(output: string): ThreadActivitySource[] {
+  const sources: ThreadActivitySource[] = [];
+  for (const match of output.matchAll(/Links:\s*(\[[^\n]*\])/gu)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(match[1] ?? "");
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(parsed)) continue;
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as Record<string, unknown>;
+      if (typeof record.url !== "string") continue;
+      sources.push({ url: record.url, ...(typeof record.title === "string" ? { title: record.title } : {}) });
+    }
+  }
+  return sources;
 }
 
 const TODO_STATUS: Readonly<Record<string, ThreadActivityTodo["status"]>> = {

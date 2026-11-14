@@ -14,6 +14,7 @@ const kindIcon: Record<Activity["kind"], IconName> = {
   search: "search",
   web: "globe",
   tool: "wrench",
+  reasoning: "message",
 };
 
 /** Reads, searches, and lookups in a row fold into one "Explored" step; edits and commands stand alone. */
