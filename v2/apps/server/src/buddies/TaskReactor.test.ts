@@ -99,7 +99,11 @@ async function setup() {
         await send(engine, { type: "thread.status", threadId: thread.threadId, status: "working" } as RuntimeCommand);
         for (const queued of state.queuedMessages ?? [])
           if (queued.threadId === thread.threadId)
-            await send(engine, { type: "thread.queue.remove", threadId: thread.threadId, queueId: queued.queueId } as RuntimeCommand);
+            await send(engine, {
+              type: "thread.queue.remove",
+              threadId: thread.threadId,
+              queueId: queued.queueId,
+            } as RuntimeCommand);
         await send(engine, {
           type: "thread.message",
           message: { messageId: `m-${thread.threadId}`, threadId: thread.threadId, role: "assistant", text: "On it." },

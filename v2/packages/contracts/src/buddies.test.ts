@@ -56,9 +56,9 @@ describe("buddies", () => {
 
   it("writes the buddy's row as a sentence about its latest job", () => {
     const state = fold([{ type: "buddy.created", buddy: buddy("a", "Builder"), order: 0 }, assign("t1", "a")]);
-    expect(state.buddies[0]?.lastLine?.text).toBe("Up next: fix the flaky checkout test");
+    expect(state.buddies?.[0]?.lastLine?.text).toBe("Up next: fix the flaky checkout test");
     const working = fold([{ type: "task.status.changed", taskId: "t1", status: "working" }], state);
-    expect(working.buddies[0]?.lastLine?.text).toBe("Working on fix the flaky checkout test");
+    expect(working.buddies?.[0]?.lastLine?.text).toBe("Working on fix the flaky checkout test");
   });
 
   it("puts open questions and ready jobs in Needs you, and clears them once answered", () => {
@@ -70,7 +70,7 @@ describe("buddies", () => {
     expect(needsYou(state).map((task) => task.taskId)).toEqual(["t1"]);
     const answered = fold([{ type: "task.question.answered", taskId: "t1", questionId: "q1", answer: "v2" }], state);
     expect(needsYou(answered)).toEqual([]);
-    expect(answered.tasks[0]?.status).toBe("working");
+    expect(answered.tasks?.[0]?.status).toBe("working");
   });
 
   it("pauses a routine after three failed runs in a row", () => {
@@ -96,7 +96,7 @@ describe("buddies", () => {
         ],
         state,
       );
-    expect(state.routines[0]).toMatchObject({ failuresInRow: 3, paused: true });
+    expect(state.routines?.[0]).toMatchObject({ failuresInRow: 3, paused: true });
   });
 
   it("keeps a proposed lesson only when the person accepts it, with their edit", () => {
@@ -105,8 +105,8 @@ describe("buddies", () => {
       { type: "buddy.memory.proposed", buddyId: "a", note: { noteId: "n1", text: "Run pnpm test", source: "lesson" } },
       { type: "buddy.memory.accepted", buddyId: "a", noteId: "n1", text: "Run pnpm verify" },
     ]);
-    expect(state.buddies[0]?.pendingMemory).toEqual([]);
-    expect(state.buddies[0]?.memory.map((note) => note.text)).toEqual(["Run pnpm verify"]);
+    expect(state.buddies?.[0]?.pendingMemory).toEqual([]);
+    expect(state.buddies?.[0]?.memory.map((note) => note.text)).toEqual(["Run pnpm verify"]);
   });
 
   it("parses buddy commands and events as runtime ones", () => {

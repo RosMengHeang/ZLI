@@ -687,13 +687,13 @@ function JobCard({
         </p>
       ) : null}
       {changing ? (
-        <div className="job-card-actions" role="group" aria-label="Run again with">
+        <fieldset className="job-card-actions" aria-label="Run again with">
           {providers.map((entry) => (
             <Button key={entry.provider} size="xs" onClick={() => void rerun(entry.provider as ProviderKind)}>
               {entry.displayName}
             </Button>
           ))}
-        </div>
+        </fieldset>
       ) : null}
       {question ? (
         <div className="job-card-question">
@@ -823,7 +823,7 @@ function JobCard({
         </form>
       ) : null}
       {confirmUndo ? (
-        <div className="job-card-confirm" role="group" aria-label="Undo job">
+        <fieldset className="job-card-confirm" aria-label="Undo job">
           <span>Delete its branch and worktree? This can't be undone.</span>
           <Button
             size="sm"
@@ -835,7 +835,7 @@ function JobCard({
           <Button size="sm" variant="ghost" onClick={() => setConfirmUndo(false)}>
             Keep it
           </Button>
-        </div>
+        </fieldset>
       ) : null}
       <div className="job-card-actions">
         {task.status === "ready" ? (
@@ -1083,7 +1083,7 @@ function Profile({
 
       <section className="buddies-section" aria-label="Settings">
         <h3 className="buddies-heading">Settings</h3>
-        <div className="buddy-colors" role="radiogroup" aria-label="Color">
+        <fieldset className="buddy-colors" aria-label="Color">
           {BUDDY_COLOR_NAMES.map((color) => (
             <button
               key={color}
@@ -1096,7 +1096,7 @@ function Profile({
               <BuddyAvatar buddy={color} size={22} />
             </button>
           ))}
-        </div>
+        </fieldset>
         <Select
           label="Agent and model"
           value={engineValue}

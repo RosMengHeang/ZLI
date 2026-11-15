@@ -932,7 +932,10 @@ export function ChatView({
     const team = (projection.buddies ?? []).filter(
       (buddy) => !buddy.archived && !callable.some((person) => agentNameKey(person.name) === agentNameKey(buddy.name)),
     );
-    const asked = leadingMentions(text, team.map((buddy) => buddy.name));
+    const asked = leadingMentions(
+      text,
+      team.map((buddy) => buddy.name),
+    );
     if (asked.names.length > 0 && worktree) {
       const goal = asked.rest.trim();
       if (!goal) {

@@ -106,3 +106,5 @@
 .sidebar-buddy-text { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .sidebar-buddy-name { color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 600; }
 .sidebar-buddy-line { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+fieldset.job-card-actions, fieldset.job-card-confirm, fieldset.buddy-colors { min-inline-size: 0; margin: 0; }
+fieldset.job-card-actions, fieldset.buddy-colors { padding: 0; border: 0; }
