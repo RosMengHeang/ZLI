@@ -20,6 +20,12 @@ import {
 import type { GitProcess } from "../git/GitProcess.js";
 import type { Engine } from "../orchestration/Engine.js";
 import { parseNumstat } from "../review/ReviewService.js";
+import {
+  DEFAULT_UNTRACKED_LIMITS,
+  excludePathspecs,
+  oversizedUntracked,
+  type UntrackedLimits,
+} from "./untrackedLimits.js";
 
 /** A message the person can act on; anything else is reported as an unexpected failure. */
 export class CheckpointError extends Error {}
@@ -45,11 +51,14 @@ const BUSY_STATUSES = new Set(["working", "waiting"]);
 export class TurnCheckpoints {
   private readonly tasks = new Set<Promise<void>>();
   private readonly unsubscribe: () => void;
+  private readonly limits: UntrackedLimits;
 
   constructor(
     private readonly engine: Engine,
     private readonly git: Pick<GitProcess, "run">,
+    options: { limits?: UntrackedLimits } = {},
   ) {
+    this.limits = options.limits ?? DEFAULT_UNTRACKED_LIMITS;
     this.unsubscribe = engine.subscribe((envelope) => {
       if (envelope.event.type === "session.deleted") this.track(this.dropRefs(envelope.event.threadIds));
     });
@@ -252,16 +261,24 @@ export class TurnCheckpoints {
     return { checkpoint, worktreePath: worktree.path, projection };
   }
 
-  /** `git add --all` into a copy of the real index, so unchanged files are not hashed again. */
+  /**
+   * `git add --all` into a copy of the real index, so unchanged files are not hashed again. Untracked files and
+   * folders over the limits (build output missing from .gitignore) are left out of both ends of every turn.
+   */
   private async snapshot(cwd: string): Promise<string> {
     const indexPath = (await this.git.run(["rev-parse", "--git-path", "index"], { cwd })).stdout.trim();
+    const skipped = await oversizedUntracked(this.git, cwd, this.limits).catch(() => []);
     return this.withIndex(async (env) => {
       try {
         await copyFile(resolve(cwd, indexPath), env.GIT_INDEX_FILE);
       } catch {
         // A repository without commits or staged files has no index yet.
       }
-      await this.git.run(["add", "--all", "--", "."], { cwd, env, timeoutMs: SNAPSHOT_TIMEOUT_MS });
+      await this.git.run(["add", "--all", "--", ".", ...excludePathspecs(skipped)], {
+        cwd,
+        env,
+        timeoutMs: SNAPSHOT_TIMEOUT_MS,
+      });
       return (await this.git.run(["write-tree"], { cwd, env })).stdout.trim();
     });
   }

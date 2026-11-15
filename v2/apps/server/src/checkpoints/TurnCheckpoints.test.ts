@@ -24,7 +24,7 @@ afterEach(async () => {
   for (const step of cleanup.splice(0).reverse()) await step();
 });
 
-async function setup() {
+async function setup(options?: ConstructorParameters<typeof TurnCheckpoints>[2]) {
   const directory = await mkdtemp(join(tmpdir(), "zli-checkpoints-"));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const repo = join(directory, "repo");
@@ -69,7 +69,7 @@ async function setup() {
   });
   await dispatch({ type: "worktree.status", worktreeId, status: "ready" });
   await dispatch({ type: "thread.start", threadId, worktreeId, provider: "codex", cwd: repo });
-  const checkpoints = new TurnCheckpoints(engine, git);
+  const checkpoints = new TurnCheckpoints(engine, git, options);
   cleanup.push(() => checkpoints.stop());
   return { repo, git, engine, dispatch, checkpoints };
 }
@@ -192,6 +192,39 @@ describe("TurnCheckpoints", () => {
     if (!start) throw new Error("Expected a starting snapshot.");
     await checkpoints.record(threadId, "turn-1", start);
     expect((await engine.projection()).checkpoints ?? []).toEqual([]);
+  }, 20_000);
+
+  it("leaves oversized untracked paths out of snapshots", async () => {
+    const { repo, git, checkpoints } = await setup({ limits: { maxFileBytes: 1024, maxFolderFiles: 3 } });
+    await writeFile(join(repo, "huge.bin"), "x".repeat(2048));
+    await mkdir(join(repo, "target"));
+    for (let index = 0; index < 4; index += 1) await writeFile(join(repo, "target", `f${index}.o`), "o\n");
+    const start = await checkpoints.capture(threadId);
+    if (!start) throw new Error("Expected a starting snapshot.");
+    const paths = (await git.run(["ls-tree", "-r", "--name-only", start.tree], { cwd: repo })).stdout.split("\n");
+    expect(paths).toContain("README.md");
+    expect(paths).not.toContain("huge.bin");
+    expect(paths.some((path) => path.startsWith("target/"))).toBe(false);
+  }, 20_000);
+
+  it("restore never touches a folder that grew past the limit", async () => {
+    const { repo, engine, checkpoints } = await setup({ limits: { maxFileBytes: 1024, maxFolderFiles: 3 } });
+    await mkdir(join(repo, "gen"));
+    await writeFile(join(repo, "gen", "a.txt"), "a\n");
+    await writeFile(join(repo, "gen", "b.txt"), "b\n");
+    const start = await checkpoints.capture(threadId);
+    if (!start) throw new Error("Expected a starting snapshot.");
+    await writeFile(join(repo, "gen", "c.txt"), "c\n");
+    await writeFile(join(repo, "gen", "d.txt"), "d\n");
+    await writeFile(join(repo, "README.md"), "changed\n");
+    await checkpoints.record(threadId, "turn-1", start);
+    const [checkpoint] = (await engine.projection()).checkpoints ?? [];
+    if (!checkpoint) throw new Error("Expected a checkpoint.");
+    await checkpoints.restore(checkpoint.checkpointId);
+    for (const name of ["a", "b", "c", "d"]) {
+      expect(await readFile(join(repo, "gen", `${name}.txt`), "utf8")).toBe(`${name}\n`);
+    }
+    expect(await readFile(join(repo, "README.md"), "utf8")).toBe("base\n");
   }, 20_000);
 });
 
