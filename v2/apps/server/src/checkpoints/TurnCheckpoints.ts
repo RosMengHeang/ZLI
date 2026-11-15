@@ -24,6 +24,7 @@ import {
   DEFAULT_UNTRACKED_LIMITS,
   excludePathspecs,
   oversizedUntracked,
+  sweepTempObjects,
   type UntrackedLimits,
 } from "./untrackedLimits.js";
 
@@ -52,6 +53,8 @@ export class TurnCheckpoints {
   private readonly tasks = new Set<Promise<void>>();
   private readonly unsubscribe: () => void;
   private readonly limits: UntrackedLimits;
+  /** Git objects folders already swept for leftover temp objects since start-up. */
+  private readonly swept = new Set<string>();
 
   constructor(
     private readonly engine: Engine,
@@ -266,7 +269,15 @@ export class TurnCheckpoints {
    * folders over the limits (build output missing from .gitignore) are left out of both ends of every turn.
    */
   private async snapshot(cwd: string): Promise<string> {
-    const indexPath = (await this.git.run(["rev-parse", "--git-path", "index"], { cwd })).stdout.trim();
+    const paths = (await this.git.run(["rev-parse", "--git-path", "index", "--git-path", "objects"], { cwd })).stdout
+      .trim()
+      .split(/\r?\n/u);
+    const indexPath = paths[0] ?? "index";
+    const objectsDir = resolve(cwd, paths[1] ?? ".git/objects");
+    if (!this.swept.has(objectsDir)) {
+      this.swept.add(objectsDir);
+      await sweepTempObjects(objectsDir, Date.now());
+    }
     const skipped = await oversizedUntracked(this.git, cwd, this.limits).catch(() => []);
     return this.withIndex(async (env) => {
       try {
@@ -274,11 +285,17 @@ export class TurnCheckpoints {
       } catch {
         // A repository without commits or staged files has no index yet.
       }
-      await this.git.run(["add", "--all", "--", ".", ...excludePathspecs(skipped)], {
-        cwd,
-        env,
-        timeoutMs: SNAPSHOT_TIMEOUT_MS,
-      });
+      try {
+        await this.git.run(["add", "--all", "--", ".", ...excludePathspecs(skipped)], {
+          cwd,
+          env,
+          timeoutMs: SNAPSHOT_TIMEOUT_MS,
+        });
+      } catch (error) {
+        // A timed-out add is killed mid-write and leaves its temp objects behind.
+        await sweepTempObjects(objectsDir, Date.now());
+        throw error;
+      }
       return (await this.git.run(["write-tree"], { cwd, env })).stdout.trim();
     });
   }

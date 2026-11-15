@@ -1,11 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { GitProcess } from "../git/GitProcess.js";
-import { excludePathspecs, oversizedUntracked } from "./untrackedLimits.js";
+import { excludePathspecs, oversizedUntracked, sweepTempObjects } from "./untrackedLimits.js";
 
 const limits = { maxFileBytes: 1024, maxFolderFiles: 3 };
 const git = new GitProcess();
@@ -59,6 +59,27 @@ describe("oversizedUntracked", () => {
     const cwd = await repo();
     for (const name of ["big dir", "[odd]", "ünï"]) await files(join(cwd, name), 4);
     expect(await oversizedUntracked(git, cwd, limits)).toEqual(["[odd]", "big dir", "ünï"]);
+  });
+});
+
+describe("sweepTempObjects", () => {
+  it("removes only old temp folders", async () => {
+    const objects = await mkdtemp(join(tmpdir(), "zli-objects-"));
+    cleanup.push(() => rm(objects, { recursive: true, force: true }));
+    const now = Date.now();
+    const old = new Date(now - 11 * 60_000);
+    for (const name of ["tmp_objdir-bulk-fsync-old", "tmp_objdir-bulk-fsync-new", "pack"]) {
+      await mkdir(join(objects, name));
+      await writeFile(join(objects, name, "x"), "x");
+    }
+    await utimes(join(objects, "tmp_objdir-bulk-fsync-old"), old, old);
+    await utimes(join(objects, "pack"), old, old);
+    expect(await sweepTempObjects(objects, now)).toBe(1);
+    expect((await readdir(objects)).sort()).toEqual(["pack", "tmp_objdir-bulk-fsync-new"]);
+  });
+
+  it("returns 0 for a missing folder", async () => {
+    expect(await sweepTempObjects(join(tmpdir(), "zli-no-such-objects-folder"), Date.now())).toBe(0);
   });
 });
 

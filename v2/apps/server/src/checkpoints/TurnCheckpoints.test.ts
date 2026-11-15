@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -205,6 +205,17 @@ describe("TurnCheckpoints", () => {
     expect(paths).toContain("README.md");
     expect(paths).not.toContain("huge.bin");
     expect(paths.some((path) => path.startsWith("target/"))).toBe(false);
+  }, 20_000);
+
+  it("sweeps old temp objects on the first snapshot", async () => {
+    const { repo, checkpoints } = await setup();
+    const stale = join(repo, ".git", "objects", "tmp_objdir-bulk-fsync-stale");
+    await mkdir(stale);
+    await writeFile(join(stale, "x"), "x");
+    const old = new Date(Date.now() - 11 * 60_000);
+    await utimes(stale, old, old);
+    await checkpoints.capture(threadId);
+    await expect(stat(stale)).rejects.toThrow();
   }, 20_000);
 
   it("restore never touches a folder that grew past the limit", async () => {

@@ -1,4 +1,4 @@
-import { opendir, stat } from "node:fs/promises";
+import { opendir, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { GitProcess } from "../git/GitProcess.js";
@@ -66,6 +66,36 @@ async function scanFolder(root: string, limits: UntrackedLimits): Promise<{ tooM
     }
   }
   return { tooMany: false, bigFiles };
+}
+
+const TEMP_OBJECTS_MIN_AGE_MS = 600_000;
+
+/**
+ * Removes `tmp_objdir*` folders a killed `git add` left in a Git objects folder. Only folders older than
+ * `minAgeMs` go, so a Git command still running elsewhere keeps its own. Returns how many went; never throws.
+ */
+export async function sweepTempObjects(
+  objectsDir: string,
+  now: number,
+  minAgeMs = TEMP_OBJECTS_MIN_AGE_MS,
+): Promise<number> {
+  let removed = 0;
+  try {
+    for (const name of await readdir(objectsDir)) {
+      if (!name.startsWith("tmp_objdir")) continue;
+      try {
+        const path = join(objectsDir, name);
+        if (now - (await stat(path)).mtimeMs <= minAgeMs) continue;
+        await rm(path, { recursive: true, force: true });
+        removed += 1;
+      } catch {
+        // Another process may be removing it too.
+      }
+    }
+  } catch {
+    // No objects folder, or it cannot be read.
+  }
+  return removed;
 }
 
 /** Pathspecs that leave each path out of `git add`, read literally so names such as ":odd" stay names. */
