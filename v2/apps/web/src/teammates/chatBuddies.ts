@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { BUDDY_BODIES, type Buddy, type BuddyBody, buddyBody, parseBuddy } from "./buddies.js";
+import { BUDDY_COLOR_NAMES, type Buddy, parseBuddy } from "./buddies.js";
 
 /**
  * Which buddy each chat wears, kept on this machine. A chat gets one the first time the sidebar lists it,
@@ -48,7 +48,7 @@ function write(next: Record<string, Buddy>): void {
 export function hashedBuddy(chatId: string): Buddy {
   let hash = 0;
   for (let index = 0; index < chatId.length; index += 1) hash = (hash * 31 + chatId.charCodeAt(index)) >>> 0;
-  return BUDDY_BODIES[hash % BUDDY_BODIES.length] ?? "gumdrop";
+  return BUDDY_COLOR_NAMES[hash % BUDDY_COLOR_NAMES.length] ?? "tangerine";
 }
 
 export function storedChatBuddy(chatId: string): Buddy | undefined {
@@ -56,7 +56,7 @@ export function storedChatBuddy(chatId: string): Buddy | undefined {
 }
 
 /**
- * Gives every chat in `chatIds` (newest last) a buddy if it has none. A new chat takes the body used least
+ * Gives every chat in `chatIds` (newest last) a buddy if it has none. A new chat takes the color used least
  * among the chats listed, preferring its hashed one on a tie, so neighbours rarely match.
  */
 export function assignChatBuddies(chatIds: readonly string[]): void {
@@ -64,20 +64,20 @@ export function assignChatBuddies(chatIds: readonly string[]): void {
   const missing = chatIds.filter((id) => !known[id]);
   if (missing.length === 0) return;
   const next = { ...known };
-  const counts = new Map<BuddyBody, number>(BUDDY_BODIES.map((body) => [body, 0]));
+  const counts = new Map<Buddy, number>(BUDDY_COLOR_NAMES.map((color) => [color, 0]));
   for (const id of chatIds) {
     const buddy = next[id];
-    if (buddy) counts.set(buddyBody(buddy), (counts.get(buddyBody(buddy)) ?? 0) + 1);
+    if (buddy) counts.set(buddy, (counts.get(buddy) ?? 0) + 1);
   }
   for (const id of missing) {
     const fewest = Math.min(...counts.values());
-    const preferred = buddyBody(hashedBuddy(id));
-    const body =
+    const preferred = hashedBuddy(id);
+    const color =
       (counts.get(preferred) ?? 0) === fewest
         ? preferred
-        : (BUDDY_BODIES.find((candidate) => (counts.get(candidate) ?? 0) === fewest) ?? preferred);
-    next[id] = body;
-    counts.set(body, (counts.get(body) ?? 0) + 1);
+        : (BUDDY_COLOR_NAMES.find((candidate) => (counts.get(candidate) ?? 0) === fewest) ?? preferred);
+    next[id] = color;
+    counts.set(color, (counts.get(color) ?? 0) + 1);
   }
   write(next);
 }

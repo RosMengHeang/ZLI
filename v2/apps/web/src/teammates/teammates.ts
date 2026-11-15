@@ -1,6 +1,6 @@
 import { agentNameKey, type ListedProviderKind, type PermissionMode } from "@zli-v2/contracts";
 
-import { BUDDY_BODIES, type Buddy, buddyBody, parseBuddy } from "./buddies.js";
+import { BUDDY_COLOR_NAMES, type Buddy, parseBuddy } from "./buddies.js";
 
 /**
  * A saved teammate: an agent and model with a name, a buddy, and standing instructions. The person sets
@@ -52,8 +52,8 @@ export function parseTeammates(value: unknown): Teammate[] {
     teammates.push({
       id,
       name,
-      // Settings saved before buddies hold an animal; it maps to the matching buddy.
-      buddy: parseBuddy(entry.buddy) ?? parseBuddy(entry.animal) ?? "gumdrop",
+      // Older settings hold a body or an animal; each maps to its color.
+      buddy: parseBuddy(entry.buddy) ?? parseBuddy(entry.animal) ?? "tangerine",
       provider: provider as ListedProviderKind,
       ...(typeof entry.model === "string" && entry.model ? { model: entry.model } : {}),
       ...(instructions ? { instructions } : {}),
@@ -67,27 +67,27 @@ export function parseTeammates(value: unknown): Teammate[] {
 
 /** The buddy an agent wears when nobody picked one: each agent CLI has its own, so it reads the same everywhere. */
 const providerBuddy: Partial<Record<string, Buddy>> = {
-  "claude-code": "gumdrop",
-  codex: "squircle",
-  droid: "jelly",
-  "cursor-agent": "cloud",
-  gemini: "mushroom",
-  opencode: "bean",
-  copilot: "peanut",
-  kimi: "plus",
-  qwen: "bean",
+  "claude-code": "tangerine",
+  codex: "paper",
+  droid: "jade",
+  "cursor-agent": "sky",
+  gemini: "indigo",
+  opencode: "slate",
+  copilot: "clay",
+  kimi: "rose",
+  qwen: "slate",
 };
 
 export function defaultBuddy(provider: string): Buddy {
-  return providerBuddy[provider] ?? "gumdrop";
+  return providerBuddy[provider] ?? "tangerine";
 }
 
-/** The agent's own buddy, or the first body nobody in `taken` wears yet. Bodies count, not colors. */
+/** The agent's own color, or the first color nobody in `taken` wears yet. */
 export function freeBuddy(provider: string, taken: Iterable<Buddy>): Buddy {
-  const bodies = new Set([...taken].map(buddyBody));
+  const used = new Set(taken);
   const preferred = defaultBuddy(provider);
-  if (!bodies.has(buddyBody(preferred))) return preferred;
-  return BUDDY_BODIES.find((body) => !bodies.has(body)) ?? preferred;
+  if (!used.has(preferred)) return preferred;
+  return BUDDY_COLOR_NAMES.find((color) => !used.has(color)) ?? preferred;
 }
 
 /** The saved teammate an agent was started as, found by its name. */
@@ -99,7 +99,7 @@ export function teammateNamed(teammates: readonly Teammate[], name: string | und
 
 /**
  * The buddy each member of a chat wears. A saved teammate keeps its own; anyone else wears their agent's
- * buddy, or the next free body when someone in the chat already has it.
+ * buddy, or the next free color when someone in the chat already has it.
  */
 export function roomBuddies(
   members: readonly { id: string; provider: string; name?: string | undefined; buddy?: Buddy | undefined }[],
