@@ -149,7 +149,7 @@ describe("ChatView with more than one agent", () => {
     updateAppSettings((settings) => ({
       ...settings,
       teammates: [
-        { id: "t1", name: "Reviewer", buddy: "squircle", provider: "codex", instructions: "Look for missing tests." },
+        { id: "t1", name: "Reviewer", buddy: "paper", provider: "codex", instructions: "Look for missing tests." },
       ],
     }));
     const onBringIn = vi.fn(async () => ({ threadId: guestId }));
@@ -179,22 +179,22 @@ describe("ChatView with more than one agent", () => {
       node.textContent?.includes("Codex"),
     );
     await act(async () => (item as HTMLElement | undefined)?.click());
-    // The guest takes a buddy nobody in the chat wears yet, and is named after it.
+    // The guest takes a color nobody in the chat wears yet, and is named after it.
     const [request] = onBringIn.mock.calls[0] as unknown as [{ provider: string; name: string }];
     expect(request.provider).toBe("codex");
     expect([
-      "Gumdrop",
-      "Capsule",
-      "Plus",
-      "Cloud",
-      "Mushroom",
-      "Peanut",
-      "Jelly",
-      "Wedge",
-      "Squircle",
-      "Bulb",
-      "House",
-      "Bean",
+      "Sky",
+      "Indigo",
+      "Orchid",
+      "Rose",
+      "Tomato",
+      "Tangerine",
+      "Butter",
+      "Lime",
+      "Jade",
+      "Clay",
+      "Paper",
+      "Slate",
     ]).toContain(request.name);
     expect(container.querySelector("textarea")?.value).toBe(`@${request.name} `);
   });

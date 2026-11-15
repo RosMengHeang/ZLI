@@ -56,7 +56,6 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
     const settings = page.getByRole("dialog", { name: "Settings" });
     await settings.getByRole("tab", { name: "Teammates" }).click();
     await settings.getByRole("button", { name: "Add teammate" }).click();
-    await settings.getByRole("button", { name: "Bean", exact: true }).click();
     await settings.getByRole("button", { name: "Jade", exact: true }).click();
     await settings.getByLabel("Name").fill("Reviewer");
     await settings.getByLabel("Instructions").fill("Look for missing tests.");

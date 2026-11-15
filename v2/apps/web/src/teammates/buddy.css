@@ -19,7 +19,7 @@
 .buddy-avatar.is-large.is-idle .buddy-eyes { animation: buddy-blink 5.2s infinite; }
 /* Ready in a list: one blink when pointed at. */
 .buddy-avatar.is-idle:not(.is-large):hover .buddy-eyes,
-:is(.session-row, .shelf-row, .room-person-chip, .teammate-buddy):hover .buddy-avatar.is-idle .buddy-eyes {
+:is(.session-row, .shelf-row, .room-person-chip, .teammate-color):hover .buddy-avatar.is-idle .buddy-eyes {
   animation: buddy-blink-once 360ms ease-in-out 1;
 }
 

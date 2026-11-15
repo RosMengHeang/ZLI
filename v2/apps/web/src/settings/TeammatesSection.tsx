@@ -1,19 +1,9 @@
 import { agentNameKey, type PermissionMode, type RuntimeProjection } from "@zli-v2/contracts";
-import { type CSSProperties, useId, useState } from "react";
+import { useId, useState } from "react";
 
 import { isSelectableProvider, listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { makeCommandId } from "../runtime/commandId.js";
-import {
-  BUDDY_BODIES,
-  BUDDY_COLOR_NAMES,
-  BUDDY_COLORS,
-  type Buddy,
-  bodyLabel,
-  buddyBody,
-  buddyColor,
-  buddyName,
-  makeBuddy,
-} from "../teammates/buddies.js";
+import { BUDDY_COLOR_NAMES, BUDDY_COLORS, type Buddy, buddyName } from "../teammates/buddies.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { cleanTeammateName, MAX_TEAMMATE_INSTRUCTIONS, MAX_TEAMMATES, type Teammate } from "../teammates/teammates.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -57,9 +47,9 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
   const ids = useId();
 
   const startNew = () => {
-    // A new teammate starts as a buddy no other saved teammate wears yet, in its own color.
-    const used = new Set(teammates.map((teammate) => buddyBody(teammate.buddy)));
-    const buddy = BUDDY_BODIES.find((body) => !used.has(body)) ?? "gumdrop";
+    // A new teammate starts in a color no other saved teammate wears yet.
+    const used = new Set(teammates.map((teammate) => teammate.buddy));
+    const buddy = BUDDY_COLOR_NAMES.find((color) => !used.has(color)) ?? "tangerine";
     setProblem(undefined);
     setDraft({
       name: "",
@@ -179,41 +169,22 @@ export function TeammatesSection({ projection }: { projection: RuntimeProjection
                 <BuddyAvatar buddy={draft.buddy} size={72} />
               </span>
               <div className="teammate-look-pickers">
-                <fieldset className="teammate-buddies">
-                  <legend className="field-label">Buddy</legend>
-                  {BUDDY_BODIES.map((body) => {
-                    const picked = buddyBody(draft.buddy) === body;
-                    const buddy = makeBuddy(body, buddyColor(draft.buddy));
-                    return (
-                      <button
-                        key={body}
-                        type="button"
-                        className={`teammate-buddy${picked ? " is-picked" : ""}`}
-                        aria-pressed={picked}
-                        aria-label={bodyLabel[body]}
-                        title={bodyLabel[body]}
-                        onClick={() => setDraft({ ...draft, buddy })}
-                      >
-                        <BuddyAvatar buddy={buddy} size={30} full />
-                      </button>
-                    );
-                  })}
-                </fieldset>
                 <fieldset className="teammate-colors">
                   <legend className="field-label">Color</legend>
                   {BUDDY_COLOR_NAMES.map((color) => {
-                    const picked = buddyColor(draft.buddy) === color;
+                    const picked = draft.buddy === color;
                     return (
                       <button
                         key={color}
                         type="button"
                         className={`teammate-color${picked ? " is-picked" : ""}`}
-                        style={{ "--swatch": BUDDY_COLORS[color].hex } as CSSProperties}
                         aria-pressed={picked}
                         aria-label={BUDDY_COLORS[color].label}
                         title={BUDDY_COLORS[color].label}
-                        onClick={() => setDraft({ ...draft, buddy: makeBuddy(buddyBody(draft.buddy), color) })}
-                      />
+                        onClick={() => setDraft({ ...draft, buddy: color })}
+                      >
+                        <BuddyAvatar buddy={color} size={30} />
+                      </button>
                     );
                   })}
                 </fieldset>
