@@ -24,9 +24,19 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
     const pane = page.getByRole("region", { name: "Buddies" }).last();
     await shot("open");
     const message = pane.getByLabel("Message Builder");
-    await message.fill("Add a login page");
+    // A greeting is just chat: an answer, and no job or new chat in the project list.
+    await message.fill("hello");
     await message.press("Enter");
-    await expect(pane.locator(".buddy-chat-you").first()).toHaveText("Add a login page");
+    await expect(pane.locator(".buddy-chat-say").first()).toContainText("hello", { timeout: 60_000 });
+    await expect(page.locator(".sidebar").getByText("Builder chat")).toHaveCount(0);
+    await shot("hello");
+
+    // The mock agent repeats what it is sent, so this message comes back as a reply that starts a job.
+    await message.fill("[[job]]Add a login page[[/job]]");
+    await message.press("Enter");
+    await expect(pane.locator(".buddy-chat-event", { hasText: "Started a job" }).first()).toBeVisible({
+      timeout: 60_000,
+    });
 
     // Auto picks the setup and says why; the job starts in its own chat.
     await shot("working");

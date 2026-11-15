@@ -298,14 +298,20 @@ function WorkspaceApp() {
 
   // Side questions belong to the chat that asked them, so they are neither tiles nor sidebar rows.
   const sideChatIds = useSideChatIds();
+  // A buddy's chat with the person lives on the buddy's page, not in the project lists.
+  const buddyChatIds = useMemo(
+    () => new Set((projection?.buddies ?? []).flatMap((buddy) => (buddy.chatThreadId ? [buddy.chatThreadId] : []))),
+    [projection?.buddies],
+  );
   const sessions = useMemo(
     () =>
       projection
         ? deriveSessions(projection, workbench.pending, workbench.chats).filter(
-            (session) => !sideChatIds.has(session.sessionId),
+            (session) =>
+              !sideChatIds.has(session.sessionId) && !(session.thread && buddyChatIds.has(session.thread.threadId)),
           )
         : [],
-    [projection, workbench.pending, workbench.chats, sideChatIds],
+    [projection, workbench.pending, workbench.chats, sideChatIds, buddyChatIds],
   );
   /** Asks one tile to open its New chat menu, so the person picks blank or recent context each time. */
   const [newChatRequest, setNewChatRequest] = useState<{ sessionId: string; nonce: number }>();

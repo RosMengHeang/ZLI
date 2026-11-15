@@ -117,3 +117,11 @@
 .buddy-chat-files li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .buddy-chat-files.is-sent { align-self: flex-end; justify-content: flex-end; margin-top: 4px; padding: 0; }
 .buddy-chat-files.is-sent li { padding-right: 8px; }
+
+/* The buddy is thinking: three dots, then what it is looking at. */
+.buddy-typing { display: inline-flex; height: 18px; align-items: center; gap: 4px; }
+.buddy-typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--zli-muted); animation: buddy-typing 1.2s var(--zli-ease) infinite; }
+.buddy-typing span:nth-child(2) { animation-delay: .15s; }
+.buddy-typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes buddy-typing { 0%, 60%, 100% { opacity: .35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .buddy-typing span { animation: none; } }

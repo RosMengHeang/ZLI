@@ -123,18 +123,28 @@ describe("BuddiesPane", () => {
     });
   });
 
-  it("gives a buddy a job by messaging it in its chat", async () => {
+  it("sends a message to the buddy's chat, which decides whether it is a job", async () => {
     const state = projection({ buddies: [buddy("b2", "Builder", 0)] });
     const { commands } = await render(state, "b2");
-    expect(document.body.textContent).toContain("Tell me what to do.");
+    expect(document.body.textContent).toContain("Ask me anything.");
     const box = document.querySelector<HTMLTextAreaElement>('[aria-label="Message Builder"]');
     if (!box) throw new Error("No message box");
-    await typeInto(box, "Add a dark mode toggle");
+    await typeInto(box, "hello");
     await act(async () => buttonNamed("Send").click());
-    expect(commands.at(-1)).toMatchObject({
-      type: "task.assign",
-      task: { buddyId: "b2", projectId: "p1", goal: "Add a dark mode toggle", origin: { kind: "buddy" } },
+    expect(commands.at(-1)).toMatchObject({ type: "buddy.chat.send", buddyId: "b2", text: "hello" });
+  });
+
+  it("shows the conversation, and a dots bubble while the buddy thinks", () => {
+    const state = projection({
+      buddies: [{ ...buddy("b2", "Builder", 0), chatThreadId: "chat-1" }],
+      buddyMessages: [
+        { messageId: "m1", buddyId: "b2", role: "you", text: "hi", at },
+        { messageId: "m2", buddyId: "b2", role: "buddy", text: "Hey! What's up?", at },
+        { messageId: "m3", buddyId: "b2", role: "you", text: "fix the login", at },
+      ],
     });
+    const items = buddyTranscript(state.buddies?.[0] as BuddyProjection, state);
+    expect(items.map((item) => item.kind)).toEqual(["you", "say", "you", "thinking"]);
   });
 
   it("shows a result card with the setup and its reason, and sends a revision", async () => {

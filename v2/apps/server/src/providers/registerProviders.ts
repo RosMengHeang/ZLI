@@ -1,10 +1,11 @@
+import { BUDDY_TOOL_NAMES } from "@zli-v2/contracts";
 import { AcpProviderError } from "@zli-v2/provider-acp";
 import { ClaudeCodeClient, ClaudeProviderError } from "@zli-v2/provider-claude-code";
 import { CodexAppServerClient, CodexProviderError } from "@zli-v2/provider-codex";
 import { CursorAgentClient, CursorProviderError } from "@zli-v2/provider-cursor-agent";
 import { DroidClient, DroidProviderError } from "@zli-v2/provider-droid";
-
 import {
+  AGENT_MCP_SERVER,
   agentEnv,
   type BrowserToolConfig,
   codexMcpArgs,
@@ -245,6 +246,7 @@ export function createProviderRegistry(
         CodexAppServerClient.connect({
           command: await resolveCodexCommand(),
           ...(browserTool ? { args: zliMcpServerSpecs(browserTool).flatMap(codexMcpArgs) } : {}),
+          approveTool: (server, tool) => server === AGENT_MCP_SERVER && BUDDY_TOOL_NAMES.has(tool),
           ...browserEnv(undefined, account),
         }),
       threadConfig: async (input) => {

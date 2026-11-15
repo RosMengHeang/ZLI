@@ -71,6 +71,8 @@ export type CodexAppServerClientOptions = {
   args?: readonly string[];
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  /** MCP tools that run without asking the person, by server and tool name: the app's own trusted tools. */
+  approveTool?: (server: string, tool: string) => boolean;
 };
 
 export type CodexSessionStartInput = {
@@ -126,7 +128,10 @@ export class CodexAppServerClient {
   private readonly unsubscribeClose: () => void;
   private closed = false;
 
-  private constructor(private readonly peer: CodexPeer) {
+  private constructor(
+    private readonly peer: CodexPeer,
+    private readonly approveTool?: (server: string, tool: string) => boolean,
+  ) {
     this.unsubscribeMessage = peer.onMessage((message) => this.handleMessage(message));
     this.unsubscribeClose = peer.onClose((error) => {
       if (this.closed) return;
@@ -137,7 +142,7 @@ export class CodexAppServerClient {
 
   static async connect(options: CodexAppServerClientOptions = {}): Promise<CodexAppServerClient> {
     const peer = options.peer ?? (await spawnCodexPeer(options));
-    const client = new CodexAppServerClient(peer);
+    const client = new CodexAppServerClient(peer, options.approveTool);
     try {
       await peer.request("initialize", {
         clientInfo: { name: "zli-v2", version: "0.0.0" },
@@ -286,6 +291,11 @@ export class CodexAppServerClient {
     }
     const requestId = String(id);
     this.serverRequests.set(requestId, { id, kind, params });
+    const tool = kind === "elicitation" ? mcpToolCall(params) : undefined;
+    if (tool && this.approveTool?.(tool.server, tool.tool)) {
+      void this.respondToRequest(requestId, { decision: "accept" }).catch(() => undefined);
+      return;
+    }
     const ids = {
       requestId,
       providerThreadId: String(params.threadId ?? ""),
@@ -659,4 +669,13 @@ function withoutNulls(record: Record<string, unknown>): Record<string, unknown> 
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+/** The server and tool an MCP tool-call approval is about, from Codex's elicitation. */
+function mcpToolCall(params: Record<string, unknown>): { server: string; tool: string } | undefined {
+  const meta = asRecord(params._meta);
+  if (meta?.codex_approval_kind !== "mcp_tool_call") return undefined;
+  const server = typeof params.serverName === "string" ? params.serverName : undefined;
+  const tool = typeof params.message === "string" ? /run tool "([^"]+)"/u.exec(params.message)?.[1] : undefined;
+  return server && tool ? { server, tool } : undefined;
 }

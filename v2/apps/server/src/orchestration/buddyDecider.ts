@@ -43,6 +43,26 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
       const order = live.reduce((most, buddy) => Math.max(most, buddy.order + 1), 0);
       return [{ type: "buddy.created", buddy: { ...command.buddy, role }, order }];
     }
+    case "buddy.chat.send":
+    case "buddy.chat.reply": {
+      const buddy = requireBuddy(projection, command.buddyId);
+      if (buddy.archived) throw new DomainError("buddy_missing", `${buddy.name} was removed from the team.`);
+      // A message lands once, however often it is sent.
+      if ((projection.buddyMessages ?? []).some((message) => message.messageId === command.messageId)) return [];
+      return [
+        {
+          type: command.type === "buddy.chat.send" ? "buddy.chat.sent" : "buddy.chat.replied",
+          buddyId: buddy.buddyId,
+          messageId: command.messageId,
+          text: command.text,
+        },
+      ];
+    }
+    case "buddy.chat.thread": {
+      const buddy = requireBuddy(projection, command.buddyId);
+      if (buddy.chatThreadId === command.threadId) return [];
+      return [{ type: "buddy.chat.thread.set", buddyId: buddy.buddyId, threadId: command.threadId }];
+    }
     case "buddy.update": {
       requireBuddy(projection, command.buddyId);
       const { name } = command.changes;

@@ -18,7 +18,7 @@ import { IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { fileName, splitAttachedFiles, withAttachedFiles } from "../chat/attachedFiles.js";
 import { getBridge } from "../runtime/bridge.js";
-import { guessProject, triggerLabel } from "./team.js";
+import { triggerLabel } from "./team.js";
 import "./buddyChat.css";
 
 type Run = (command: Record<string, unknown>) => Promise<boolean>;
@@ -39,7 +39,8 @@ export type ChatItem =
       threadId?: string | undefined;
     }
   | { kind: "reply"; key: string; at: string; task: TaskProjection }
-  | { kind: "live"; key: string; at: string; task: TaskProjection };
+  | { kind: "live"; key: string; at: string; task: TaskProjection }
+  | { kind: "thinking"; key: string; at: string; threadId?: string | undefined };
 
 function who(state: RuntimeProjection, buddyId: string): Who | undefined {
   const buddy = state.buddies?.find((entry) => entry.buddyId === buddyId);
@@ -60,6 +61,14 @@ function closingLine(task: TaskProjection): string | undefined {
 export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection): ChatItem[] {
   const items: ChatItem[] = [];
   const tasks = state.tasks ?? [];
+  const messages = (state.buddyMessages ?? []).filter((message) => message.buddyId === buddy.buddyId);
+  for (const message of messages)
+    items.push({
+      kind: message.role === "you" ? "you" : "say",
+      key: message.messageId,
+      at: message.at,
+      text: message.text,
+    });
   for (const routine of state.routines ?? [])
     if (routine.buddyId === buddy.buddyId)
       items.push({
@@ -100,19 +109,34 @@ export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection
         icon: "handoff",
         text: `The Primary buddy gave this job: ${firstSentence(task.goal, 100)}`,
       });
+    } else if (origin.kind === "buddy" && origin.threadId) {
+      // Started from the chat: the conversation already says why, so the job is one line.
+      const project =
+        state.projects.length > 1 ? state.projects.find((entry) => entry.projectId === task.projectId) : undefined;
+      items.push({
+        kind: "event",
+        key: `${task.taskId}-start`,
+        at: task.createdAt,
+        icon: "zap",
+        text: `Started a job${project ? ` in ${project.name}` : ""}: ${firstSentence(task.goal, 100)}`,
+        threadId: task.threadId,
+      });
     } else {
       items.push({ kind: "you", key: `${task.taskId}-start`, at: task.createdAt, text: task.goal });
     }
     if (task.pick && task.startedAt) {
+      // A job from the chat was already acknowledged there.
+      const fromChat = origin.kind === "buddy" && origin.threadId;
       // With more than one project, it says which one it took the job to, since nobody picked.
       const project =
         state.projects.length > 1 ? state.projects.find((entry) => entry.projectId === task.projectId) : undefined;
-      items.push({
-        kind: "say",
-        key: `${task.taskId}-ack`,
-        at: task.startedAt,
-        text: project ? `On it, in ${project.name}.` : "On it.",
-      });
+      if (!fromChat)
+        items.push({
+          kind: "say",
+          key: `${task.taskId}-ack`,
+          at: task.startedAt,
+          text: project ? `On it, in ${project.name}.` : "On it.",
+        });
       const model = task.pick.model ?? providerDisplayName(task.pick.provider, state.providers);
       items.push({
         kind: "event",
@@ -176,6 +200,10 @@ export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection
     if (line) items.push({ kind: "say", key: `${task.taskId}-end`, at: task.updatedAt, text: line });
     items.push({ kind: "reply", key: `${task.taskId}-reply`, at: task.updatedAt, task });
   }
+  // Your message is waiting on its answer.
+  const last = messages.at(-1);
+  if (last?.role === "you")
+    items.push({ kind: "thinking", key: `${last.messageId}-thinking`, at: last.at, threadId: buddy.chatThreadId });
   // Stable by time, so entries recorded at the same moment keep the order they were added in.
   return items
     .map((item, index) => ({ item, index }))
@@ -235,14 +263,12 @@ export function BuddyChat({
   buddy,
   projection,
   run,
-  projectId,
   onOpenThread,
   renderReply,
 }: {
   buddy: BuddyProjection;
   projection: RuntimeProjection;
   run: Run;
-  projectId: string | undefined;
   onOpenThread(threadId: string): void;
   /** The card under the buddy's reply: its question, result, or what to do next. */
   renderReply(task: TaskProjection): ReactNode;
@@ -263,8 +289,8 @@ export function BuddyChat({
               <h3>{buddy.name}</h3>
               <p>
                 {buddy.role === "primary"
-                  ? "Tell me what you need. I'll split it into jobs and hand them to the team."
-                  : `Tell me what to do. I'll work on my own branch and show you the result${buddy.title ? `. ${buddy.title} work is my thing` : ""}.`}
+                  ? "Ask me anything. When you need something built, I'll plan it and hand the parts to the team."
+                  : `Ask me anything. When you need work done, I'll take it as a job on my own branch and show you the result.`}
               </p>
             </div>
           ) : null}
@@ -283,7 +309,7 @@ export function BuddyChat({
           <div ref={end} />
         </div>
       </div>
-      <Composer buddy={buddy} projection={projection} run={run} projectId={projectId} />
+      <Composer buddy={buddy} projection={projection} run={run} />
     </div>
   );
 }
@@ -322,6 +348,21 @@ function ChatEntry({
       return <LiveRow task={item.task} buddy={buddy} projection={projection} onOpenThread={onOpenThread} />;
     case "reply":
       return <div className="buddy-chat-card">{renderReply(item.task)}</div>;
+    case "thinking": {
+      const steps = recentSteps(projection, item.threadId, 3);
+      return (
+        <div className="buddy-chat-live is-thinking" role="status" aria-label={`${buddy.name} is thinking`}>
+          <div className="buddy-chat-live-head">
+            <span className="buddy-typing" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+          </div>
+          {steps.length > 0 ? <StepTicker steps={steps} /> : null}
+        </div>
+      );
+    }
   }
 }
 
@@ -355,17 +396,7 @@ function LiveRow({
   );
 }
 
-function Composer({
-  buddy,
-  projection,
-  run,
-  projectId,
-}: {
-  buddy: BuddyProjection;
-  projection: RuntimeProjection;
-  run: Run;
-  projectId: string | undefined;
-}) {
+function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projection: RuntimeProjection; run: Run }) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -378,25 +409,17 @@ function Composer({
     });
     setFiles((current) => [...current, ...paths.filter((path) => !current.includes(path))]);
   };
+  // A message is just a message: the buddy decides whether it is a job, and asks where when it can't tell.
   const send = async (event?: FormEvent) => {
     event?.preventDefault();
     const typed = text.trim();
     if ((!typed && files.length === 0) || busy) return;
-    const goal = withAttachedFiles(files, typed || "Look at these files.");
-    // No project to pick: the message says which one, or past jobs and habits do.
-    const guess = guessProject(goal, projection.projects, projection.tasks ?? [], buddy.buddyId, projectId);
-    if (!guess) return;
     setBusy(true);
     const ok = await run({
-      type: "task.assign",
-      task: {
-        taskId: makeCommandId(),
-        buddyId: buddy.buddyId,
-        projectId: guess.projectId,
-        kind: "job",
-        goal,
-        origin: { kind: "buddy" },
-      },
+      type: "buddy.chat.send",
+      buddyId: buddy.buddyId,
+      messageId: makeCommandId(),
+      text: withAttachedFiles(files, typed || "Look at these files."),
     });
     setBusy(false);
     if (ok) {

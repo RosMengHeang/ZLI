@@ -494,7 +494,6 @@ function BuddyPage({
   onSelect,
   onOpenThread,
   onOpenPullRequest,
-  projectId,
 }: BuddiesPaneProps & { buddy: BuddyProjection; run: Run; error: ReactNode }) {
   const [info, setInfo] = useState(true);
   const [tab, setTab] = useState<InfoTab>("activity");
@@ -525,7 +524,6 @@ function BuddyPage({
           buddy={buddy}
           projection={projection}
           run={run}
-          projectId={projectId}
           onOpenThread={onOpenThread}
           renderReply={(task) => (
             <JobCard

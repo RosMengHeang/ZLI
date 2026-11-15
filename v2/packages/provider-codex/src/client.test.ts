@@ -212,6 +212,36 @@ describe("CodexAppServerClient", () => {
     ]);
   });
 
+  it("runs the app's trusted MCP tools without asking, and asks for the rest", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({
+      peer,
+      approveTool: (server, tool) => server === "zli" && tool === "task_done",
+    });
+    const events: CodexProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    const ask = (id: number, tool: string) =>
+      peer.emit({
+        jsonrpc: "2.0",
+        id,
+        method: "mcpServer/elicitation/request",
+        params: {
+          threadId: "provider-thread-1",
+          turnId: "provider-turn-1",
+          serverName: "zli",
+          mode: "form",
+          _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"] },
+          message: `Allow the zli MCP server to run tool "${tool}"?`,
+          requestedSchema: { type: "object", properties: {} },
+        },
+      });
+    ask(7, "task_done");
+    ask(8, "start_agent");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(peer.responses).toEqual([{ requestId: 7, result: { action: "accept", content: {}, _meta: null } }]);
+    expect(events.map((event) => event.type === "approval.requested" && event.requestId)).toEqual(["8"]);
+  });
+
   it("only offers to decline an MCP form it cannot fill", async () => {
     const peer = new FakePeer();
     const client = await CodexAppServerClient.connect({ peer });

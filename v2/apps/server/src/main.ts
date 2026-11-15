@@ -22,6 +22,7 @@ import {
 } from "./browser-tool/browserTool.js";
 import { removeZliFromUserSettings, syncAccountMcpServers } from "./browser-tool/mcpSettingsFiles.js";
 import { RoutineReactor } from "./buddies/RoutineReactor.js";
+import { BuddyChatReactor } from "./buddies/BuddyChatReactor.js";
 import { TaskReactor } from "./buddies/TaskReactor.js";
 import { TurnCheckpoints } from "./checkpoints/TurnCheckpoints.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
@@ -318,6 +319,11 @@ export async function startRuntime(options: {
     onError: (error) =>
       log("warn", "buddies.task", { message: error instanceof Error ? error.message : String(error) }),
   });
+  const buddyChatReactor = new BuddyChatReactor(engine, {
+    providers: () => providerService.discoverProviders(),
+    onError: (error) =>
+      log("warn", "buddies.chat", { message: error instanceof Error ? error.message : String(error) }),
+  });
   const routineReactor = new RoutineReactor(engine, {
     onError: (error) =>
       log("warn", "buddies.routine", { message: error instanceof Error ? error.message : String(error) }),
@@ -423,6 +429,7 @@ export async function startRuntime(options: {
       await agentFiles.removeAll().catch(() => undefined);
       huddleReactor.stop();
       taskReactor.stop();
+      buddyChatReactor.stop();
       worktreeReactor.stop();
       worktreeSetup.stop();
       terminalReactor.stop();

@@ -35,6 +35,25 @@ export const MAX_PENDING_NOTES = 10;
 export const MAX_TASKS_KEPT = 500;
 export const MAX_GOAL = 4_000;
 export const ROUTINE_FAILURES_BEFORE_PAUSE = 3;
+/**
+ * ZLI's own buddy tools, which only touch the buddy's job and team. Agents call them without asking the
+ * person, so a job never stops to ask leave to report that it is done.
+ */
+export const BUDDY_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "task_done",
+  "ask_person",
+  "remember",
+  "review_verdict",
+  "hand_off",
+  "list_buddies",
+  "assign_task",
+  "task_status",
+  "task_revise",
+  "set_routine",
+]);
+/** Messages kept per buddy in its chat with the person. */
+export const MAX_CHAT_KEPT = 200;
+export const MAX_CHAT_TEXT = 20_000;
 
 const Time = z.string().datetime({ offset: true });
 const Id = z.string().min(1).max(200);
@@ -112,10 +131,22 @@ export const BuddyProjection = z.object({
   /** One sentence about the latest thing the buddy did, for its row. */
   lastLine: z.object({ text: Line, at: Time, taskId: Id.optional() }).optional(),
   archived: z.literal(true).optional(),
+  /** The hidden chat it talks to the person in. Jobs run in chats of their own. */
+  chatThreadId: Id.optional(),
   createdAt: Time,
   updatedAt: Time,
 });
 export type BuddyProjection = z.infer<typeof BuddyProjection>;
+
+/** One message between the person and a buddy, outside any job. */
+export const BuddyMessage = z.object({
+  messageId: Id,
+  buddyId: Id,
+  role: z.enum(["you", "buddy"]),
+  text: z.string().min(1).max(MAX_CHAT_TEXT),
+  at: Time,
+});
+export type BuddyMessage = z.infer<typeof BuddyMessage>;
 
 export const JobKind = z.enum(["bugfix", "feature", "refactor", "tests", "docs", "ui", "review", "question", "chore"]);
 export type JobKind = z.infer<typeof JobKind>;
@@ -348,6 +379,19 @@ export const BuddyCommand = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("buddy.memory.add"), buddyId: Id, note: MemoryNote.omit({ at: true }) }),
   z.object({ type: z.literal("buddy.memory.remove"), buddyId: Id, noteId: Id }),
+  z.object({
+    type: z.literal("buddy.chat.send"),
+    buddyId: Id,
+    messageId: Id,
+    text: z.string().trim().min(1, "Say something.").max(MAX_GOAL),
+  }),
+  z.object({
+    type: z.literal("buddy.chat.reply"),
+    buddyId: Id,
+    messageId: Id,
+    text: z.string().min(1).max(MAX_CHAT_TEXT),
+  }),
+  z.object({ type: z.literal("buddy.chat.thread"), buddyId: Id, threadId: Id }),
   z.object({ type: z.literal("buddies.pause") }),
   z.object({ type: z.literal("buddies.resume") }),
   z.object({ type: z.literal("buddies.quality"), quality: BuddyQuality }),
@@ -440,6 +484,14 @@ export const BuddyEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("buddy.memory.added"), buddyId: Id, note: MemoryNote.omit({ at: true }) }),
   z.object({ type: z.literal("buddy.memory.removed"), buddyId: Id, noteId: Id }),
+  z.object({ type: z.literal("buddy.chat.sent"), buddyId: Id, messageId: Id, text: z.string().min(1).max(MAX_GOAL) }),
+  z.object({
+    type: z.literal("buddy.chat.replied"),
+    buddyId: Id,
+    messageId: Id,
+    text: z.string().min(1).max(MAX_CHAT_TEXT),
+  }),
+  z.object({ type: z.literal("buddy.chat.thread.set"), buddyId: Id, threadId: Id }),
   z.object({ type: z.literal("buddies.paused") }),
   z.object({ type: z.literal("buddies.resumed") }),
   z.object({ type: z.literal("buddies.quality.changed"), quality: BuddyQuality }),
@@ -509,6 +561,7 @@ export type BuddyState = {
   tasks?: TaskProjection[] | undefined;
   routines?: RoutineProjection[] | undefined;
   buddySettings?: BuddySettings | undefined;
+  buddyMessages?: BuddyMessage[] | undefined;
 };
 
 /** Buddies in list order: the Primary first, then the order the person set. Status never moves a row. */
@@ -622,6 +675,14 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
   let tasks = state.tasks ?? [];
   let routines = state.routines ?? [];
   let buddySettings = state.buddySettings ?? DEFAULT_BUDDY_SETTINGS;
+  let buddyMessages = state.buddyMessages ?? [];
+  const say = (buddyId: string, messageId: string, role: BuddyMessage["role"], text: string) => {
+    if (buddyMessages.some((message) => message.messageId === messageId)) return;
+    const next = [...buddyMessages, { messageId, buddyId, role, text, at }];
+    const own = next.filter((message) => message.buddyId === buddyId);
+    const drop = new Set(own.slice(0, Math.max(0, own.length - MAX_CHAT_KEPT)).map((message) => message.messageId));
+    buddyMessages = drop.size > 0 ? next.filter((message) => !drop.has(message.messageId)) : next;
+  };
   const updateBuddy = (buddyId: string, change: (buddy: BuddyProjection) => BuddyProjection) => {
     buddies = buddies.map((buddy) => (buddy.buddyId === buddyId ? { ...change(buddy), updatedAt: at } : buddy));
   };
@@ -905,6 +966,16 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
         ...(event.paused ? {} : { failuresInRow: 0 }),
       }));
       break;
+    case "buddy.chat.sent":
+      say(event.buddyId, event.messageId, "you", event.text);
+      break;
+    case "buddy.chat.replied":
+      say(event.buddyId, event.messageId, "buddy", event.text);
+      updateBuddy(event.buddyId, (buddy) => ({ ...buddy, lastLine: { text: firstSentence(event.text, 100), at } }));
+      break;
+    case "buddy.chat.thread.set":
+      updateBuddy(event.buddyId, (buddy) => ({ ...buddy, chatThreadId: event.threadId }));
+      break;
     case "routine.fired":
       updateRoutine(event.routineId, (routine) => ({
         ...routine,
@@ -929,5 +1000,92 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       });
     }
   }
-  return { buddies, tasks, routines, buddySettings };
+  return { buddies, tasks, routines, buddySettings, buddyMessages };
+}
+
+/* ---------- Which project a message is about ---------- */
+
+/** Words too common to tell projects apart. */
+const COMMON = new Set(
+  "the and for with that this from into have make need want add fix can you please also then when what your our its are was".split(
+    " ",
+  ),
+);
+
+function words(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word.length >= 3 && !COMMON.has(word));
+}
+
+/** "taxzy_cli", "Taxzy CLI" and "taxzy-cli" all read as "taxzy cli". */
+function phrase(text: string): string {
+  return ` ${words(text).join(" ")} `;
+}
+
+export type ProjectGuess = { projectId: string; why: "named" | "learned" | "habit" | "focus" };
+
+/**
+ * The project a message to a buddy is about, so nobody has to pick one. In order: a project the message
+ * names (by its name or folder); the project whose past jobs used the message's words, which it learns
+ * as jobs pile up; the project this buddy worked in last; the one on screen; the first.
+ */
+export function guessProject(
+  text: string,
+  projects: readonly { projectId: string; name: string; path: string }[],
+  tasks: readonly Pick<TaskProjection, "buddyId" | "projectId" | "goal" | "createdAt">[],
+  buddyId: string,
+  focusedProjectId: string | undefined,
+): ProjectGuess | undefined {
+  if (projects.length === 0) return undefined;
+  const only = projects[0];
+  if (projects.length === 1 && only) return { projectId: only.projectId, why: "named" };
+  const said = phrase(text);
+  const folder = (path: string) =>
+    path
+      .replace(/[\\/]+$/u, "")
+      .split(/[\\/]/u)
+      .at(-1) ?? "";
+  const named = projects.filter((project) =>
+    [project.name, folder(project.path)].some((label) => {
+      const wanted = phrase(label);
+      return wanted.trim().length > 0 && said.includes(wanted);
+    }),
+  );
+  const [first] = named;
+  if (named.length === 1 && first) return { projectId: first.projectId, why: "named" };
+
+  // What each project's past jobs talked about: words that show up in one project's jobs and not the others'.
+  const asked = new Set(words(text));
+  const seen = new Map<string, Set<string>>();
+  for (const task of tasks) {
+    const known = seen.get(task.projectId) ?? new Set<string>();
+    for (const word of words(task.goal)) known.add(word);
+    seen.set(task.projectId, known);
+  }
+  const scores = projects.map((project) => {
+    let score = 0;
+    for (const word of asked) {
+      if (!seen.get(project.projectId)?.has(word)) continue;
+      const shared = projects.filter((other) => seen.get(other.projectId)?.has(word)).length;
+      score += 1 / shared;
+    }
+    return { projectId: project.projectId, score };
+  });
+  scores.sort((a, b) => b.score - a.score);
+  const [best, next] = scores;
+  if (best && best.score >= 1 && best.score > (next?.score ?? 0) * 1.5)
+    return { projectId: best.projectId, why: "learned" };
+
+  const last = tasks
+    .filter((task) => task.buddyId === buddyId && projects.some((project) => project.projectId === task.projectId))
+    .reduce<(typeof tasks)[number] | undefined>(
+      (latest, task) => (!latest || task.createdAt > latest.createdAt ? task : latest),
+      undefined,
+    );
+  if (last) return { projectId: last.projectId, why: "habit" };
+  if (focusedProjectId && projects.some((project) => project.projectId === focusedProjectId))
+    return { projectId: focusedProjectId, why: "focus" };
+  return only ? { projectId: only.projectId, why: "focus" } : undefined;
 }
