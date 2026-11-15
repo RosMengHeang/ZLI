@@ -5,7 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DEFAULT_SETTINGS, updateAppSettings } from "./appSettings.js";
+import { DEFAULT_SETTINGS, readAppSettings, updateAppSettings } from "./appSettings.js";
 import { TeammatesSection } from "./TeammatesSection.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -72,5 +72,22 @@ describe("TeammatesSection", () => {
     expect(button(host, "Rose").getAttribute("aria-pressed")).toBe("true");
     expect(button(host, "Indigo").getAttribute("aria-pressed")).toBe("false");
     expect(host.querySelector<HTMLInputElement>("input.input")?.placeholder).toBe("Rose");
+  });
+
+  it("saves the color picked for a new teammate", () => {
+    const host = show();
+    act(() => button(host, "Add teammate").click());
+    act(() => button(host, "Jade").click());
+    const name = host.querySelector<HTMLInputElement>('input[maxlength="40"]');
+    act(() => {
+      if (!name) return;
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setValue?.call(name, "Reviewer");
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => host.querySelector("form")?.requestSubmit());
+    expect(readAppSettings().teammates.map((teammate) => [teammate.name, teammate.buddy])).toEqual([
+      ["Reviewer", "jade"],
+    ]);
   });
 });
