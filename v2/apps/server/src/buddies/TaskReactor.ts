@@ -236,10 +236,12 @@ export class TaskReactor {
     const parent = task.parentTaskId
       ? state.tasks?.find((candidate) => candidate.taskId === task.parentTaskId)
       : undefined;
+    // The chat shows the job; the brief goes with it as context, so the chat is named after the job.
     await this.queue(
       threadId,
-      jobBrief({ buddy, task, project, branch: worktree.branch, parent, primary: buddy.role === "primary" }),
+      task.goal,
       `buddy:${task.taskId}:brief`,
+      jobBrief({ buddy, task, project, branch: worktree.branch, parent, primary: buddy.role === "primary" }),
     );
     await this.dispatch(
       {
@@ -499,8 +501,9 @@ export class TaskReactor {
     if (!(await this.startThread(state, task, buddy, project, worktree, threadId, pick, true))) return false;
     await this.queue(
       threadId,
-      `${jobBrief({ buddy, task, project, branch: worktree.branch })}\n\n${stepUpText(task)}`,
+      task.goal,
       `buddy:${task.taskId}:brief:${threadId}`,
+      `${jobBrief({ buddy, task, project, branch: worktree.branch })}\n\n${stepUpText(task)}`,
     );
     await this.dispatch(
       { type: "task.engine", taskId: task.taskId, pick, threadId },
@@ -640,9 +643,15 @@ export class TaskReactor {
     await this.setStatus(task, "failed", { kind: "stuck", text: why.slice(0, 300) });
   }
 
-  private queue(threadId: string, text: string, queueKey: string): Promise<CommandReceipt> {
+  private queue(threadId: string, text: string, queueKey: string, context?: string): Promise<CommandReceipt> {
     return this.dispatch(
-      { type: "thread.queue", threadId, queueId: queueKey.slice(0, 200), text } as RuntimeCommand,
+      {
+        type: "thread.queue",
+        threadId,
+        queueId: queueKey.slice(0, 200),
+        text,
+        ...(context ? { context } : {}),
+      } as RuntimeCommand,
       `queue:${queueKey}:${threadId}`,
     );
   }

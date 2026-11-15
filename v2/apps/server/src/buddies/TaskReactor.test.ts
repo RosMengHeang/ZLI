@@ -137,8 +137,11 @@ describe("TaskReactor", () => {
     expect(task?.status).toBe("working");
     expect(task?.pick?.provider).toBe("claude-code");
     expect(task?.branch).toMatch(/^builder\/fix-the-flaky-checkout-test-/u);
-    const brief = state.queuedMessages?.find((message) => message.threadId === task?.threadId)?.text ?? "";
-    expect(brief === "" || brief.includes("You are Builder")).toBe(true);
+    const first = state.queuedMessages?.find((message) => message.threadId === task?.threadId);
+    if (first) {
+      expect(first.text).toBe("Fix the flaky checkout test");
+      expect(first.context).toContain("You are Builder");
+    }
     state = await runtime({ taskId: "t1", summary: "Made the test wait for the cart. Ran it 20 times." });
     const done = state.tasks?.find((candidate) => candidate.taskId === "t1");
     expect(done?.status).toBe("ready");
