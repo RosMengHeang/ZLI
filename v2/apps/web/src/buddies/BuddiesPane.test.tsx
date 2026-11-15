@@ -1,0 +1,212 @@
+// @vitest-environment jsdom
+
+import type { BuddyProjection, RuntimeProjection, TaskProjection } from "@zli-v2/contracts";
+import { act } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { buttonNamed, typeInput } from "../huddle/testHuddles.js";
+import { cleanupRuntimeRenders, renderWithRuntime, typeInto } from "../review/testRuntime.js";
+import { BuddiesPane } from "./BuddiesPane.js";
+import { SidebarBuddies } from "./SidebarBuddies.js";
+
+afterEach(async () => {
+  await cleanupRuntimeRenders();
+});
+
+const at = "2026-11-15T09:00:00.000Z";
+const buddy = (buddyId: string, name: string, order: number, role: "primary" | "buddy" = "buddy"): BuddyProjection => ({
+  buddyId,
+  name,
+  color: "jade",
+  role,
+  order,
+  engine: { mode: "auto" },
+  permissionMode: "full-access",
+  maxActiveJobs: 2,
+  handoffs: [],
+  memory: [],
+  pendingMemory: [],
+  createdAt: at,
+  updatedAt: at,
+});
+const task = (extra: Partial<TaskProjection>): TaskProjection => ({
+  taskId: "t1",
+  buddyId: "b2",
+  projectId: "p1",
+  kind: "job",
+  goal: "Fix the flaky checkout test",
+  origin: { kind: "chat" },
+  picks: [],
+  handoffDepth: 0,
+  status: "working",
+  questions: [],
+  revisions: [],
+  reviews: [],
+  createdAt: at,
+  updatedAt: at,
+  ...extra,
+});
+
+function projection(overrides: Partial<RuntimeProjection> = {}): RuntimeProjection {
+  return {
+    environment: {
+      environmentId: "00000000-0000-4000-8000-000000000001",
+      label: "Local",
+      protocolVersion: 1,
+      capabilities: {},
+    },
+    projects: [{ projectId: "p1", path: "/work/web", name: "web" }],
+    worktrees: [],
+    threads: [],
+    terminals: [],
+    browserTabs: [],
+    attention: [],
+    lastSequence: 1,
+    ...overrides,
+  } as unknown as RuntimeProjection;
+}
+
+const accept = () => ({ result: {} });
+
+async function render(state: RuntimeProjection, selectedId?: string) {
+  const handlers = { onSelect: vi.fn(), onOpenThread: vi.fn(), onOpenPullRequest: vi.fn() };
+  const commands = await renderWithRuntime(
+    <BuddiesPane projection={state} selectedId={selectedId} projectId="p1" {...handlers} />,
+    accept,
+  );
+  return { commands, ...handlers };
+}
+
+const sent = (commands: Record<string, unknown>[]) => commands.map((entry) => entry.type as string);
+
+describe("BuddiesPane", () => {
+  it("starts the team with a Primary, a Builder and a Tester who checks the Builder's work", async () => {
+    const { commands } = await render(projection());
+    await act(async () => buttonNamed("Start with these three").click());
+    expect(sent(commands)).toEqual([
+      "buddy.create",
+      "buddy.create",
+      "buddy.create",
+      "buddy.handoff.set",
+      "routine.create",
+    ]);
+    const names = commands.slice(0, 3).map((entry) => (entry as { buddy: { name: string } }).buddy.name);
+    expect(names).toEqual(["Primary", "Builder", "Tester"]);
+  });
+
+  it("lists the team in its set order with each buddy's sentence, and shows what needs you", async () => {
+    const state = projection({
+      buddies: [
+        { ...buddy("b2", "Builder", 1), lastLine: { text: "Working on fix the flaky checkout test", at } },
+        buddy("b1", "Primary", 0, "primary"),
+        buddy("b3", "Tester", 2),
+      ],
+      tasks: [
+        task({
+          status: "needs_you",
+          questions: [{ questionId: "q1", text: "Which API version?", options: ["v1", "v2"], askedAt: at }],
+        }),
+      ],
+    });
+    const { commands } = await render(state);
+    const rows = [...document.querySelectorAll(".buddies-row-name")].map((row) => row.firstChild?.textContent);
+    expect(rows).toEqual(["Primary", "Builder", "Tester"]);
+    expect(document.body.textContent).toContain("Working on fix the flaky checkout test");
+    expect(document.body.textContent).toContain("Which API version?");
+    await act(async () => buttonNamed("v2").click());
+    expect(commands.at(-1)).toEqual({
+      type: "task.question.answer",
+      taskId: "t1",
+      questionId: "q1",
+      answer: "v2",
+    });
+  });
+
+  it("gives a buddy a job from its page", async () => {
+    const state = projection({ buddies: [buddy("b2", "Builder", 0)] });
+    const { commands } = await render(state, "b2");
+    const box = document.querySelector<HTMLTextAreaElement>('[aria-label="Job for Builder"]');
+    if (!box) throw new Error("No job box");
+    await typeInto(box, "Add a dark mode toggle");
+    await act(async () => buttonNamed("Give job").click());
+    expect(commands.at(-1)).toMatchObject({
+      type: "task.assign",
+      task: { buddyId: "b2", projectId: "p1", goal: "Add a dark mode toggle", origin: { kind: "buddy" } },
+    });
+  });
+
+  it("shows a result card with the setup and its reason, and sends a revision", async () => {
+    const state = projection({
+      buddies: [buddy("b2", "Builder", 0)],
+      tasks: [
+        task({
+          status: "ready",
+          threadId: "th1",
+          branch: "builder/x",
+          pick: {
+            provider: "claude-code",
+            model: "claude-sonnet-5-5",
+            permissionMode: "full-access",
+            reason: "Medium tests; claude-sonnet-5-5 fits",
+            source: "auto",
+            at,
+          },
+          result: {
+            summary: "Made the test wait for the cart.",
+            files: 2,
+            insertions: 10,
+            deletions: 3,
+            screenshots: [],
+            durationMs: 120_000,
+            overlaps: [],
+          },
+        }),
+      ],
+    });
+    const { commands, onOpenPullRequest } = await render(state, "b2");
+    expect(document.body.textContent).toContain("Medium tests; claude-sonnet-5-5 fits");
+    expect(document.body.textContent).toContain("2 files · +10 −3 · 2 min");
+    await act(async () => buttonNamed("Open PR").click());
+    expect(onOpenPullRequest).toHaveBeenCalledWith("th1");
+    await act(async () => buttonNamed("Revise").click());
+    const input = document.querySelector<HTMLInputElement>('[aria-label="What to change"]');
+    if (!input) throw new Error("No revise box");
+    await typeInput(input, "Use the shared helper");
+    await act(async () => buttonNamed("Send").click());
+    expect(commands.at(-1)).toEqual({ type: "task.revise", taskId: "t1", note: "Use the shared helper" });
+  });
+
+  it("asks before keeping a lesson, and pauses everything with one button", async () => {
+    const state = projection({
+      buddies: [
+        {
+          ...buddy("b2", "Builder", 0),
+          pendingMemory: [{ noteId: "n1", text: "Run pnpm verify before finishing", source: "lookback", at }],
+        },
+      ],
+    });
+    const { commands } = await render(state, "b2");
+    await act(async () => buttonNamed("Profile · 1 new").click());
+    await act(async () => buttonNamed("Keep").click());
+    expect(commands.at(-1)).toEqual({ type: "buddy.memory.accept", buddyId: "b2", noteId: "n1" });
+    await act(async () => buttonNamed("Pause all").click());
+    expect(commands.at(-1)).toEqual({ type: "buddies.pause" });
+  });
+});
+
+describe("SidebarBuddies", () => {
+  it("opens the panel on a buddy and on the Needs you list", async () => {
+    const onOpen = vi.fn();
+    await renderWithRuntime(
+      <SidebarBuddies
+        projection={projection({ buddies: [buddy("b2", "Builder", 0)], tasks: [task({ status: "needs_you" })] })}
+        onOpen={onOpen}
+      />,
+      accept,
+    );
+    await act(async () => buttonNamed("Needs you · 1").click());
+    expect(onOpen).toHaveBeenLastCalledWith();
+    await act(async () => document.querySelector<HTMLButtonElement>(".sidebar-buddy")?.click());
+    expect(onOpen).toHaveBeenLastCalledWith("b2");
+  });
+});

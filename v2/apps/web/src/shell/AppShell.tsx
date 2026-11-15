@@ -18,6 +18,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useS
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import { BuddiesPane } from "../buddies/BuddiesPane.js";
 import { type ChatBranch, saveChatBranch, takeChatBranch } from "../chat/branches.js";
 import type { GuestRequest, StartRunsRequest } from "../chat/ChatView.js";
 import { seedComposerDraft } from "../chat/Composer.js";
@@ -161,7 +162,13 @@ import { type SidePane, sidePaneIcon, sidePaneLabel, Topbar } from "./Topbar.js"
 
 /** The icon on a panel's tab. */
 const panelIcon = (pane: Exclude<SidePane, "launcher">) =>
-  pane === "pullRequest" ? "pullRequest" : pane === "sideChat" ? "message" : sidePaneIcon[pane];
+  pane === "pullRequest"
+    ? "pullRequest"
+    : pane === "sideChat"
+      ? "message"
+      : pane === "buddies"
+        ? "bot"
+        : sidePaneIcon[pane];
 
 import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
 import { WorktreeDialog } from "./WorktreeDialog.js";
@@ -210,6 +217,8 @@ function WorkspaceApp() {
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
   /** The huddle tab in view in the Huddle panel. */
   const [huddleId, setHuddleId] = useState<string>();
+  /** The buddy whose page is open in the Buddies panel. */
+  const [buddyId, setBuddyId] = useState<string>();
   // One width for the right panel: switching tabs keeps it where it was dragged to.
   const [panelWidth, setPanelWidth] = usePanelWidth("panel");
   const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
@@ -631,6 +640,10 @@ function WorkspaceApp() {
   const openHuddle = useCallback((next: string) => {
     setHuddleId(next);
     setSidePane("huddle");
+  }, []);
+  const openBuddies = useCallback((next?: string) => {
+    setBuddyId(next);
+    setSidePane("buddies");
   }, []);
   // Chat only keeps the terminal out of sight: its toggle and shortcut only close a drawer something else opened.
   const chatOnly = workStyleOf(settings.defaults) === "chat";
@@ -2559,6 +2572,12 @@ function WorkspaceApp() {
       action: () => setSidePane("review"),
     },
     {
+      label: "Buddies",
+      icon: "bot",
+      group: "View",
+      action: () => openBuddies(),
+    },
+    {
       label: "Focus huddle",
       icon: "users",
       group: "View",
@@ -2796,6 +2815,7 @@ function WorkspaceApp() {
             onOpenHuddle={openHuddle}
             onHuddleError={showError}
             projectAgentActions={projectAgentActions}
+            onOpenBuddies={openBuddies}
           />
         ) : null}
         <main className="main-workspace">
@@ -3029,7 +3049,23 @@ function WorkspaceApp() {
                         onOpenChanges={() => setSidePane("review")}
                         onShowAgent={showAgent}
                       />
-                    ) : sidePane === "sideChat" ? null : sidePane === "huddle" ? (
+                    ) : sidePane === "sideChat" ? null : sidePane === "buddies" && projection ? (
+                      <BuddiesPane
+                        projection={projection}
+                        selectedId={buddyId}
+                        onSelect={setBuddyId}
+                        projectId={contextProject?.projectId}
+                        onOpenThread={(threadId) => {
+                          const thread = projection.threads.find((entry) => entry.threadId === threadId);
+                          if (thread) showAgent(thread.sessionId ?? thread.threadId);
+                        }}
+                        onOpenPullRequest={(threadId) => {
+                          const thread = projection.threads.find((entry) => entry.threadId === threadId);
+                          if (thread) showAgent(thread.sessionId ?? thread.threadId);
+                          setSidePane("pullRequest");
+                        }}
+                      />
+                    ) : sidePane === "huddle" ? (
                       <HuddlePane
                         projection={projection}
                         selectedId={huddleId}

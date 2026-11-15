@@ -12,8 +12,17 @@ import { useShortcuts } from "./keybindings.js";
  * The side panels. A pull request opens from its agent, so it is not in the picker; the picker itself is the
  * launcher, what the right panel shows before a panel is chosen.
  */
-export type SidePane = "files" | "browser" | "mobile" | "review" | "huddle" | "pullRequest" | "sideChat" | "launcher";
-export type ToolbarPane = Exclude<SidePane, "pullRequest" | "sideChat" | "launcher">;
+export type SidePane =
+  | "files"
+  | "browser"
+  | "mobile"
+  | "review"
+  | "huddle"
+  | "buddies"
+  | "pullRequest"
+  | "sideChat"
+  | "launcher";
+export type ToolbarPane = Exclude<SidePane, "pullRequest" | "sideChat" | "launcher" | "buddies">;
 
 export const sidePaneLabel: Record<SidePane, string> = {
   files: "Files",
@@ -21,6 +30,7 @@ export const sidePaneLabel: Record<SidePane, string> = {
   mobile: "Mobile",
   review: "Changes",
   huddle: "Huddle",
+  buddies: "Buddies",
   pullRequest: "Pull request",
   sideChat: "Side chat",
   launcher: "Panels",

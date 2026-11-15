@@ -4,6 +4,7 @@ import { type CSSProperties, type KeyboardEvent, type MouseEvent, useEffect, use
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
+import { SidebarBuddies } from "../buddies/SidebarBuddies.js";
 import { CHAT_DRAG_TYPE, chatTranscript } from "../chat/chatDrag.js";
 import { fitHuddleName, liveHuddles, sessionAgentId } from "../huddle/huddles.js";
 import { useHuddleCommands } from "../huddle/useHuddleCommands.js";
@@ -164,6 +165,8 @@ type Props = {
   onHuddleError?: ((message: string) => void) | undefined;
   /** Shows, opens, or closes all of a project's tiles at once. Without it project rows offer none of these. */
   projectAgentActions?: ((projectId: string) => ProjectAgentActions) | undefined;
+  /** Opens the Buddies panel, on one buddy when given. Without it the sidebar lists no buddies. */
+  onOpenBuddies?: ((buddyId?: string) => void) | undefined;
 };
 
 const noGroups: readonly RunGroup[] = [];
@@ -211,6 +214,7 @@ export function Sidebar({
   onOpenHuddle,
   onHuddleError = () => undefined,
   projectAgentActions,
+  onOpenBuddies,
 }: Props) {
   const newAgentShortcut = useShortcut("newAgent");
   const sidebarShortcut = useShortcut("toggleSidebar");
@@ -1239,6 +1243,7 @@ export function Sidebar({
           />
         </div>
       </div>
+      {onOpenBuddies ? <SidebarBuddies projection={projection} onOpen={onOpenBuddies} /> : null}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the chat buttons inside. */}
       <div className="sidebar-scroll" onKeyDown={moveBetweenChats}>
         {projects.length === 0 ? (

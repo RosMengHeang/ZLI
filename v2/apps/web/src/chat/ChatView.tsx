@@ -872,8 +872,18 @@ export function ChatView({
             detail: `${providerDisplayName(teammate.provider, projection.providers)} · joins when you send`,
           }))
       : [];
-    return [...inChat, ...saved];
-  }, [people, teammates, onBringIn, projection.providers]);
+    const taken = new Set([...present, ...saved.map((option) => agentNameKey(option.name))]);
+    // A buddy called with @Name gets the message as a job, in its own worktree and chat.
+    const team = (projection.buddies ?? [])
+      .filter((buddy) => !buddy.archived && !taken.has(agentNameKey(buddy.name)))
+      .map((buddy) => ({
+        name: buddy.name,
+        buddy: buddy.color,
+        provider: buddy.engine.mode === "auto" ? "" : buddy.engine.provider,
+        detail: `${buddy.title ? `${buddy.title} · ` : ""}gets this as a job`,
+      }));
+    return [...inChat, ...saved, ...team];
+  }, [people, teammates, onBringIn, projection.providers, projection.buddies]);
 
   const queueTo = async (
     targetId: string,
@@ -919,6 +929,41 @@ export function ChatView({
       return true;
     }
     const callable = people.filter((person) => person.role !== "host" && !person.terminal);
+    const team = (projection.buddies ?? []).filter(
+      (buddy) => !buddy.archived && !callable.some((person) => agentNameKey(person.name) === agentNameKey(buddy.name)),
+    );
+    const asked = leadingMentions(text, team.map((buddy) => buddy.name));
+    if (asked.names.length > 0 && worktree) {
+      const goal = asked.rest.trim();
+      if (!goal) {
+        setError(`Say what the job is after @${asked.names[0]}.`);
+        return false;
+      }
+      for (const name of asked.names) {
+        const buddy = team.find((candidate) => agentNameKey(candidate.name) === agentNameKey(name));
+        if (!buddy) continue;
+        const response = await dispatch({
+          protocolVersion: 1,
+          commandId: makeCommandId(),
+          command: {
+            type: "task.assign",
+            task: {
+              taskId: makeCommandId(),
+              buddyId: buddy.buddyId,
+              projectId: worktree.projectId,
+              kind: "job",
+              goal,
+              origin: { kind: "chat", threadId },
+            },
+          },
+        });
+        if (response?.accepted === false) {
+          setError(response.error.message);
+          return false;
+        }
+      }
+      return true;
+    }
     const saved = onBringIn
       ? teammates.filter(
           (teammate) => !callable.some((person) => agentNameKey(person.name) === agentNameKey(teammate.name)),
