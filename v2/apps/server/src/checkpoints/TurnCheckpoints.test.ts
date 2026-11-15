@@ -231,11 +231,49 @@ describe("TurnCheckpoints", () => {
     await checkpoints.record(threadId, "turn-1", start);
     const [checkpoint] = (await engine.projection()).checkpoints ?? [];
     if (!checkpoint) throw new Error("Expected a checkpoint.");
+    // The folder left the snapshot mid-turn; that is not the agent deleting it.
+    expect(checkpoint.files.map((file) => file.path)).toEqual(["README.md"]);
     await checkpoints.restore(checkpoint.checkpointId);
     for (const name of ["a", "b", "c", "d"]) {
       expect(await readFile(join(repo, "gen", `${name}.txt`), "utf8")).toBe(`${name}\n`);
     }
     expect(await readFile(join(repo, "README.md"), "utf8")).toBe("base\n");
+  }, 20_000);
+
+  it("restore never deletes a folder that shrank under the limit", async () => {
+    const { repo, engine, checkpoints } = await setup({ limits: { maxFileBytes: 1024, maxFolderFiles: 3 } });
+    await mkdir(join(repo, "gen"));
+    for (const name of ["a", "b", "c", "d"]) await writeFile(join(repo, "gen", `${name}.txt`), `${name}\n`);
+    const start = await checkpoints.capture(threadId);
+    if (!start) throw new Error("Expected a starting snapshot.");
+    await rm(join(repo, "gen", "d.txt"));
+    await writeFile(join(repo, "README.md"), "changed\n");
+    await checkpoints.record(threadId, "turn-1", start);
+    const [checkpoint] = (await engine.projection()).checkpoints ?? [];
+    if (!checkpoint) throw new Error("Expected a checkpoint.");
+    expect(checkpoint.files.map((file) => file.path)).toEqual(["README.md"]);
+    await checkpoints.restore(checkpoint.checkpointId);
+    for (const name of ["a", "b", "c"]) {
+      expect(await readFile(join(repo, "gen", `${name}.txt`), "utf8")).toBe(`${name}\n`);
+    }
+    expect(await readFile(join(repo, "README.md"), "utf8")).toBe("base\n");
+  }, 20_000);
+
+  it("restore keeps a folder that shrank after the turn", async () => {
+    const { repo, engine, checkpoints } = await setup({ limits: { maxFileBytes: 1024, maxFolderFiles: 3 } });
+    await mkdir(join(repo, "gen"));
+    for (const name of ["a", "b", "c", "d"]) await writeFile(join(repo, "gen", `${name}.txt`), `${name}\n`);
+    const start = await checkpoints.capture(threadId);
+    if (!start) throw new Error("Expected a starting snapshot.");
+    await writeFile(join(repo, "README.md"), "changed\n");
+    await checkpoints.record(threadId, "turn-1", start);
+    const [checkpoint] = (await engine.projection()).checkpoints ?? [];
+    if (!checkpoint) throw new Error("Expected a checkpoint.");
+    await rm(join(repo, "gen", "d.txt"));
+    await checkpoints.restore(checkpoint.checkpointId);
+    for (const name of ["a", "b", "c"]) {
+      expect(await readFile(join(repo, "gen", `${name}.txt`), "utf8")).toBe(`${name}\n`);
+    }
   }, 20_000);
 });
 

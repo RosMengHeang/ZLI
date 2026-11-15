@@ -13,6 +13,7 @@ export type UntrackedLimits = { maxFileBytes: number; maxFolderFiles: number };
 export const DEFAULT_UNTRACKED_LIMITS: UntrackedLimits = { maxFileBytes: 52_428_800, maxFolderFiles: 5_000 };
 
 const LIST_TIMEOUT_MS = 20_000;
+const MAX_BIG_FILES_PER_FOLDER = 20;
 
 /**
  * Untracked, not ignored paths that are too big to snapshot: files over the size limit, and folders with more
@@ -34,7 +35,8 @@ export async function oversizedUntracked(
       if (entry.endsWith("/")) {
         const folder = entry.slice(0, -1);
         const scan = await scanFolder(join(cwd, folder), limits);
-        if (scan.tooMany) found.push(folder);
+        // Many big files go as their folder, so the exclude list stays well inside a command line.
+        if (scan.tooMany || scan.bigFiles.length > MAX_BIG_FILES_PER_FOLDER) found.push(folder);
         else for (const file of scan.bigFiles) found.push(`${folder}/${file}`);
       } else if ((await stat(join(cwd, entry))).size > limits.maxFileBytes) {
         found.push(entry);
@@ -69,23 +71,36 @@ async function scanFolder(root: string, limits: UntrackedLimits): Promise<{ tooM
 }
 
 const TEMP_OBJECTS_MIN_AGE_MS = 600_000;
+/** `git add` writes new objects here first when it syncs them in a batch; a killed add leaves the folder behind. */
+const TEMP_OBJECTS_PREFIX = "tmp_objdir-bulk-fsync-";
+
+/** The batch temp folders in a Git objects folder right now. */
+export async function tempObjectNames(objectsDir: string): Promise<Set<string>> {
+  try {
+    return new Set((await readdir(objectsDir)).filter((name) => name.startsWith(TEMP_OBJECTS_PREFIX)));
+  } catch {
+    return new Set();
+  }
+}
 
 /**
- * Removes `tmp_objdir*` folders a killed `git add` left in a Git objects folder. Only folders older than
- * `minAgeMs` go, so a Git command still running elsewhere keeps its own. Returns how many went; never throws.
+ * Removes the batch temp folders a killed `git add` left in a Git objects folder. Only folders older than
+ * `minAgeMs` go, so a Git command still running elsewhere keeps its own, and never those named in `keep`.
+ * Returns how many went; never throws.
  */
 export async function sweepTempObjects(
   objectsDir: string,
   now: number,
   minAgeMs = TEMP_OBJECTS_MIN_AGE_MS,
+  keep: ReadonlySet<string> = new Set(),
 ): Promise<number> {
   let removed = 0;
   try {
     for (const name of await readdir(objectsDir)) {
-      if (!name.startsWith("tmp_objdir")) continue;
+      if (!name.startsWith(TEMP_OBJECTS_PREFIX) || keep.has(name)) continue;
       try {
         const path = join(objectsDir, name);
-        if (now - (await stat(path)).mtimeMs <= minAgeMs) continue;
+        if (minAgeMs > 0 && now - (await stat(path)).mtimeMs <= minAgeMs) continue;
         await rm(path, { recursive: true, force: true });
         removed += 1;
       } catch {

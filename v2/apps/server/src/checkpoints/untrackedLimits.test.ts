@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { GitProcess } from "../git/GitProcess.js";
-import { excludePathspecs, oversizedUntracked, sweepTempObjects } from "./untrackedLimits.js";
+import { excludePathspecs, oversizedUntracked, sweepTempObjects, tempObjectNames } from "./untrackedLimits.js";
 
 const limits = { maxFileBytes: 1024, maxFolderFiles: 3 };
 const git = new GitProcess();
@@ -55,6 +55,13 @@ describe("oversizedUntracked", () => {
     expect(await oversizedUntracked(git, cwd, limits)).toEqual([]);
   });
 
+  it("leaves out a whole folder with many big files, so the exclude list stays short", async () => {
+    const cwd = await repo();
+    await mkdir(join(cwd, "media"));
+    for (let index = 0; index < 21; index += 1) await writeFile(join(cwd, "media", `v${index}.bin`), "x".repeat(2048));
+    expect(await oversizedUntracked(git, cwd, { maxFileBytes: 1024, maxFolderFiles: 100 })).toEqual(["media"]);
+  });
+
   it("handles odd folder names", async () => {
     const cwd = await repo();
     for (const name of ["big dir", "[odd]", "ünï"]) await files(join(cwd, name), 4);
@@ -76,6 +83,16 @@ describe("sweepTempObjects", () => {
     await utimes(join(objects, "pack"), old, old);
     expect(await sweepTempObjects(objects, now)).toBe(1);
     expect((await readdir(objects)).sort()).toEqual(["pack", "tmp_objdir-bulk-fsync-new"]);
+  });
+
+  it("removes temp folders a killed add just made, whatever their age", async () => {
+    const objects = await mkdtemp(join(tmpdir(), "zli-objects-"));
+    cleanup.push(() => rm(objects, { recursive: true, force: true }));
+    await mkdir(join(objects, "tmp_objdir-bulk-fsync-other"));
+    const before = await tempObjectNames(objects);
+    await mkdir(join(objects, "tmp_objdir-bulk-fsync-killed"));
+    expect(await sweepTempObjects(objects, Date.now(), 0, before)).toBe(1);
+    expect(await readdir(objects)).toEqual(["tmp_objdir-bulk-fsync-other"]);
   });
 
   it("returns 0 for a missing folder", async () => {

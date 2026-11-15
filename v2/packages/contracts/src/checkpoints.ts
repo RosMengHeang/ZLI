@@ -16,6 +16,7 @@ export const TurnCheckpointFile = z.object({
 export type TurnCheckpointFile = z.infer<typeof TurnCheckpointFile>;
 
 export const MAX_CHECKPOINT_FILES = 300;
+export const MAX_SKIPPED_PATHS = 2_000;
 
 /**
  * The worktree's files before and after one agent turn, saved as Git trees. Only turns that
@@ -28,6 +29,11 @@ export const ThreadCheckpoint = z.object({
   turnId: z.string().min(1).max(200),
   startTree: TreeId,
   endTree: TreeId,
+  /**
+   * Untracked paths too big to snapshot (build output missing from .gitignore), left out of both trees.
+   * Restores leave them alone. Missing on checkpoints saved before paths were left out.
+   */
+  skippedPaths: z.array(z.string().min(1).max(4096)).max(MAX_SKIPPED_PATHS).optional(),
   /** The first MAX_CHECKPOINT_FILES changed files; fileCount has the full number. */
   files: z.array(TurnCheckpointFile).max(MAX_CHECKPOINT_FILES),
   fileCount: z.number().int().nonnegative(),

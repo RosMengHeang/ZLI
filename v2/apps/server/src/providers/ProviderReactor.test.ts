@@ -1137,6 +1137,7 @@ describe("ProviderReactor usage", () => {
           worktreeId,
           worktreePath: "C:\\workspace\\checkpoint-tree",
           tree: `tree-${id.slice(-1)}-${turns + 1}`,
+          skipped: [],
         };
       },
       record: async (id: string, turnId: string, start: { tree: string }) => {
