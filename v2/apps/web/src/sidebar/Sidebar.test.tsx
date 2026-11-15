@@ -62,7 +62,6 @@ type MountOptions = {
   onDeleteSession?: (session: AgentSession) => void;
   onRenameSession?: (session: AgentSession) => void;
   onWorktreeAction?: (worktree: { worktreeId: string }, action: WorktreeAction) => void;
-  onCreateWorktree?: (project?: { projectId: string }) => void;
   onRemoveProject?: (projectId: string) => Promise<string | undefined>;
   onRenameProject?: (projectId: string, name: string) => void;
   onNewAgent?: (project?: { projectId: string }) => void;
@@ -95,7 +94,6 @@ async function mount(current: RuntimeProjection | undefined, options: MountOptio
           onSelectWorktree={noop}
           onNewAgent={options.onNewAgent ?? noop}
           onOpenProject={noop}
-          onCreateWorktree={options.onCreateWorktree ?? noop}
           onRemoveProject={options.onRemoveProject ?? (async () => undefined)}
           onRenameProject={options.onRenameProject ?? noop}
           onWorktreeAction={options.onWorktreeAction ?? noop}
@@ -522,18 +520,6 @@ describe("Sidebar projects", () => {
     expect(entry.querySelector(".session-row")).not.toBeNull();
   });
 
-  it("creates a worktree from the project row", async () => {
-    const onCreateWorktree = vi.fn();
-    const { container } = await mount(projection([]), { onCreateWorktree });
-    await openMenu(container, "repo actions");
-    await act(async () =>
-      [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')]
-        .find((item) => item.textContent === "New worktree")
-        ?.click(),
-    );
-    expect(onCreateWorktree).toHaveBeenCalledWith(expect.objectContaining({ projectId }));
-  });
-
   it("keeps an agent's stop and delete in its ... menu", async () => {
     const onStopSession = vi.fn();
     const onDeleteSession = vi.fn();
@@ -699,12 +685,11 @@ describe("Sidebar projects", () => {
 
   it("offers pin and edit on right-click, but not in the ... menu", async () => {
     const { container } = await mount(projection([]));
-    expect(await rightClick(container)).toEqual(["Pin", "Edit", "New chat", "New worktree", "Remove project"]);
+    expect(await rightClick(container)).toEqual(["Pin", "Edit", "New chat", "Remove project"]);
     await act(async () => document.body.dispatchEvent(new Event("pointerdown")));
     await act(async () => button(container, "repo actions").click());
     expect([...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((item) => item.textContent)).toEqual([
       "New chat",
-      "New worktree",
       "Remove project",
     ]);
   });
@@ -754,7 +739,6 @@ describe("Sidebar projects", () => {
     );
     expect(await openMenu(container, "repo actions")).toEqual([
       "New chat",
-      "New worktree",
       "Show only this project",
       "Open all agents",
       "Close all agents",

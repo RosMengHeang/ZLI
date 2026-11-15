@@ -12,7 +12,6 @@ import {
   type WorktreeProjection,
 } from "@zli-v2/contracts";
 import {
-  type CSSProperties,
   Fragment,
   memo,
   type ReactNode,
@@ -39,7 +38,7 @@ import { buildTimeline, conversationThreads, type TimelineItem } from "../sessio
 import { useAppSettings } from "../settings/appSettings.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { useChatBuddy } from "../teammates/chatBuddies.js";
-import { type Buddy, buddyHex, buddyName } from "../teammates/buddies.js";
+import { type Buddy, buddyName } from "../teammates/buddies.js";
 import {
   defaultBuddy,
   freeAgentName,
@@ -1310,7 +1309,7 @@ export function ChatView({
             <div className="chat-column">
               {timeline.length === 0 && earlyMessages.length === 0 ? (
                 <>
-                  <ChatStart provider={thread.provider} folder={project?.name} buddy={buddies.get(thread.threadId)} />
+                  <ChatStart provider={thread.provider} folder={project?.name} />
                   {canSend ? (
                     <StartSuggestions
                       folder={project?.name}
@@ -2131,25 +2130,16 @@ function peerOptionLabel(projection: RuntimeProjection, threadId: string): strin
 export function ChatStart({
   provider,
   folder,
-  buddy,
   onStartFromIssue,
 }: {
   provider: string;
   folder: string | undefined;
-  /** The chat's own buddy, which stays when the chat moves to another agent. */
-  buddy?: Buddy | undefined;
   /** Offers a quiet "Start from an issue" under the question. */
   onStartFromIssue?: (() => void) | undefined;
 }) {
   return (
     <div className="chat-start">
-      {buddy ? (
-        <span className="buddy-glow" style={{ "--face": buddyHex(buddy) } as CSSProperties}>
-          <BuddyAvatar buddy={buddy} size={92} />
-        </span>
-      ) : (
-        <ProviderMark provider={provider} size={28} />
-      )}
+      <ProviderMark provider={provider} size={28} />
       <h2 className="chat-start-title">
         What should we work on
         {folder ? (

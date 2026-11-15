@@ -87,6 +87,9 @@ export type BuddiesPaneProps = {
   projectId: string | undefined;
 };
 
+/** Opens the buddies' home with the Add a buddy form showing, as the sidebar's + does. */
+export const NEW_BUDDY = "new";
+
 export function BuddiesPane(props: BuddiesPaneProps) {
   const { projection, selectedId } = props;
   const [error, setError] = useState<string>();
@@ -265,6 +268,7 @@ const QUALITY: readonly { value: BuddyQuality; label: string; tooltip: string }[
 
 function TeamPage({
   projection,
+  selectedId,
   team,
   run,
   onSelect,
@@ -274,7 +278,10 @@ function TeamPage({
   const tasks = projection.tasks ?? [];
   const waiting = needsYou(projection);
   const [dragged, setDragged] = useState<string>();
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(selectedId === NEW_BUDDY);
+  useEffect(() => {
+    if (selectedId === NEW_BUDDY) setAdding(true);
+  }, [selectedId]);
   const drop = (targetId: string) => {
     if (!dragged || dragged === targetId) return;
     const ids = team.map((buddy) => buddy.buddyId).filter((id) => id !== dragged);

@@ -100,7 +100,9 @@
 .sidebar-buddy { padding: 6px var(--zli-space-1-5); border-radius: var(--zli-radius-md); }
 .sidebar-buddy.is-active { background: var(--zli-active); }
 /* The team and the projects are two lists: a rule between them, and the same heading style. */
-.sidebar-buddies { margin-bottom: var(--zli-space-1); border-bottom: 1px solid var(--zli-border); }
+.sidebar-buddies { margin-bottom: var(--zli-space-1); }
+.sidebar-buddies-add { margin-left: auto; color: var(--zli-dim); }
+.sidebar-buddies-needs + .sidebar-buddies-add { margin-left: 0; }
 .sidebar-buddies-head { margin: var(--zli-space-1) 0 2px; padding: 0 6px; font-size: var(--zli-text-sm); font-weight: 500; line-height: 24px; }
 
 /* Standing instructions: tall enough to read, scrolls past that, and opens full size. */

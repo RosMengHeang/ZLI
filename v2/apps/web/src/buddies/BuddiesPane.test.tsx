@@ -229,6 +229,9 @@ describe("SidebarBuddies", () => {
     expect(onOpen).toHaveBeenLastCalledWith();
     await act(async () => document.querySelector<HTMLButtonElement>(".sidebar-buddy")?.click());
     expect(onOpen).toHaveBeenLastCalledWith("b2");
+    // The + opens the team with the Add a buddy form showing.
+    await act(async () => buttonNamed("Add a buddy").click());
+    expect(onOpen).toHaveBeenLastCalledWith("new");
   });
 });
 

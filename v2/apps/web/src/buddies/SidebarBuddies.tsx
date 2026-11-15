@@ -2,7 +2,8 @@ import { buddiesInOrder, needsYou, type RuntimeProjection } from "@zli-v2/contra
 
 import { relativeTime } from "../sessions/sessions.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
-import { buddyMood } from "./BuddiesPane.js";
+import { IconButton } from "../ui/Button.js";
+import { buddyMood, NEW_BUDDY } from "./BuddiesPane.js";
 
 /**
  * The team at the top of the sidebar, in the order the person set: the Primary first, then the rest
@@ -44,6 +45,14 @@ export function SidebarBuddies({
             Needs you · {waiting}
           </button>
         ) : null}
+        <IconButton
+          className="sidebar-buddies-add"
+          label="Add a buddy"
+          tooltip="Add a buddy"
+          icon="plus"
+          size="xs"
+          onClick={() => onOpen(NEW_BUDDY)}
+        />
       </h2>
       {team.map((buddy) => (
         <button

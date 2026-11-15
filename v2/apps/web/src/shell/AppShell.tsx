@@ -2792,12 +2792,8 @@ function WorkspaceApp() {
               updateWorkbench((state) => ({ ...state, activeSessionId: latest?.sessionId }));
             }}
             onNewAgent={openNewAgent}
-            onNewAgentOptions={openNewAgentDialog}
             onStartFromIssue={openIssues}
             onOpenProject={() => void openProject()}
-            onCreateWorktree={(project) =>
-              setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])
-            }
             onRemoveProject={async (projectId) => {
               const name = projection?.projects.find((project) => project.projectId === projectId)?.name ?? "project";
               const problem = await removeProject(projectId);

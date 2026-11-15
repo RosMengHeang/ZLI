@@ -136,12 +136,9 @@ type Props = {
   onRenameSession?: ((session: AgentSession) => void) | undefined;
   onSelectWorktree(worktree: WorktreeProjection): void;
   onNewAgent(project?: ProjectProjection): void;
-  /** The New agent dialog with every option, for this project: agent, view, worktree and name. */
-  onNewAgentOptions?: ((project: ProjectProjection) => void) | undefined;
   /** Opens the issue picker for the project, to start a chat from an issue. */
   onStartFromIssue?: ((project: ProjectProjection) => void) | undefined;
   onOpenProject(): void;
-  onCreateWorktree(project?: ProjectProjection): void;
   /** Removes a project from ZLI, leaving its folder on disk. Resolves to what went wrong, if anything. */
   onRemoveProject(projectId: string): Promise<string | undefined>;
   onRenameProject(projectId: string, name: string): void;
@@ -196,10 +193,8 @@ export function Sidebar({
   onRenameSession,
   onSelectWorktree,
   onNewAgent,
-  onNewAgentOptions,
   onStartFromIssue,
   onOpenProject,
-  onCreateWorktree,
   onRemoveProject,
   onRenameProject,
   onWorktreeAction,
@@ -553,16 +548,6 @@ export function Sidebar({
   /** What a project's "..." menu, and a right-click on its row, offers. */
   const projectMenuItems = (project: ProjectProjection): MenuItem[] => [
     { label: "New chat", icon: "squarePen", run: () => onNewAgent(project) },
-    ...(onNewAgentOptions
-      ? [{ label: "New agent with options…", icon: "agentNew" as const, run: () => onNewAgentOptions(project) }]
-      : []),
-    {
-      label: "New worktree",
-      icon: "branch",
-      disabled: project.git === false,
-      title: project.git === false ? "Worktrees need Git. This folder is not a Git repository." : "New worktree here",
-      run: () => onCreateWorktree(project),
-    },
     ...(onStartFromIssue
       ? [{ label: "Start from issue", icon: "issue" as const, run: () => onStartFromIssue(project) }]
       : []),
@@ -1283,7 +1268,7 @@ export function Sidebar({
                 .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
               const open = layout.projectOpen(project.projectId);
               const pinned = layout.pinned(project.projectId);
-              const agentCount = projectSessions.filter((session) => !runIds.has(session.sessionId)).length;
+              const _agentCount = projectSessions.filter((session) => !runIds.has(session.sessionId)).length;
               const busy = projectSessions.some(
                 (session) => session.status === "working" || session.status === "starting",
               );
@@ -1359,15 +1344,6 @@ export function Sidebar({
                         {pinned ? <Icon name="pin" size={11} className="project-pin" aria-hidden="true" /> : null}
                         <Icon name="chevronRight" size={11} className="project-chevron" />
                       </button>
-                    )}
-                    {open || agentCount === 0 ? null : (
-                      // Folded, the project says how many chats it holds; its lantern already says if one works.
-                      <span
-                        className="project-faces"
-                        title={`${agentCount === 1 ? "1 chat" : `${agentCount} chats`}, ${projectWorktrees.length === 1 ? "1 worktree" : `${projectWorktrees.length} worktrees`}`}
-                      >
-                        {agentCount}
-                      </span>
                     )}
                     <MenuButton
                       className="project-action"
