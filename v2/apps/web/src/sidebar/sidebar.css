@@ -352,9 +352,20 @@
 }
 .session-row:hover { background: var(--zli-hover); }
 .session-row.is-active, .session-row.is-active:hover { background: var(--zli-active); box-shadow: none; }
-.session-face { position: relative; display: inline-grid; flex: 0 0 auto; place-items: center; margin-top: -1px; }
-.session-team { position: absolute; right: -6px; bottom: -4px; display: flex; flex-direction: row-reverse; }
-.session-team > .buddy-avatar { margin-left: -5px; }
+/* A chat is a dot, not a face: faces mean buddies. The dot sits on the title's line and carries the state. */
+.session-face { position: relative; display: inline-grid; flex: 0 0 14px; place-items: center; height: 18px; margin-top: 2px; }
+.session-dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--zli-border-hover); transition: background-color var(--zli-duration-base) var(--zli-ease), box-shadow var(--zli-duration-base) var(--zli-ease); }
+.session-row:hover .session-dot.is-idle, .session-row.is-active .session-dot.is-idle { box-shadow: inset 0 0 0 1.5px var(--zli-dim); }
+.session-dot.is-working { background: var(--zli-blue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--zli-blue) 22%, transparent); animation: session-dot-breathe 2s ease-in-out infinite; }
+.session-dot.is-waiting { background: var(--zli-amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--zli-amber) 22%, transparent); }
+.session-dot.is-failed { background: var(--zli-red); box-shadow: none; }
+.session-dot.is-unread { background: var(--zli-text); box-shadow: none; }
+@keyframes session-dot-breathe {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--zli-blue) 16%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--zli-blue) 30%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .session-dot.is-working { animation: none; } }
+.session-guests { flex: 0 0 auto; padding: 0 5px; border-radius: 4px; background: var(--zli-hover); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; line-height: 16px; }
 .session-copy { min-width: 0; flex: 1; gap: 2px; padding-top: 2px; }
 .session-line { gap: var(--zli-space-2); }
 .session-row .session-title { color: var(--zli-muted); font-size: var(--zli-text-base); font-weight: 450; line-height: 18px; }
@@ -364,7 +375,6 @@
 .session-time { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; opacity: 1; }
 .session-status { font-size: var(--zli-text-xs); font-weight: 500; }
 .session-status .dot { display: none; }
-.session-unread { width: 6px; height: 6px; flex: 0 0 6px; margin-right: 6px; border-radius: 50%; background: var(--zli-text); }
 .session-state { display: block; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .session-row:hover .session-state, .session-row.is-active .session-state { color: var(--zli-muted); }
 .session-state.is-waiting, .session-row .session-state.is-waiting { color: var(--zli-amber); }
@@ -392,7 +402,7 @@
 .shelf-heading { color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 550; }
 .shelf-row { align-items: flex-start; gap: 10px; padding: 7px 8px; border-radius: 9px; }
 .shelf-row:hover { background: var(--zli-active); }
-.shelf-row > .session-avatar { flex: 0 0 auto; margin-top: 0; }
+.shelf-row > .session-dot { flex: 0 0 auto; margin: 6px 4px 0 3px; }
 .shelf-title { font-size: var(--zli-text-base); font-weight: 550; }
 .shelf-reason { font-size: var(--zli-text-sm); }
 
@@ -416,7 +426,6 @@
 }
 @media (prefers-reduced-motion: reduce) { .project-lantern.is-working { animation: none; } }
 .project-faces { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1px; padding: 0 4px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
-.project-faces-more { margin-left: 3px; }
 .project-label:hover .project-faces { display: none; }
 
 /* ---------- The buddy speaks ---------- */

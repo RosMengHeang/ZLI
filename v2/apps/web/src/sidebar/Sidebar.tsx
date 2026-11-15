@@ -39,7 +39,7 @@ import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuAction, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
-import { SessionAvatar } from "./SessionAvatar.js";
+import { SessionDot } from "./SessionDot.js";
 import { SidebarPlanLimits } from "./SidebarUsageStrip.js";
 import { AskLine, LiveStep, ReplyPreview } from "./sessionLines.js";
 import { useSidebarCollapsed } from "./sidebarLayout.js";
@@ -888,7 +888,7 @@ export function Sidebar({
       (child) => child.sessionId !== session.sessionId && !ancestors.has(child.sessionId),
     );
     const below = subAgents.length > 0 ? new Set([...ancestors, session.sessionId]) : ancestors;
-    // Agents brought into the chat talk inside it, so they show as faces on its card rather than rows of their own.
+    // Agents brought into the chat talk inside it, so they show as a count on its card rather than rows of their own.
     const guests = subAgents.filter((child) => child.thread?.joins !== undefined);
     const helpers = subAgents.filter((child) => child.thread?.joins === undefined);
     // The card's second line says what matters now: what the chat is doing, what it asks, why it failed, or
@@ -931,27 +931,23 @@ export function Sidebar({
           title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}${parentName ? `\nStarted by ${parentName}` : ""}${failure ? `\n${failure}` : ""}`}
         >
           <span className="session-face">
-            <SessionAvatar
-              session={session}
-              size={runIndex === undefined ? 22 : 18}
-              quietStart={session.mode === "chat"}
-            />
-            {guests.length > 0 ? (
-              <span
-                className="session-team"
-                title={guests.map((guest) => sessionAgentName(guest) ?? "Agent").join(", ")}
-              >
-                {guests.slice(0, 3).map((guest) => (
-                  <SessionAvatar key={guest.sessionId} session={guest} size={13} />
-                ))}
-              </span>
-            ) : null}
+            <SessionDot session={session} unread={isUnread} quietStart={session.mode === "chat"} />
           </span>
           <span className="session-copy">
             <span className="session-line">
               {agentName ? <span className="session-name">{agentName}</span> : null}
               {runIndex === undefined ? (
-                <span className="session-title">{title}</span>
+                <>
+                  <span className="session-title">{title}</span>
+                  {guests.length > 0 ? (
+                    <span
+                      className="session-guests"
+                      title={`With ${guests.map((guest) => sessionAgentName(guest) ?? "an agent").join(", ")}`}
+                    >
+                      +{guests.length}
+                    </span>
+                  ) : null}
+                </>
               ) : (
                 <>
                   <span className="run-badge">Run {runIndex}</span>
@@ -1002,10 +998,7 @@ export function Sidebar({
               background ? (
                 <span className="session-background">Background</span>
               ) : (
-                <>
-                  {isUnread ? <span className="session-unread" aria-hidden="true" /> : null}
-                  <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
-                </>
+                <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
               )
             ) : live && session.status === "working" ? null : (
               <span
@@ -1158,7 +1151,7 @@ export function Sidebar({
                 aria-label={`${title}, ${said}${project ? `, in ${project.name}` : ""}`}
                 onClick={() => onSelectSession(session)}
               >
-                <SessionAvatar session={session} size={24} />
+                <SessionDot session={session} />
                 <span className="shelf-copy">
                   <span className="shelf-line">
                     <span className="shelf-title">{title}</span>
@@ -1371,16 +1364,12 @@ export function Sidebar({
                       </button>
                     )}
                     {open || agentCount === 0 ? null : (
-                      // Folded, the project shows who is inside: the faces of its newest chats.
+                      // Folded, the project says how many chats it holds; its lantern already says if one works.
                       <span
                         className="project-faces"
                         title={`${agentCount === 1 ? "1 chat" : `${agentCount} chats`}, ${projectWorktrees.length === 1 ? "1 worktree" : `${projectWorktrees.length} worktrees`}`}
                       >
-                        {top.slice(0, 3).map((session) => (
-                          <SessionAvatar key={session.sessionId} session={session} size={15} quietStart />
-                        ))}
-                        {agentCount > 3 ? <span className="project-faces-more">+{agentCount - 3}</span> : null}
-                        <span className="sr-only">{agentCount}</span>
+                        {agentCount}
                       </span>
                     )}
                     <MenuButton
