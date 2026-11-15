@@ -1,8 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-
+import { TileArt } from "./BuddyAvatar.js";
 import type { Buddy } from "./buddies.js";
-import { BuddyArt } from "./BuddyAvatar.js";
 
 const ICON_SIZE = 96;
 const cache = new Map<Buddy, Promise<string | undefined>>();
@@ -18,7 +17,7 @@ export function buddyIcon(buddy: Buddy): Promise<string | undefined> {
 
 /** The buddy's static SVG markup, colors inline, with no stylesheet needed. */
 export function buddySvg(buddy: Buddy, size = ICON_SIZE): string {
-  return renderToStaticMarkup(createElement(BuddyArt, { buddy, size }));
+  return renderToStaticMarkup(createElement(TileArt, { buddy, size }));
 }
 
 async function draw(buddy: Buddy): Promise<string | undefined> {

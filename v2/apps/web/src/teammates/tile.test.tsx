@@ -2,9 +2,10 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { BuddyAvatar } from "./BuddyAvatar.js";
+import { BuddyAvatar, TileArt } from "./BuddyAvatar.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -26,15 +27,18 @@ function show(node: React.ReactNode): HTMLElement {
 }
 
 describe("buddy tiles", () => {
-  it("shows a face tile in lists and the whole buddy where it is large", () => {
-    expect(show(<BuddyAvatar buddy="cloud" size={22} />).querySelector(".is-tile")).not.toBeNull();
-    act(() => root?.unmount());
-    expect(show(<BuddyAvatar buddy="cloud" size={92} />).querySelector(".is-tile")).toBeNull();
+  it("always draws the face tile, at every size", () => {
+    for (const size of [22, 44, 92]) {
+      const host = show(<BuddyAvatar buddy="sky" size={size} />);
+      expect(host.querySelector(".is-tile")).not.toBeNull();
+      expect(host.querySelector(".buddy-foot")).toBeNull();
+      act(() => root?.unmount());
+    }
   });
 
-  it("draws the whole buddy when asked, as the picker does", () => {
-    const host = show(<BuddyAvatar buddy="cloud" size={30} full />);
-    expect(host.querySelector(".is-tile")).toBeNull();
-    expect(host.querySelector(".buddy-foot")).not.toBeNull();
+  it("is a rounded square in the buddy's color with two dark bar eyes", () => {
+    const svg = renderToStaticMarkup(<TileArt buddy="sky" size={32} />);
+    expect(svg).toContain('fill="#4aa8ff"');
+    expect(svg.match(/<rect[^>]*fill="#16151a"/g)).toHaveLength(2);
   });
 });
