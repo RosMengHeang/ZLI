@@ -88,7 +88,7 @@ export type BuddiesPaneProps = {
 };
 
 export function BuddiesPane(props: BuddiesPaneProps) {
-  const { projection, selectedId, onSelect } = props;
+  const { projection, selectedId } = props;
   const [error, setError] = useState<string>();
   const run = useRun(setError);
   const team = buddiesInOrder(projection);
