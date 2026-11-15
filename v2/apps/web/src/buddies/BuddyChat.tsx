@@ -10,14 +10,14 @@ import {
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
+import { fileName, splitAttachedFiles, withAttachedFiles } from "../chat/attachedFiles.js";
 import { liveStepLabel } from "../chat/liveStatus.js";
+import { getBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import type { Buddy } from "../teammates/buddies.js";
 import { IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
-import { fileName, splitAttachedFiles, withAttachedFiles } from "../chat/attachedFiles.js";
-import { getBridge } from "../runtime/bridge.js";
 import { triggerLabel } from "./team.js";
 import "./buddyChat.css";
 

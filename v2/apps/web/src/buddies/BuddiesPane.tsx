@@ -1,5 +1,4 @@
 import {
-  type BuddyColor,
   type BuddyProjection,
   type BuddyQuality,
   buddiesInOrder,
@@ -14,11 +13,10 @@ import {
   type TaskProjection,
   taskLine,
 } from "@zli-v2/contracts";
-import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { makeCommandId } from "../runtime/commandId.js";
-import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { useAppSettings } from "../settings/appSettings.js";
 import { type AvatarMood, BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { BUDDY_COLOR_NAMES, buddyName } from "../teammates/buddies.js";
@@ -28,9 +26,8 @@ import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
 import { BuddyChat } from "./BuddyChat.js";
+import { NewBuddyDialog } from "./NewBuddyDialog.js";
 import {
-  BUDDY_TEMPLATES,
-  buddyFromTemplate,
   buddyStats,
   duration,
   exportBuddy,
@@ -39,30 +36,10 @@ import {
   parseBuddyFile,
   SCHEDULES,
   starterTeam,
-  template,
   triggerLabel,
 } from "./team.js";
+import { type Run, useRun } from "./useRun.js";
 import "./buddies.css";
-
-export type Run = (command: Record<string, unknown>) => Promise<boolean>;
-
-function useRun(setError: (message: string | undefined) => void): Run {
-  const { dispatch } = useRuntime();
-  return async (command) => {
-    setError(undefined);
-    try {
-      const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
-      if (response?.accepted === false) {
-        setError(response.error.message);
-        return false;
-      }
-      return true;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "That did not go through.");
-      return false;
-    }
-  };
-}
 
 /** How a buddy looks right now, from its open jobs. */
 export function buddyMood(buddy: BuddyProjection, tasks: readonly TaskProjection[]): AvatarMood {
@@ -86,9 +63,6 @@ export type BuddiesPaneProps = {
   /** The project the person is looking at, for new jobs. */
   projectId: string | undefined;
 };
-
-/** Opens the buddies' home with the Add a buddy form showing, as the sidebar's + does. */
-export const NEW_BUDDY = "new";
 
 export function BuddiesPane(props: BuddiesPaneProps) {
   const { projection, selectedId } = props;
@@ -268,7 +242,6 @@ const QUALITY: readonly { value: BuddyQuality; label: string; tooltip: string }[
 
 function TeamPage({
   projection,
-  selectedId,
   team,
   run,
   onSelect,
@@ -278,10 +251,7 @@ function TeamPage({
   const tasks = projection.tasks ?? [];
   const waiting = needsYou(projection);
   const [dragged, setDragged] = useState<string>();
-  const [adding, setAdding] = useState(selectedId === NEW_BUDDY);
-  useEffect(() => {
-    if (selectedId === NEW_BUDDY) setAdding(true);
-  }, [selectedId]);
+  const [adding, setAdding] = useState(false);
   const drop = (targetId: string) => {
     if (!dragged || dragged === targetId) return;
     const ids = team.map((buddy) => buddy.buddyId).filter((id) => id !== dragged);
@@ -346,13 +316,19 @@ function TeamPage({
             );
           })}
         </ul>
+        <Button size="sm" variant="ghost" icon="plus" onClick={() => setAdding(true)}>
+          Add a buddy
+        </Button>
         {adding ? (
-          <AddBuddy run={run} projection={projection} onDone={() => setAdding(false)} />
-        ) : (
-          <Button size="sm" variant="ghost" icon="plus" onClick={() => setAdding(true)}>
-            Add a buddy
-          </Button>
-        )}
+          <NewBuddyDialog
+            projection={projection}
+            onClose={() => setAdding(false)}
+            onCreated={(buddyId) => {
+              setAdding(false);
+              onSelect(buddyId);
+            }}
+          />
+        ) : null}
       </section>
       <section className="buddies-section" aria-label="How Auto picks">
         <h3 className="buddies-heading">How Auto picks models</h3>
@@ -374,47 +350,55 @@ function TeamPage({
   );
 }
 
-function AddBuddy({ run, projection, onDone }: { run: Run; projection: RuntimeProjection; onDone(): void }) {
-  const [title, setTitle] = useState("Builder");
-  const [name, setName] = useState("");
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const entry = template(title) ?? (BUDDY_TEMPLATES[1] as (typeof BUDDY_TEMPLATES)[number]);
-    const chosen = freeName(name.trim() || entry.title, projection.buddies ?? []);
-    const used = new Set((projection.buddies ?? []).filter((buddy) => !buddy.archived).map((buddy) => buddy.color));
-    const color = used.has(entry.color)
-      ? ((BUDDY_COLOR_NAMES.find((candidate) => !used.has(candidate)) ?? entry.color) as BuddyColor)
-      : entry.color;
-    const buddy = { ...buddyFromTemplate(makeCommandId(), chosen, entry), color, role: "buddy" as const };
-    if (await run({ type: "buddy.create", buddy })) onDone();
+/** The buddy's name under its face. A click turns it into a box; Enter or leaving it saves, Escape keeps the old. */
+function BuddyNameEdit({ buddy, run }: { buddy: BuddyProjection; run: Run }) {
+  const [draft, setDraft] = useState<string>();
+  const done = useRef(false);
+  const save = async () => {
+    if (done.current || draft === undefined) return;
+    done.current = true;
+    const next = draft.trim();
+    if (next && next !== buddy.name)
+      await run({ type: "buddy.update", buddyId: buddy.buddyId, changes: { name: next } });
+    setDraft(undefined);
   };
+  if (draft === undefined)
+    return (
+      <h2 className="buddy-info-name">
+        <button
+          type="button"
+          className="buddy-info-rename"
+          title="Rename"
+          aria-label={`Rename ${buddy.name}`}
+          onClick={() => {
+            done.current = false;
+            setDraft(buddy.name);
+          }}
+        >
+          {buddy.name}
+          <Icon name="pencil" size={12} />
+        </button>
+      </h2>
+    );
   return (
-    <form className="buddies-add" onSubmit={(event) => void submit(event)}>
-      <Select
-        label="What it does"
-        value={title}
-        options={BUDDY_TEMPLATES.filter((entry) => entry.title !== "Primary").map((entry) => ({
-          value: entry.title,
-          label: entry.title,
-          description: entry.blurb,
-        }))}
-        onChange={setTitle}
-      />
-      <input
-        className="input input-sm"
-        aria-label="Name"
-        placeholder={`Name (default ${title})`}
-        value={name}
-        maxLength={24}
-        onChange={(event) => setName(event.target.value)}
-      />
-      <Button size="sm" variant="primary" type="submit">
-        Add
-      </Button>
-      <Button size="sm" variant="ghost" onClick={onDone}>
-        Cancel
-      </Button>
-    </form>
+    <input
+      className="input buddy-info-name-input"
+      aria-label="Name"
+      value={draft}
+      maxLength={24}
+      // biome-ignore lint/a11y/noAutofocus: the box replaces the name the person just clicked.
+      autoFocus
+      onFocus={(event) => event.currentTarget.select()}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => void save()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") void save();
+        if (event.key === "Escape") {
+          done.current = true;
+          setDraft(undefined);
+        }
+      }}
+    />
   );
 }
 
@@ -512,10 +496,17 @@ function BuddyPage({
       <div className="buddy-view-main">
         {/* The chat runs under a floating name tag, like a message thread. */}
         <header className="buddy-view-top">
-          <span className="buddy-view-tag">
-            <BuddyAvatar buddy={buddy.color} size={22} mood={mood} name={buddy.name} />
+          <button
+            type="button"
+            className="buddy-view-tag"
+            aria-expanded={info}
+            aria-label={`${buddy.name}, ${info ? "hide" : "show"} details`}
+            title={info ? "Hide details" : "Show details"}
+            onClick={() => setInfo((open) => !open)}
+          >
+            <BuddyAvatar buddy={buddy.color} size={22} mood={mood} />
             <h2 className="buddy-view-name">{buddy.name}</h2>
-          </span>
+          </button>
           {info ? null : (
             <IconButton
               className="buddy-view-open"
@@ -551,7 +542,7 @@ function BuddyPage({
           </div>
           <div className="buddy-info-hero">
             <BuddyAvatar buddy={buddy.color} size={72} mood={mood} name={buddy.name} />
-            <h2>{buddy.name}</h2>
+            <BuddyNameEdit buddy={buddy} run={run} />
             {title ? <span>{title}</span> : null}
           </div>
           <Segmented<InfoTab>

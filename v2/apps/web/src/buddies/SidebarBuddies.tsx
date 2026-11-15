@@ -1,9 +1,11 @@
 import { buddiesInOrder, needsYou, type RuntimeProjection } from "@zli-v2/contracts";
-
+import { useState } from "react";
 import { relativeTime } from "../sessions/sessions.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { IconButton } from "../ui/Button.js";
-import { buddyMood, NEW_BUDDY } from "./BuddiesPane.js";
+
+import { buddyMood } from "./BuddiesPane.js";
+import { NewBuddyDialog } from "./NewBuddyDialog.js";
 
 /**
  * The team at the top of the sidebar, in the order the person set: the Primary first, then the rest
@@ -20,6 +22,7 @@ export function SidebarBuddies({
   /** Opens the Buddies panel, on one buddy when given. */
   onOpen(buddyId?: string): void;
 }) {
+  const [adding, setAdding] = useState(false);
   if (!projection) return null;
   const team = buddiesInOrder(projection);
   if (team.length === 0)
@@ -51,9 +54,19 @@ export function SidebarBuddies({
           tooltip="Add a buddy"
           icon="plus"
           size="xs"
-          onClick={() => onOpen(NEW_BUDDY)}
+          onClick={() => setAdding(true)}
         />
       </h2>
+      {adding ? (
+        <NewBuddyDialog
+          projection={projection}
+          onClose={() => setAdding(false)}
+          onCreated={(buddyId) => {
+            setAdding(false);
+            onOpen(buddyId);
+          }}
+        />
+      ) : null}
       {team.map((buddy) => (
         <button
           key={buddy.buddyId}

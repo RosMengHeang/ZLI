@@ -11,7 +11,7 @@
 /* A name tag floating over the top of the chat; the messages scroll under it. */
 .buddy-view-top { position: absolute; top: 0; right: 0; left: 0; z-index: 2; display: flex; height: 52px; align-items: center; justify-content: center; padding: 0 var(--zli-space-3); background: linear-gradient(var(--zli-surface) 40%, transparent); pointer-events: none; }
 .buddy-view-top > * { pointer-events: auto; }
-.buddy-view-tag { display: inline-flex; height: 34px; align-items: center; gap: var(--zli-space-2); padding: 0 14px 0 6px; border: 1px solid var(--zli-border); border-radius: 17px; background: var(--zli-raised); box-shadow: 0 4px 14px rgb(0 0 0 / 18%); }
+.buddy-view-tag { color: inherit; cursor: pointer; font: inherit; transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); display: inline-flex; height: 34px; align-items: center; gap: var(--zli-space-2); padding: 0 14px 0 6px; border: 1px solid var(--zli-border); border-radius: 17px; background: var(--zli-raised); box-shadow: 0 4px 14px rgb(0 0 0 / 18%); }
 .buddy-view-name { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
 .buddy-view-open { position: absolute; right: var(--zli-space-3); }
 .app-shell.is-columns .buddy-view-open { right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
@@ -127,3 +127,38 @@
 .buddy-typing span:nth-child(3) { animation-delay: .3s; }
 @keyframes buddy-typing { 0%, 60%, 100% { opacity: .35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .buddy-typing span { animation: none; } }
+
+/* The name tag opens and closes the details column. */
+.buddy-view-tag:hover { border-color: var(--zli-border-hover); background: color-mix(in srgb, var(--zli-text) 6%, var(--zli-raised)); }
+.buddy-view-tag:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+
+/* The name under the face renames the buddy: a pencil shows on hover, a click turns it into a box. */
+.buddy-info-rename { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: text; font: inherit; }
+.buddy-info-rename svg { color: var(--zli-dim); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.buddy-info-rename:hover { background: var(--zli-hover); }
+.buddy-info-rename:hover svg, .buddy-info-rename:focus-visible svg { opacity: 1; }
+.buddy-info-name-input { width: 200px; margin-top: var(--zli-space-2); text-align: center; font-size: var(--zli-text-lg, 18px); font-weight: 650; }
+
+/* ---------- New buddy ---------- */
+.new-buddy { display: flex; flex-direction: column; gap: var(--zli-space-4); padding: 0 24px 20px; }
+.new-buddy-face { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-2) 0 0; }
+.new-buddy-preview { color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 600; }
+.new-buddy-field { display: flex; min-width: 0; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; }
+.new-buddy-label { padding: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 600; }
+.new-buddy-hint { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.new-buddy-roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.new-buddy-role { display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; text-align: left; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.new-buddy-role:hover { background: var(--zli-hover); }
+.new-buddy-role.is-on { border-color: var(--zli-accent-line); background: var(--zli-accent-soft); color: var(--zli-text); }
+.new-buddy-role:focus-visible, .new-buddy-color:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.new-buddy-role-dot { width: 8px; height: 8px; flex: 0 0 8px; margin-top: 5px; border-radius: 50%; }
+.new-buddy-role-text { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.new-buddy-role-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.new-buddy-role-blurb { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 1.35; }
+.new-buddy-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+.new-buddy-color { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 8px; cursor: pointer; transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.new-buddy-color:hover { transform: scale(1.08); }
+.new-buddy-color.is-on { box-shadow: 0 0 0 2px var(--zli-surface), 0 0 0 4px var(--zli-text); }
+.new-buddy-instructions { min-height: 84px; resize: vertical; line-height: 1.5; }
+.new-buddy-actions { display: flex; justify-content: flex-end; gap: var(--zli-space-2); }
+@media (max-width: 520px) { .new-buddy-roles { grid-template-columns: minmax(0, 1fr); } }

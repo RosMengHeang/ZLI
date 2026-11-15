@@ -192,6 +192,20 @@ describe("BuddiesPane", () => {
     expect(commands.at(-1)).toEqual({ type: "task.revise", taskId: "t1", note: "Use the shared helper" });
   });
 
+  it("hides the details from the name tag, and renames the buddy from its name", async () => {
+    const { commands } = await render(projection({ buddies: [buddy("b2", "Builder", 0)] }), "b2");
+    await act(async () => buttonNamed("Rename Builder").click());
+    const box = document.querySelector<HTMLInputElement>(".buddy-info-name-input");
+    if (!box) throw new Error("No name box");
+    await typeInput(box, "Nova");
+    await act(async () => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(commands.at(-1)).toEqual({ type: "buddy.update", buddyId: "b2", changes: { name: "Nova" } });
+    const tag = document.querySelector<HTMLButtonElement>(".buddy-view-tag");
+    await act(async () => tag?.click());
+    expect(document.querySelector('[aria-label="About Builder"]')?.tagName).not.toBe("ASIDE");
+    expect(tag?.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("asks before keeping a lesson, and pauses everything with one button", async () => {
     const state = projection({
       buddies: [
@@ -229,9 +243,32 @@ describe("SidebarBuddies", () => {
     expect(onOpen).toHaveBeenLastCalledWith();
     await act(async () => document.querySelector<HTMLButtonElement>(".sidebar-buddy")?.click());
     expect(onOpen).toHaveBeenLastCalledWith("b2");
-    // The + opens the team with the Add a buddy form showing.
+  });
+});
+
+describe("NewBuddyDialog", () => {
+  it("makes a buddy from the + with its name, color and what it may do, then opens it", async () => {
+    const onOpen = vi.fn();
+    const commands = await renderWithRuntime(
+      <SidebarBuddies projection={projection({ buddies: [buddy("b2", "Builder", 0)] })} onOpen={onOpen} />,
+      accept,
+    );
     await act(async () => buttonNamed("Add a buddy").click());
-    expect(onOpen).toHaveBeenLastCalledWith("new");
+    const name = document.querySelector<HTMLInputElement>(".new-buddy input");
+    if (!name) throw new Error("No name box");
+    await typeInput(name, "Nova");
+    const role = [...document.querySelectorAll<HTMLButtonElement>(".new-buddy-role")].find((entry) =>
+      entry.textContent?.startsWith("Reviewer"),
+    );
+    await act(async () => role?.click());
+    await act(async () => buttonNamed("rose").click());
+    await act(async () => buttonNamed("Read only").click());
+    await act(async () => buttonNamed("Add Nova").click());
+    expect(commands.at(-1)).toMatchObject({
+      type: "buddy.create",
+      buddy: { name: "Nova", title: "Reviewer", color: "rose", permissionMode: "read-only", role: "buddy" },
+    });
+    expect(onOpen).toHaveBeenCalledWith((commands.at(-1) as { buddy: { buddyId: string } }).buddy.buddyId);
   });
 });
 

@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest";
-
 import { guessProject } from "@zli-v2/contracts";
+import { describe, expect, it } from "vitest";
 
 const projects = [
   { projectId: "p-shop", name: "shop-web", path: "D:/code/shop-web" },

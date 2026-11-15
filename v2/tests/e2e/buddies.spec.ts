@@ -53,6 +53,17 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
       timeout: 60_000,
     });
     await shot("tester");
+
+    // The + makes a new buddy from a popup: a name, what it does, a color.
+    await sidebar.getByRole("button", { name: "Add a buddy" }).click();
+    const dialog = page.getByRole("dialog", { name: "New buddy" });
+    await dialog.locator(".new-buddy input").fill("Nova");
+    await dialog.getByRole("button", { name: "rose" }).click();
+    await shot("new-buddy");
+    await dialog.getByRole("button", { name: "Add Nova" }).click();
+    await expect(sidebar.locator(".sidebar-buddy-name")).toContainText(["Nova"]);
+    await expect(pane.locator(".buddy-view-name")).toHaveText("Nova");
+    await shot("nova");
   } finally {
     await closeDesktop(fixture);
   }
