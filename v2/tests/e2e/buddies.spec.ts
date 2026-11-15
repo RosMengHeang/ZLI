@@ -16,18 +16,13 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    // The sidebar offers a team before there is one.
-    await page.locator(".sidebar-buddies .sidebar-buddy").click();
-    const pane = page.getByRole("region", { name: "Buddies" }).last();
-    await expect(pane).toContainText("A team that works for you");
-    await shot("welcome");
-    await pane.getByRole("button", { name: "Start with these three" }).click();
-
-    // The team lists in its fixed order, Primary first.
+    // The team is there from the first run, in its fixed order, Primary first.
     const sidebar = page.locator(".sidebar-buddies");
     await expect(sidebar.locator(".sidebar-buddy-name")).toHaveText(["Primary", "Builder", "Tester"]);
 
     await sidebar.getByRole("button", { name: /Builder/u }).click();
+    const pane = page.getByRole("region", { name: "Buddies" }).last();
+    await shot("open");
     const message = pane.getByLabel("Message Builder");
     await message.fill("Add a login page");
     await message.press("Enter");

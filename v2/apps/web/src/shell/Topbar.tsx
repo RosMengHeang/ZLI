@@ -67,6 +67,7 @@ export function Topbar({
   onOpenDevServer,
   updateNotice,
   showTerminal = true,
+  showPanels = true,
 }: {
   sidebarOpen: boolean;
   /** Off when the layout puts Show sidebar and New agent somewhere else. */
@@ -89,6 +90,8 @@ export function Topbar({
   updateNotice?: ReactNode;
   /** Off when the person works in chat only, so the terminal stays out of the way. */
   showTerminal?: boolean;
+  /** Off on a page with its own side column, such as a buddy's chat. */
+  showPanels?: boolean;
 }) {
   const shortcuts = useShortcuts();
   // In the columns layout the bar floats over the top-right corner; the headers under it keep its width clear.
@@ -139,24 +142,26 @@ export function Topbar({
         The top bar keeps two switches: the terminal at the bottom and the panel on the right. The right one
         opens on a picker of every panel, each with a key, so nothing hides behind a menu.
       */}
-      <fieldset className="topbar-tools" aria-label="Panels">
-        {showTerminal ? (
+      {showPanels ? (
+        <fieldset className="topbar-tools" aria-label="Panels">
+          {showTerminal ? (
+            <ToolToggle
+              label="Terminal"
+              icon="terminal"
+              shortcut={shortcuts.toggleDrawer}
+              active={drawerOpen}
+              onClick={onToggleDrawer}
+            />
+          ) : null}
           <ToolToggle
-            label="Terminal"
-            icon="terminal"
-            shortcut={shortcuts.toggleDrawer}
-            active={drawerOpen}
-            onClick={onToggleDrawer}
+            label="Right panel"
+            icon="panelRight"
+            tooltip={sidePane ? `Hide ${sidePaneLabel[sidePane].toLowerCase()}` : "Open a panel"}
+            active={sidePane !== undefined}
+            onClick={onTogglePanels}
           />
-        ) : null}
-        <ToolToggle
-          label="Right panel"
-          icon="panelRight"
-          tooltip={sidePane ? `Hide ${sidePaneLabel[sidePane].toLowerCase()}` : "Open a panel"}
-          active={sidePane !== undefined}
-          onClick={onTogglePanels}
-        />
-      </fieldset>
+        </fieldset>
+      ) : null}
     </header>
   );
 }

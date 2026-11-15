@@ -15,7 +15,7 @@ import {
   type TaskProjection,
   taskLine,
 } from "@zli-v2/contracts";
-import { type FormEvent, type ReactNode, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -143,33 +143,53 @@ export function BuddiesPane(props: BuddiesPaneProps) {
 
 /* ---------- First run ---------- */
 
+/** Primary, Builder and Tester, Builder's work checked by Tester, and Primary's morning brief. */
+async function startTeam(run: Run, projection: RuntimeProjection): Promise<void> {
+  const { buddies, handoff } = starterTeam(makeCommandId);
+  for (const buddy of buddies) if (!(await run({ type: "buddy.create", buddy }))) return;
+  await run({
+    type: "buddy.handoff.set",
+    buddyId: handoff.from,
+    rule: { ruleId: handoff.ruleId, when: "finished", to: handoff.to, action: "check", maxRounds: 2, enabled: true },
+  });
+  const primary = buddies[0];
+  const project = projection.projects[0];
+  if (primary && project)
+    await run({
+      type: "routine.create",
+      routine: {
+        routineId: makeCommandId(),
+        buddyId: primary.buddyId,
+        projectId: project.projectId,
+        goal: "Write the morning brief: what each buddy did since yesterday, what is waiting on the person, and what is next. Use task_status. Keep it to six lines and finish with task_done.",
+        trigger: { kind: "schedule", cron: "0 9 * * 1-5" },
+        paused: false,
+        builtin: "morning_brief",
+      },
+    });
+}
+
+/**
+ * The team is there from the first run: when no buddy was ever made, this makes the starter three.
+ * A team someone removed stays removed, since removed buddies stay in the projection as archived.
+ */
+export function useStarterTeam(projection: RuntimeProjection | undefined): void {
+  const run = useRun(() => undefined);
+  const started = useRef(false);
+  const empty = projection !== undefined && (projection.buddies ?? []).length === 0;
+  useEffect(() => {
+    if (!empty || !projection || started.current) return;
+    started.current = true;
+    void startTeam(run, projection);
+  }, [empty, projection, run]);
+}
+
 function Welcome({ run, projection }: { run: Run; projection: RuntimeProjection }) {
   const { teammates } = useAppSettings();
   const [busy, setBusy] = useState(false);
   const start = async () => {
     setBusy(true);
-    const { buddies, handoff } = starterTeam(makeCommandId);
-    for (const buddy of buddies) if (!(await run({ type: "buddy.create", buddy }))) break;
-    await run({
-      type: "buddy.handoff.set",
-      buddyId: handoff.from,
-      rule: { ruleId: handoff.ruleId, when: "finished", to: handoff.to, action: "check", maxRounds: 2, enabled: true },
-    });
-    const primary = buddies[0];
-    const project = projection.projects[0];
-    if (primary && project)
-      await run({
-        type: "routine.create",
-        routine: {
-          routineId: makeCommandId(),
-          buddyId: primary.buddyId,
-          projectId: project.projectId,
-          goal: "Write the morning brief: what each buddy did since yesterday, what is waiting on the person, and what is next. Use task_status. Keep it to six lines and finish with task_done.",
-          trigger: { kind: "schedule", cron: "0 9 * * 1-5" },
-          paused: false,
-          builtin: "morning_brief",
-        },
-      });
+    await startTeam(run, projection);
     setBusy(false);
   };
   const bringTeammates = async () => {
@@ -458,6 +478,14 @@ function ImportBuddy({ run, projection }: { run: Run; projection: RuntimeProject
 
 /* ---------- One buddy ---------- */
 
+type InfoTab = "activity" | "library" | "settings";
+
+const INFO_TABS: readonly { value: InfoTab; label: string }[] = [
+  { value: "activity", label: "Activity" },
+  { value: "library", label: "Library" },
+  { value: "settings", label: "Settings" },
+];
+
 function BuddyPage({
   projection,
   buddy,
@@ -469,33 +497,31 @@ function BuddyPage({
   projectId,
 }: BuddiesPaneProps & { buddy: BuddyProjection; run: Run; error: ReactNode }) {
   const [info, setInfo] = useState(true);
+  const [tab, setTab] = useState<InfoTab>("activity");
   const active = (projection.tasks ?? []).findLast(
     (task) => task.buddyId === buddy.buddyId && isActiveTask(task) && task.threadId,
   );
   const mood = buddyMood(buddy, projection.tasks ?? []);
+  const title =
+    buddy.role === "primary" ? "Primary buddy" : buddy.title && buddy.title !== buddy.name ? buddy.title : "";
   return (
-    <div className={`buddy-view${info ? " has-info" : ""}`}>
+    <div className="buddy-view">
       <div className="buddy-view-main">
-        <header className="buddy-view-head">
-          <BuddyAvatar buddy={buddy.color} size={22} mood={mood} name={buddy.name} />
-          <h2 className="buddy-view-name">{buddy.name}</h2>
-          <span className="buddy-view-title">{buddy.role === "primary" ? "Primary buddy" : (buddy.title ?? "")}</span>
-          <span className="buddy-spacer" />
-          {/* Its computer: lit while it works. */}
-          <IconButton
-            label={active ? `${buddy.name}'s computer is on: see the job` : `${buddy.name}'s computer is idle`}
-            icon="monitor"
-            size="sm"
-            className={`buddy-computer${active ? " is-active" : ""}`}
-            onClick={() => (active?.threadId ? onOpenThread(active.threadId) : setInfo(true))}
-          />
-          <IconButton
-            label={info ? "Hide details" : "Show details"}
-            icon="panelRight"
-            size="sm"
-            pressed={info}
-            onClick={() => setInfo((value) => !value)}
-          />
+        {/* The chat runs under a floating name tag, like a message thread. */}
+        <header className="buddy-view-top">
+          <span className="buddy-view-tag">
+            <BuddyAvatar buddy={buddy.color} size={22} mood={mood} name={buddy.name} />
+            <h2 className="buddy-view-name">{buddy.name}</h2>
+          </span>
+          {info ? null : (
+            <IconButton
+              className="buddy-view-open"
+              label={`About ${buddy.name}`}
+              tooltip="Show details"
+              icon="panelRight"
+              onClick={() => setInfo(true)}
+            />
+          )}
         </header>
         {error}
         <BuddyChat
@@ -518,10 +544,28 @@ function BuddyPage({
       </div>
       {info ? (
         <aside className="buddy-view-info" aria-label={`About ${buddy.name}`}>
-          {/* Lines up with the chat's header; the window's own buttons sit at its right. */}
-          <div className="buddy-view-info-head">Details</div>
-          <BuddyComputer buddy={buddy} task={active} projection={projection} onOpenThread={onOpenThread} />
-          <Profile buddy={buddy} projection={projection} run={run} onRemoved={() => onSelect(undefined)} />
+          <div className="buddy-info-close">
+            <IconButton label="Hide details" icon="x" onClick={() => setInfo(false)} />
+          </div>
+          <div className="buddy-info-hero">
+            <BuddyAvatar buddy={buddy.color} size={72} mood={mood} name={buddy.name} />
+            <h2>{buddy.name}</h2>
+            {title ? <span>{title}</span> : null}
+          </div>
+          <Segmented<InfoTab>
+            className="buddy-tabs"
+            label="Details"
+            value={tab}
+            options={INFO_TABS}
+            onChange={setTab}
+          />
+          {tab === "activity" ? (
+            <ActivityTab buddy={buddy} projection={projection} run={run} task={active} onOpenThread={onOpenThread} />
+          ) : tab === "library" ? (
+            <LibraryTab buddy={buddy} run={run} />
+          ) : (
+            <SettingsTab buddy={buddy} projection={projection} run={run} onRemoved={() => onSelect(undefined)} />
+          )}
         </aside>
       ) : null}
     </div>
@@ -853,7 +897,169 @@ const ACTIONS: readonly { value: HandoffAction; label: string }[] = [
   { value: "fix", label: "fixes what's left" },
 ];
 
-function Profile({
+/** What is coming up, its computer, and how its jobs went. */
+function ActivityTab({
+  buddy,
+  projection,
+  run,
+  task,
+  onOpenThread,
+}: {
+  buddy: BuddyProjection;
+  projection: RuntimeProjection;
+  run: Run;
+  task: TaskProjection | undefined;
+  onOpenThread(threadId: string): void;
+}) {
+  const stats = useMemo(() => buddyStats(buddy.buddyId, projection.tasks ?? []), [buddy.buddyId, projection.tasks]);
+  const routines = (projection.routines ?? []).filter((routine) => routine.buddyId === buddy.buddyId);
+  return (
+    <div className="buddy-profile">
+      <section className="buddies-section" aria-label="Upcoming">
+        <h3 className="buddies-heading">Upcoming</h3>
+        {routines.map((routine) => (
+          <RoutineRow key={routine.routineId} routine={routine} run={run} />
+        ))}
+        {projection.projects.length > 0 ? <AddRoutine buddy={buddy} projection={projection} run={run} /> : null}
+      </section>
+
+      <section className="buddies-section" aria-label="Computer">
+        <h3 className="buddies-heading">Computer</h3>
+        <BuddyComputer buddy={buddy} task={task} projection={projection} onOpenThread={onOpenThread} />
+      </section>
+
+      <section className="buddies-section" aria-label="Track record">
+        <h3 className="buddies-heading">Track record</h3>
+        <dl className="buddy-card buddy-stats">
+          <div>
+            <dt>Jobs done</dt>
+            <dd>{stats.done}</dd>
+          </div>
+          <div>
+            <dt>Went well</dt>
+            <dd>{stats.successRate === undefined ? "—" : `${Math.round(stats.successRate * 100)}%`}</dd>
+          </div>
+          <div>
+            <dt>Changes asked</dt>
+            <dd>{stats.revisions}</dd>
+          </div>
+          <div>
+            <dt>Spent</dt>
+            <dd>{money(stats.costUsd)}</dd>
+          </div>
+        </dl>
+        {stats.models.length > 0 ? (
+          <ul className="buddy-card buddy-models">
+            {stats.models.map((entry) => (
+              <li key={entry.model}>
+                <span>{entry.model}</span>
+                <span>
+                  {entry.ok} of {entry.jobs} went well
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
+/** What it has learned: lessons waiting for a yes, and the notes it keeps. */
+function LibraryTab({ buddy, run }: { buddy: BuddyProjection; run: Run }) {
+  const [editing, setEditing] = useState<{ noteId: string; text: string }>();
+  return (
+    <div className="buddy-profile">
+      {buddy.pendingMemory.length > 0 ? (
+        <section className="buddies-section" aria-label="New lessons">
+          <h3 className="buddies-heading">New lessons</h3>
+          <p className="buddies-hint">From its recent jobs. Keep the ones that help.</p>
+          {buddy.pendingMemory.map((note) =>
+            editing?.noteId === note.noteId ? (
+              <form
+                key={note.noteId}
+                className="job-card-reply"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void run({
+                    type: "buddy.memory.accept",
+                    buddyId: buddy.buddyId,
+                    noteId: note.noteId,
+                    text: editing.text,
+                  }).then(() => setEditing(undefined));
+                }}
+              >
+                <input
+                  className="input input-sm"
+                  aria-label="Lesson"
+                  value={editing.text}
+                  maxLength={400}
+                  onChange={(event) => setEditing({ noteId: note.noteId, text: event.target.value })}
+                />
+                <Button size="sm" variant="primary" type="submit">
+                  Keep
+                </Button>
+              </form>
+            ) : (
+              <div key={note.noteId} className="buddy-card buddy-lesson">
+                <span>{note.text}</span>
+                <span className="buddy-lesson-actions">
+                  <Button
+                    size="xs"
+                    variant="primary"
+                    onClick={() =>
+                      void run({ type: "buddy.memory.accept", buddyId: buddy.buddyId, noteId: note.noteId })
+                    }
+                  >
+                    Keep
+                  </Button>
+                  <Button size="xs" onClick={() => setEditing({ noteId: note.noteId, text: note.text })}>
+                    Edit
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() =>
+                      void run({ type: "buddy.memory.remove", buddyId: buddy.buddyId, noteId: note.noteId })
+                    }
+                  >
+                    Skip
+                  </Button>
+                </span>
+              </div>
+            ),
+          )}
+        </section>
+      ) : null}
+      <section className="buddies-section" aria-label="What it knows">
+        <h3 className="buddies-heading">What it knows</h3>
+        {buddy.memory.length === 0 ? (
+          <p className="buddies-hint">
+            Nothing yet. Each evening it looks back at the day's jobs and suggests lessons.
+          </p>
+        ) : (
+          <ul className="buddy-card buddy-memory">
+            {buddy.memory.map((note) => (
+              <li key={note.noteId}>
+                <span>{note.text}</span>
+                <IconButton
+                  label="Forget"
+                  icon="x"
+                  size="xs"
+                  onClick={() => void run({ type: "buddy.memory.remove", buddyId: buddy.buddyId, noteId: note.noteId })}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        <AddNote buddy={buddy} run={run} />
+      </section>
+    </div>
+  );
+}
+
+/** How it works: its engine, how far it may go, who it hands work to. */
+function SettingsTab({
   buddy,
   projection,
   run,
@@ -864,11 +1070,8 @@ function Profile({
   run: Run;
   onRemoved(): void;
 }) {
-  const stats = useMemo(() => buddyStats(buddy.buddyId, projection.tasks ?? []), [buddy.buddyId, projection.tasks]);
   const others = buddiesInOrder(projection).filter((entry) => entry.buddyId !== buddy.buddyId);
-  const routines = (projection.routines ?? []).filter((routine) => routine.buddyId === buddy.buddyId);
   const [instructions, setInstructions] = useState(buddy.instructions ?? "");
-  const [editing, setEditing] = useState<{ noteId: string; text: string }>();
   const [confirmRemove, setConfirmRemove] = useState(false);
   const providers = listedDiscoveries(projection.providers ?? []).filter((entry) => entry.status === "found");
   const engineValue = buddy.engine.mode === "auto" ? "auto" : `${buddy.engine.mode}:${buddy.engine.provider}`;
@@ -895,120 +1098,29 @@ function Profile({
   };
   return (
     <div className="buddy-profile">
-      <section className="buddies-section" aria-label="Track record">
-        <h3 className="buddies-heading">Track record</h3>
-        <dl className="buddy-stats">
-          <div>
-            <dt>Jobs done</dt>
-            <dd>{stats.done}</dd>
-          </div>
-          <div>
-            <dt>Went well</dt>
-            <dd>{stats.successRate === undefined ? "—" : `${Math.round(stats.successRate * 100)}%`}</dd>
-          </div>
-          <div>
-            <dt>Changes asked</dt>
-            <dd>{stats.revisions}</dd>
-          </div>
-          <div>
-            <dt>Spent</dt>
-            <dd>{money(stats.costUsd)}</dd>
-          </div>
-        </dl>
-        {stats.models.length > 0 ? (
-          <ul className="buddy-models">
-            {stats.models.map((entry) => (
-              <li key={entry.model}>
-                <span>{entry.model}</span>
-                <span>
-                  {entry.ok} of {entry.jobs} went well
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </section>
-
-      <section className="buddies-section" aria-label="What it knows">
-        <h3 className="buddies-heading">What it knows</h3>
-        {buddy.pendingMemory.length > 0 ? (
-          <div className="buddy-lessons">
-            <p className="buddies-hint">New lessons from its recent jobs. Keep the ones that help.</p>
-            {buddy.pendingMemory.map((note) =>
-              editing?.noteId === note.noteId ? (
-                <form
-                  key={note.noteId}
-                  className="job-card-reply"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void run({
-                      type: "buddy.memory.accept",
-                      buddyId: buddy.buddyId,
-                      noteId: note.noteId,
-                      text: editing.text,
-                    }).then(() => setEditing(undefined));
-                  }}
-                >
-                  <input
-                    className="input input-sm"
-                    aria-label="Lesson"
-                    value={editing.text}
-                    maxLength={400}
-                    onChange={(event) => setEditing({ noteId: note.noteId, text: event.target.value })}
-                  />
-                  <Button size="sm" variant="primary" type="submit">
-                    Keep
-                  </Button>
-                </form>
-              ) : (
-                <div key={note.noteId} className="buddy-lesson">
-                  <span>{note.text}</span>
-                  <Button
-                    size="xs"
-                    variant="primary"
-                    onClick={() =>
-                      void run({ type: "buddy.memory.accept", buddyId: buddy.buddyId, noteId: note.noteId })
-                    }
-                  >
-                    Keep
-                  </Button>
-                  <Button size="xs" onClick={() => setEditing({ noteId: note.noteId, text: note.text })}>
-                    Edit
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={() =>
-                      void run({ type: "buddy.memory.remove", buddyId: buddy.buddyId, noteId: note.noteId })
-                    }
-                  >
-                    Skip
-                  </Button>
-                </div>
-              ),
-            )}
-          </div>
-        ) : null}
-        {buddy.memory.length === 0 ? (
-          <p className="buddies-hint">
-            Nothing yet. Each evening it looks back at the day's jobs and suggests lessons.
-          </p>
-        ) : (
-          <ul className="buddy-memory">
-            {buddy.memory.map((note) => (
-              <li key={note.noteId}>
-                <span>{note.text}</span>
-                <IconButton
-                  label="Forget"
-                  icon="x"
-                  size="xs"
-                  onClick={() => void run({ type: "buddy.memory.remove", buddyId: buddy.buddyId, noteId: note.noteId })}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-        <AddNote buddy={buddy} run={run} />
+      <section className="buddies-section" aria-label="How it works">
+        <h3 className="buddies-heading">How it works</h3>
+        <div className="buddy-card buddy-settings">
+          <Select
+            label="Agent and model"
+            value={engineValue}
+            options={engineOptions}
+            onChange={(value) => {
+              const [mode, provider] = value.split(":");
+              void update({ engine: mode === "auto" ? { mode: "auto" } : { mode, provider } });
+            }}
+          />
+          <Select<PermissionMode>
+            label="Most it may do"
+            value={buddy.permissionMode}
+            options={[
+              { value: "read-only", label: "Read only", description: "Plans and reviews; changes no files" },
+              { value: "supervised", label: "Ask first", description: "Asks before risky commands" },
+              { value: "full-access", label: "Full access", description: "Works without asking" },
+            ]}
+            onChange={(permissionMode) => void update({ permissionMode })}
+          />
+        </div>
       </section>
 
       <section className="buddies-section" aria-label="Passes work on">
@@ -1016,7 +1128,7 @@ function Profile({
         {buddy.handoffs.map((rule) => {
           const to = others.find((entry) => entry.buddyId === rule.to);
           return (
-            <div key={rule.ruleId} className="buddy-rule">
+            <div key={rule.ruleId} className="buddy-card buddy-rule">
               <span>
                 When {buddy.name} finishes, {to?.name ?? "a removed buddy"}{" "}
                 {ACTIONS.find((entry) => entry.value === rule.action)?.label ?? rule.action}
@@ -1034,16 +1146,24 @@ function Profile({
         {others.length > 0 ? <AddRule buddy={buddy} others={others} run={run} /> : null}
       </section>
 
-      <section className="buddies-section" aria-label="Routines">
-        <h3 className="buddies-heading">Routines</h3>
-        {routines.map((routine) => (
-          <RoutineRow key={routine.routineId} routine={routine} run={run} />
-        ))}
-        {projection.projects.length > 0 ? <AddRoutine buddy={buddy} projection={projection} run={run} /> : null}
+      <section className="buddies-section" aria-label="Standing instructions">
+        <h3 className="buddies-heading">Standing instructions</h3>
+        <textarea
+          className="input"
+          aria-label="Standing instructions"
+          placeholder="What it should always do, such as: run pnpm test before finishing"
+          rows={4}
+          maxLength={4_000}
+          value={instructions}
+          onChange={(event) => setInstructions(event.target.value)}
+          onBlur={() => {
+            if (instructions !== (buddy.instructions ?? "")) void update({ instructions });
+          }}
+        />
       </section>
 
-      <section className="buddies-section" aria-label="Settings">
-        <h3 className="buddies-heading">Settings</h3>
+      <section className="buddies-section" aria-label="Look">
+        <h3 className="buddies-heading">Look</h3>
         <fieldset className="buddy-colors" aria-label="Color">
           {BUDDY_COLOR_NAMES.map((color) => (
             <button
@@ -1058,69 +1178,38 @@ function Profile({
             </button>
           ))}
         </fieldset>
-        <Select
-          label="Agent and model"
-          value={engineValue}
-          options={engineOptions}
-          onChange={(value) => {
-            const [mode, provider] = value.split(":");
-            void update({ engine: mode === "auto" ? { mode: "auto" } : { mode, provider } });
-          }}
-        />
-        <Select<PermissionMode>
-          label="Most it may do"
-          value={buddy.permissionMode}
-          options={[
-            { value: "read-only", label: "Read only", description: "Plans and reviews; changes no files" },
-            { value: "supervised", label: "Ask first", description: "Asks before risky commands" },
-            { value: "full-access", label: "Full access", description: "Works without asking" },
-          ]}
-          onChange={(permissionMode) => void update({ permissionMode })}
-        />
-        <label className="buddy-field">
-          <span>Standing instructions</span>
-          <textarea
-            className="input"
-            rows={4}
-            maxLength={4_000}
-            value={instructions}
-            onChange={(event) => setInstructions(event.target.value)}
-            onBlur={() => {
-              if (instructions !== (buddy.instructions ?? "")) void update({ instructions });
-            }}
-          />
-        </label>
-        <div className="job-card-actions">
-          {buddy.role !== "primary" ? (
-            <Button size="sm" onClick={() => void run({ type: "buddy.setPrimary", buddyId: buddy.buddyId })}>
-              Make Primary
-            </Button>
-          ) : null}
-          <Button size="sm" icon="download" onClick={download}>
-            Export
-          </Button>
-          {confirmRemove ? (
-            <>
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={() =>
-                  void run({ type: "buddy.archive", buddyId: buddy.buddyId }).then((ok) => ok && onRemoved())
-                }
-              >
-                Remove {buddy.name}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(false)}>
-                Keep
-              </Button>
-            </>
-          ) : (
-            <Button size="sm" variant="ghost" icon="trash" onClick={() => setConfirmRemove(true)}>
-              Remove
-            </Button>
-          )}
-        </div>
       </section>
+
+      <div className="job-card-actions">
+        {buddy.role !== "primary" ? (
+          <Button size="sm" onClick={() => void run({ type: "buddy.setPrimary", buddyId: buddy.buddyId })}>
+            Make Primary
+          </Button>
+        ) : null}
+        <Button size="sm" icon="download" onClick={download}>
+          Export
+        </Button>
+        {confirmRemove ? (
+          <>
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={() =>
+                void run({ type: "buddy.archive", buddyId: buddy.buddyId }).then((ok) => ok && onRemoved())
+              }
+            >
+              Remove {buddy.name}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(false)}>
+              Keep
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" variant="ghost" icon="trash" onClick={() => setConfirmRemove(true)}>
+            Remove
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -1185,23 +1274,36 @@ function AddRule({ buddy, others, run }: { buddy: BuddyProjection; others: Buddy
 }
 
 function RoutineRow({ routine, run }: { routine: RoutineProjection; run: Run }) {
+  const goal = routine.goal.split("\n")[0] ?? "";
   return (
-    <div className={`buddy-rule${routine.paused ? " is-paused" : ""}`}>
-      <span>
-        <strong>{triggerLabel(routine.trigger)}:</strong> {routine.goal.split("\n")[0]}
-        {routine.paused ? (routine.failuresInRow >= 3 ? " · paused after 3 failed runs" : " · paused") : ""}
+    <div className={`buddy-card buddy-routine${routine.paused ? " is-paused" : ""}`}>
+      <Icon name="history" size={15} />
+      <span className="buddy-card-text">
+        <span className="buddy-card-title" title={goal}>
+          {goal}
+        </span>
+        <span className="buddy-card-sub">
+          {triggerLabel(routine.trigger)}
+          {routine.paused && routine.failuresInRow >= 3 ? " · paused after 3 failed runs" : ""}
+        </span>
       </span>
       <IconButton
-        label={routine.paused ? "Turn on" : "Pause"}
-        icon={routine.paused ? "play" : "pause"}
-        size="xs"
-        onClick={() => void run({ type: "routine.setPaused", routineId: routine.routineId, paused: !routine.paused })}
-      />
-      <IconButton
+        className="buddy-routine-remove"
         label="Remove routine"
         icon="x"
         size="xs"
         onClick={() => void run({ type: "routine.remove", routineId: routine.routineId })}
+      />
+      <input
+        className="switch"
+        type="checkbox"
+        role="switch"
+        aria-label={routine.paused ? `Turn on: ${goal}` : `Pause: ${goal}`}
+        checked={!routine.paused}
+        aria-checked={!routine.paused}
+        onChange={(event) =>
+          void run({ type: "routine.setPaused", routineId: routine.routineId, paused: !event.target.checked })
+        }
       />
     </div>
   );

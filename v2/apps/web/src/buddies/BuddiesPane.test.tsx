@@ -194,6 +194,8 @@ describe("BuddiesPane", () => {
     const { commands } = await render(state, "b2");
     // The profile sits beside the chat, like the bot's details in Grok.
     expect(document.querySelector('[aria-label="About Builder"]')).not.toBeNull();
+    // New lessons wait in its library.
+    await act(async () => buttonNamed("Library").click());
     await act(async () => buttonNamed("Keep").click());
     expect(commands.at(-1)).toEqual({ type: "buddy.memory.accept", buddyId: "b2", noteId: "n1" });
     await cleanupRuntimeRenders();

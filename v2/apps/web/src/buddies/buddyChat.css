@@ -5,30 +5,53 @@
 .buddies-home-head h2 { margin: 0; color: var(--zli-text); font-size: var(--zli-text-lg, 18px); font-weight: 650; }
 .buddies-home .buddies-body { padding: var(--zli-space-2) var(--zli-space-4) var(--zli-space-6, 32px); }
 
-/* ---------- One buddy: the chat in the middle, its computer and profile beside it ---------- */
+/* ---------- One buddy: the chat in the middle, its details beside it ---------- */
 .buddy-view { display: flex; min-width: 0; min-height: 0; flex: 1; }
-.buddy-view-main { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
-.buddy-view-head { display: flex; height: 44px; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); padding: 0 var(--zli-space-3) 0 var(--zli-space-4); border-bottom: 1px solid var(--zli-border); }
+.buddy-view-main { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
+/* A name tag floating over the top of the chat; the messages scroll under it. */
+.buddy-view-top { position: absolute; top: 0; right: 0; left: 0; z-index: 2; display: flex; height: 52px; align-items: center; justify-content: center; padding: 0 var(--zli-space-3); background: linear-gradient(var(--zli-surface) 40%, transparent); pointer-events: none; }
+.buddy-view-top > * { pointer-events: auto; }
+.buddy-view-tag { display: inline-flex; height: 34px; align-items: center; gap: var(--zli-space-2); padding: 0 14px 0 6px; border: 1px solid var(--zli-border); border-radius: 17px; background: var(--zli-raised); box-shadow: 0 4px 14px rgb(0 0 0 / 18%); }
 .buddy-view-name { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
-.buddy-view-title { color: var(--zli-dim); font-size: var(--zli-text-xs); }
-.buddy-computer.is-active { color: var(--zli-accent); }
-.buddy-view-info { display: flex; width: 300px; min-height: 0; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-4); padding: 0 var(--zli-space-3) var(--zli-space-3); overflow-y: auto; border-left: 1px solid var(--zli-border); }
-.buddy-view-info-head { position: sticky; top: 0; z-index: 1; display: flex; height: 44px; flex: 0 0 auto; align-items: center; margin: 0 calc(-1 * var(--zli-space-3)); padding: 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); background: var(--zli-surface); color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 600; }
-.buddy-view-info .buddy-profile { gap: var(--zli-space-3); }
-.buddy-view-info .buddy-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (max-width: 1100px) { .buddy-view-info { width: 260px; } }
+.buddy-view-open { position: absolute; right: var(--zli-space-3); }
+.app-shell.is-columns .buddy-view-open { right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
+.buddy-view-main .buddy-chat-column { padding-top: 60px; }
 
-.buddy-computer-card { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-1-5); }
-.buddy-screen {
-  position: relative; display: flex; width: 100%; aspect-ratio: 16 / 10; align-items: center; justify-content: center; overflow: hidden; padding: var(--zli-space-3);
-  border: 1px solid var(--zli-border); border-radius: 10px; background: radial-gradient(120% 90% at 20% 0%, color-mix(in srgb, var(--zli-text) 7%, transparent), transparent 60%), var(--zli-well);
-  color: var(--zli-text); cursor: default; text-align: left;
-}
-.buddy-screen.is-on { border-color: var(--zli-accent-line); cursor: pointer; }
-.buddy-screen.is-on:hover { border-color: var(--zli-accent); }
-.buddy-screen .buddy-steps { align-self: flex-end; width: 100%; }
-.buddy-screen-branch { position: absolute; right: var(--zli-space-2); bottom: var(--zli-space-1-5); max-width: 80%; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
-.buddy-screen-caption { color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.buddy-view-info { display: flex; width: 320px; min-height: 0; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-4); padding: 0 var(--zli-space-3) var(--zli-space-4); overflow-y: auto; border-left: 1px solid var(--zli-border); background: var(--zli-surface); }
+.buddy-info-close { display: flex; height: 48px; flex: 0 0 auto; align-items: center; justify-content: flex-start; }
+.buddy-info-close .btn { border: 1px solid var(--zli-border); border-radius: 50%; }
+.buddy-info-hero { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-1); margin-top: calc(-1 * var(--zli-space-2)); text-align: center; }
+.buddy-info-hero h2 { margin: var(--zli-space-2) 0 0; color: var(--zli-text); font-size: var(--zli-text-lg, 18px); font-weight: 650; }
+.buddy-info-hero span { color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.buddy-tabs.segmented { align-self: center; border: 0; background: transparent; }
+.buddy-tabs .segmented-item { padding: 4px 12px; border-radius: 15px; color: var(--zli-muted); }
+.buddy-tabs .segmented-item[aria-pressed="true"] { background: var(--zli-raised); color: var(--zli-text); }
+.buddy-view-info .buddy-profile { gap: var(--zli-space-4); }
+.buddy-view-info .buddies-heading { padding: 0 2px; }
+@media (max-width: 1100px) { .buddy-view-info { width: 280px; } }
+
+/* A rounded card, like the rows of a settings sheet. */
+.buddy-card { margin: 0; padding: 10px 12px; border: 1px solid var(--zli-border); border-radius: 12px; background: var(--zli-raised); }
+.buddy-card-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; text-align: left; }
+.buddy-card-title { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.buddy-card-sub { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.buddy-routine { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-muted); }
+.buddy-routine.is-paused .buddy-card-title { color: var(--zli-muted); }
+.buddy-routine-remove { opacity: 0; }
+.buddy-routine:hover .buddy-routine-remove, .buddy-routine-remove:focus-visible { opacity: 1; }
+.buddy-view-info .buddy-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--zli-space-3); }
+.buddy-view-info .buddy-models.buddy-card, .buddy-view-info .buddy-memory.buddy-card { gap: var(--zli-space-1-5); padding: 10px 12px; }
+.buddy-lesson { display: flex; flex-direction: column; gap: var(--zli-space-1-5); font-size: var(--zli-text-sm); }
+.buddy-lesson-actions { display: flex; gap: var(--zli-space-1); }
+.buddy-settings { display: flex; flex-direction: column; gap: var(--zli-space-2); }
+.buddy-view-info .buddy-rule { padding: 8px 10px 8px 12px; }
+
+.buddy-computer-card { display: flex; flex-direction: column; gap: var(--zli-space-2); }
+.buddy-computer-row { display: flex; width: 100%; align-items: center; gap: var(--zli-space-3); padding: 0; border: 0; background: transparent; color: inherit; cursor: default; }
+.buddy-computer-card.is-on .buddy-computer-row { cursor: pointer; }
+.buddy-screen { display: flex; width: 64px; height: 44px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid var(--zli-border); border-radius: 8px; background: radial-gradient(120% 90% at 20% 0%, color-mix(in srgb, var(--zli-text) 9%, transparent), transparent 60%), var(--zli-well); }
+.buddy-computer-card.is-on .buddy-screen { border-color: var(--zli-accent-line); }
+.buddy-computer-card.is-on .buddy-computer-row:hover .buddy-screen { border-color: var(--zli-accent); }
 
 /* ---------- The transcript: your messages as pills on the right, the buddy's as bubbles, events between ---------- */
 .buddy-chat { display: flex; min-height: 0; flex: 1; flex-direction: column; }
@@ -87,3 +110,6 @@
 /* Sidebar roster rows: face, name and time, one line under it. */
 .sidebar-buddy { padding: 6px var(--zli-space-1-5); border-radius: var(--zli-radius-md); }
 .sidebar-buddy.is-active { background: var(--zli-active); }
+/* The team and the projects are two lists: a rule between them, and the same heading style. */
+.sidebar-buddies { margin-bottom: var(--zli-space-1); border-bottom: 1px solid var(--zli-border); }
+.sidebar-buddies-head { margin: var(--zli-space-1) 0 2px; padding: 0 6px; font-size: var(--zli-text-sm); font-weight: 500; line-height: 24px; }

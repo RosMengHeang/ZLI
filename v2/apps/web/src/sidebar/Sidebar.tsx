@@ -1257,6 +1257,8 @@ export function Sidebar({
           renderSearch()
         ) : (
           <>
+            {/* Under the team, so the two lists read as two things. */}
+            {onOpenBuddies ? <h2 className="sidebar-heading sidebar-projects-heading">Projects</h2> : null}
             {/* With one project every chat is already in view, so the shelf would only repeat it. */}
             {shelf.length > 0 && listedProjects.length > 1 ? renderShelf() : null}
             {pinnedChats.length > 0 ? (

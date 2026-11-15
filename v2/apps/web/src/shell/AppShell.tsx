@@ -18,7 +18,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useS
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
-import { BuddiesPane } from "../buddies/BuddiesPane.js";
+import { BuddiesPane, useStarterTeam } from "../buddies/BuddiesPane.js";
 import { type ChatBranch, saveChatBranch, takeChatBranch } from "../chat/branches.js";
 import type { GuestRequest, StartRunsRequest } from "../chat/ChatView.js";
 import { seedComposerDraft } from "../chat/Composer.js";
@@ -638,7 +638,10 @@ function WorkspaceApp() {
   }, []);
   const openBuddies = useCallback((next?: string) => {
     setBuddyView(next ?? "team");
+    // A buddy's chat has its own details column, so the workspace panel steps aside.
+    setSidePane(undefined);
   }, []);
+  useStarterTeam(projection);
   // Chat only keeps the terminal out of sight: its toggle and shortcut only close a drawer something else opened.
   const chatOnly = workStyleOf(settings.defaults) === "chat";
   // The right panel's picker: every panel with one key, and a live line for what is going on in it for this
@@ -2726,11 +2729,12 @@ function WorkspaceApp() {
     <Topbar
       sidebarOpen={sidebarOpen}
       sidebarButton={!columnsLayout}
-      project={contextWorktree ? contextProject : undefined}
-      worktree={contextWorktree}
+      project={contextWorktree && !buddyView ? contextProject : undefined}
+      worktree={buddyView ? undefined : contextWorktree}
       hasProjects={hasProjects}
       drawerOpen={workbench.drawerOpen}
       showTerminal={!chatOnly}
+      showPanels={!buddyView}
       sidePane={sidePane}
       onShowSidebar={toggleSidebar}
       onNewAgent={() => openNewAgent()}

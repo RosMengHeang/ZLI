@@ -357,26 +357,25 @@ export function BuddyComputer({
   projection: RuntimeProjection;
   onOpenThread(threadId: string): void;
 }) {
-  const steps = recentSteps(projection, task?.threadId, 6);
+  const steps = recentSteps(projection, task?.threadId, 4);
   return (
-    <section className="buddy-computer-card" aria-label={`${buddy.name}'s computer`}>
+    <div className={`buddy-card buddy-computer-card${task ? " is-on" : ""}`}>
       <button
         type="button"
-        className={`buddy-screen${task ? " is-on" : ""}`}
+        className="buddy-computer-row"
         disabled={!task?.threadId}
         onClick={() => task?.threadId && onOpenThread(task.threadId)}
       >
-        {task && steps.length > 0 ? (
-          <StepTicker steps={steps} />
-        ) : (
-          <BuddyAvatar buddy={buddy.color} size={36} mood={task ? "working" : "idle"} />
-        )}
-        {task?.branch ? <span className="buddy-screen-branch">{task.branch}</span> : null}
+        <span className="buddy-card-text">
+          <span className="buddy-card-title">{buddy.name}'s computer</span>
+          <span className="buddy-card-sub">{task ? (task.branch ?? "Working") : "Asleep"}</span>
+        </span>
+        <span className="buddy-screen">
+          <BuddyAvatar buddy={buddy.color} size={22} mood={task ? "working" : "idle"} />
+        </span>
       </button>
-      <span className="buddy-screen-caption">
-        {buddy.name}'s computer{task ? "" : " · idle"}
-      </span>
-    </section>
+      {task && steps.length > 0 ? <StepTicker steps={steps} /> : null}
+    </div>
   );
 }
 
