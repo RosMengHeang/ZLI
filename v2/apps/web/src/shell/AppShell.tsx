@@ -2790,6 +2790,7 @@ function WorkspaceApp() {
             onOpenSettings={openSettings}
             onOpenUsage={openUsage}
             onHideSidebar={hideSidebar}
+            onOpenSearch={() => setPaletteOpen(true)}
             runGroups={workbench.groups}
             runStates={runStates}
             onCompareRuns={(group) => setCompareGroupId(group.groupId)}

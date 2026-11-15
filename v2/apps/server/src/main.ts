@@ -55,6 +55,7 @@ import { RpcServer } from "./rpc/Server.js";
 import { SkillStore } from "./skills/SkillStore.js";
 import { type SkillCopyTarget, syncSkillCopies, worktreeRootOf, worktreeSkillDirs } from "./skills/skillCopies.js";
 import { RemotePtyFactory } from "./terminal/RemotePtyFactory.js";
+import { TerminalActivityReactor } from "./terminal/TerminalActivityReactor.js";
 import { TerminalReactor } from "./terminal/TerminalReactor.js";
 import { TerminalService } from "./terminal/TerminalService.js";
 import { WorktreeAgentFiles } from "./worktrees/WorktreeAgentFiles.js";
@@ -78,6 +79,7 @@ export type RuntimeProcess = {
   diagnosticsReactor: DiagnosticsReactor;
   legacyImportReactor: LegacyImportReactor;
   devServerReactor: DevServerReactor;
+  terminalActivityReactor: TerminalActivityReactor;
   mcpServers: McpServerStore;
   skills: SkillStore;
   plugins: PluginStore;
@@ -272,6 +274,7 @@ export async function startRuntime(options: {
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
   const devServerReactor = new DevServerReactor(engine, terminalService);
+  const terminalActivityReactor = new TerminalActivityReactor(engine, terminalService);
   const terminalInput = new TerminalInputTracker();
   const huddleReactor = new HuddleReactor(engine, {
     input: terminalInput,
@@ -363,6 +366,7 @@ export async function startRuntime(options: {
     diagnosticsReactor,
     legacyImportReactor,
     devServerReactor,
+    terminalActivityReactor,
     mcpServers,
     skills,
     plugins,
@@ -405,6 +409,8 @@ export async function startRuntime(options: {
       legacyImportReactor.stop();
       devServerReactor.stop();
       await devServerReactor.waitForIdle();
+      terminalActivityReactor.stop();
+      await terminalActivityReactor.waitForIdle();
       await providerService.stopAll();
       providerService.dispose();
       await engine.flushProjection();

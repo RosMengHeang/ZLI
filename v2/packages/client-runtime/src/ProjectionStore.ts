@@ -182,13 +182,13 @@ export class ProjectionStore {
           ...current,
           terminals: current.terminals.map((terminal) =>
             terminal.terminalId === event.terminalId
-              ? {
+              ? withoutStaleActivity({
                   ...terminal,
                   status: event.status,
                   updatedAt: envelope.occurredAt,
                   ...(event.lastSequence === undefined ? {} : { lastSequence: event.lastSequence }),
                   ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
-                }
+                })
               : terminal,
           ),
           lastSequence: envelope.sequence,
@@ -302,6 +302,17 @@ export class ProjectionStore {
           ...current,
           threads: current.threads.map((thread) =>
             thread.threadId === event.threadId ? withAgentName(thread, event.name, envelope.occurredAt) : thread,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
+      case "terminal.activity.changed":
+        this.#projection = {
+          ...current,
+          terminals: current.terminals.map((terminal) =>
+            terminal.terminalId === event.terminalId
+              ? { ...terminal, activity: event.activity, updatedAt: envelope.occurredAt }
+              : terminal,
           ),
           lastSequence: envelope.sequence,
         };
@@ -481,4 +492,11 @@ export class ProjectionStore {
     if (this.#projection === undefined) return;
     for (const listener of this.#listeners) listener(this.#projection, change);
   }
+}
+
+/** A terminal whose process ended is doing nothing, whatever its output said last. */
+function withoutStaleActivity<T extends { status: string; activity?: unknown }>(terminal: T): T {
+  if (terminal.status === "running" || terminal.activity === undefined) return terminal;
+  const { activity: _activity, ...rest } = terminal;
+  return rest as T;
 }

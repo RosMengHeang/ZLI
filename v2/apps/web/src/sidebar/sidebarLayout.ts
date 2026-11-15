@@ -44,6 +44,38 @@ function write(next: SidebarCollapsed): void {
   }
 }
 
+const BRANCHES_PROJECT_KEY = "zli.sidebar.branchesProject";
+
+/**
+ * How the sidebar arranges the work. The tree is the only one in use. Branches and Project rail are parked: their
+ * code stays, and tests still cover it, but nothing in the app picks them.
+ */
+export type SidebarStyle = "tree" | "branches" | "rail";
+
+/** The style the app shows. */
+export const SIDEBAR_STYLE: SidebarStyle = "tree";
+
+/** The project the Branches style is filtered to, remembered across restarts. Undefined means all of them. */
+export function useBranchesProject() {
+  const [projectId, setProjectId] = useState<string | undefined>(() => {
+    try {
+      return window.localStorage.getItem(BRANCHES_PROJECT_KEY) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const choose = useCallback((next: string | undefined) => {
+    setProjectId(next);
+    try {
+      if (next) window.localStorage.setItem(BRANCHES_PROJECT_KEY, next);
+      else window.localStorage.removeItem(BRANCHES_PROJECT_KEY);
+    } catch {
+      // Storage can be full or blocked; the filter still works for this window.
+    }
+  }, []);
+  return [projectId, choose] as const;
+}
+
 /** Which project folders are closed and which idle worktree rows are open, remembered across restarts. */
 export function useSidebarCollapsed() {
   const [collapsed, setCollapsed] = useState(read);

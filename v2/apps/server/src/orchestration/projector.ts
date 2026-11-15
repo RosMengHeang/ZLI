@@ -158,13 +158,23 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
         ...projection,
         terminals: projection.terminals.map((terminal) =>
           terminal.terminalId === event.terminalId
-            ? {
+            ? withoutStaleActivity({
                 ...terminal,
                 status: event.status,
                 updatedAt: envelope.occurredAt,
                 ...(event.lastSequence === undefined ? {} : { lastSequence: event.lastSequence }),
                 ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
-              }
+              })
+            : terminal,
+        ),
+        lastSequence: envelope.sequence,
+      };
+    case "terminal.activity.changed":
+      return {
+        ...projection,
+        terminals: projection.terminals.map((terminal) =>
+          terminal.terminalId === event.terminalId
+            ? { ...terminal, activity: event.activity, updatedAt: envelope.occurredAt }
             : terminal,
         ),
         lastSequence: envelope.sequence,
@@ -546,4 +556,11 @@ function touchThread(
   occurredAt: string,
 ): RuntimeProjection["threads"] {
   return threads.map((thread) => (thread.threadId === threadId ? { ...thread, updatedAt: occurredAt } : thread));
+}
+
+/** A terminal whose process ended is doing nothing, whatever its output said last. */
+function withoutStaleActivity<T extends { status: string; activity?: unknown }>(terminal: T): T {
+  if (terminal.status === "running" || terminal.activity === undefined) return terminal;
+  const { activity: _activity, ...rest } = terminal;
+  return rest as T;
 }

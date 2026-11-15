@@ -93,6 +93,21 @@ describe("deriveSessions", () => {
     expect(failed[0]?.status).toBe("failed");
   });
 
+  it("shows an agent CLI in a terminal as working while the runtime reads it as busy, and ready otherwise", () => {
+    const [busy] = deriveSessions({ terminals: [{ ...agentTerminal, activity: "working" }], threads: [] });
+    expect(busy?.status).toBe("working");
+    const [quiet] = deriveSessions({ terminals: [{ ...agentTerminal, activity: "idle" }], threads: [] });
+    expect(quiet?.status).toBe("ready");
+    const [unseen] = deriveSessions({ terminals: [agentTerminal], threads: [] });
+    expect(unseen?.status).toBe("ready");
+    // A stale mark on a stopped CLI never shows as work.
+    const [ended] = deriveSessions({
+      terminals: [{ ...agentTerminal, status: "exited", activity: "working" }],
+      threads: [],
+    });
+    expect(ended?.status).toBe("ended");
+  });
+
   it("reports ended when the CLI exits and no chat is live", () => {
     const [session] = deriveSessions({ terminals: [{ ...agentTerminal, status: "exited" }], threads: [] });
     expect(session?.status).toBe("ended");
