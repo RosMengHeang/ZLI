@@ -428,20 +428,34 @@
 .project-faces { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1px; padding: 0 4px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 .project-label:hover .project-faces { display: none; }
 
-/* ---------- The buddy speaks ---------- */
-/* News comes out of the chat's buddy as a small speech bubble under the title: the step it is on, its
-   question in amber, its failure in red, or the start of a reply the person has not read. */
-.session-row .session-state {
-  position: relative; display: block; width: fit-content; max-width: 100%; margin-top: 3px; padding: 2px 8px 3px;
-  border-radius: 3px 9px 9px 9px; background: var(--zli-hover); color: var(--zli-muted);
-  font-size: var(--zli-text-xs); line-height: 16px;
-}
-.session-row.is-active .session-state, .session-row:hover .session-state { background: color-mix(in srgb, var(--zli-text) 9%, transparent); color: var(--zli-text); }
-.session-row .session-state.is-waiting { background: var(--zli-amber-soft); color: var(--zli-amber); }
-.session-row .session-state.is-failed { background: var(--zli-red-soft); color: var(--zli-red); }
-.session-row .session-state.is-said { color: var(--zli-muted); }
+/* ---------- What the chat says ----------
+   The second line of a chat in plain text: the step it is on, its question in amber, its failure in red, or
+   the start of a reply the person has not read. No box around it; colour carries the news. */
+.session-row .session-state { display: block; margin: 0; padding: 0; background: none; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: 18px; }
+.session-row:hover .session-state, .session-row.is-active .session-state { color: var(--zli-muted); }
+.session-row .session-state.is-waiting { color: var(--zli-amber); }
+.session-row .session-state.is-failed { color: var(--zli-red); }
 
 /* Archived chats: folded at the bottom, quieter than the lists above. */
 .sidebar-archive { margin-top: var(--zli-space-2); }
 .sidebar-archive .session-row { opacity: .72; }
 .sidebar-archive .session-row:hover, .sidebar-archive .session-row.is-active { opacity: 1; }
+
+/* ---------- Two-line chat rows ----------
+ * Every chat is the same two lines: the title and its time, then one line of what matters (what it does or asks,
+ * why it failed, its branch, or the agent) with the agent's mark. Same height everywhere, so the list scans.
+ */
+.session-row.is-two-line { min-height: 46px; align-items: flex-start; gap: 8px; padding: 6px 10px 6px 8px; }
+.session-row.is-two-line .session-copy { gap: 1px; padding-top: 0; }
+.session-row.is-two-line .session-title { font-weight: 500; }
+.session-sub { display: flex; min-width: 0; align-items: center; gap: 6px; height: 18px; color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.session-sub > .session-state, .session-sub > .session-branch, .session-sub > .session-via { min-width: 0; flex: 1; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-sub .session-name { max-width: 40%; padding: 0; background: none; color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 550; }
+.session-sub .session-name::after { content: " ·"; color: var(--zli-dim); font-weight: 400; }
+.session-sub .session-branch { gap: 4px; }
+.session-row:hover .session-via, .session-row.is-active .session-via { color: var(--zli-muted); }
+.session-side.is-stacked { flex-direction: column; align-items: flex-end; justify-content: space-between; align-self: stretch; gap: 2px; }
+.session-side.is-stacked .session-time { line-height: 18px; }
+.session-side.is-stacked .session-agent { position: static; width: 12px; height: 18px; }
+.session-row.is-two-line .session-face { margin-top: 1px; }
+.session-row.is-two-line ~ .row-more { top: 14px; }

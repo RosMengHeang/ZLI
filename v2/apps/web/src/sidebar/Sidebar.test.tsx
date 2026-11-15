@@ -326,13 +326,13 @@ describe("Sidebar projects", () => {
     );
     // The chat is one card that names its worktree's branch on a quiet second line.
     const row = container.querySelector(".session-row");
-    expect(row?.classList.contains("has-branch")).toBe(true);
+    expect(row?.classList.contains("is-two-line")).toBe(true);
     expect(row?.querySelector(".session-branch .worktree-name")?.textContent).toBe("feat/login");
     expect(row?.querySelector(".worktree-status")).toBeNull();
     expect(container.querySelector(".worktree-toggle")).toBeNull();
   });
 
-  it("names a worktree's branch on its newest chat only, and leaves chats on the checkout to one line", async () => {
+  it("names a chat's branch on its second line, and the agent for chats on the checkout", async () => {
     const chat = (sessionId: string, worktreeId: string, createdAt: string): AgentSession => ({
       ...agent(worktreeId),
       sessionId,
@@ -355,7 +355,8 @@ describe("Sidebar projects", () => {
       },
     );
     const branches = [...container.querySelectorAll(".session-branch .worktree-name")].map((name) => name.textContent);
-    expect(branches).toEqual(["feat/login"]);
+    expect(branches).toEqual(["feat/login", "feat/login"]);
+    expect(container.querySelectorAll(".session-via")).toHaveLength(2);
     expect(container.querySelectorAll(".session-row")).toHaveLength(4);
   });
 

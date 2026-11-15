@@ -860,18 +860,11 @@ export function Sidebar({
     const active = session.sessionId === activeSessionId;
     const background = backgroundSessionIds.has(session.sessionId);
     const stoppable = sessionStopCommands(session).length > 0;
-    // A chat that is starting reads as ready: it already takes messages, so its start-up is not news.
-    const quiet =
-      runStatus === undefined &&
-      (session.status === "ready" ||
-        session.status === "ended" ||
-        (session.mode === "chat" && (session.status === "starting" || session.status === "preparing")));
     const agentName = sessionAgentName(session);
     const runName = runIndex === undefined ? title : `Run ${runIndex}`;
     const name = agentName ? `${agentName}, ${runName}` : runName;
-    // The project's own folder needs no branch line; a worktree of its own names it once, on its first chat.
-    const branchLine =
-      runIndex === undefined && !grouped && showWorktreeAlert && worktree && worktree.kind !== "checkout" && info;
+    // The project's own folder needs no branch; a chat in a worktree of its own names it on its second line.
+    const branchLine = runIndex === undefined && !grouped && worktree && worktree.kind !== "checkout" && info;
     // A live agent says what it is doing, or what it asked, on a line of its own.
     const live =
       runIndex === undefined && session.thread && (session.status === "working" || session.status === "waiting")
@@ -898,7 +891,7 @@ export function Sidebar({
     return (
       <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
         <button
-          className={`session-row${active ? " is-active" : ""}${branchLine ? " has-branch" : ""}${live || failure || lastWord ? " has-state" : ""}${isUnread ? " is-unread" : ""}`}
+          className={`session-row${runIndex === undefined ? " is-two-line" : ""}${active ? " is-active" : ""}${isUnread ? " is-unread" : ""}`}
           type="button"
           aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}${isUnread ? ", unread" : ""}`}
           aria-current={active ? "true" : undefined}
@@ -935,7 +928,6 @@ export function Sidebar({
           </span>
           <span className="session-copy">
             <span className="session-line">
-              {agentName ? <span className="session-name">{agentName}</span> : null}
               {runIndex === undefined ? (
                 <>
                   <span className="session-title">{title}</span>
@@ -958,63 +950,68 @@ export function Sidebar({
                 <span className="session-project">{projectOf(session)?.name}</span>
               ) : null}
             </span>
-            {live ? (
-              <span className={`session-state is-${session.status}`}>
-                {session.status === "waiting" ? (
-                  <AskLine threadId={live.threadId} provider={session.provider} />
+            {runIndex === undefined ? (
+              // The second line says one thing: what the chat is doing or asks, why it failed, what it last
+              // said, or else where it works.
+              <span className="session-sub">
+                {agentName ? <span className="session-name">{agentName}</span> : null}
+                {live ? (
+                  <span className={`session-state is-${session.status}`}>
+                    {session.status === "waiting" ? (
+                      <AskLine threadId={live.threadId} provider={session.provider} />
+                    ) : (
+                      <span className="shimmer-text">
+                        <LiveStep threadId={live.threadId} turnId={live.activeTurnId} />
+                      </span>
+                    )}
+                  </span>
+                ) : failure ? (
+                  <span className="session-state is-failed">{failure}</span>
+                ) : lastWord ? (
+                  <span className="session-state is-said">
+                    <ReplyPreview threadId={lastWord.threadId} />
+                  </span>
+                ) : branchLine ? (
+                  <span className="session-branch">
+                    <Icon name="branch" size={11} />
+                    <span className="worktree-name">{worktree.branch}</span>
+                    <WorktreeTrack entry={prEntries.get(worktree.worktreeId)} branch={worktree.branch} />
+                    <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
+                    {worktree.status === "ready" && !info.badge ? null : (
+                      <span className={`worktree-status${info.statusClass}`}>{info.statusText}</span>
+                    )}
+                    {info.changed ? (
+                      <span className="count" title={`${info.changed} changed files`}>
+                        {info.changed}
+                      </span>
+                    ) : null}
+                  </span>
                 ) : (
-                  <span className="shimmer-text">
-                    <LiveStep threadId={live.threadId} turnId={live.activeTurnId} />
+                  <span className="session-via">
+                    {background ? `${providerName} · in the background` : providerName}
                   </span>
                 )}
-              </span>
-            ) : failure ? (
-              <span className="session-state is-failed">{failure}</span>
-            ) : lastWord ? (
-              <span className="session-state is-said">
-                <ReplyPreview threadId={lastWord.threadId} />
-              </span>
-            ) : null}
-            {branchLine ? (
-              <span className="session-branch">
-                <Icon name="branch" size={10} />
-                <span className="worktree-name">{worktree.branch}</span>
-                <WorktreeTrack entry={prEntries.get(worktree.worktreeId)} branch={worktree.branch} />
-                <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} />
-                {worktree.status === "ready" && !info.badge ? null : (
-                  <span className={`worktree-status${info.statusClass}`}>{info.statusText}</span>
-                )}
-                {info.changed ? (
-                  <span className="count" title={`${info.changed} changed files`}>
-                    {info.changed}
-                  </span>
-                ) : null}
               </span>
             ) : null}
           </span>
-          {/* The time or status sits at the end of the row, centred on it however many lines the row has. */}
-          <span className="session-side">
-            {quiet ? (
-              background ? (
-                <span className="session-background">Background</span>
-              ) : (
-                <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
-              )
-            ) : live && session.status === "working" ? null : (
+          {runIndex === undefined ? (
+            // Time on the first line, the agent's mark on the second, like the lines they sit beside.
+            <span className="session-side is-stacked">
+              <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+              <span className="session-agent" aria-hidden="true">
+                <ProviderMark provider={session.provider} size={12} />
+              </span>
+            </span>
+          ) : (
+            <span className="session-side">
               <span
-                // A failure the person has already opened stays labelled, without the red that calls for a look.
-                className={`session-status is-${runStatus === "running" ? "working" : (runStatus ?? session.status)}${runStatus === undefined && session.status === "failed" && !isUnread ? " is-seen" : ""}`}
+                className={`session-status is-${runStatus === "running" ? "working" : (runStatus ?? session.status)}`}
               >
                 <span className="dot" aria-hidden="true" />
                 <span className="session-status-label">{status}</span>
               </span>
-            )}
-          </span>
-          {runIndex === undefined && session.mode !== "chat" ? (
-            <span className="session-agent" aria-hidden="true">
-              <ProviderMark provider={session.provider} size={12} />
             </span>
-          ) : null}
+          )}
         </button>
         <span className="row-more">
           <MenuButton
