@@ -28,20 +28,24 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
     await expect(sidebar.locator(".sidebar-buddy-name")).toHaveText(["Primary", "Builder", "Tester"]);
 
     await sidebar.getByRole("button", { name: /Builder/u }).click();
-    await pane.getByLabel("Job for Builder").fill("Add a login page");
-    await pane.getByRole("button", { name: "Give job" }).click();
+    const message = pane.getByLabel("Message Builder");
+    await message.fill("Add a login page");
+    await message.press("Enter");
+    await expect(pane.locator(".buddy-chat-you").first()).toHaveText("Add a login page");
 
     // Auto picks the setup and says why; the job starts in its own chat.
-    const card = pane.locator(".job-card").first();
-    await expect(card.locator(".job-card-pick")).toBeVisible({ timeout: 60_000 });
     await shot("working");
-    await expect(card.locator(".job-card-status")).toHaveText("Ready", { timeout: 120_000 });
+    const card = pane.locator(".buddy-chat-reply .job-card").first();
+    await expect(card.locator(".job-card-pick")).toBeVisible({ timeout: 120_000 });
+    await expect(card.getByRole("button", { name: "Open PR" })).toBeVisible({ timeout: 120_000 });
     await expect(sidebar).toContainText("Done:");
     await shot("ready");
 
     // Builder's rule hands the finished job to Tester for a check.
     await sidebar.getByRole("button", { name: /Tester/u }).click();
-    await expect(pane.locator(".job-card").first()).toContainText("Check Builder's work", { timeout: 60_000 });
+    await expect(pane.locator(".buddy-chat-event").first()).toContainText("Builder handed this on", {
+      timeout: 60_000,
+    });
     await shot("tester");
   } finally {
     await closeDesktop(fixture);

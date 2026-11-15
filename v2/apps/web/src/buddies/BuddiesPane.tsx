@@ -4,6 +4,7 @@ import {
   type BuddyQuality,
   buddiesInOrder,
   type HandoffAction,
+  isActiveTask,
   isOpenTask,
   needsYou,
   openQuestion,
@@ -26,6 +27,7 @@ import { Button, IconButton } from "../ui/Button.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
+import { BuddyChat } from "./BuddyChat.js";
 import {
   BUDDY_TEMPLATES,
   buddyFromTemplate,
@@ -42,7 +44,7 @@ import {
 } from "./team.js";
 import "./buddies.css";
 
-type Run = (command: Record<string, unknown>) => Promise<boolean>;
+export type Run = (command: Record<string, unknown>) => Promise<boolean>;
 
 function useRun(setError: (message: string | undefined) => void): Run {
   const { dispatch } = useRuntime();
@@ -122,7 +124,7 @@ export function BuddiesPane(props: BuddiesPaneProps) {
         </p>
       ) : null}
       {paused ? <p className="buddies-paused">Paused. Running jobs finish; nothing new starts.</p> : null}
-      <div className="buddies-body">
+      <div className={`buddies-body${selected && team.length > 0 ? " is-page" : ""}`}>
         {team.length === 0 ? (
           <Welcome run={run} projection={projection} />
         ) : selected ? (
@@ -461,121 +463,68 @@ function BuddyPage({
   onOpenPullRequest,
   projectId,
 }: BuddiesPaneProps & { buddy: BuddyProjection; run: Run }) {
-  const [tab, setTab] = useState<"jobs" | "profile">("jobs");
-  const tasks = (projection.tasks ?? []).filter((task) => task.buddyId === buddy.buddyId);
+  const [tab, setTab] = useState<"chat" | "profile">("chat");
+  const active = (projection.tasks ?? []).findLast(
+    (task) => task.buddyId === buddy.buddyId && isActiveTask(task) && task.threadId,
+  );
   return (
-    <>
+    <div className="buddy-page">
       <header className="buddy-head">
-        <BuddyAvatar buddy={buddy.color} size={44} mood={buddyMood(buddy, projection.tasks ?? [])} name={buddy.name} />
+        <BuddyAvatar buddy={buddy.color} size={32} mood={buddyMood(buddy, projection.tasks ?? [])} name={buddy.name} />
         <div className="buddy-head-text">
           <span className="buddy-head-title">
             {buddy.role === "primary" ? "Primary buddy" : (buddy.title ?? "Buddy")}
           </span>
           <span className="buddies-row-line">{buddy.lastLine?.text ?? "Ready for a job"}</span>
         </div>
-      </header>
-      <Segmented<"jobs" | "profile">
-        label="Buddy page"
-        className="buddy-tabs"
-        value={tab}
-        options={[
-          { value: "jobs", label: "Jobs" },
-          {
-            value: "profile",
-            label: buddy.pendingMemory.length > 0 ? `Profile · ${buddy.pendingMemory.length} new` : "Profile",
-          },
-        ]}
-        onChange={setTab}
-      />
-      {tab === "jobs" ? (
-        <>
-          <JobBox buddy={buddy} projection={projection} run={run} projectId={projectId} />
-          {tasks.length === 0 ? (
-            <p className="buddies-hint">No jobs yet. Its jobs and their results show here, newest first.</p>
-          ) : (
-            <div className="buddies-cards">
-              {[...tasks].reverse().map((task) => (
-                <JobCard
-                  key={task.taskId}
-                  task={task}
-                  projection={projection}
-                  run={run}
-                  onOpenThread={onOpenThread}
-                  onOpenPullRequest={onOpenPullRequest}
-                />
-              ))}
-            </div>
-          )}
-        </>
-      ) : (
-        <Profile buddy={buddy} projection={projection} run={run} onRemoved={() => onSelect(undefined)} />
-      )}
-    </>
-  );
-}
-
-function JobBox({
-  buddy,
-  projection,
-  run,
-  projectId,
-}: {
-  buddy: BuddyProjection;
-  projection: RuntimeProjection;
-  run: Run;
-  projectId: string | undefined;
-}) {
-  const [goal, setGoal] = useState("");
-  const [project, setProject] = useState(projectId ?? projection.projects[0]?.projectId ?? "");
-  const [busy, setBusy] = useState(false);
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!goal.trim() || !project) return;
-    setBusy(true);
-    const ok = await run({
-      type: "task.assign",
-      task: {
-        taskId: makeCommandId(),
-        buddyId: buddy.buddyId,
-        projectId: project,
-        kind: "job",
-        goal: goal.trim(),
-        origin: { kind: "buddy" },
-      },
-    });
-    setBusy(false);
-    if (ok) setGoal("");
-  };
-  if (projection.projects.length === 0) return <p className="buddies-hint">Add a project to give jobs.</p>;
-  return (
-    <form className="buddy-jobbox" onSubmit={(event) => void submit(event)}>
-      <textarea
-        className="input buddy-jobbox-goal"
-        aria-label={`Job for ${buddy.name}`}
-        placeholder={`What should ${buddy.name} do?`}
-        value={goal}
-        rows={3}
-        maxLength={4_000}
-        onChange={(event) => setGoal(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submit(event);
-        }}
-      />
-      <div className="buddy-jobbox-row">
-        {projection.projects.length > 1 ? (
-          <Select
-            label="Project"
-            value={project}
-            options={projection.projects.map((entry) => ({ value: entry.projectId, label: entry.name }))}
-            onChange={setProject}
-          />
-        ) : null}
         <span className="buddy-spacer" />
-        <Button variant="primary" size="sm" type="submit" loading={busy} disabled={!goal.trim()}>
-          Give job
-        </Button>
-      </div>
-    </form>
+        {/* Its computer: lit while it works, and opens the job's own chat beside this one. */}
+        <IconButton
+          label={active ? "See what it's working on" : "Nothing running"}
+          icon="monitor"
+          size="sm"
+          className={`buddy-computer${active ? " is-active" : ""}`}
+          disabled={!active}
+          onClick={() => active?.threadId && onOpenThread(active.threadId)}
+        />
+        <Segmented<"chat" | "profile">
+          label="Buddy page"
+          className="buddy-tabs"
+          value={tab}
+          options={[
+            { value: "chat", label: "Chat" },
+            {
+              value: "profile",
+              label: buddy.pendingMemory.length > 0 ? `Profile · ${buddy.pendingMemory.length} new` : "Profile",
+            },
+          ]}
+          onChange={setTab}
+        />
+      </header>
+      {tab === "chat" ? (
+        <BuddyChat
+          buddy={buddy}
+          projection={projection}
+          run={run}
+          projectId={projectId}
+          onOpenThread={onOpenThread}
+          renderReply={(task) => (
+            <JobCard
+              task={task}
+              projection={projection}
+              run={run}
+              inline
+              onOpenThread={onOpenThread}
+              onOpenPullRequest={onOpenPullRequest}
+            />
+          )}
+        />
+      ) : (
+        <div className="buddy-page-scroll">
+          <Profile buddy={buddy} projection={projection} run={run} onRemoved={() => onSelect(undefined)} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -592,11 +541,12 @@ const STATUS_LABEL: Record<TaskProjection["status"], string> = {
   cancelled: "Dropped",
 };
 
-function JobCard({
+export function JobCard({
   task,
   projection,
   run,
   showBuddy = false,
+  inline = false,
   onOpenThread,
   onOpenPullRequest,
 }: {
@@ -604,6 +554,8 @@ function JobCard({
   projection: RuntimeProjection;
   run: Run;
   showBuddy?: boolean;
+  /** Inside a buddy's chat, where the transcript already says what the job is and how it is going. */
+  inline?: boolean;
   onOpenThread(threadId: string): void;
   onOpenPullRequest(threadId: string): void;
 }) {
@@ -644,35 +596,42 @@ function JobCard({
     });
   };
   return (
-    <article className={`job-card ${tone}`} aria-label={`${buddy?.name ?? "Buddy"}: ${task.goal}`}>
-      <header className="job-card-head">
-        {showBuddy && buddy ? <BuddyAvatar buddy={buddy.color} size={20} name={buddy.name} /> : null}
-        <span className="job-card-status">{STATUS_LABEL[task.status]}</span>
-        {task.kind === "review" ? <span className="job-card-tag">Review</span> : null}
-        {project && projection.projects.length > 1 ? <span className="job-card-tag">{project.name}</span> : null}
-        <span className="buddy-spacer" />
-        {task.threadId ? (
-          <IconButton
-            label="Open its chat"
-            icon="message"
-            size="sm"
-            onClick={() => onOpenThread(task.threadId as string)}
-          />
-        ) : null}
-      </header>
-      <p className="job-card-goal">
-        {showBuddy && buddy ? <strong>{buddy.name}: </strong> : null}
-        {task.goal}
-      </p>
-      {parentBuddy ? (
-        <p className="job-card-meta">
-          Handed on by {parentBuddy.name}
-          {task.round ? ` · round ${task.round}` : ""}
-        </p>
-      ) : null}
-      {task.status !== "ready" && task.status !== "queued" && !question ? (
-        <p className="job-card-meta">{taskLine(task)}</p>
-      ) : null}
+    <article
+      className={`job-card ${tone}${inline ? " is-inline" : ""}`}
+      aria-label={`${buddy?.name ?? "Buddy"}: ${task.goal}`}
+    >
+      {inline ? null : (
+        <>
+          <header className="job-card-head">
+            {showBuddy && buddy ? <BuddyAvatar buddy={buddy.color} size={20} name={buddy.name} /> : null}
+            <span className="job-card-status">{STATUS_LABEL[task.status]}</span>
+            {task.kind === "review" ? <span className="job-card-tag">Review</span> : null}
+            {project && projection.projects.length > 1 ? <span className="job-card-tag">{project.name}</span> : null}
+            <span className="buddy-spacer" />
+            {task.threadId ? (
+              <IconButton
+                label="Open its chat"
+                icon="message"
+                size="sm"
+                onClick={() => onOpenThread(task.threadId as string)}
+              />
+            ) : null}
+          </header>
+          <p className="job-card-goal">
+            {showBuddy && buddy ? <strong>{buddy.name}: </strong> : null}
+            {task.goal}
+          </p>
+          {parentBuddy ? (
+            <p className="job-card-meta">
+              Handed on by {parentBuddy.name}
+              {task.round ? ` · round ${task.round}` : ""}
+            </p>
+          ) : null}
+          {task.status !== "ready" && task.status !== "queued" && !question ? (
+            <p className="job-card-meta">{taskLine(task)}</p>
+          ) : null}
+        </>
+      )}
       {task.pick ? (
         <p className="job-card-pick">
           <span>

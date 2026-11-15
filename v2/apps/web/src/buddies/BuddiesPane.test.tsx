@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buttonNamed, typeInput } from "../huddle/testHuddles.js";
 import { cleanupRuntimeRenders, renderWithRuntime, typeInto } from "../review/testRuntime.js";
 import { BuddiesPane } from "./BuddiesPane.js";
+import { buddyTranscript } from "./BuddyChat.js";
 import { SidebarBuddies } from "./SidebarBuddies.js";
 
 afterEach(async () => {
@@ -122,13 +123,14 @@ describe("BuddiesPane", () => {
     });
   });
 
-  it("gives a buddy a job from its page", async () => {
+  it("gives a buddy a job by messaging it in its chat", async () => {
     const state = projection({ buddies: [buddy("b2", "Builder", 0)] });
     const { commands } = await render(state, "b2");
-    const box = document.querySelector<HTMLTextAreaElement>('[aria-label="Job for Builder"]');
-    if (!box) throw new Error("No job box");
+    expect(document.body.textContent).toContain("Hi, I'm Builder.");
+    const box = document.querySelector<HTMLTextAreaElement>('[aria-label="Message Builder"]');
+    if (!box) throw new Error("No message box");
     await typeInto(box, "Add a dark mode toggle");
-    await act(async () => buttonNamed("Give job").click());
+    await act(async () => buttonNamed("Send").click());
     expect(commands.at(-1)).toMatchObject({
       type: "task.assign",
       task: { buddyId: "b2", projectId: "p1", goal: "Add a dark mode toggle", origin: { kind: "buddy" } },
@@ -164,6 +166,9 @@ describe("BuddiesPane", () => {
       ],
     });
     const { commands, onOpenPullRequest } = await render(state, "b2");
+    // The job reads as a conversation: what you asked, then the buddy's reply with its result card.
+    expect(document.querySelector(".buddy-chat-you")?.textContent).toBe("Fix the flaky checkout test");
+    expect(document.querySelector(".buddy-chat-reply .job-card")).not.toBeNull();
     expect(document.body.textContent).toContain("Medium tests; claude-sonnet-5-5 fits");
     expect(document.body.textContent).toContain("2 files · +10 −3 · 2 min");
     await act(async () => buttonNamed("Open PR").click());
@@ -208,5 +213,46 @@ describe("SidebarBuddies", () => {
     expect(onOpen).toHaveBeenLastCalledWith();
     await act(async () => document.querySelector<HTMLButtonElement>(".sidebar-buddy")?.click());
     expect(onOpen).toHaveBeenLastCalledWith("b2");
+  });
+});
+
+describe("buddyTranscript", () => {
+  it("puts handoffs, reviews and routines in the same timeline as the conversation", () => {
+    const state = projection({
+      buddies: [buddy("b2", "Builder", 0), buddy("b3", "Tester", 1)],
+      routines: [
+        {
+          routineId: "r1",
+          buddyId: "b2",
+          projectId: "p1",
+          goal: "Run the tests",
+          trigger: { kind: "schedule", cron: "0 9 * * 1-5" },
+          paused: false,
+          failuresInRow: 0,
+          seen: [],
+          createdAt: "2026-11-15T08:00:00.000Z",
+        },
+      ],
+      tasks: [
+        task({ status: "ready", reviews: [{ taskId: "t2", buddyId: "b3", verdict: "ok", notes: [] }] }),
+        task({
+          taskId: "t2",
+          buddyId: "b3",
+          kind: "review",
+          parentTaskId: "t1",
+          round: 1,
+          goal: "Check Builder's work",
+          createdAt: "2026-11-15T09:05:00.000Z",
+        }),
+      ],
+    });
+    const items = buddyTranscript(state.buddies?.[0] as BuddyProjection, state);
+    expect(items.map((item) => (item.kind === "event" ? item.text : item.kind))).toEqual([
+      "Created routine · Weekdays at 9:00: Run the tests",
+      "you",
+      "Tester checked it: looks good",
+      "reply",
+      "Handed to Tester: Check Builder's work",
+    ]);
   });
 });

@@ -1,5 +1,6 @@
 import { buddiesInOrder, needsYou, type RuntimeProjection } from "@zli-v2/contracts";
 
+import { relativeTime } from "../sessions/sessions.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { buddyMood } from "./BuddiesPane.js";
 
@@ -51,7 +52,10 @@ export function SidebarBuddies({
         >
           <BuddyAvatar buddy={buddy.color} size={20} mood={buddyMood(buddy, tasks)} name={buddy.name} />
           <span className="sidebar-buddy-text">
-            <span className="sidebar-buddy-name">{buddy.name}</span>
+            <span className="sidebar-buddy-name">
+              {buddy.name}
+              {buddy.lastLine ? <span className="sidebar-buddy-time">{relativeTime(buddy.lastLine.at)}</span> : null}
+            </span>
             <span className="sidebar-buddy-line">{buddy.lastLine?.text ?? "Ready for a job"}</span>
           </span>
         </button>
