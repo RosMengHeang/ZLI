@@ -4,8 +4,10 @@ import { posix, win32 } from "node:path";
 import {
   agentNameTaken,
   assignMetroPort,
+  type BuddyEvent,
   HuddleCommand,
   type HuddleEvent,
+  isBuddyCommand,
   type PermissionMode,
   ProjectId,
   type ProjectProjection,
@@ -24,6 +26,7 @@ import {
 
 import { resolveTerminalCwd, TerminalCwdError } from "../terminal/terminalCwd.js";
 import { NOT_GIT_WORKTREE_MESSAGE } from "../worktrees/WorktreeService.js";
+import { decideBuddy } from "./buddyDecider.js";
 import { decideHuddle } from "./huddleDecider.js";
 
 export type DomainErrorCode =
@@ -48,6 +51,15 @@ export type DomainErrorCode =
   | "huddle_closed"
   | "huddle_member_missing"
   | "huddle_posted"
+  | "buddy_exists"
+  | "buddy_missing"
+  | "buddy_limit"
+  | "buddy_name_taken"
+  | "handoff_invalid"
+  | "handoff_limit"
+  | "task_missing"
+  | "task_closed"
+  | "routine_missing"
   | "unsupported_command";
 
 export class DomainError extends Error {
@@ -134,7 +146,8 @@ export type DomainDecision = Extract<
       | "worktree.setup.changed"
       | "worktree.setup.responded"
       | "project.setup.trusted"
-      | HuddleEvent["type"];
+      | HuddleEvent["type"]
+      | BuddyEvent["type"];
   }
 >;
 
@@ -743,6 +756,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       return decideSetupResponse(projection, command);
     default:
       if (isHuddleCommand(command)) return decideHuddle(projection, command);
+      if (isBuddyCommand(command)) return decideBuddy(projection, command);
       throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }
 }

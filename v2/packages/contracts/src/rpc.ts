@@ -10,6 +10,7 @@ import { RuntimeEventEnvelope } from "./events.js";
 import { FileCommand } from "./files.js";
 import { GitChangesCommand } from "./gitChanges.js";
 import { HistoryCommand } from "./history.js";
+import { BuddyCommand } from "./buddies.js";
 import { HuddleCommand } from "./huddles.js";
 import {
   AccountId,
@@ -321,6 +322,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   ...AgentSettingsCommand.options,
   ...HistoryCommand.options,
   ...HuddleCommand.options,
+  ...BuddyCommand.options,
   /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
   z.object({ type: z.literal("worktree.setup"), setup: WorktreeSetupProjection }),
   /** The person's answer to running zli.json setup commands; the hash pins the exact list they saw. */

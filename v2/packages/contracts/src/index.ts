@@ -10,6 +10,7 @@ export * from "./events.js";
 export * from "./files.js";
 export * from "./gitChanges.js";
 export * from "./history.js";
+export * from "./buddies.js";
 export * from "./huddles.js";
 export * from "./ids.js";
 export * from "./import.js";

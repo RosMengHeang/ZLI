@@ -1,0 +1,933 @@
+import { z } from "zod";
+
+import { PermissionMode, ProviderKind } from "./provider.js";
+
+/**
+ * Buddies are named helpers that take jobs. Each job runs as its own chat in its own worktree; the
+ * buddy list, the Needs you queue and the result cards read from the records below.
+ */
+
+export const BUDDY_COLORS = [
+  "sky",
+  "indigo",
+  "orchid",
+  "rose",
+  "tomato",
+  "tangerine",
+  "butter",
+  "lime",
+  "jade",
+  "clay",
+  "paper",
+  "slate",
+] as const;
+export const BuddyColor = z.enum(BUDDY_COLORS);
+export type BuddyColor = z.infer<typeof BuddyColor>;
+
+export const MAX_BUDDIES = 24;
+export const MAX_ACTIVE_JOBS_PER_BUDDY = 2;
+export const MAX_ACTIVE_JOBS = 6;
+/** A buddy can hand work on, and that buddy can hand it on again, this many times. */
+export const MAX_HANDOFF_DEPTH = 3;
+export const DEFAULT_HANDOFF_ROUNDS = 2;
+export const MAX_MEMORY_NOTES = 40;
+export const MAX_PENDING_NOTES = 10;
+export const MAX_TASKS_KEPT = 500;
+export const MAX_GOAL = 4_000;
+export const ROUTINE_FAILURES_BEFORE_PAUSE = 3;
+
+const Time = z.string().datetime({ offset: true });
+const Id = z.string().min(1).max(200);
+const Line = z.string().min(1).max(300);
+
+export const BuddyName = z
+  .string()
+  .trim()
+  .min(1, "Give the buddy a name.")
+  .max(24, "Keep the name to 24 characters.")
+  .regex(/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u, "Use letters, numbers, spaces, - or _.");
+
+export const BuddyEngine = z.discriminatedUnion("mode", [
+  /** ZLI picks the agent, model and effort for each job. */
+  z.object({ mode: z.literal("auto") }),
+  /** ZLI picks the model and effort, on this agent. */
+  z.object({ mode: z.literal("prefer"), provider: ProviderKind }),
+  /** Always this agent and model. */
+  z.object({
+    mode: z.literal("locked"),
+    provider: ProviderKind,
+    model: z.string().min(1).max(200).optional(),
+    effort: z.string().min(1).max(40).optional(),
+  }),
+]);
+export type BuddyEngine = z.infer<typeof BuddyEngine>;
+
+export const HandoffAction = z.enum(["check", "fix", "tests", "docs"]);
+export type HandoffAction = z.infer<typeof HandoffAction>;
+
+export const HandoffRule = z.object({
+  ruleId: Id,
+  /** finished: any ready job. notes: a review came back with notes. */
+  when: z.enum(["finished", "notes"]),
+  to: Id,
+  action: HandoffAction,
+  maxRounds: z.number().int().min(1).max(5),
+  enabled: z.boolean(),
+});
+export type HandoffRule = z.infer<typeof HandoffRule>;
+
+export const MemoryNote = z.object({
+  noteId: Id,
+  text: z.string().trim().min(1).max(400),
+  /** lesson: learned from a job (a revision note, a failure). told: the buddy asked to remember it. */
+  source: z.enum(["you", "told", "lesson", "lookback"]),
+  projectId: Id.optional(),
+  taskId: Id.optional(),
+  at: Time,
+});
+export type MemoryNote = z.infer<typeof MemoryNote>;
+
+export const BuddyProjection = z.object({
+  buddyId: Id,
+  name: BuddyName,
+  color: BuddyColor,
+  /** What the buddy is for, such as Tester. */
+  title: z.string().trim().min(1).max(40).optional(),
+  role: z.enum(["primary", "buddy"]),
+  /** Fixed list order, set by dragging. Status never changes it. */
+  order: z.number().int().nonnegative(),
+  engine: BuddyEngine,
+  instructions: z.string().max(4_000).optional(),
+  /** The most a job may do. Auto can run lower, never higher. */
+  permissionMode: PermissionMode,
+  maxActiveJobs: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_ACTIVE_JOBS_PER_BUDDY + 2),
+  handoffs: z.array(HandoffRule).max(10),
+  memory: z.array(MemoryNote).max(MAX_MEMORY_NOTES),
+  /** Notes waiting for the person to keep or skip. */
+  pendingMemory: z.array(MemoryNote).max(MAX_PENDING_NOTES),
+  /** One sentence about the latest thing the buddy did, for its row. */
+  lastLine: z.object({ text: Line, at: Time, taskId: Id.optional() }).optional(),
+  archived: z.literal(true).optional(),
+  createdAt: Time,
+  updatedAt: Time,
+});
+export type BuddyProjection = z.infer<typeof BuddyProjection>;
+
+export const JobKind = z.enum(["bugfix", "feature", "refactor", "tests", "docs", "ui", "review", "question", "chore"]);
+export type JobKind = z.infer<typeof JobKind>;
+
+export const JobProfile = z.object({
+  kind: JobKind,
+  /** Likely files touched: s up to 2, m up to 8, l more. */
+  size: z.enum(["s", "m", "l"]),
+  risk: z.enum(["low", "high"]),
+  needsBrowser: z.boolean(),
+});
+export type JobProfile = z.infer<typeof JobProfile>;
+
+export const EnginePick = z.object({
+  provider: ProviderKind,
+  model: z.string().min(1).max(200).optional(),
+  effort: z.string().min(1).max(40).optional(),
+  accountId: z.string().min(1).max(200).optional(),
+  permissionMode: PermissionMode,
+  /** One line on the card saying why. */
+  reason: Line,
+  source: z.enum(["auto", "prefer", "locked", "you"]),
+  at: Time,
+});
+export type EnginePick = z.infer<typeof EnginePick>;
+
+export const TaskStatus = z.enum([
+  "queued",
+  "preparing",
+  "working",
+  "needs_you",
+  "ready",
+  "shipped",
+  "closed",
+  "failed",
+  "stopped",
+  "cancelled",
+]);
+export type TaskStatus = z.infer<typeof TaskStatus>;
+/** Statuses that hold one of the buddy's job slots. */
+export const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = ["preparing", "working", "needs_you"];
+export const OPEN_TASK_STATUSES: readonly TaskStatus[] = ["queued", "preparing", "working", "needs_you", "ready"];
+
+export const TaskOrigin = z.object({
+  kind: z.enum(["chat", "buddy", "primary", "palette", "routine", "handoff", "agent"]),
+  threadId: Id.optional(),
+  routineId: Id.optional(),
+  ruleId: Id.optional(),
+});
+export type TaskOrigin = z.infer<typeof TaskOrigin>;
+
+export const TaskQuestion = z.object({
+  questionId: Id,
+  text: z.string().min(1).max(2_000),
+  options: z.array(z.string().min(1).max(200)).max(6).optional(),
+  answer: z.string().max(2_000).optional(),
+  askedAt: Time,
+});
+export type TaskQuestion = z.infer<typeof TaskQuestion>;
+
+export const TaskReview = z.object({
+  taskId: Id,
+  buddyId: Id,
+  verdict: z.enum(["ok", "notes"]),
+  notes: z.array(z.string().min(1).max(1_000)).max(20),
+});
+export type TaskReview = z.infer<typeof TaskReview>;
+
+export const TaskResult = z.object({
+  summary: z.string().min(1).max(2_000),
+  files: z.number().int().nonnegative(),
+  insertions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+  screenshots: z.array(z.string().min(1).max(4_000)).max(8),
+  costUsd: z.number().nonnegative().optional(),
+  durationMs: z.number().int().nonnegative(),
+  /** Other open jobs in the project that changed the same files. */
+  overlaps: z.array(z.object({ taskId: Id, paths: z.array(z.string().max(4_000)).max(20) })).max(10),
+  prUrl: z.string().url().max(2_000).optional(),
+});
+export type TaskResult = z.infer<typeof TaskResult>;
+
+export const TaskProjection = z.object({
+  taskId: Id,
+  buddyId: Id,
+  projectId: Id,
+  kind: z.enum(["job", "review"]),
+  goal: z.string().min(1).max(MAX_GOAL),
+  skill: z.string().min(1).max(200).optional(),
+  origin: TaskOrigin,
+  parentTaskId: Id.optional(),
+  round: z.number().int().positive().optional(),
+  baseRef: z.string().min(1).max(255).optional(),
+  threadId: Id.optional(),
+  worktreeId: Id.optional(),
+  branch: z.string().min(1).max(255).optional(),
+  profile: JobProfile.optional(),
+  pick: EnginePick.optional(),
+  /** Earlier setups, oldest first: step-ups and rate-limit switches. */
+  picks: z.array(EnginePick).max(10),
+  /** The person chose the agent or model, so Auto leaves it alone. */
+  override: z.object({ provider: ProviderKind, model: z.string().min(1).max(200).optional() }).optional(),
+  handoffDepth: z.number().int().min(0).max(MAX_HANDOFF_DEPTH),
+  status: TaskStatus,
+  needs: z
+    .object({ kind: z.enum(["question", "approval", "budget", "stuck", "handoff_limit"]), text: Line.optional() })
+    .optional(),
+  questions: z.array(TaskQuestion).max(20),
+  revisions: z.array(z.object({ note: z.string().min(1).max(2_000), at: Time })).max(20),
+  reviews: z.array(TaskReview).max(10),
+  /** The buddy called task_done with this. */
+  finished: z
+    .object({ summary: z.string().min(1).max(2_000), screenshots: z.array(z.string().max(4_000)).max(8) })
+    .optional(),
+  result: TaskResult.optional(),
+  /** The job ended idle without task_done once and got a nudge. */
+  nudged: z.literal(true).optional(),
+  /** No notification when ready, for routine runs that found nothing. */
+  quiet: z.literal(true).optional(),
+  /** The person undid the job: its branch and worktree are gone. */
+  undone: z.literal(true).optional(),
+  startedAt: Time.optional(),
+  endedAt: Time.optional(),
+  createdAt: Time,
+  updatedAt: Time,
+});
+export type TaskProjection = z.infer<typeof TaskProjection>;
+
+export const RoutineTrigger = z.discriminatedUnion("kind", [
+  /** Five-field cron: minute hour day-of-month month day-of-week, in local time. */
+  z.object({ kind: z.literal("schedule"), cron: z.string().min(9).max(100) }),
+  z.object({ kind: z.literal("ci_failed"), branch: z.string().min(1).max(255) }),
+  z.object({ kind: z.literal("review_requested") }),
+  z.object({ kind: z.literal("issue_labeled"), label: z.string().min(1).max(100) }),
+]);
+export type RoutineTrigger = z.infer<typeof RoutineTrigger>;
+
+export const RoutineProjection = z.object({
+  routineId: Id,
+  buddyId: Id,
+  projectId: Id,
+  goal: z.string().min(1).max(MAX_GOAL),
+  trigger: RoutineTrigger,
+  paused: z.boolean(),
+  failuresInRow: z.number().int().nonnegative(),
+  /** Event keys already handled, newest last, so a GitHub event starts one job. */
+  seen: z.array(z.string().min(1).max(300)).max(200),
+  builtin: z.enum(["morning_brief", "lookback"]).optional(),
+  lastRunAt: Time.optional(),
+  createdAt: Time,
+});
+export type RoutineProjection = z.infer<typeof RoutineProjection>;
+
+export const BuddyQuality = z.enum(["save", "balanced", "best"]);
+export type BuddyQuality = z.infer<typeof BuddyQuality>;
+
+export const BuddySettings = z.object({
+  /** Pause all: no job starts and no routine fires. Running jobs keep going. */
+  paused: z.boolean(),
+  /** How Auto trades cost against quality. */
+  quality: BuddyQuality,
+});
+export type BuddySettings = z.infer<typeof BuddySettings>;
+export const DEFAULT_BUDDY_SETTINGS: BuddySettings = { paused: false, quality: "balanced" };
+
+const NewBuddy = BuddyProjection.omit({
+  lastLine: true,
+  archived: true,
+  createdAt: true,
+  updatedAt: true,
+  order: true,
+  memory: true,
+  pendingMemory: true,
+});
+
+export const BuddyChanges = z
+  .object({
+    name: BuddyName,
+    color: BuddyColor,
+    title: z.string().trim().max(40),
+    engine: BuddyEngine,
+    instructions: z.string().max(4_000),
+    permissionMode: PermissionMode,
+    maxActiveJobs: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_ACTIVE_JOBS_PER_BUDDY + 2),
+  })
+  .partial();
+export type BuddyChanges = z.infer<typeof BuddyChanges>;
+
+const NewTask = z.object({
+  taskId: Id,
+  buddyId: Id,
+  projectId: Id,
+  kind: z.enum(["job", "review"]).default("job"),
+  goal: z.string().trim().min(1, "Say what the job is.").max(MAX_GOAL),
+  skill: z.string().min(1).max(200).optional(),
+  origin: TaskOrigin,
+  parentTaskId: Id.optional(),
+  round: z.number().int().positive().optional(),
+  baseRef: z.string().min(1).max(255).optional(),
+  override: TaskProjection.shape.override,
+  quiet: z.literal(true).optional(),
+});
+
+const NewRoutine = RoutineProjection.omit({ failuresInRow: true, seen: true, lastRunAt: true, createdAt: true });
+
+export const RoutineChanges = z
+  .object({ goal: z.string().trim().min(1).max(MAX_GOAL), trigger: RoutineTrigger, buddyId: Id, projectId: Id })
+  .partial();
+
+export const BuddyCommand = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("buddy.create"), buddy: NewBuddy }),
+  z.object({ type: z.literal("buddy.update"), buddyId: Id, changes: BuddyChanges }),
+  z.object({ type: z.literal("buddy.archive"), buddyId: Id }),
+  z.object({ type: z.literal("buddy.setPrimary"), buddyId: Id }),
+  /** The full list of buddy ids in their new order. */
+  z.object({ type: z.literal("buddy.reorder"), buddyIds: z.array(Id).max(MAX_BUDDIES) }),
+  z.object({ type: z.literal("buddy.handoff.set"), buddyId: Id, rule: HandoffRule }),
+  z.object({ type: z.literal("buddy.handoff.remove"), buddyId: Id, ruleId: Id }),
+  z.object({ type: z.literal("buddy.memory.propose"), buddyId: Id, note: MemoryNote.omit({ at: true }) }),
+  /** Keeps a proposed note, with the person's edit when given. */
+  z.object({
+    type: z.literal("buddy.memory.accept"),
+    buddyId: Id,
+    noteId: Id,
+    text: z.string().trim().min(1).max(400).optional(),
+  }),
+  z.object({ type: z.literal("buddy.memory.add"), buddyId: Id, note: MemoryNote.omit({ at: true }) }),
+  z.object({ type: z.literal("buddy.memory.remove"), buddyId: Id, noteId: Id }),
+  z.object({ type: z.literal("buddies.pause") }),
+  z.object({ type: z.literal("buddies.resume") }),
+  z.object({ type: z.literal("buddies.quality"), quality: BuddyQuality }),
+  z.object({ type: z.literal("task.assign"), task: NewTask }),
+  /** Internal: the job's chat started. */
+  z.object({
+    type: z.literal("task.start"),
+    taskId: Id,
+    threadId: Id,
+    worktreeId: Id,
+    branch: z.string().min(1).max(255),
+    profile: JobProfile,
+    pick: EnginePick,
+  }),
+  z.object({ type: z.literal("task.prepare"), taskId: Id }),
+  /** Internal: the job's chat changed state. */
+  z.object({
+    type: z.literal("task.status"),
+    taskId: Id,
+    status: TaskStatus,
+    needs: TaskProjection.shape.needs,
+    nudged: z.literal(true).optional(),
+  }),
+  z.object({
+    type: z.literal("task.question.ask"),
+    taskId: Id,
+    questionId: Id,
+    text: z.string().trim().min(1).max(2_000),
+    options: z.array(z.string().min(1).max(200)).max(6).optional(),
+  }),
+  z.object({
+    type: z.literal("task.question.answer"),
+    taskId: Id,
+    questionId: Id,
+    answer: z.string().trim().min(1).max(2_000),
+  }),
+  z.object({
+    type: z.literal("task.finish"),
+    taskId: Id,
+    summary: z.string().trim().min(1).max(2_000),
+    screenshots: z.array(z.string().min(1).max(4_000)).max(8).optional(),
+  }),
+  /** Internal: what the job changed, cost and took. */
+  z.object({ type: z.literal("task.result"), taskId: Id, result: TaskResult }),
+  z.object({ type: z.literal("task.review.attach"), taskId: Id, review: TaskReview }),
+  z.object({ type: z.literal("task.revise"), taskId: Id, note: z.string().trim().min(1).max(2_000) }),
+  z.object({ type: z.literal("task.ship"), taskId: Id, prUrl: z.string().url().max(2_000).optional() }),
+  z.object({ type: z.literal("task.cancel"), taskId: Id }),
+  /** Closes a finished job. undo also drops its branch. */
+  z.object({ type: z.literal("task.close"), taskId: Id, undo: z.boolean().optional() }),
+  z.object({ type: z.literal("task.retry"), taskId: Id }),
+  /** Internal: the job moved to another agent or model. */
+  z.object({ type: z.literal("task.engine"), taskId: Id, pick: EnginePick, threadId: Id }),
+  z.object({ type: z.literal("routine.create"), routine: NewRoutine }),
+  z.object({ type: z.literal("routine.update"), routineId: Id, changes: RoutineChanges }),
+  z.object({ type: z.literal("routine.remove"), routineId: Id }),
+  z.object({ type: z.literal("routine.setPaused"), routineId: Id, paused: z.boolean() }),
+  /** Internal: the routine starts a job for this slot or event. */
+  z.object({
+    type: z.literal("routine.fire"),
+    routineId: Id,
+    key: z.string().min(1).max(300),
+    taskId: Id,
+    goal: z.string().min(1).max(MAX_GOAL).optional(),
+  }),
+]);
+export type BuddyCommand = z.infer<typeof BuddyCommand>;
+export const BUDDY_COMMAND_TYPES: ReadonlySet<string> = new Set(
+  BuddyCommand.options.map((option) => option.shape.type.value),
+);
+export function isBuddyCommand(command: { type: string }): command is BuddyCommand {
+  return BUDDY_COMMAND_TYPES.has(command.type);
+}
+
+/** Events leave out times: the fold takes them from the envelope, so the decider stays pure. */
+export const BuddyEvent = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("buddy.created"), buddy: NewBuddy, order: z.number().int().nonnegative() }),
+  z.object({ type: z.literal("buddy.updated"), buddyId: Id, changes: BuddyChanges }),
+  z.object({ type: z.literal("buddy.archived"), buddyId: Id }),
+  z.object({ type: z.literal("buddy.primary.changed"), buddyId: Id }),
+  z.object({ type: z.literal("buddy.reordered"), buddyIds: z.array(Id).max(MAX_BUDDIES) }),
+  z.object({ type: z.literal("buddy.handoff.set"), buddyId: Id, rule: HandoffRule }),
+  z.object({ type: z.literal("buddy.handoff.removed"), buddyId: Id, ruleId: Id }),
+  z.object({ type: z.literal("buddy.memory.proposed"), buddyId: Id, note: MemoryNote.omit({ at: true }) }),
+  z.object({
+    type: z.literal("buddy.memory.accepted"),
+    buddyId: Id,
+    noteId: Id,
+    text: z.string().min(1).max(400).optional(),
+  }),
+  z.object({ type: z.literal("buddy.memory.added"), buddyId: Id, note: MemoryNote.omit({ at: true }) }),
+  z.object({ type: z.literal("buddy.memory.removed"), buddyId: Id, noteId: Id }),
+  z.object({ type: z.literal("buddies.paused") }),
+  z.object({ type: z.literal("buddies.resumed") }),
+  z.object({ type: z.literal("buddies.quality.changed"), quality: BuddyQuality }),
+  z.object({
+    type: z.literal("task.assigned"),
+    task: NewTask.extend({ kind: z.enum(["job", "review"]) }),
+    handoffDepth: z.number().int().min(0).max(MAX_HANDOFF_DEPTH),
+  }),
+  z.object({ type: z.literal("task.preparing"), taskId: Id }),
+  z.object({
+    type: z.literal("task.started"),
+    taskId: Id,
+    threadId: Id,
+    worktreeId: Id,
+    branch: z.string().min(1).max(255),
+    profile: JobProfile,
+    pick: EnginePick,
+  }),
+  z.object({
+    type: z.literal("task.status.changed"),
+    taskId: Id,
+    status: TaskStatus,
+    needs: TaskProjection.shape.needs,
+    nudged: z.literal(true).optional(),
+  }),
+  z.object({
+    type: z.literal("task.question.asked"),
+    taskId: Id,
+    question: TaskQuestion.omit({ askedAt: true, answer: true }),
+  }),
+  z.object({
+    type: z.literal("task.question.answered"),
+    taskId: Id,
+    questionId: Id,
+    answer: z.string().min(1).max(2_000),
+  }),
+  z.object({
+    type: z.literal("task.finished"),
+    taskId: Id,
+    summary: z.string().min(1).max(2_000),
+    screenshots: z.array(z.string().min(1).max(4_000)).max(8),
+  }),
+  z.object({ type: z.literal("task.result.recorded"), taskId: Id, result: TaskResult }),
+  z.object({ type: z.literal("task.review.attached"), taskId: Id, review: TaskReview }),
+  z.object({ type: z.literal("task.revised"), taskId: Id, note: z.string().min(1).max(2_000) }),
+  z.object({ type: z.literal("task.shipped"), taskId: Id, prUrl: z.string().url().max(2_000).optional() }),
+  z.object({ type: z.literal("task.cancelled"), taskId: Id }),
+  z.object({ type: z.literal("task.closed"), taskId: Id, undone: z.boolean().optional() }),
+  z.object({ type: z.literal("task.retried"), taskId: Id }),
+  z.object({ type: z.literal("task.engine.changed"), taskId: Id, pick: EnginePick, threadId: Id }),
+  z.object({ type: z.literal("routine.created"), routine: NewRoutine }),
+  z.object({ type: z.literal("routine.updated"), routineId: Id, changes: RoutineChanges }),
+  z.object({ type: z.literal("routine.removed"), routineId: Id }),
+  z.object({ type: z.literal("routine.paused.changed"), routineId: Id, paused: z.boolean() }),
+  z.object({ type: z.literal("routine.fired"), routineId: Id, key: z.string().min(1).max(300), taskId: Id }),
+]);
+export type BuddyEvent = z.infer<typeof BuddyEvent>;
+export const BUDDY_EVENT_TYPES: ReadonlySet<string> = new Set(
+  BuddyEvent.options.map((option) => option.shape.type.value),
+);
+export function isBuddyEvent(event: { type: string }): event is BuddyEvent {
+  return BUDDY_EVENT_TYPES.has(event.type);
+}
+
+export type BuddyState = {
+  buddies?: BuddyProjection[] | undefined;
+  tasks?: TaskProjection[] | undefined;
+  routines?: RoutineProjection[] | undefined;
+  buddySettings?: BuddySettings | undefined;
+};
+
+/** Buddies in list order: the Primary first, then the order the person set. Status never moves a row. */
+export function buddiesInOrder(state: Pick<BuddyState, "buddies">): BuddyProjection[] {
+  return (state.buddies ?? [])
+    .filter((buddy) => !buddy.archived)
+    .sort((left, right) => (left.role === right.role ? left.order - right.order : left.role === "primary" ? -1 : 1));
+}
+
+export function primaryBuddy(state: Pick<BuddyState, "buddies">): BuddyProjection | undefined {
+  return (state.buddies ?? []).find((buddy) => buddy.role === "primary" && !buddy.archived);
+}
+
+export function findBuddy(state: Pick<BuddyState, "buddies">, buddyId: string): BuddyProjection | undefined {
+  return (state.buddies ?? []).find((buddy) => buddy.buddyId === buddyId);
+}
+
+/** A buddy by name, ignoring case, among those not archived. */
+export function buddyNamed(state: Pick<BuddyState, "buddies">, name: string): BuddyProjection | undefined {
+  const wanted = name.trim().toLowerCase();
+  return (state.buddies ?? []).find((buddy) => !buddy.archived && buddy.name.toLowerCase() === wanted);
+}
+
+export function isActiveTask(task: Pick<TaskProjection, "status">): boolean {
+  return ACTIVE_TASK_STATUSES.includes(task.status);
+}
+
+export function isOpenTask(task: Pick<TaskProjection, "status">): boolean {
+  return OPEN_TASK_STATUSES.includes(task.status);
+}
+
+/** Jobs waiting on the person, oldest first. */
+export function needsYou(state: Pick<BuddyState, "tasks">): TaskProjection[] {
+  return (state.tasks ?? [])
+    .filter((task) => task.status === "needs_you" || (task.status === "ready" && !task.quiet))
+    .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+}
+
+export function openQuestion(task: Pick<TaskProjection, "questions">): TaskQuestion | undefined {
+  return task.questions.find((question) => question.answer === undefined);
+}
+
+/** The first sentence of a text, shortened for a one-line row. */
+export function firstSentence(text: string, max = 120): string {
+  const flat = text.replace(/\s+/gu, " ").trim();
+  const end = flat.search(/[.!?](\s|$)/u);
+  const sentence = end > 0 ? flat.slice(0, end) : flat;
+  return sentence.length > max ? `${sentence.slice(0, max - 1).trimEnd()}…` : sentence;
+}
+
+/** The row's sentence for a job in this status. */
+export function taskLine(
+  task: Pick<TaskProjection, "goal" | "status" | "needs" | "result" | "finished" | "kind">,
+): string {
+  const goal = firstSentence(task.goal, 90);
+  const lower = goal.charAt(0).toLowerCase() + goal.slice(1);
+  switch (task.status) {
+    case "queued":
+      return `Up next: ${lower}`;
+    case "preparing":
+      return `Getting ready to ${lower}`;
+    case "working":
+      return task.kind === "review" ? `Checking: ${lower}` : `Working on ${lower}`;
+    case "needs_you":
+      return task.needs?.text ? `Needs you: ${firstSentence(task.needs.text, 90)}` : `Needs you on ${lower}`;
+    case "ready":
+      return `Done: ${firstSentence(task.result?.summary ?? task.finished?.summary ?? goal, 100)}`;
+    case "shipped":
+      return `Shipped: ${lower}`;
+    case "closed":
+      return `Finished ${lower}`;
+    case "failed":
+      return `Got stuck on ${lower}`;
+    case "stopped":
+      return `Stopped ${lower}`;
+    case "cancelled":
+      return `Dropped ${lower}`;
+  }
+}
+
+function withLine(buddies: BuddyProjection[], task: TaskProjection, at: string): BuddyProjection[] {
+  return buddies.map((buddy) =>
+    buddy.buddyId === task.buddyId
+      ? { ...buddy, lastLine: { text: taskLine(task).slice(0, 300), at, taskId: task.taskId } }
+      : buddy,
+  );
+}
+
+function capTasks(tasks: TaskProjection[]): TaskProjection[] {
+  if (tasks.length <= MAX_TASKS_KEPT) return tasks;
+  let excess = tasks.length - MAX_TASKS_KEPT;
+  return tasks.filter((task) => {
+    if (excess > 0 && !isOpenTask(task)) {
+      excess -= 1;
+      return false;
+    }
+    return true;
+  });
+}
+
+/** The object without its undefined fields, for partial changes. */
+function defined<T extends object>(value: T): { [K in keyof T]-?: Exclude<T[K], undefined> } {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as {
+    [K in keyof T]-?: Exclude<T[K], undefined>;
+  };
+}
+
+/** Folds one buddy event. The server projector and the app both use it, so they agree. */
+export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string): Required<BuddyState> {
+  let buddies = state.buddies ?? [];
+  let tasks = state.tasks ?? [];
+  let routines = state.routines ?? [];
+  let buddySettings = state.buddySettings ?? DEFAULT_BUDDY_SETTINGS;
+  const updateBuddy = (buddyId: string, change: (buddy: BuddyProjection) => BuddyProjection) => {
+    buddies = buddies.map((buddy) => (buddy.buddyId === buddyId ? { ...change(buddy), updatedAt: at } : buddy));
+  };
+  const updateTask = (taskId: string, change: (task: TaskProjection) => TaskProjection, line = true) => {
+    let changed: TaskProjection | undefined;
+    tasks = tasks.map((task) => {
+      if (task.taskId !== taskId) return task;
+      changed = { ...change(task), updatedAt: at };
+      return changed;
+    });
+    if (changed && line) buddies = withLine(buddies, changed, at);
+  };
+  const updateRoutine = (routineId: string, change: (routine: RoutineProjection) => RoutineProjection) => {
+    routines = routines.map((routine) => (routine.routineId === routineId ? change(routine) : routine));
+  };
+  const ended = (status: TaskStatus) =>
+    status === "closed" ||
+    status === "cancelled" ||
+    status === "shipped" ||
+    status === "failed" ||
+    status === "stopped";
+
+  switch (event.type) {
+    case "buddy.created":
+      buddies = [
+        ...buddies.filter((buddy) => buddy.buddyId !== event.buddy.buddyId),
+        { ...event.buddy, order: event.order, memory: [], pendingMemory: [], createdAt: at, updatedAt: at },
+      ];
+      break;
+    case "buddy.updated": {
+      const { title, instructions, ...rest } = event.changes;
+      updateBuddy(event.buddyId, (buddy) => {
+        const next: BuddyProjection = { ...buddy, ...defined(rest) };
+        if (title !== undefined) {
+          if (title) next.title = title;
+          else delete next.title;
+        }
+        if (instructions !== undefined) {
+          if (instructions) next.instructions = instructions;
+          else delete next.instructions;
+        }
+        return next;
+      });
+      break;
+    }
+    case "buddy.archived":
+      updateBuddy(event.buddyId, (buddy) => ({ ...buddy, archived: true, role: "buddy" }));
+      routines = routines.filter((routine) => routine.buddyId !== event.buddyId);
+      break;
+    case "buddy.primary.changed":
+      buddies = buddies.map((buddy) => {
+        const role = buddy.buddyId === event.buddyId ? "primary" : "buddy";
+        return buddy.role === role ? buddy : { ...buddy, role, updatedAt: at };
+      });
+      break;
+    case "buddy.reordered":
+      buddies = buddies.map((buddy) => {
+        const index = event.buddyIds.indexOf(buddy.buddyId);
+        return index < 0 || index === buddy.order ? buddy : { ...buddy, order: index };
+      });
+      break;
+    case "buddy.handoff.set":
+      updateBuddy(event.buddyId, (buddy) => ({
+        ...buddy,
+        handoffs: buddy.handoffs.some((rule) => rule.ruleId === event.rule.ruleId)
+          ? buddy.handoffs.map((rule) => (rule.ruleId === event.rule.ruleId ? event.rule : rule))
+          : [...buddy.handoffs, event.rule],
+      }));
+      break;
+    case "buddy.handoff.removed":
+      updateBuddy(event.buddyId, (buddy) => ({
+        ...buddy,
+        handoffs: buddy.handoffs.filter((rule) => rule.ruleId !== event.ruleId),
+      }));
+      break;
+    case "buddy.memory.proposed":
+      updateBuddy(event.buddyId, (buddy) => ({
+        ...buddy,
+        pendingMemory: [
+          ...buddy.pendingMemory.filter((note) => note.noteId !== event.note.noteId),
+          { ...event.note, at },
+        ].slice(-MAX_PENDING_NOTES),
+      }));
+      break;
+    case "buddy.memory.accepted":
+      updateBuddy(event.buddyId, (buddy) => {
+        const note = buddy.pendingMemory.find((candidate) => candidate.noteId === event.noteId);
+        if (!note) return buddy;
+        return {
+          ...buddy,
+          pendingMemory: buddy.pendingMemory.filter((candidate) => candidate.noteId !== event.noteId),
+          memory: [...buddy.memory, { ...note, text: event.text ?? note.text, at }].slice(-MAX_MEMORY_NOTES),
+        };
+      });
+      break;
+    case "buddy.memory.added":
+      updateBuddy(event.buddyId, (buddy) => ({
+        ...buddy,
+        memory: [...buddy.memory.filter((note) => note.noteId !== event.note.noteId), { ...event.note, at }].slice(
+          -MAX_MEMORY_NOTES,
+        ),
+      }));
+      break;
+    case "buddy.memory.removed":
+      updateBuddy(event.buddyId, (buddy) => ({
+        ...buddy,
+        memory: buddy.memory.filter((note) => note.noteId !== event.noteId),
+        pendingMemory: buddy.pendingMemory.filter((note) => note.noteId !== event.noteId),
+      }));
+      break;
+    case "buddies.paused":
+      buddySettings = { ...buddySettings, paused: true };
+      break;
+    case "buddies.resumed":
+      buddySettings = { ...buddySettings, paused: false };
+      break;
+    case "buddies.quality.changed":
+      buddySettings = { ...buddySettings, quality: event.quality };
+      break;
+    case "task.assigned": {
+      const { quiet, override, ...rest } = event.task;
+      const task: TaskProjection = {
+        ...rest,
+        ...(override ? { override } : {}),
+        ...(quiet ? { quiet } : {}),
+        handoffDepth: event.handoffDepth,
+        status: "queued",
+        picks: [],
+        questions: [],
+        revisions: [],
+        reviews: [],
+        createdAt: at,
+        updatedAt: at,
+      };
+      tasks = capTasks([...tasks.filter((existing) => existing.taskId !== task.taskId), task]);
+      buddies = withLine(buddies, task, at);
+      break;
+    }
+    case "task.preparing":
+      updateTask(event.taskId, (task) => ({ ...task, status: "preparing" }));
+      break;
+    case "task.started":
+      updateTask(event.taskId, (task) => ({
+        ...task,
+        status: "working",
+        threadId: event.threadId,
+        worktreeId: event.worktreeId,
+        branch: event.branch,
+        profile: event.profile,
+        pick: event.pick,
+        startedAt: task.startedAt ?? at,
+      }));
+      break;
+    case "task.status.changed":
+      updateTask(event.taskId, (task) => {
+        const next: TaskProjection = { ...task, status: event.status };
+        if (event.needs) next.needs = event.needs;
+        else delete next.needs;
+        if (event.nudged) next.nudged = true;
+        if (ended(event.status)) next.endedAt = at;
+        return next;
+      });
+      break;
+    case "task.question.asked":
+      updateTask(event.taskId, (task) => ({
+        ...task,
+        status: "needs_you",
+        needs: { kind: "question", text: firstSentence(event.question.text, 290) },
+        questions: [...task.questions, { ...event.question, askedAt: at }].slice(-20),
+      }));
+      break;
+    case "task.question.answered":
+      updateTask(event.taskId, (task) => {
+        const questions = task.questions.map((question) =>
+          question.questionId === event.questionId ? { ...question, answer: event.answer } : question,
+        );
+        const next: TaskProjection = { ...task, questions };
+        if (task.needs?.kind === "question" && !openQuestion(next)) {
+          delete next.needs;
+          next.status = "working";
+        }
+        return next;
+      });
+      break;
+    case "task.finished":
+      updateTask(event.taskId, (task) => ({
+        ...task,
+        finished: { summary: event.summary, screenshots: event.screenshots },
+      }));
+      break;
+    case "task.result.recorded":
+      updateTask(event.taskId, (task) => {
+        const next: TaskProjection = { ...task, status: "ready", result: event.result, endedAt: at };
+        delete next.needs;
+        return next;
+      });
+      break;
+    case "task.review.attached":
+      updateTask(
+        event.taskId,
+        (task) => ({
+          ...task,
+          reviews: [...task.reviews.filter((review) => review.taskId !== event.review.taskId), event.review].slice(-10),
+        }),
+        false,
+      );
+      break;
+    case "task.revised":
+      updateTask(event.taskId, (task) => {
+        const next: TaskProjection = {
+          ...task,
+          status: "working",
+          revisions: [...task.revisions, { note: event.note, at }].slice(-20),
+        };
+        delete next.finished;
+        delete next.nudged;
+        delete next.needs;
+        return next;
+      });
+      break;
+    case "task.shipped":
+      updateTask(event.taskId, (task) => ({
+        ...task,
+        status: "shipped",
+        ...(event.prUrl && task.result ? { result: { ...task.result, prUrl: event.prUrl } } : {}),
+      }));
+      break;
+    case "task.cancelled":
+      updateTask(event.taskId, (task) => ({ ...task, status: "cancelled", endedAt: at }));
+      break;
+    case "task.closed":
+      updateTask(event.taskId, (task) => ({
+        ...task,
+        status: "closed",
+        ...(event.undone ? { undone: true as const } : {}),
+        endedAt: task.endedAt ?? at,
+      }));
+      break;
+    case "task.retried":
+      updateTask(event.taskId, (task) => {
+        const next: TaskProjection = { ...task, status: "queued" };
+        for (const key of [
+          "threadId",
+          "worktreeId",
+          "branch",
+          "needs",
+          "finished",
+          "result",
+          "nudged",
+          "endedAt",
+        ] as const)
+          delete next[key];
+        return next;
+      });
+      break;
+    case "task.engine.changed":
+      updateTask(event.taskId, (task) => ({
+        ...task,
+        status: "working",
+        threadId: event.threadId,
+        picks: [...task.picks, ...(task.pick ? [task.pick] : [])].slice(-10),
+        pick: event.pick,
+      }));
+      break;
+    case "routine.created":
+      routines = [
+        ...routines.filter((routine) => routine.routineId !== event.routine.routineId),
+        { ...event.routine, failuresInRow: 0, seen: [], createdAt: at },
+      ];
+      break;
+    case "routine.updated":
+      updateRoutine(event.routineId, (routine) => ({ ...routine, ...defined(event.changes) }));
+      break;
+    case "routine.removed":
+      routines = routines.filter((routine) => routine.routineId !== event.routineId);
+      break;
+    case "routine.paused.changed":
+      updateRoutine(event.routineId, (routine) => ({
+        ...routine,
+        paused: event.paused,
+        ...(event.paused ? {} : { failuresInRow: 0 }),
+      }));
+      break;
+    case "routine.fired":
+      updateRoutine(event.routineId, (routine) => ({
+        ...routine,
+        lastRunAt: at,
+        seen: [...routine.seen.filter((key) => key !== event.key), event.key].slice(-200),
+      }));
+      break;
+  }
+
+  // A routine's run that failed counts toward pausing it; one that worked starts the count again.
+  if (event.type === "task.status.changed" || event.type === "task.result.recorded") {
+    const task = tasks.find((candidate) => candidate.taskId === event.taskId);
+    const routineId = task?.origin.routineId;
+    if (task && routineId && (task.status === "failed" || task.status === "ready")) {
+      updateRoutine(routineId, (routine) => {
+        const failuresInRow = task.status === "failed" ? routine.failuresInRow + 1 : 0;
+        return {
+          ...routine,
+          failuresInRow,
+          paused: routine.paused || failuresInRow >= ROUTINE_FAILURES_BEFORE_PAUSE,
+        };
+      });
+    }
+  }
+  return { buddies, tasks, routines, buddySettings };
+}

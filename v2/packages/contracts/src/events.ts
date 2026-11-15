@@ -4,6 +4,7 @@ import { BrowserTabProjection } from "./browser.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
+import { BuddyEvent } from "./buddies.js";
 import { HuddleEvent } from "./huddles.js";
 import {
   BrowserTabId,
@@ -227,6 +228,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("project.setup.trusted"), projectId: ProjectId, commandsHash: z.string().min(1) }),
   ...HuddleEvent.options,
+  ...BuddyEvent.options,
 ]);
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>;
 

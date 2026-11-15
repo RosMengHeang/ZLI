@@ -1,10 +1,12 @@
 import {
   appendCheckpoint,
   appendThreadMessage,
+  applyBuddyEvent,
   applyHuddleEvent,
   deliverAgentMessage,
   deriveSharedProjectContexts,
   type EnvironmentDescriptor,
+  isBuddyEvent,
   isHuddleEvent,
   pruneDevServers,
   RuntimeEvent,
@@ -50,6 +52,12 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
       `Projection sequence mismatch: expected ${projection.lastSequence + 1}, received ${envelope.sequence}`,
     );
   }
+  if (isBuddyEvent(event))
+    return {
+      ...projection,
+      ...applyBuddyEvent(projection, event, envelope.occurredAt),
+      lastSequence: envelope.sequence,
+    };
   if (isHuddleEvent(event))
     return {
       ...projection,
