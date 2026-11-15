@@ -167,6 +167,8 @@ type Props = {
   projectAgentActions?: ((projectId: string) => ProjectAgentActions) | undefined;
   /** Opens the Buddies panel, on one buddy when given. Without it the sidebar lists no buddies. */
   onOpenBuddies?: ((buddyId?: string) => void) | undefined;
+  /** The buddy whose chat is open, or "team" for the buddies' home. */
+  activeBuddyId?: string | undefined;
 };
 
 const noGroups: readonly RunGroup[] = [];
@@ -215,6 +217,7 @@ export function Sidebar({
   onHuddleError = () => undefined,
   projectAgentActions,
   onOpenBuddies,
+  activeBuddyId,
 }: Props) {
   const newAgentShortcut = useShortcut("newAgent");
   const sidebarShortcut = useShortcut("toggleSidebar");
@@ -1243,7 +1246,7 @@ export function Sidebar({
           />
         </div>
       </div>
-      {onOpenBuddies ? <SidebarBuddies projection={projection} onOpen={onOpenBuddies} /> : null}
+      {onOpenBuddies ? <SidebarBuddies projection={projection} onOpen={onOpenBuddies} active={activeBuddyId} /> : null}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the chat buttons inside. */}
       <div className="sidebar-scroll" onKeyDown={moveBetweenChats}>
         {projects.length === 0 ? (

@@ -126,7 +126,7 @@ describe("BuddiesPane", () => {
   it("gives a buddy a job by messaging it in its chat", async () => {
     const state = projection({ buddies: [buddy("b2", "Builder", 0)] });
     const { commands } = await render(state, "b2");
-    expect(document.body.textContent).toContain("Hi, I'm Builder.");
+    expect(document.body.textContent).toContain("Tell me what to do.");
     const box = document.querySelector<HTMLTextAreaElement>('[aria-label="Message Builder"]');
     if (!box) throw new Error("No message box");
     await typeInto(box, "Add a dark mode toggle");
@@ -144,6 +144,7 @@ describe("BuddiesPane", () => {
         task({
           status: "ready",
           threadId: "th1",
+          startedAt: at,
           branch: "builder/x",
           pick: {
             provider: "claude-code",
@@ -168,7 +169,7 @@ describe("BuddiesPane", () => {
     const { commands, onOpenPullRequest } = await render(state, "b2");
     // The job reads as a conversation: what you asked, then the buddy's reply with its result card.
     expect(document.querySelector(".buddy-chat-you")?.textContent).toBe("Fix the flaky checkout test");
-    expect(document.querySelector(".buddy-chat-reply .job-card")).not.toBeNull();
+    expect(document.querySelector(".buddy-chat-card .job-card")).not.toBeNull();
     expect(document.body.textContent).toContain("Medium tests; claude-sonnet-5-5 fits");
     expect(document.body.textContent).toContain("2 files · +10 −3 · 2 min");
     await act(async () => buttonNamed("Open PR").click());
@@ -191,11 +192,14 @@ describe("BuddiesPane", () => {
       ],
     });
     const { commands } = await render(state, "b2");
-    await act(async () => buttonNamed("Profile · 1 new").click());
+    // The profile sits beside the chat, like the bot's details in Grok.
+    expect(document.querySelector('[aria-label="About Builder"]')).not.toBeNull();
     await act(async () => buttonNamed("Keep").click());
     expect(commands.at(-1)).toEqual({ type: "buddy.memory.accept", buddyId: "b2", noteId: "n1" });
+    await cleanupRuntimeRenders();
+    const home = await render(state);
     await act(async () => buttonNamed("Pause all").click());
-    expect(commands.at(-1)).toEqual({ type: "buddies.pause" });
+    expect(home.commands.at(-1)).toEqual({ type: "buddies.pause" });
   });
 });
 

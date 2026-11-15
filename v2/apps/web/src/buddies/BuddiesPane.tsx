@@ -15,7 +15,7 @@ import {
   type TaskProjection,
   taskLine,
 } from "@zli-v2/contracts";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useMemo, useState } from "react";
 
 import { listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -27,7 +27,7 @@ import { Button, IconButton } from "../ui/Button.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
-import { BuddyChat } from "./BuddyChat.js";
+import { BuddyChat, BuddyComputer } from "./BuddyChat.js";
 import {
   BUDDY_TEMPLATES,
   buddyFromTemplate,
@@ -95,43 +95,47 @@ export function BuddiesPane(props: BuddiesPaneProps) {
   const selected = team.find((buddy) => buddy.buddyId === selectedId);
   const paused = projection.buddySettings?.paused ?? false;
 
+  const errorLine = error ? (
+    <p className="inline-error buddies-error" role="alert">
+      {error}
+    </p>
+  ) : null;
+  // A buddy opens as its own chat, like any chat in the workspace.
+  if (selected)
+    return (
+      <section className="buddies-main" aria-label="Buddies">
+        <BuddyPage {...props} buddy={selected} run={run} error={errorLine} />
+      </section>
+    );
   return (
-    <section className="tool-pane buddies-pane" aria-label="Buddies">
-      <div className="pane-header buddies-bar">
-        {selected ? (
-          <IconButton label="All buddies" icon="arrowLeft" size="sm" onClick={() => onSelect(undefined)} />
-        ) : (
-          <Icon name="bot" size={14} className="buddies-bar-icon" />
-        )}
-        <h2 className="buddies-bar-title">{selected ? selected.name : "Buddies"}</h2>
-        {team.length > 0 ? (
-          <Button
-            size="sm"
-            variant={paused ? "primary" : "ghost"}
-            icon={paused ? "play" : "pause"}
-            tooltip={
-              paused ? "Let buddies start jobs and routines again" : "No new jobs or routines start until you resume"
-            }
-            onClick={() => void run({ type: paused ? "buddies.resume" : "buddies.pause" })}
-          >
-            {paused ? "Resume" : "Pause all"}
-          </Button>
-        ) : null}
-      </div>
-      {error ? (
-        <p className="inline-error buddies-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {paused ? <p className="buddies-paused">Paused. Running jobs finish; nothing new starts.</p> : null}
-      <div className={`buddies-body${selected && team.length > 0 ? " is-page" : ""}`}>
-        {team.length === 0 ? (
-          <Welcome run={run} projection={projection} />
-        ) : selected ? (
-          <BuddyPage {...props} buddy={selected} run={run} />
-        ) : (
-          <TeamPage {...props} team={team} run={run} />
-        )}
+    <section className="buddies-main" aria-label="Buddies">
+      <div className="buddies-home">
+        <header className="buddies-home-head">
+          <h2>Buddies</h2>
+          <span className="buddy-spacer" />
+          {team.length > 0 ? (
+            <Button
+              size="sm"
+              variant={paused ? "primary" : "ghost"}
+              icon={paused ? "play" : "pause"}
+              tooltip={
+                paused ? "Let buddies start jobs and routines again" : "No new jobs or routines start until you resume"
+              }
+              onClick={() => void run({ type: paused ? "buddies.resume" : "buddies.pause" })}
+            >
+              {paused ? "Resume" : "Pause all"}
+            </Button>
+          ) : null}
+        </header>
+        {errorLine}
+        {paused ? <p className="buddies-paused">Paused. Running jobs finish; nothing new starts.</p> : null}
+        <div className="buddies-body">
+          {team.length === 0 ? (
+            <Welcome run={run} projection={projection} />
+          ) : (
+            <TeamPage {...props} team={team} run={run} />
+          )}
+        </div>
       </div>
     </section>
   );
@@ -458,50 +462,42 @@ function BuddyPage({
   projection,
   buddy,
   run,
+  error,
   onSelect,
   onOpenThread,
   onOpenPullRequest,
   projectId,
-}: BuddiesPaneProps & { buddy: BuddyProjection; run: Run }) {
-  const [tab, setTab] = useState<"chat" | "profile">("chat");
+}: BuddiesPaneProps & { buddy: BuddyProjection; run: Run; error: ReactNode }) {
+  const [info, setInfo] = useState(true);
   const active = (projection.tasks ?? []).findLast(
     (task) => task.buddyId === buddy.buddyId && isActiveTask(task) && task.threadId,
   );
+  const mood = buddyMood(buddy, projection.tasks ?? []);
   return (
-    <div className="buddy-page">
-      <header className="buddy-head">
-        <BuddyAvatar buddy={buddy.color} size={32} mood={buddyMood(buddy, projection.tasks ?? [])} name={buddy.name} />
-        <div className="buddy-head-text">
-          <span className="buddy-head-title">
-            {buddy.role === "primary" ? "Primary buddy" : (buddy.title ?? "Buddy")}
-          </span>
-          <span className="buddies-row-line">{buddy.lastLine?.text ?? "Ready for a job"}</span>
-        </div>
-        <span className="buddy-spacer" />
-        {/* Its computer: lit while it works, and opens the job's own chat beside this one. */}
-        <IconButton
-          label={active ? "See what it's working on" : "Nothing running"}
-          icon="monitor"
-          size="sm"
-          className={`buddy-computer${active ? " is-active" : ""}`}
-          disabled={!active}
-          onClick={() => active?.threadId && onOpenThread(active.threadId)}
-        />
-        <Segmented<"chat" | "profile">
-          label="Buddy page"
-          className="buddy-tabs"
-          value={tab}
-          options={[
-            { value: "chat", label: "Chat" },
-            {
-              value: "profile",
-              label: buddy.pendingMemory.length > 0 ? `Profile · ${buddy.pendingMemory.length} new` : "Profile",
-            },
-          ]}
-          onChange={setTab}
-        />
-      </header>
-      {tab === "chat" ? (
+    <div className={`buddy-view${info ? " has-info" : ""}`}>
+      <div className="buddy-view-main">
+        <header className="buddy-view-head">
+          <BuddyAvatar buddy={buddy.color} size={22} mood={mood} name={buddy.name} />
+          <h2 className="buddy-view-name">{buddy.name}</h2>
+          <span className="buddy-view-title">{buddy.role === "primary" ? "Primary buddy" : (buddy.title ?? "")}</span>
+          <span className="buddy-spacer" />
+          {/* Its computer: lit while it works. */}
+          <IconButton
+            label={active ? `${buddy.name}'s computer is on: see the job` : `${buddy.name}'s computer is idle`}
+            icon="monitor"
+            size="sm"
+            className={`buddy-computer${active ? " is-active" : ""}`}
+            onClick={() => (active?.threadId ? onOpenThread(active.threadId) : setInfo(true))}
+          />
+          <IconButton
+            label={info ? "Hide details" : "Show details"}
+            icon="panelRight"
+            size="sm"
+            pressed={info}
+            onClick={() => setInfo((value) => !value)}
+          />
+        </header>
+        {error}
         <BuddyChat
           buddy={buddy}
           projection={projection}
@@ -519,11 +515,15 @@ function BuddyPage({
             />
           )}
         />
-      ) : (
-        <div className="buddy-page-scroll">
+      </div>
+      {info ? (
+        <aside className="buddy-view-info" aria-label={`About ${buddy.name}`}>
+          {/* Lines up with the chat's header; the window's own buttons sit at its right. */}
+          <div className="buddy-view-info-head">Details</div>
+          <BuddyComputer buddy={buddy} task={active} projection={projection} onOpenThread={onOpenThread} />
           <Profile buddy={buddy} projection={projection} run={run} onRemoved={() => onSelect(undefined)} />
-        </div>
-      )}
+        </aside>
+      ) : null}
     </div>
   );
 }
@@ -632,7 +632,7 @@ export function JobCard({
           ) : null}
         </>
       )}
-      {task.pick ? (
+      {task.pick && !inline ? (
         <p className="job-card-pick">
           <span>
             {task.pick.model ?? providerDisplayName(task.pick.provider, projection.providers)}
@@ -702,13 +702,15 @@ export function JobCard({
             </Button>
           </form>
         </div>
-      ) : task.status === "needs_you" && task.needs ? (
+      ) : !inline && task.status === "needs_you" && task.needs ? (
         <p className="job-card-needs">{task.needs.text ?? "Waiting for you in its chat."}</p>
       ) : null}
-      {task.status === "failed" && task.needs?.text ? <p className="job-card-needs">{task.needs.text}</p> : null}
+      {!inline && task.status === "failed" && task.needs?.text ? (
+        <p className="job-card-needs">{task.needs.text}</p>
+      ) : null}
       {result ? (
         <div className="job-card-result">
-          <p>{result.summary}</p>
+          {inline ? null : <p>{result.summary}</p>}
           <p className="job-card-meta">
             {result.files} file{result.files === 1 ? "" : "s"} · +{result.insertions} −{result.deletions}
             {result.costUsd !== undefined ? ` · ${money(result.costUsd)}` : ""} · {duration(result.durationMs)}

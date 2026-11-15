@@ -162,13 +162,7 @@ import { type SidePane, sidePaneIcon, sidePaneLabel, Topbar } from "./Topbar.js"
 
 /** The icon on a panel's tab. */
 const panelIcon = (pane: Exclude<SidePane, "launcher">) =>
-  pane === "pullRequest"
-    ? "pullRequest"
-    : pane === "sideChat"
-      ? "message"
-      : pane === "buddies"
-        ? "bot"
-        : sidePaneIcon[pane];
+  pane === "pullRequest" ? "pullRequest" : pane === "sideChat" ? "message" : sidePaneIcon[pane];
 
 import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
 import { WorktreeDialog } from "./WorktreeDialog.js";
@@ -217,8 +211,8 @@ function WorkspaceApp() {
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
   /** The huddle tab in view in the Huddle panel. */
   const [huddleId, setHuddleId] = useState<string>();
-  /** The buddy whose page is open in the Buddies panel. */
-  const [buddyId, setBuddyId] = useState<string>();
+  /** What the main area shows instead of the chats: the buddies' home ("team") or one buddy's chat. */
+  const [buddyView, setBuddyView] = useState<string>();
   // One width for the right panel: switching tabs keeps it where it was dragged to.
   const [panelWidth, setPanelWidth] = usePanelWidth("panel");
   const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
@@ -402,6 +396,7 @@ function WorkspaceApp() {
   activeSessionIdRef.current = workbench.activeSessionId;
   const focusSession = useCallback(
     (session: AgentSession) => {
+      setBuddyView(undefined);
       // Focus coming back to the tile that already had it, as when a dialog closes, keeps the added project.
       if (session.sessionId !== activeSessionIdRef.current) setSelectedProjectId(undefined);
       setSelectedWorktreeId(session.worktreeId);
@@ -642,8 +637,7 @@ function WorkspaceApp() {
     setSidePane("huddle");
   }, []);
   const openBuddies = useCallback((next?: string) => {
-    setBuddyId(next);
-    setSidePane("buddies");
+    setBuddyView(next ?? "team");
   }, []);
   // Chat only keeps the terminal out of sight: its toggle and shortcut only close a drawer something else opened.
   const chatOnly = workStyleOf(settings.defaults) === "chat";
@@ -2816,6 +2810,7 @@ function WorkspaceApp() {
             onHuddleError={showError}
             projectAgentActions={projectAgentActions}
             onOpenBuddies={openBuddies}
+            activeBuddyId={buddyView}
           />
         ) : null}
         <main className="main-workspace">
@@ -2848,9 +2843,25 @@ function WorkspaceApp() {
             <div className="workspace-body" ref={workspaceBodyRef}>
               <div className="workbench-column">
                 <section className="agent-grid-region" aria-label="Agents" ref={gridRegionRef}>
-                  {visibleTiles.length === 0 &&
-                  projection.projects.length === 0 &&
-                  workStyleOf(settings.defaults) !== "terminal" ? (
+                  {buddyView ? (
+                    <BuddiesPane
+                      projection={projection}
+                      selectedId={buddyView === "team" ? undefined : buddyView}
+                      onSelect={(next) => setBuddyView(next ?? "team")}
+                      projectId={contextProject?.projectId}
+                      onOpenThread={(threadId) => {
+                        const thread = projection.threads.find((entry) => entry.threadId === threadId);
+                        if (thread) showAgent(thread.sessionId ?? thread.threadId);
+                      }}
+                      onOpenPullRequest={(threadId) => {
+                        const thread = projection.threads.find((entry) => entry.threadId === threadId);
+                        if (thread) showAgent(thread.sessionId ?? thread.threadId);
+                        setSidePane("pullRequest");
+                      }}
+                    />
+                  ) : visibleTiles.length === 0 &&
+                    projection.projects.length === 0 &&
+                    workStyleOf(settings.defaults) !== "terminal" ? (
                     // In chat, the first screen is already a chat: its folder tab adds the first project.
                     <NoProjectChat
                       agent={firstChatAgent}
@@ -3049,23 +3060,7 @@ function WorkspaceApp() {
                         onOpenChanges={() => setSidePane("review")}
                         onShowAgent={showAgent}
                       />
-                    ) : sidePane === "sideChat" ? null : sidePane === "buddies" && projection ? (
-                      <BuddiesPane
-                        projection={projection}
-                        selectedId={buddyId}
-                        onSelect={setBuddyId}
-                        projectId={contextProject?.projectId}
-                        onOpenThread={(threadId) => {
-                          const thread = projection.threads.find((entry) => entry.threadId === threadId);
-                          if (thread) showAgent(thread.sessionId ?? thread.threadId);
-                        }}
-                        onOpenPullRequest={(threadId) => {
-                          const thread = projection.threads.find((entry) => entry.threadId === threadId);
-                          if (thread) showAgent(thread.sessionId ?? thread.threadId);
-                          setSidePane("pullRequest");
-                        }}
-                      />
-                    ) : sidePane === "huddle" ? (
+                    ) : sidePane === "sideChat" ? null : sidePane === "huddle" ? (
                       <HuddlePane
                         projection={projection}
                         selectedId={huddleId}

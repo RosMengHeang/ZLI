@@ -35,8 +35,9 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
 
     // Auto picks the setup and says why; the job starts in its own chat.
     await shot("working");
-    const card = pane.locator(".buddy-chat-reply .job-card").first();
-    await expect(card.locator(".job-card-pick")).toBeVisible({ timeout: 120_000 });
+    const card = pane.locator(".buddy-chat-card .job-card").first();
+    // Auto's pick and its reason show as a line in the conversation.
+    await expect(pane.locator(".buddy-chat-event", { hasText: " — " }).first()).toBeVisible({ timeout: 120_000 });
     await expect(card.getByRole("button", { name: "Open PR" })).toBeVisible({ timeout: 120_000 });
     await expect(sidebar).toContainText("Done:");
     await shot("ready");

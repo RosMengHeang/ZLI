@@ -11,8 +11,11 @@ import { buddyMood } from "./BuddiesPane.js";
 export function SidebarBuddies({
   projection,
   onOpen,
+  active,
 }: {
   projection: RuntimeProjection | undefined;
+  /** The buddy whose chat is open, or "team" for the buddies' home. */
+  active?: string | undefined;
   /** Opens the Buddies panel, on one buddy when given. */
   onOpen(buddyId?: string): void;
 }) {
@@ -46,11 +49,12 @@ export function SidebarBuddies({
         <button
           key={buddy.buddyId}
           type="button"
-          className="sidebar-buddy"
+          className={`sidebar-buddy${active === buddy.buddyId ? " is-active" : ""}`}
+          aria-current={active === buddy.buddyId ? "page" : undefined}
           onClick={() => onOpen(buddy.buddyId)}
           title={buddy.lastLine?.text}
         >
-          <BuddyAvatar buddy={buddy.color} size={20} mood={buddyMood(buddy, tasks)} name={buddy.name} />
+          <BuddyAvatar buddy={buddy.color} size={28} mood={buddyMood(buddy, tasks)} name={buddy.name} />
           <span className="sidebar-buddy-text">
             <span className="sidebar-buddy-name">
               {buddy.name}
