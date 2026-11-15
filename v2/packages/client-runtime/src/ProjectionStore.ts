@@ -1,9 +1,11 @@
 import {
   appendCheckpoint,
   appendThreadMessage,
+  applyBuddyEvent,
   applyHuddleEvent,
   deliverAgentMessage,
   deriveSharedProjectContexts,
+  isBuddyEvent,
   isHuddleEvent,
   pruneDevServers,
   RuntimeEventEnvelope,
@@ -55,6 +57,15 @@ export class ProjectionStore {
     if (envelope.sequence !== current.lastSequence + 1) return "gap";
 
     const event = envelope.event;
+    if (isBuddyEvent(event)) {
+      this.#projection = {
+        ...current,
+        ...applyBuddyEvent(current, event, envelope.occurredAt),
+        lastSequence: envelope.sequence,
+      };
+      this.#publish({ kind: "event", envelope });
+      return "applied";
+    }
     if (isHuddleEvent(event)) {
       this.#projection = {
         ...current,
