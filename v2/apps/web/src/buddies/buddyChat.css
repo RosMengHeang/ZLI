@@ -46,12 +46,6 @@
 .buddy-settings { display: flex; flex-direction: column; gap: var(--zli-space-2); }
 .buddy-view-info .buddy-rule { padding: 8px 10px 8px 12px; }
 
-.buddy-computer-card { display: flex; flex-direction: column; gap: var(--zli-space-2); }
-.buddy-computer-row { display: flex; width: 100%; align-items: center; gap: var(--zli-space-3); padding: 0; border: 0; background: transparent; color: inherit; cursor: default; }
-.buddy-computer-card.is-on .buddy-computer-row { cursor: pointer; }
-.buddy-screen { display: flex; width: 64px; height: 44px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid var(--zli-border); border-radius: 8px; background: radial-gradient(120% 90% at 20% 0%, color-mix(in srgb, var(--zli-text) 9%, transparent), transparent 60%), var(--zli-well); }
-.buddy-computer-card.is-on .buddy-screen { border-color: var(--zli-accent-line); }
-.buddy-computer-card.is-on .buddy-computer-row:hover .buddy-screen { border-color: var(--zli-accent); }
 
 /* ---------- The transcript: your messages as pills on the right, the buddy's as bubbles, events between ---------- */
 .buddy-chat { display: flex; min-height: 0; flex: 1; flex-direction: column; }
@@ -98,13 +92,8 @@
   margin: var(--zli-space-2) auto var(--zli-space-4); padding: 6px 6px 6px 8px; border: 1px solid var(--zli-border-strong); border-radius: 22px; background: var(--zli-raised);
 }
 .buddy-chat-composer:focus-within { border-color: var(--zli-border-hover); }
-.buddy-chat-project { display: inline-flex; height: 30px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 10px; border: 0; border-radius: 15px; background: var(--zli-hover); color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-xs); }
-.buddy-chat-project:disabled { cursor: default; }
-.buddy-chat-project:not(:disabled):hover { color: var(--zli-text); }
 .buddy-chat-input { min-width: 0; max-height: 160px; flex: 1; align-self: center; padding: 5px 2px; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); outline: none; resize: none; field-sizing: content; }
 .buddy-chat-input:focus, .buddy-chat-input:focus-visible { outline: none; box-shadow: none; }
-.buddy-chat-send { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; }
-.buddy-chat-send:not(:disabled) { background: var(--zli-text); color: var(--zli-surface); }
 .buddy-chat-note { margin: var(--zli-space-3) auto; }
 
 /* Sidebar roster rows: face, name and time, one line under it. */
@@ -113,3 +102,18 @@
 /* The team and the projects are two lists: a rule between them, and the same heading style. */
 .sidebar-buddies { margin-bottom: var(--zli-space-1); border-bottom: 1px solid var(--zli-border); }
 .sidebar-buddies-head { margin: var(--zli-space-1) 0 2px; padding: 0 6px; font-size: var(--zli-text-sm); font-weight: 500; line-height: 24px; }
+
+/* Standing instructions: tall enough to read, scrolls past that, and opens full size. */
+.buddy-instructions { min-height: 180px; max-height: 360px; overflow-y: auto; resize: vertical; font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.buddy-instructions.is-full { width: 100%; min-height: 50vh; max-height: none; }
+.buddy-view-info .buddies-hint { margin: -2px 2px 0; line-height: var(--zli-leading-normal); }
+
+/* The message box: files on top, then the paperclip, the words and the send button. */
+.buddy-chat-composer { flex-direction: column; align-items: stretch; gap: 4px; }
+.buddy-chat-row { display: flex; align-items: flex-end; gap: var(--zli-space-1-5); }
+.buddy-chat-attach { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; color: var(--zli-muted); }
+.buddy-chat-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 4px 4px 0; list-style: none; }
+.buddy-chat-files li { display: inline-flex; max-width: 220px; align-items: center; gap: 5px; padding: 3px 4px 3px 8px; border: 1px solid var(--zli-border); border-radius: 8px; background: var(--zli-hover); color: var(--zli-text); font-size: var(--zli-text-xs); }
+.buddy-chat-files li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.buddy-chat-files.is-sent { align-self: flex-end; justify-content: flex-end; margin-top: 4px; padding: 0; }
+.buddy-chat-files.is-sent li { padding-right: 8px; }

@@ -4,7 +4,6 @@ import {
   type BuddyQuality,
   buddiesInOrder,
   type HandoffAction,
-  isActiveTask,
   isOpenTask,
   needsYou,
   openQuestion,
@@ -24,10 +23,11 @@ import { useAppSettings } from "../settings/appSettings.js";
 import { type AvatarMood, BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { BUDDY_COLOR_NAMES, buddyName } from "../teammates/buddies.js";
 import { Button, IconButton } from "../ui/Button.js";
+import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
-import { BuddyChat, BuddyComputer } from "./BuddyChat.js";
+import { BuddyChat } from "./BuddyChat.js";
 import {
   BUDDY_TEMPLATES,
   buddyFromTemplate,
@@ -498,9 +498,6 @@ function BuddyPage({
 }: BuddiesPaneProps & { buddy: BuddyProjection; run: Run; error: ReactNode }) {
   const [info, setInfo] = useState(true);
   const [tab, setTab] = useState<InfoTab>("activity");
-  const active = (projection.tasks ?? []).findLast(
-    (task) => task.buddyId === buddy.buddyId && isActiveTask(task) && task.threadId,
-  );
   const mood = buddyMood(buddy, projection.tasks ?? []);
   const title =
     buddy.role === "primary" ? "Primary buddy" : buddy.title && buddy.title !== buddy.name ? buddy.title : "";
@@ -560,7 +557,7 @@ function BuddyPage({
             onChange={setTab}
           />
           {tab === "activity" ? (
-            <ActivityTab buddy={buddy} projection={projection} run={run} task={active} onOpenThread={onOpenThread} />
+            <ActivityTab buddy={buddy} projection={projection} run={run} />
           ) : tab === "library" ? (
             <LibraryTab buddy={buddy} run={run} />
           ) : (
@@ -897,20 +894,8 @@ const ACTIONS: readonly { value: HandoffAction; label: string }[] = [
   { value: "fix", label: "fixes what's left" },
 ];
 
-/** What is coming up, its computer, and how its jobs went. */
-function ActivityTab({
-  buddy,
-  projection,
-  run,
-  task,
-  onOpenThread,
-}: {
-  buddy: BuddyProjection;
-  projection: RuntimeProjection;
-  run: Run;
-  task: TaskProjection | undefined;
-  onOpenThread(threadId: string): void;
-}) {
+/** What is coming up and how its jobs went. */
+function ActivityTab({ buddy, projection, run }: { buddy: BuddyProjection; projection: RuntimeProjection; run: Run }) {
   const stats = useMemo(() => buddyStats(buddy.buddyId, projection.tasks ?? []), [buddy.buddyId, projection.tasks]);
   const routines = (projection.routines ?? []).filter((routine) => routine.buddyId === buddy.buddyId);
   return (
@@ -921,11 +906,6 @@ function ActivityTab({
           <RoutineRow key={routine.routineId} routine={routine} run={run} />
         ))}
         {projection.projects.length > 0 ? <AddRoutine buddy={buddy} projection={projection} run={run} /> : null}
-      </section>
-
-      <section className="buddies-section" aria-label="Computer">
-        <h3 className="buddies-heading">Computer</h3>
-        <BuddyComputer buddy={buddy} task={task} projection={projection} onOpenThread={onOpenThread} />
       </section>
 
       <section className="buddies-section" aria-label="Track record">
@@ -1073,6 +1053,7 @@ function SettingsTab({
   const others = buddiesInOrder(projection).filter((entry) => entry.buddyId !== buddy.buddyId);
   const [instructions, setInstructions] = useState(buddy.instructions ?? "");
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const providers = listedDiscoveries(projection.providers ?? []).filter((entry) => entry.status === "found");
   const engineValue = buddy.engine.mode === "auto" ? "auto" : `${buddy.engine.mode}:${buddy.engine.provider}`;
   const engineOptions = [
@@ -1087,6 +1068,9 @@ function SettingsTab({
     ]),
   ];
   const update = (changes: Record<string, unknown>) => run({ type: "buddy.update", buddyId: buddy.buddyId, changes });
+  const save = () => {
+    if (instructions !== (buddy.instructions ?? "")) void update({ instructions });
+  };
   const download = () => {
     const file = exportBuddy(buddy, projection.routines ?? []);
     const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: "application/json" }));
@@ -1098,33 +1082,47 @@ function SettingsTab({
   };
   return (
     <div className="buddy-profile">
-      <section className="buddies-section" aria-label="How it works">
-        <h3 className="buddies-heading">How it works</h3>
-        <div className="buddy-card buddy-settings">
-          <Select
-            label="Agent and model"
-            value={engineValue}
-            options={engineOptions}
-            onChange={(value) => {
-              const [mode, provider] = value.split(":");
-              void update({ engine: mode === "auto" ? { mode: "auto" } : { mode, provider } });
-            }}
-          />
-          <Select<PermissionMode>
-            label="Most it may do"
-            value={buddy.permissionMode}
-            options={[
-              { value: "read-only", label: "Read only", description: "Plans and reviews; changes no files" },
-              { value: "supervised", label: "Ask first", description: "Asks before risky commands" },
-              { value: "full-access", label: "Full access", description: "Works without asking" },
-            ]}
-            onChange={(permissionMode) => void update({ permissionMode })}
-          />
-        </div>
+      <section className="buddies-section" aria-label="Agent and model">
+        <h3 className="buddies-heading">Agent and model</h3>
+        <p className="buddies-hint">
+          Auto reads each job and picks the agent, model and effort for it, and gets better at it as jobs finish. Leave
+          it on Auto unless this buddy should always use one agent.
+        </p>
+        <Select
+          label="Agent and model"
+          value={engineValue}
+          options={engineOptions}
+          onChange={(value) => {
+            const [mode, provider] = value.split(":");
+            void update({ engine: mode === "auto" ? { mode: "auto" } : { mode, provider } });
+          }}
+        />
+      </section>
+
+      <section className="buddies-section" aria-label="Most it may do">
+        <h3 className="buddies-heading">Most it may do</h3>
+        <p className="buddies-hint">
+          Read only looks and reports. Ask first stops for your yes before risky commands. Full access works without
+          stopping.
+        </p>
+        <Select<PermissionMode>
+          label="Most it may do"
+          value={buddy.permissionMode}
+          options={[
+            { value: "read-only", label: "Read only", description: "Plans and reviews; changes no files" },
+            { value: "supervised", label: "Ask first", description: "Asks before risky commands" },
+            { value: "full-access", label: "Full access", description: "Works without asking" },
+          ]}
+          onChange={(permissionMode) => void update({ permissionMode })}
+        />
       </section>
 
       <section className="buddies-section" aria-label="Passes work on">
         <h3 className="buddies-heading">Passes work on</h3>
+        <p className="buddies-hint">
+          When {buddy.name} finishes a job, the buddy you pick here takes it next. A check sends it back if something is
+          wrong, up to two rounds, before it reaches you.
+        </p>
         {buddy.handoffs.map((rule) => {
           const to = others.find((entry) => entry.buddyId === rule.to);
           return (
@@ -1147,23 +1145,63 @@ function SettingsTab({
       </section>
 
       <section className="buddies-section" aria-label="Standing instructions">
-        <h3 className="buddies-heading">Standing instructions</h3>
+        <h3 className="buddies-heading">
+          Standing instructions
+          <span className="buddy-spacer" />
+          <IconButton label="Open full size" icon="maximize" size="xs" onClick={() => setExpanded(true)} />
+        </h3>
+        <p className="buddies-hint">{buddy.name} reads these at the start of every job.</p>
         <textarea
-          className="input"
+          className="input buddy-instructions"
           aria-label="Standing instructions"
           placeholder="What it should always do, such as: run pnpm test before finishing"
-          rows={4}
+          rows={10}
           maxLength={4_000}
           value={instructions}
           onChange={(event) => setInstructions(event.target.value)}
-          onBlur={() => {
-            if (instructions !== (buddy.instructions ?? "")) void update({ instructions });
-          }}
+          onBlur={save}
         />
+        {expanded ? (
+          <Dialog
+            label="Standing instructions"
+            title={`${buddy.name}'s standing instructions`}
+            subtitle="Read at the start of every job."
+            size="lg"
+            onClose={() => {
+              save();
+              setExpanded(false);
+            }}
+          >
+            <div className="dialog-body">
+              <textarea
+                className="input buddy-instructions is-full"
+                aria-label="Standing instructions"
+                rows={22}
+                maxLength={4_000}
+                value={instructions}
+                onChange={(event) => setInstructions(event.target.value)}
+              />
+            </div>
+            <div className="dialog-footer">
+              <span className="buddies-hint">{instructions.length} / 4000</span>
+              <span className="buddy-spacer" />
+              <Button
+                variant="primary"
+                onClick={() => {
+                  save();
+                  setExpanded(false);
+                }}
+              >
+                Done
+              </Button>
+            </div>
+          </Dialog>
+        ) : null}
       </section>
 
       <section className="buddies-section" aria-label="Look">
         <h3 className="buddies-heading">Look</h3>
+        <p className="buddies-hint">Its color in the sidebar and in chats.</p>
         <fieldset className="buddy-colors" aria-label="Color">
           {BUDDY_COLOR_NAMES.map((color) => (
             <button
@@ -1182,11 +1220,15 @@ function SettingsTab({
 
       <div className="job-card-actions">
         {buddy.role !== "primary" ? (
-          <Button size="sm" onClick={() => void run({ type: "buddy.setPrimary", buddyId: buddy.buddyId })}>
+          <Button
+            size="sm"
+            tooltip="The Primary plans bigger asks and hands the parts to the others"
+            onClick={() => void run({ type: "buddy.setPrimary", buddyId: buddy.buddyId })}
+          >
             Make Primary
           </Button>
         ) : null}
-        <Button size="sm" icon="download" onClick={download}>
+        <Button size="sm" icon="download" tooltip="Save it as a file you can import elsewhere" onClick={download}>
           Export
         </Button>
         {confirmRemove ? (

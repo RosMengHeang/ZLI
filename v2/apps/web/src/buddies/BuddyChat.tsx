@@ -16,7 +16,9 @@ import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import type { Buddy } from "../teammates/buddies.js";
 import { IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
-import { triggerLabel } from "./team.js";
+import { fileName, splitAttachedFiles, withAttachedFiles } from "../chat/attachedFiles.js";
+import { getBridge } from "../runtime/bridge.js";
+import { guessProject, triggerLabel } from "./team.js";
 import "./buddyChat.css";
 
 type Run = (command: Record<string, unknown>) => Promise<boolean>;
@@ -102,7 +104,15 @@ export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection
       items.push({ kind: "you", key: `${task.taskId}-start`, at: task.createdAt, text: task.goal });
     }
     if (task.pick && task.startedAt) {
-      items.push({ kind: "say", key: `${task.taskId}-ack`, at: task.startedAt, text: "On it." });
+      // With more than one project, it says which one it took the job to, since nobody picked.
+      const project =
+        state.projects.length > 1 ? state.projects.find((entry) => entry.projectId === task.projectId) : undefined;
+      items.push({
+        kind: "say",
+        key: `${task.taskId}-ack`,
+        at: task.startedAt,
+        text: project ? `On it, in ${project.name}.` : "On it.",
+      });
       const model = task.pick.model ?? providerDisplayName(task.pick.provider, state.providers);
       items.push({
         kind: "event",
@@ -293,7 +303,7 @@ function ChatEntry({
 }) {
   switch (item.kind) {
     case "you":
-      return <div className="buddy-chat-you">{item.text}</div>;
+      return <YouMessage text={item.text} />;
     case "say":
       return <div className="buddy-chat-say">{item.text}</div>;
     case "event":
@@ -345,40 +355,6 @@ function LiveRow({
   );
 }
 
-/** The buddy's computer: a window onto the job it is running. */
-export function BuddyComputer({
-  buddy,
-  task,
-  projection,
-  onOpenThread,
-}: {
-  buddy: BuddyProjection;
-  task: TaskProjection | undefined;
-  projection: RuntimeProjection;
-  onOpenThread(threadId: string): void;
-}) {
-  const steps = recentSteps(projection, task?.threadId, 4);
-  return (
-    <div className={`buddy-card buddy-computer-card${task ? " is-on" : ""}`}>
-      <button
-        type="button"
-        className="buddy-computer-row"
-        disabled={!task?.threadId}
-        onClick={() => task?.threadId && onOpenThread(task.threadId)}
-      >
-        <span className="buddy-card-text">
-          <span className="buddy-card-title">{buddy.name}'s computer</span>
-          <span className="buddy-card-sub">{task ? (task.branch ?? "Working") : "Asleep"}</span>
-        </span>
-        <span className="buddy-screen">
-          <BuddyAvatar buddy={buddy.color} size={22} mood={task ? "working" : "idle"} />
-        </span>
-      </button>
-      {task && steps.length > 0 ? <StepTicker steps={steps} /> : null}
-    </div>
-  );
-}
-
 function Composer({
   buddy,
   projection,
@@ -391,70 +367,137 @@ function Composer({
   projectId: string | undefined;
 }) {
   const [text, setText] = useState("");
-  const [project, setProject] = useState(projectId ?? projection.projects[0]?.projectId ?? "");
+  const [files, setFiles] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const projectName = projection.projects.find((entry) => entry.projectId === project)?.name;
+  const picker = useRef<HTMLInputElement>(null);
+  const attach = (list: FileList | null) => {
+    const bridge = getBridge();
+    const paths = [...(list ?? [])].flatMap((file) => {
+      const path = bridge?.pathForFile?.(file);
+      return path ? [path] : [];
+    });
+    setFiles((current) => [...current, ...paths.filter((path) => !current.includes(path))]);
+  };
   const send = async (event?: FormEvent) => {
     event?.preventDefault();
-    const goal = text.trim();
-    if (!goal || !project || busy) return;
+    const typed = text.trim();
+    if ((!typed && files.length === 0) || busy) return;
+    const goal = withAttachedFiles(files, typed || "Look at these files.");
+    // No project to pick: the message says which one, or past jobs and habits do.
+    const guess = guessProject(goal, projection.projects, projection.tasks ?? [], buddy.buddyId, projectId);
+    if (!guess) return;
     setBusy(true);
     const ok = await run({
       type: "task.assign",
       task: {
         taskId: makeCommandId(),
         buddyId: buddy.buddyId,
-        projectId: project,
+        projectId: guess.projectId,
         kind: "job",
         goal,
         origin: { kind: "buddy" },
       },
     });
     setBusy(false);
-    if (ok) setText("");
+    if (ok) {
+      setText("");
+      setFiles([]);
+    }
   };
   if (projection.projects.length === 0)
     return <p className="buddies-hint buddy-chat-note">Add a project to give jobs.</p>;
-  const nextProject = () => {
-    const index = projection.projects.findIndex((entry) => entry.projectId === project);
-    const next = projection.projects[(index + 1) % projection.projects.length];
-    if (next) setProject(next.projectId);
-  };
   return (
-    <form className="buddy-chat-composer" onSubmit={(event) => void send(event)}>
-      {/* Jobs run in a project; with more than one, the chip switches between them. */}
-      <button
-        type="button"
-        className="buddy-chat-project"
-        onClick={nextProject}
-        disabled={projection.projects.length < 2}
-        title={projection.projects.length > 1 ? "Switch project" : "The project this job runs in"}
-      >
-        <Icon name="folder" size={13} />
-        {projectName}
-      </button>
-      <textarea
-        className="buddy-chat-input"
-        aria-label={`Message ${buddy.name}`}
-        placeholder={`Message ${buddy.name}`}
-        value={text}
-        rows={1}
-        maxLength={4_000}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void send();
-          }
-        }}
-      />
-      <IconButton
-        label="Send"
-        icon="arrowUp"
-        type="submit"
-        className="buddy-chat-send"
-        disabled={!text.trim() || busy}
-      />
+    <form
+      className="buddy-chat-composer"
+      onSubmit={(event) => void send(event)}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        attach(event.dataTransfer.files);
+      }}
+    >
+      {files.length > 0 ? (
+        <ul className="buddy-chat-files" aria-label="Attachments">
+          {files.map((path) => (
+            <li key={path} title={path}>
+              <Icon name="file" size={12} />
+              <span>{fileName(path)}</span>
+              <IconButton
+                label={`Remove ${fileName(path)}`}
+                icon="x"
+                size="xs"
+                onClick={() => setFiles((current) => current.filter((entry) => entry !== path))}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="buddy-chat-row">
+        <IconButton
+          label="Attach files"
+          tooltip="Attach files. You can also drop them here"
+          icon="paperclip"
+          className="buddy-chat-attach"
+          onClick={() => picker.current?.click()}
+        />
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          onChange={(event) => {
+            attach(event.target.files);
+            event.target.value = "";
+          }}
+        />
+        <textarea
+          className="buddy-chat-input"
+          aria-label={`Message ${buddy.name}`}
+          placeholder={`Message ${buddy.name}`}
+          value={text}
+          rows={1}
+          maxLength={4_000}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void send();
+            }
+          }}
+        />
+        <button
+          className="send-button"
+          type="submit"
+          aria-label="Send"
+          data-tooltip="Send"
+          data-shortcut="Enter"
+          disabled={(!text.trim() && files.length === 0) || busy}
+        >
+          <Icon name="arrowUp" size={15} />
+        </button>
+      </div>
     </form>
+  );
+}
+
+/** What you sent: the words in a pill, the files under it. */
+function YouMessage({ text }: { text: string }) {
+  const { text: body, paths } = splitAttachedFiles(text);
+  return (
+    <>
+      {body ? <div className="buddy-chat-you">{body}</div> : null}
+      {paths.length > 0 ? (
+        <ul className="buddy-chat-files is-sent" aria-label="Attached files">
+          {paths.map((path) => (
+            <li key={path} title={path}>
+              <Icon name="file" size={12} />
+              <span>{fileName(path)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
   );
 }
