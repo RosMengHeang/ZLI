@@ -10,6 +10,7 @@ export function GridEmptyState({
   project,
   closedCount,
   onOpenProject,
+  onCloneProject,
   onNewAgent,
   onScratchChat,
 }: {
@@ -18,6 +19,8 @@ export function GridEmptyState({
   project?: ProjectProjection | undefined;
   closedCount: number;
   onOpenProject(): void;
+  /** Clones a repository from a forge and adds it; absent where cloning is not offered. */
+  onCloneProject?: (() => void) | undefined;
   onNewAgent(): void;
   /** Absent when scratch chats are not available, outside the desktop app. */
   onScratchChat?: (() => void) | undefined;
@@ -39,6 +42,11 @@ export function GridEmptyState({
         <Button variant="primary" size="lg" icon="folderPlus" onClick={onOpenProject}>
           Add project
         </Button>
+        {onCloneProject ? (
+          <Button size="lg" icon="download" onClick={onCloneProject}>
+            Clone repository
+          </Button>
+        ) : null}
         {scratch}
       </EmptyState>
     );

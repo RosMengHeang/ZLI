@@ -26,3 +26,15 @@
   .forge-row { flex-wrap: wrap; }
   .forge-side { width: 100%; justify-content: flex-end; }
 }
+
+/* ---------- Clone repository ---------- */
+.clone-form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
+.clone-field { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.clone-label { color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
+.clone-source { position: relative; display: flex; align-items: center; }
+.clone-source > :is(.connector-logo, svg) { position: absolute; left: 10px; pointer-events: none; color: var(--zli-dim); }
+.clone-source > .input { width: 100%; padding-left: 34px; font-family: var(--zli-font-mono); font-size: var(--zli-text-sm); }
+.clone-parent { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
+.clone-path { min-width: 0; flex: 1; overflow: hidden; padding: 6px 10px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-font-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.clone-path-name { color: var(--zli-text); }
+.clone-path-empty { color: var(--zli-dim); font-family: inherit; }

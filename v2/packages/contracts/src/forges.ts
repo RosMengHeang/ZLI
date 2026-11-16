@@ -44,9 +44,24 @@ export const ForgeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("forges.status") }),
   /** Checks every forge CLI again, for after the person installs or signs in to one. */
   z.object({ type: z.literal("forges.rescan") }),
+  /**
+   * Clones a repository into parent/name. `source` is a clone URL, a link copied from a forge page, or owner/repo
+   * with `forge` set. The person then adds the folder as a project.
+   */
+  z.object({
+    type: z.literal("project.clone"),
+    source: z.string().trim().min(1).max(2_000),
+    forge: ForgeKind.optional(),
+    parent: z.string().min(1).max(4_000),
+    name: z.string().trim().min(1).max(200).optional(),
+  }),
 ]);
 export type ForgeCommand = z.infer<typeof ForgeCommand>;
 export const FORGE_COMMAND_TYPES = [
   "forges.status",
   "forges.rescan",
+  "project.clone",
 ] as const satisfies readonly ForgeCommand["type"][];
+
+export const ProjectCloneResult = z.object({ path: z.string().min(1) });
+export type ProjectCloneResult = z.infer<typeof ProjectCloneResult>;

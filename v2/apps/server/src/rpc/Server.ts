@@ -61,6 +61,7 @@ import { type RawData, WebSocket, WebSocketServer } from "ws";
 
 import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckpoints.js";
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
+import { CloneError, cloneRepository } from "../forges/clone.js";
 import { ForgeService } from "../forges/ForgeService.js";
 import { huddleScopeError } from "../huddles/huddleScope.js";
 import type { TerminalInputTracker } from "../huddles/TerminalInputTracker.js";
@@ -852,10 +853,23 @@ export class RpcServer {
     const command = request.command;
     if (!isForgeCommand(command)) return false;
     try {
-      const result = command.type === "forges.rescan" ? await this.forges.rescan() : await this.forges.status();
+      const result =
+        command.type === "project.clone"
+          ? await cloneRepository({
+              source: command.source,
+              forge: command.forge,
+              parent: command.parent,
+              name: command.name,
+            })
+          : command.type === "forges.rescan"
+            ? await this.forges.rescan()
+            : await this.forges.status();
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
     } catch (error) {
-      const message = `The forge check failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`;
+      const message =
+        error instanceof CloneError
+          ? error.message
+          : `The forge command failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`;
       send(client, {
         type: "response",
         response: {
