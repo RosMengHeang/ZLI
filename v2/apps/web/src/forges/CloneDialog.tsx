@@ -1,5 +1,5 @@
 import { type ForgeKind, ProjectCloneResult } from "@zli-v2/contracts";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useRef, useState } from "react";
 
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -117,85 +117,92 @@ export function CloneDialog({
     }
   };
 
+  const closeOnEscape = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape" && !busy) onClose();
+  };
+
   return (
-    <Dialog
-      label="Clone repository"
-      title="Clone repository"
-      subtitle="From GitHub, GitLab, Gitea, or any Git URL."
-      size="md"
-      initialFocusRef={sourceRef}
-      onClose={() => {
-        if (!busy) onClose();
-      }}
-    >
-      <form className="clone-form" onSubmit={(event) => void submit(event)}>
-        <div className="dialog-body">
-          <label className="clone-field">
-            <span className="clone-label">Repository</span>
-            <span className="clone-source">
-              {logo ? (
-                <ConnectorLogo id={logo} title={logo} size={16} />
-              ) : (
-                <Icon name="globe" size={14} aria-hidden="true" />
-              )}
-              <input
-                ref={sourceRef}
-                className="input"
-                value={source}
-                placeholder="https://github.com/owner/repo, or owner/repo"
-                spellCheck={false}
-                autoComplete="off"
-                disabled={busy}
-                onChange={(event) => setSource(event.target.value)}
-              />
-            </span>
-          </label>
-          {short ? (
-            <div className="clone-field">
-              <span className="clone-label">Forge</span>
-              <Segmented<ForgeKind> label="Forge" value={forge} options={FORGES} onChange={setForge} />
-            </div>
-          ) : null}
-          <div className="clone-field">
-            <span className="clone-label">Clone into</span>
-            <span className="clone-parent">
-              <span className="clone-path" title={parent}>
-                {parent ? (
-                  <>
-                    {parent}
-                    {name ? (
-                      <span className="clone-path-name">
-                        {separator}
-                        {name}
-                      </span>
-                    ) : null}
-                  </>
+    // biome-ignore lint/a11y/noStaticElementInteractions: Escape from anywhere inside the dialog closes it.
+    <div onKeyDown={closeOnEscape}>
+      <Dialog
+        label="Clone repository"
+        title="Clone repository"
+        subtitle="From GitHub, GitLab, Gitea, or any Git URL."
+        size="md"
+        initialFocusRef={sourceRef}
+        onClose={() => {
+          if (!busy) onClose();
+        }}
+      >
+        <form className="clone-form" onSubmit={(event) => void submit(event)}>
+          <div className="dialog-body">
+            <label className="clone-field">
+              <span className="clone-label">Repository</span>
+              <span className="clone-source">
+                {logo ? (
+                  <ConnectorLogo id={logo} title={logo} size={16} />
                 ) : (
-                  <span className="clone-path-empty">Choose a folder</span>
+                  <Icon name="globe" size={14} aria-hidden="true" />
                 )}
+                <input
+                  ref={sourceRef}
+                  className="input"
+                  value={source}
+                  placeholder="https://github.com/owner/repo, or owner/repo"
+                  spellCheck={false}
+                  autoComplete="off"
+                  disabled={busy}
+                  onChange={(event) => setSource(event.target.value)}
+                />
               </span>
-              <Button size="sm" disabled={busy || !bridge} onClick={() => void choose()}>
-                Choose…
-              </Button>
-            </span>
+            </label>
+            {short ? (
+              <div className="clone-field">
+                <span className="clone-label">Forge</span>
+                <Segmented<ForgeKind> label="Forge" value={forge} options={FORGES} onChange={setForge} />
+              </div>
+            ) : null}
+            <div className="clone-field">
+              <span className="clone-label">Clone into</span>
+              <span className="clone-parent">
+                <span className="clone-path" title={parent}>
+                  {parent ? (
+                    <>
+                      {parent}
+                      {name ? (
+                        <span className="clone-path-name">
+                          {separator}
+                          {name}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span className="clone-path-empty">Choose a folder</span>
+                  )}
+                </span>
+                <Button size="sm" disabled={busy || !bridge} onClick={() => void choose()}>
+                  Choose…
+                </Button>
+              </span>
+            </div>
+            {error ? (
+              <p className="inline-error" role="alert">
+                <Icon name="alert" size={13} />
+                {error}
+              </p>
+            ) : null}
           </div>
-          {error ? (
-            <p className="inline-error" role="alert">
-              <Icon name="alert" size={13} />
-              {error}
-            </p>
-          ) : null}
-        </div>
-        <div className="dialog-footer">
-          <span className="dialog-footer-note">Runs git clone, then adds the folder as a project.</span>
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" type="submit" loading={busy} disabled={!source.trim() || !parent}>
-            {busy ? "Cloning" : "Clone"}
-          </Button>
-        </div>
-      </form>
-    </Dialog>
+          <div className="dialog-footer">
+            <span className="dialog-footer-note">Runs git clone, then adds the folder as a project.</span>
+            <Button variant="ghost" disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" loading={busy} disabled={!source.trim() || !parent}>
+              {busy ? "Cloning" : "Clone"}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+    </div>
   );
 }
