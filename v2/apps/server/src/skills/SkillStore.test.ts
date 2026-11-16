@@ -92,6 +92,7 @@ describe("skill copy targets", () => {
       "kimi",
       "qwen",
       "goose",
+      "grok",
     ]);
     expect(dirs[1]?.agents).toEqual(["claude-code"]);
   });

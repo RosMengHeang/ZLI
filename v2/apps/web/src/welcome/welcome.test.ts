@@ -53,6 +53,7 @@ describe("installCommand", () => {
     expect(installCommand("claude-code", installPlatform("Mozilla/5.0 (Windows NT 10.0)"))).toContain("install.ps1");
     expect(installCommand("claude-code", installPlatform("Mozilla/5.0 (Macintosh)"))).toContain("install.sh");
     expect(installCommand("goose", "posix")).toBeUndefined();
+    expect(installCommand("grok", "windows")).toBe("irm https://x.ai/cli/install.ps1 | iex");
   });
 });
 

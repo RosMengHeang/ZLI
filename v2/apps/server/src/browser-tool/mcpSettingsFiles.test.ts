@@ -6,11 +6,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   accountSettingsFile,
+  grokConfigToml,
   PROJECT_MCP_FILES,
   projectMcpFile,
   projectMcpFileContents,
   removeZliFromUserSettings,
   syncAccountMcpServers,
+  tomlString,
 } from "./mcpSettingsFiles.js";
 
 const temps: string[] = [];
@@ -49,6 +51,7 @@ describe("project MCP files", () => {
       kimi: ".kimi-code/mcp.json",
       gemini: ".gemini/settings.json",
       qwen: ".qwen/settings.json",
+      grok: ".grok/config.toml",
     });
     expect(projectMcpFile("droid")).toBe(".factory/mcp.json");
     expect(projectMcpFile("claude-code")).toBeUndefined();
@@ -72,6 +75,44 @@ describe("project MCP files", () => {
       });
     }
     expect(projectMcpFileContents("droid", [])).toBe('{\n  "mcpServers": {}\n}\n');
+  });
+
+  it("writes Grok's servers as quoted TOML tables", () => {
+    expect(projectMcpFileContents("grok", [stdio, remote])).toBe(grokConfigToml([stdio, remote]));
+    expect(
+      grokConfigToml([
+        { name: "local", command: "C:\\Program Files\\node.exe", args: ["server.js", "--flag"], env: { TOKEN: "a" } },
+        {
+          transport: "http",
+          name: "linear",
+          url: "https://mcp.linear.app/mcp",
+          headers: { Authorization: "Bearer t" },
+        },
+        { transport: "http", name: "bare", url: "https://example.com/mcp", headers: {} },
+      ]),
+    ).toBe(
+      [
+        '[mcp_servers."local"]',
+        'command = "C:\\\\Program Files\\\\node.exe"',
+        'args = ["server.js", "--flag"]',
+        'env = { "TOKEN" = "a" }',
+        "",
+        '[mcp_servers."linear"]',
+        'url = "https://mcp.linear.app/mcp"',
+        'headers = { "Authorization" = "Bearer t" }',
+        "",
+        '[mcp_servers."bare"]',
+        'url = "https://example.com/mcp"',
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("escapes quotes, backslashes, and control characters in TOML strings", () => {
+    expect(tomlString('say "hi"')).toBe('"say \\"hi\\""');
+    expect(tomlString("a\\b")).toBe('"a\\\\b"');
+    expect(tomlString("line\nbreak\ttab\u007f")).toBe('"line\\u000abreak\\u0009tab\\u007f"');
+    expect(tomlString("] = 1\n[evil]")).toBe('"] = 1\\u000a[evil]"');
   });
 });
 

@@ -17,6 +17,7 @@ export const SELECTABLE_PROVIDERS = [
   "kimi",
   "qwen",
   "goose",
+  "grok",
 ] as const satisfies readonly ListedProviderKind[];
 
 const FALLBACK_NAMES: Record<(typeof SELECTABLE_PROVIDERS)[number], string> = {
@@ -30,6 +31,7 @@ const FALLBACK_NAMES: Record<(typeof SELECTABLE_PROVIDERS)[number], string> = {
   kimi: "Kimi Code",
   qwen: "Qwen Code",
   goose: "Goose",
+  grok: "Grok",
 };
 
 /** What to run to sign in, for the agents whose login ZLI can read. Claude Code and Gemini ask on first start. */
@@ -37,6 +39,7 @@ const SIGN_IN: Partial<Record<ListedProviderKind, string>> = {
   "claude-code": "claude",
   codex: "codex login",
   gemini: "gemini",
+  grok: "grok login",
 };
 
 export function signInCommand(provider: ListedProviderKind): string | undefined {

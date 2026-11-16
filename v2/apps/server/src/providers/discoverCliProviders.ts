@@ -25,6 +25,7 @@ const LISTED = [
   { provider: "kimi", displayName: "Kimi Code", binary: "kimi" },
   { provider: "qwen", displayName: "Qwen Code", binary: "qwen" },
   { provider: "goose", displayName: "Goose", binary: "goose" },
+  { provider: "grok", displayName: "Grok", binary: "grok" },
 ] as const satisfies ReadonlyArray<{ provider: ListedProviderKind; displayName: string; binary: string }>;
 
 /** CLIs distributed through npm or bun, whose global shims land outside PATH on some machines. */
@@ -252,6 +253,10 @@ export async function readCliModels(
       );
     case "opencode":
       return parseOpenCodeModels(
+        await readCliOutput(command, ["models"], { timeoutMs: MODEL_TIMEOUT_MS, maxChars: MAX_MODEL_OUTPUT_CHARS }),
+      );
+    case "grok":
+      return parseGrokModels(
         await readCliOutput(command, ["models"], { timeoutMs: MODEL_TIMEOUT_MS, maxChars: MAX_MODEL_OUTPUT_CHARS }),
       );
     default:
@@ -544,6 +549,31 @@ export function parseOpenCodeModels(output: string | undefined): ProviderModelOp
   return models.length > 0 ? models : undefined;
 }
 
+/**
+ * `grok models` prints "Available models:", then one row per model this account can use: "* id (default)"
+ * for the default and "- id" for the rest. Signed out, it still prints a short built-in list, which is not
+ * what the account will get, so that is skipped.
+ */
+export function parseGrokModels(output: string | undefined): ProviderModelOption[] | undefined {
+  if (!output || /\bnot authenticated\b/iu.test(output)) return undefined;
+  const models: ProviderModelOption[] = [];
+  let listing = false;
+  for (const line of cleanLines(output)) {
+    if (/^available models:?$/iu.test(line)) {
+      listing = true;
+      continue;
+    }
+    const match = listing ? /^([*-])\s+(\S+)(\s+\(default\))?$/u.exec(line) : null;
+    const id = match?.[2];
+    if (!id || !LAUNCHABLE_MODEL_ID.test(id)) continue;
+    const before = models.length;
+    pushModel(models, id, id);
+    const added = models.length > before ? models[before] : undefined;
+    if (added && (match[1] === "*" || match[3])) added.isDefault = true;
+  }
+  return models.length > 0 ? models : undefined;
+}
+
 function pushModel(models: ProviderModelOption[], id: string, label: string): void {
   const cleanLabel = label.replace(/\s+/gu, " ").trim();
   if (models.length >= MAX_MODELS || id.length > 200 || !cleanLabel) return;
@@ -658,6 +688,7 @@ function installDirs(spec: ListedSpec, probe: CliProbe, api: typeof posix | type
     if (spec.provider === "droid") dirs.push(api.join(probe.homeDir, "bin"));
     if (spec.provider === "opencode") dirs.push(api.join(probe.homeDir, ".opencode", "bin"));
     if (spec.provider === "kimi") dirs.push(api.join(probe.homeDir, ".kimi-code", "bin"));
+    if (spec.provider === "grok") dirs.push(api.join(probe.homeDir, ".grok", "bin"));
     if (PACKAGE_MANAGER_CLIS.has(spec.provider)) dirs.push(api.join(probe.homeDir, ".bun", "bin"));
   }
   if (probe.platform === "win32" && probe.localAppData && spec.provider === "cursor-agent") {
