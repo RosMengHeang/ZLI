@@ -600,6 +600,31 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
     ]);
   });
 
+  it("never stops to ask when nobody is there to answer", () => {
+    const readOnly = claudeSessionArgs({ permissionMode: "read-only", unattended: true });
+    expect(readOnly).not.toContain("plan");
+    expect(readOnly).not.toContain("--permission-prompt-tool");
+    expect(readOnly.slice(readOnly.indexOf("--permission-mode"))).toEqual([
+      "--permission-mode",
+      "dontAsk",
+      "--disallowedTools",
+      "AskUserQuestion",
+      "EnterPlanMode",
+      "ExitPlanMode",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+    ]);
+    const full = claudeSessionArgs({ permissionMode: "full-access", unattended: true, model: "sonnet" });
+    expect(full).toContain("bypassPermissions");
+    expect(full.slice(full.indexOf("--disallowedTools"), full.indexOf("--model"))).toEqual([
+      "--disallowedTools",
+      "AskUserQuestion",
+      "EnterPlanMode",
+      "ExitPlanMode",
+    ]);
+  });
+
   it("starts supervised sessions accepting edits with stdio prompts and the chosen model", async () => {
     const child = new FakeProcess();
     let args: readonly string[] = [];

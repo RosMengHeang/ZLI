@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
-import { applyImports, defaultImportChoice } from "./McpImportPanel.js";
 import { McpServersSection } from "./McpServersSection.js";
 import {
   applyDraft,
@@ -23,6 +22,7 @@ import {
   withDisabledTools,
   withProjects,
 } from "./mcpServers.js";
+import { applyImports, defaultImportChoice } from "./McpImportPanel.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 

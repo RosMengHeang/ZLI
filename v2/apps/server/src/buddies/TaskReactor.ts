@@ -320,6 +320,7 @@ export class TaskReactor {
         provider: pick.provider,
         cwd: worktree.path,
         permissionMode: pick.permissionMode,
+        unattended: true,
         ...(pick.model ? { model: pick.model } : {}),
         ...(pick.accountId ? { accountId: pick.accountId } : {}),
         ...(name ? { name } : {}),

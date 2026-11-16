@@ -62,13 +62,16 @@ export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection
   const items: ChatItem[] = [];
   const tasks = state.tasks ?? [];
   const messages = (state.buddyMessages ?? []).filter((message) => message.buddyId === buddy.buddyId);
-  for (const message of messages)
+  for (const message of messages) {
+    // A teammate's message sits on the buddy's side, named, since you did not write it.
+    const sender = message.from ? state.buddies?.find((entry) => entry.buddyId === message.from) : undefined;
     items.push({
-      kind: message.role === "you" ? "you" : "say",
+      kind: message.role === "you" && !message.from ? "you" : "say",
       key: message.messageId,
       at: message.at,
-      text: message.text,
+      text: message.from ? `${sender?.name ?? "A teammate"} asked: ${message.text}` : message.text,
     });
+  }
   for (const routine of state.routines ?? [])
     if (routine.buddyId === buddy.buddyId)
       items.push({
@@ -427,6 +430,20 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
       setFiles([]);
     }
   };
+  // Replying: your last message has no answer yet. Stop ends the reply and drops what is queued behind it.
+  const messages = (projection.buddyMessages ?? []).filter((message) => message.buddyId === buddy.buddyId);
+  const replying = messages.at(-1)?.role === "you";
+  const stop = async () => {
+    const threadId = buddy.chatThreadId;
+    if (threadId) {
+      for (const queued of projection.queuedMessages ?? [])
+        if (queued.threadId === threadId) await run({ type: "thread.queue.remove", threadId, queueId: queued.queueId });
+      const thread = projection.threads.find((entry) => entry.threadId === threadId);
+      if (thread && (thread.status === "working" || thread.status === "waiting" || thread.status === "starting"))
+        await run({ type: "thread.interrupt", threadId });
+    }
+    await run({ type: "buddy.chat.reply", buddyId: buddy.buddyId, messageId: makeCommandId(), text: "Stopped." });
+  };
   if (projection.projects.length === 0)
     return <p className="buddies-hint buddy-chat-note">Add a project to give jobs.</p>;
   return (
@@ -490,16 +507,28 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
             }
           }}
         />
-        <button
-          className="send-button"
-          type="submit"
-          aria-label="Send"
-          data-tooltip="Send"
-          data-shortcut="Enter"
-          disabled={(!text.trim() && files.length === 0) || busy}
-        >
-          <Icon name="arrowUp" size={15} />
-        </button>
+        {replying && !text.trim() && files.length === 0 ? (
+          <button
+            className="send-button is-stop"
+            type="button"
+            aria-label={`Stop ${buddy.name}`}
+            data-tooltip="Stop"
+            onClick={() => void stop()}
+          >
+            <Icon name="stop" size={13} />
+          </button>
+        ) : (
+          <button
+            className="send-button"
+            type="submit"
+            aria-label="Send"
+            data-tooltip="Send"
+            data-shortcut="Enter"
+            disabled={(!text.trim() && files.length === 0) || busy}
+          >
+            <Icon name="arrowUp" size={15} />
+          </button>
+        )}
       </div>
     </form>
   );

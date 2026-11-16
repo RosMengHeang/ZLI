@@ -11,7 +11,7 @@ import {
   removeReviewComments,
   useReviewComments,
 } from "./reviewComments.js";
-import { SendToAgentButton, type SentNotice } from "./SendToAgentButton.js";
+import { type SentNotice, SendToAgentButton } from "./SendToAgentButton.js";
 
 /** Comments waiting to be sent, with the action that sends them to an agent. */
 export function ReviewCommentList({

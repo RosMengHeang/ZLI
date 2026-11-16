@@ -426,6 +426,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             status: "starting",
             capabilities: {},
             ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
+            ...(command.unattended ? { unattended: true as const } : {}),
             ...(command.model ? { model: command.model } : {}),
             ...(command.name !== undefined ? { name: command.name } : {}),
             ...(command.startedBy !== undefined ? { startedBy: command.startedBy } : {}),

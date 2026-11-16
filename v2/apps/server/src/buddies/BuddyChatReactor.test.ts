@@ -79,9 +79,9 @@ async function setup() {
     return engine.projection();
   };
   /** What the agent would do: take the queued message, answer, and go idle. */
-  const answer = async (text: string) => {
+  const answer = async (text: string, buddyId = "b1") => {
     let state = await settle();
-    const threadId = state.buddies?.[0]?.chatThreadId as string;
+    const threadId = state.buddies?.find((entry) => entry.buddyId === buddyId)?.chatThreadId as string;
     for (const queued of state.queuedMessages ?? [])
       if (queued.threadId === threadId) {
         await send(engine, { type: "thread.queue.remove", threadId, queueId: queued.queueId } as RuntimeCommand);
@@ -110,6 +110,7 @@ describe("parseChatReply", () => {
       text: "Sure, I'll fix it.",
       jobs: [{ project: "shop-web", goal: "Fix the cart total when a coupon is applied twice." }],
       remember: ["Prefers small PRs."],
+      tells: [],
     });
   });
 
@@ -118,6 +119,7 @@ describe("parseChatReply", () => {
       text: "",
       jobs: [],
       remember: [],
+      tells: [],
     });
   });
 });
@@ -129,6 +131,7 @@ describe("BuddyChatReactor", () => {
     const started = await settle();
     const thread = started.threads.find((candidate) => candidate.threadId === started.buddies?.[0]?.chatThreadId);
     expect(thread?.permissionMode).toBe("read-only");
+    expect(thread?.unattended).toBe(true);
     expect(started.queuedMessages?.[0]?.text).toBe("hello");
 
     const state = await answer("Hi! What are we working on today?");
@@ -156,5 +159,58 @@ describe("BuddyChatReactor", () => {
     ]);
     expect(state.buddies?.[0]?.memory.map((note) => note.text)).toEqual(["Likes small PRs."]);
     expect(state.buddyMessages?.at(-1)?.text).toBe("Starting on it.");
+  });
+
+  it("delivers a message to a teammate and brings the answer back, without a loop", async () => {
+    const { engine, settle, answer } = await setup();
+    await send(engine, {
+      type: "buddy.create",
+      buddy: {
+        buddyId: "b2",
+        name: "Primary",
+        color: "indigo",
+        role: "primary",
+        engine: { mode: "auto" },
+        permissionMode: "read-only",
+        maxActiveJobs: 1,
+        handoffs: [],
+      },
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-3",
+      text: "Ask Primary how its day was",
+    } as RuntimeCommand);
+    await settle();
+    let state = await answer('Asking now.\n[[tell buddy="Primary"]]How was your day?[[/tell]]');
+    const chat = (buddyId: string) =>
+      state.buddyMessages
+        ?.filter((message) => message.buddyId === buddyId)
+        .map((message) => [message.role, message.from ?? "", message.text]);
+    expect(chat("b1")?.at(-1)).toEqual(["buddy", "", 'Asking now.\n\nSent Primary: "How was your day?"']);
+    expect(chat("b2")).toEqual([["you", "b1", "How was your day?"]]);
+    const primaryThread = state.buddies?.find((entry) => entry.buddyId === "b2")?.chatThreadId;
+    expect(state.queuedMessages?.find((queued) => queued.threadId === primaryThread)?.text).toContain(
+      "Builder, your teammate, says:\nHow was your day?",
+    );
+
+    // Primary answers and tries to message back: the answer goes to Builder, the message does not.
+    state = await answer('Great, thanks!\n[[tell buddy="Builder"]]And yours?[[/tell]]', "b2");
+    expect(chat("b2")?.at(-1)).toEqual(["buddy", "", "Great, thanks!"]);
+    expect(chat("b1")?.at(-1)).toEqual(["buddy", "", "Primary replied: Great, thanks!"]);
+    expect(chat("b1")?.filter(([role]) => role === "you")).toHaveLength(1);
+  });
+
+  it("does not let a buddy send itself a teammate's message", async () => {
+    const { engine } = await setup();
+    const receipt = await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-4",
+      text: "Hi me",
+      from: "b1",
+    } as RuntimeCommand);
+    expect(receipt.status).toBe("rejected");
   });
 });

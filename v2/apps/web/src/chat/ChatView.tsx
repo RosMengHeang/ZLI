@@ -37,8 +37,8 @@ import type { ChatPlace } from "../sessions/launch.js";
 import { buildTimeline, conversationThreads, type TimelineItem } from "../sessions/sessions.js";
 import { useAppSettings } from "../settings/appSettings.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
-import { type Buddy, buddyName } from "../teammates/buddies.js";
 import { useChatBuddy } from "../teammates/chatBuddies.js";
+import { type Buddy, buddyName } from "../teammates/buddies.js";
 import {
   defaultBuddy,
   freeAgentName,

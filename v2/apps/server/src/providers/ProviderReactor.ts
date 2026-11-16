@@ -191,6 +191,7 @@ export class ProviderReactor {
       cwd,
       worktreeId: thread.worktreeId,
       ...(thread.permissionMode ? { permissionMode: thread.permissionMode } : {}),
+      ...(thread.unattended ? { unattended: true } : {}),
       ...(thread.model ? { model: thread.model } : {}),
       ...(account ? { account } : {}),
       ...(trustedProjectPath ? { trustedProjectPath } : {}),

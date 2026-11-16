@@ -132,6 +132,11 @@ export const ThreadProjection = z.object({
    */
   usageLimit: UsageLimitStop.extend({ autoResume: z.boolean().optional() }).optional(),
   permissionMode: PermissionMode.optional(),
+  /**
+   * Nobody answers this agent's prompts as they come, as in a buddy's chat or job. It never stops to ask the
+   * person a question or to approve a plan; it says what it needs in its reply instead.
+   */
+  unattended: z.literal(true).optional(),
   model: z.string().min(1).max(200).optional(),
   /** The name the person gave this agent. */
   name: AgentName.optional(),

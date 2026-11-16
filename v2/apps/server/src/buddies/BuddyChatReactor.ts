@@ -14,7 +14,7 @@ import {
 
 import type { CommandReceipt, Engine } from "../orchestration/Engine.js";
 import { candidatesFor, pickEngine, trackRecords } from "./autopick.js";
-import { chatBrief, parseChatReply, projectNamed } from "./chat.js";
+import { chatBrief, parseChatReply, projectNamed, senderName } from "./chat.js";
 import { stableId } from "./TaskReactor.js";
 
 export type BuddyChatReactorOptions = {
@@ -85,7 +85,7 @@ export class BuddyChatReactor {
     const lastReply = messages.findLastIndex((message) => message.role === "buddy");
     const waiting = messages.slice(lastReply + 1).filter((message) => message.role === "you");
     const thread = state.threads.find((candidate) => candidate.threadId === buddy.chatThreadId);
-    if (thread && waiting.length > 0) await this.collect(state, buddy, thread.threadId);
+    if (thread && waiting.length > 0) await this.collect(state, buddy, thread.threadId, waiting);
     if (waiting.length === 0) return;
     const usable =
       thread &&
@@ -103,7 +103,9 @@ export class BuddyChatReactor {
           type: "thread.queue",
           threadId,
           queueId: `buddy-chat:${message.messageId}`,
-          text: message.text,
+          text: message.from
+            ? `${senderName(state, message)}, your teammate, says:\n${message.text}\n\nAnswer them in your reply. ZLI passes it back to them.`
+            : message.text,
           context: chatBrief({ buddy, state, guess, ...(history ? { history } : {}) }),
         } as RuntimeCommand,
         `buddy-chat-queue:${message.messageId}:${threadId}`,
@@ -154,6 +156,7 @@ export class BuddyChatReactor {
         provider: pick.provider,
         cwd: checkout.path,
         permissionMode: "read-only",
+        unattended: true,
         ...(pick.model ? { model: pick.model } : {}),
         ...(pick.accountId ? { accountId: pick.accountId } : {}),
         ...(agentNameTaken(state, { projectId: checkout.projectId, name }) ? {} : { name }),
@@ -200,7 +203,12 @@ export class BuddyChatReactor {
   }
 
   /** Brings the chat's finished answer back as the buddy's message, and does what it asked for. */
-  private async collect(state: RuntimeProjection, buddy: BuddyProjection, threadId: string): Promise<void> {
+  private async collect(
+    state: RuntimeProjection,
+    buddy: BuddyProjection,
+    threadId: string,
+    answered: readonly BuddyMessage[],
+  ): Promise<void> {
     const thread = state.threads.find((candidate) => candidate.threadId === threadId);
     if (!thread || thread.status === "working" || thread.status === "starting") return;
     if ((state.queuedMessages ?? []).some((queued) => queued.threadId === threadId)) return;
@@ -252,8 +260,38 @@ export class BuddyChatReactor {
         } as RuntimeCommand,
         `buddy-chat-note:${answer.messageId}:${index}`,
       );
+    // A teammate's message is answered once and not passed on, so two buddies never message each other in a loop.
+    const fromTeammate = answered.some((message) => message.from);
+    if (!fromTeammate)
+      for (const [index, tell] of parsed.tells.entries()) {
+        const target = buddyNamed(state, tell.buddy);
+        if (!target || target.archived || target.buddyId === buddy.buddyId) {
+          started.push(`There is no teammate called ${tell.buddy}.`);
+          continue;
+        }
+        const receipt = await this.dispatch(
+          {
+            type: "buddy.chat.send",
+            buddyId: target.buddyId,
+            messageId: stableId(`buddy-chat-tell:${answer.messageId}:${index}`),
+            text: tell.text,
+            from: buddy.buddyId,
+          } as RuntimeCommand,
+          `buddy-chat-tell:${answer.messageId}:${index}`,
+        );
+        started.push(
+          receipt.status === "rejected"
+            ? `I could not message ${target.name}: ${receipt.error?.message ?? "it was refused"}.`
+            : `Sent ${target.name}: "${tell.text.length > 120 ? `${tell.text.slice(0, 119)}…` : tell.text}"`,
+        );
+      }
     const text = [parsed.text || (parsed.jobs.length > 0 ? "On it." : ""), ...started].filter(Boolean).join("\n\n");
-    if (text) await this.reply(buddy, `answer:${answer.messageId}`, text);
+    if (!text) return;
+    await this.reply(buddy, `answer:${answer.messageId}`, text);
+    for (const senderId of new Set(answered.flatMap((message) => (message.from ? [message.from] : [])))) {
+      const sender = state.buddies?.find((entry) => entry.buddyId === senderId && !entry.archived);
+      if (sender) await this.reply(sender, `relay:${answer.messageId}:${senderId}`, `${buddy.name} replied: ${text}`);
+    }
   }
 
   private reply(buddy: BuddyProjection, key: string, text: string): Promise<CommandReceipt> {

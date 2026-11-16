@@ -12,11 +12,15 @@ import {
 /** A job the buddy started from the chat, read from its reply. */
 export type ChatJob = { buddy?: string; project?: string; goal: string };
 
+/** A message the buddy sends to a teammate's chat, read from its reply. */
+export type ChatTell = { buddy: string; text: string };
+
 /** What a buddy's reply asks ZLI to do, and the words the person sees. */
-export type ChatReply = { text: string; jobs: ChatJob[]; remember: string[] };
+export type ChatReply = { text: string; jobs: ChatJob[]; remember: string[]; tells: ChatTell[] };
 
 const JOB = /\[\[job([^\]]*)\]\]([\s\S]*?)\[\[\/job\]\]/gu;
 const REMEMBER = /\[\[remember\]\]([\s\S]*?)\[\[\/remember\]\]/gu;
+const TELL = /\[\[tell([^\]]*)\]\]([\s\S]*?)\[\[\/tell\]\]/gu;
 const ATTRIBUTE = /(\w+)\s*=\s*"([^"]*)"/gu;
 /** The brief shows the markers with <placeholders>; a reply that repeats one starts nothing. */
 const PLACEHOLDER = /^<[^<>]*>$/u;
@@ -25,6 +29,7 @@ const PLACEHOLDER = /^<[^<>]*>$/u;
 export function parseChatReply(raw: string): ChatReply {
   const jobs: ChatJob[] = [];
   const remember: string[] = [];
+  const tells: ChatTell[] = [];
   let text = raw.replace(JOB, (_all, attributes: string, goal: string) => {
     const job: ChatJob = { goal: goal.trim() };
     for (const [, key, value] of attributes.matchAll(ATTRIBUTE)) {
@@ -38,7 +43,21 @@ export function parseChatReply(raw: string): ChatReply {
     if (note.trim() && !PLACEHOLDER.test(note.trim())) remember.push(note.trim().slice(0, 400));
     return "";
   });
-  return { text: text.replace(/\n{3,}/gu, "\n\n").trim(), jobs, remember };
+  text = text.replace(TELL, (_all, attributes: string, said: string) => {
+    let buddy = "";
+    for (const [, key, value] of attributes.matchAll(ATTRIBUTE))
+      if (key === "buddy" && value?.trim()) buddy = value.trim();
+    if (buddy && said.trim() && !PLACEHOLDER.test(said.trim()) && !PLACEHOLDER.test(buddy))
+      tells.push({ buddy, text: said.trim().slice(0, 4_000) });
+    return "";
+  });
+  return { text: text.replace(/\n{3,}/gu, "\n\n").trim(), jobs, remember, tells };
+}
+
+/** Who sent a message in a buddy's chat: the person, or the teammate who sent it. */
+export function senderName(state: RuntimeProjection, message: BuddyMessage): string {
+  if (!message.from) return "Person";
+  return state.buddies?.find((entry) => entry.buddyId === message.from)?.name ?? "A teammate";
 }
 
 /** The project a job names, by name or folder; with one project, that one. */
@@ -86,6 +105,8 @@ export function chatBrief(options: {
     "Leave buddy out to do it yourself, or name a teammate who suits it better. Tell the person in one line what you started.",
     "If you are not sure which project they mean, ask them, listing the project names, and start the job after they answer.",
     "If they tell you something worth keeping about them or how they like to work, put [[remember]]<one short sentence>[[/remember]] in your reply.",
+    'To message a teammate, put [[tell buddy="<name>"]]<your message>[[/tell]] in your reply. ZLI delivers it to their chat and brings their answer back here. Do not wait for it.',
+    "You cannot ask the person questions with a tool, approve plans, or wait on anything: say what you need in your reply, and the person answers in the chat.",
     "",
     `Projects: ${state.projects.map((entry) => entry.name).join(", ") || "none yet"}.`,
   ];
@@ -115,7 +136,7 @@ export function chatBrief(options: {
       "Your conversation so far:",
       ...options.history.map(
         (message) =>
-          `${message.role === "you" ? "Person" : "You"}: ${message.text.replace(/\s+/gu, " ").slice(0, 400)}`,
+          `${message.role === "you" ? senderName(state, message) : "You"}:${message.text.replace(/\s+/gu, " ").slice(0, 400)}`,
       ),
     );
   return lines.join("\n");

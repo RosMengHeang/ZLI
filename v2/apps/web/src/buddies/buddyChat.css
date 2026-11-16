@@ -163,3 +163,7 @@
 .new-buddy-instructions { min-height: 84px; resize: vertical; line-height: 1.5; }
 .new-buddy-actions { display: flex; justify-content: flex-end; gap: var(--zli-space-2); }
 @media (max-width: 520px) { .new-buddy-roles { grid-template-columns: minmax(0, 1fr); } }
+
+/* While the buddy replies, the send button stops it. */
+.buddy-chat-composer .send-button.is-stop { background: var(--zli-text); color: var(--zli-surface); }
+.buddy-chat-composer .send-button.is-stop:hover { background: color-mix(in srgb, var(--zli-text) 85%, var(--zli-surface)); }

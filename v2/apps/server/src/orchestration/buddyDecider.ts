@@ -49,6 +49,20 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
       if (buddy.archived) throw new DomainError("buddy_missing", `${buddy.name} was removed from the team.`);
       // A message lands once, however often it is sent.
       if ((projection.buddyMessages ?? []).some((message) => message.messageId === command.messageId)) return [];
+      if (command.type === "buddy.chat.send" && command.from !== undefined) {
+        const sender = requireBuddy(projection, command.from);
+        if (sender.archived || sender.buddyId === buddy.buddyId)
+          throw new DomainError("buddy_missing", "Only another buddy on the team can send this.");
+        return [
+          {
+            type: "buddy.chat.sent",
+            buddyId: buddy.buddyId,
+            messageId: command.messageId,
+            text: command.text,
+            from: sender.buddyId,
+          },
+        ];
+      }
       return [
         {
           type: command.type === "buddy.chat.send" ? "buddy.chat.sent" : "buddy.chat.replied",

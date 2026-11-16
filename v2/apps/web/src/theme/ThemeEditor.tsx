@@ -6,9 +6,9 @@ import { Segmented } from "../ui/Segmented.js";
 import { ColorPicker, ColorPopover, ColorText, parseHexText, SWATCHES } from "./ColorPicker.js";
 import {
   AREA_GROUPS,
-  type CustomTheme,
   colorKind,
   customBase,
+  type CustomTheme,
   type EditableField,
   FIELD_HINTS,
   FIELD_LABELS,

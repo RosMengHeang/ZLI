@@ -145,6 +145,8 @@ export const BuddyMessage = z.object({
   role: z.enum(["you", "buddy"]),
   text: z.string().min(1).max(MAX_CHAT_TEXT),
   at: Time,
+  /** The teammate who sent this message, when it came from another buddy rather than the person. */
+  from: Id.optional(),
 });
 export type BuddyMessage = z.infer<typeof BuddyMessage>;
 
@@ -384,6 +386,8 @@ export const BuddyCommand = z.discriminatedUnion("type", [
     buddyId: Id,
     messageId: Id,
     text: z.string().trim().min(1, "Say something.").max(MAX_GOAL),
+    /** Set when another buddy sends it. */
+    from: Id.optional(),
   }),
   z.object({
     type: z.literal("buddy.chat.reply"),
@@ -484,7 +488,13 @@ export const BuddyEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("buddy.memory.added"), buddyId: Id, note: MemoryNote.omit({ at: true }) }),
   z.object({ type: z.literal("buddy.memory.removed"), buddyId: Id, noteId: Id }),
-  z.object({ type: z.literal("buddy.chat.sent"), buddyId: Id, messageId: Id, text: z.string().min(1).max(MAX_GOAL) }),
+  z.object({
+    type: z.literal("buddy.chat.sent"),
+    buddyId: Id,
+    messageId: Id,
+    text: z.string().min(1).max(MAX_GOAL),
+    from: Id.optional(),
+  }),
   z.object({
     type: z.literal("buddy.chat.replied"),
     buddyId: Id,
@@ -676,9 +686,9 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
   let routines = state.routines ?? [];
   let buddySettings = state.buddySettings ?? DEFAULT_BUDDY_SETTINGS;
   let buddyMessages = state.buddyMessages ?? [];
-  const say = (buddyId: string, messageId: string, role: BuddyMessage["role"], text: string) => {
+  const say = (buddyId: string, messageId: string, role: BuddyMessage["role"], text: string, from?: string) => {
     if (buddyMessages.some((message) => message.messageId === messageId)) return;
-    const next = [...buddyMessages, { messageId, buddyId, role, text, at }];
+    const next = [...buddyMessages, { messageId, buddyId, role, text, at, ...(from ? { from } : {}) }];
     const own = next.filter((message) => message.buddyId === buddyId);
     const drop = new Set(own.slice(0, Math.max(0, own.length - MAX_CHAT_KEPT)).map((message) => message.messageId));
     buddyMessages = drop.size > 0 ? next.filter((message) => !drop.has(message.messageId)) : next;
@@ -967,7 +977,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       }));
       break;
     case "buddy.chat.sent":
-      say(event.buddyId, event.messageId, "you", event.text);
+      say(event.buddyId, event.messageId, "you", event.text, event.from);
       break;
     case "buddy.chat.replied":
       say(event.buddyId, event.messageId, "buddy", event.text);

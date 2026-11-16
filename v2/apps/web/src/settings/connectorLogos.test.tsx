@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
-import { MCP_CATALOG, PLUGIN_CATALOG } from "@zli-v2/contracts";
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
+
+import { MCP_CATALOG, PLUGIN_CATALOG } from "@zli-v2/contracts";
 
 import { ConnectorLogo, hasConnectorLogo, logoFill } from "./connectorLogos.js";
 

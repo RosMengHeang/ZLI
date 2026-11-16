@@ -141,6 +141,31 @@ describe("BuddiesPane", () => {
     expect(items.map((item) => item.kind)).toEqual(["you", "say", "you", "thinking"]);
   });
 
+  it("shows a teammate's message as theirs, not yours", () => {
+    const state = projection({
+      buddies: [buddy("b1", "Primary", 0), buddy("b2", "Builder", 1)],
+      buddyMessages: [{ messageId: "m1", buddyId: "b1", role: "you", text: "How was your day?", at, from: "b2" }],
+    });
+    const [item] = buddyTranscript(state.buddies?.[0] as BuddyProjection, state);
+    expect(item).toMatchObject({ kind: "say", text: "Builder asked: How was your day?" });
+  });
+
+  it("stops a reply: drops what is queued, interrupts the agent, and says so", async () => {
+    const state = projection({
+      buddies: [{ ...buddy("b2", "Builder", 0), chatThreadId: "chat-1" }],
+      threads: [{ threadId: "chat-1", worktreeId: "w1", provider: "claude-code", status: "working", capabilities: {} }],
+      queuedMessages: [{ queueId: "q1", threadId: "chat-1", text: "stopp" }],
+      buddyMessages: [{ messageId: "m1", buddyId: "b2", role: "you", text: "message Primary", at }],
+    } as Partial<RuntimeProjection>);
+    const { commands } = await render(state, "b2");
+    await act(async () => buttonNamed("Stop Builder").click());
+    expect(commands.slice(-3)).toMatchObject([
+      { type: "thread.queue.remove", threadId: "chat-1", queueId: "q1" },
+      { type: "thread.interrupt", threadId: "chat-1" },
+      { type: "buddy.chat.reply", buddyId: "b2", text: "Stopped." },
+    ]);
+  });
+
   it("shows a result card with the setup and its reason, and sends a revision", async () => {
     const state = projection({
       buddies: [buddy("b2", "Builder", 0)],

@@ -102,6 +102,8 @@ export type ClaudeCodeClientOptions = {
   spawnProcess?: (command: string, args: readonly string[], options: ClaudeSpawnOptions) => ClaudeChild;
   initTimeoutMs?: number;
   permissionMode?: ClaudePermissionMode;
+  /** Nobody answers prompts as they come: see claudeSessionArgs. */
+  unattended?: boolean;
   model?: string;
   /** Conversation id from an earlier process. The CLI continues it instead of starting a new one. */
   resumeSessionId?: string;
@@ -662,6 +664,7 @@ function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string, sess
   const spawnProcess = options.spawnProcess ?? defaultSpawn;
   const args = claudeSessionArgs({
     ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
+    ...(options.unattended ? { unattended: true } : {}),
     ...(options.model?.trim() ? { model: options.model.trim() } : {}),
     ...(options.resumeSessionId?.trim() ? { resumeSessionId: options.resumeSessionId.trim() } : { sessionId }),
     ...(options.mcpConfig ? { mcpConfig: options.mcpConfig } : {}),

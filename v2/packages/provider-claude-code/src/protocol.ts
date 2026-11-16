@@ -21,6 +21,11 @@ const BASE_ARGS = [
 // Full access: each agent runs in its own git worktree, so tool calls are allowed
 // without prompts; without this, print mode denies every Edit/Write/Bash call the
 // user has not pre-allowed.
+/** Claude's tools that stop and wait for the person: off when nobody is there to answer. */
+const UNATTENDED_OFF = ["AskUserQuestion", "EnterPlanMode", "ExitPlanMode"] as const;
+/** The file-writing tools, refused outright for a read-only agent that runs unattended. */
+const READ_ONLY_OFF = ["Edit", "Write", "NotebookEdit"] as const;
+
 export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPermissions"] as const;
 
 // Supervised accepts file edits and, with "stdio" as the prompt tool, asks over stdout
@@ -34,6 +39,12 @@ export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPe
 export function claudeSessionArgs(
   input: {
     permissionMode?: ClaudePermissionMode;
+    /**
+     * Nobody answers prompts as they come, as in a buddy's chat or job. Claude's own question and plan tools are
+     * turned off, since they wait for an answer, and read-only runs in dontAsk mode, which refuses anything not
+     * already allowed instead of asking. Plan mode would write a plan and wait for it to be approved.
+     */
+    unattended?: boolean;
     model?: string;
     sessionId?: string;
     resumeSessionId?: string;
@@ -47,15 +58,18 @@ export function claudeSessionArgs(
   } = {},
 ): string[] {
   const args: string[] =
-    input.permissionMode === "supervised" || input.permissionMode === "read-only"
-      ? [
-          ...BASE_ARGS,
-          "--permission-mode",
-          input.permissionMode === "read-only" ? "plan" : "acceptEdits",
-          "--permission-prompt-tool",
-          "stdio",
-        ]
-      : [...CLAUDE_SESSION_ARGS];
+    input.unattended && input.permissionMode === "read-only"
+      ? [...BASE_ARGS, "--permission-mode", "dontAsk", "--disallowedTools", ...UNATTENDED_OFF, ...READ_ONLY_OFF]
+      : input.permissionMode === "supervised" || input.permissionMode === "read-only"
+        ? [
+            ...BASE_ARGS,
+            "--permission-mode",
+            input.permissionMode === "read-only" ? "plan" : "acceptEdits",
+            "--permission-prompt-tool",
+            "stdio",
+          ]
+        : [...CLAUDE_SESSION_ARGS];
+  if (input.unattended && input.permissionMode !== "read-only") args.push("--disallowedTools", ...UNATTENDED_OFF);
   if (input.model) args.push("--model", input.model);
   if (input.resumeSessionId) args.push("--resume", input.resumeSessionId);
   else if (input.sessionId) args.push("--session-id", input.sessionId);

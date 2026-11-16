@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { findFileReferences, indexBasenames, parseFileReference, toWorktreePath } from "./filePaths.js";
-import { ancestorDirectories, buildFileTree, visibleTreeRows } from "./fileTree.js";
+import { buildFileTree, ancestorDirectories, visibleTreeRows } from "./fileTree.js";
 import { fuzzyMatch, rankFiles } from "./fuzzy.js";
 
 const root = "D:\\work\\repo";
