@@ -14,7 +14,17 @@ import {
   type WorktreeSetupProjection,
   worktreeDevServers,
 } from "@zli-v2/contracts";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type CSSProperties,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
@@ -122,6 +132,7 @@ import { AGENTS_NOT_TRUSTED, useAgentTrust } from "../setup/agentTrust.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
+import { SidebarResizer, useSidebarWidth } from "../sidebar/SidebarResizer.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { themeChoices } from "../theme/customThemes.js";
 import { ThemeEditor } from "../theme/ThemeEditor.js";
@@ -215,6 +226,7 @@ function WorkspaceApp() {
   const [buddyView, setBuddyView] = useState<string>();
   // One width for the right panel: switching tabs keeps it where it was dragged to.
   const [panelWidth, setPanelWidth] = usePanelWidth("panel");
+  const [sidebarWidth, setSidebarWidth] = useSidebarWidth();
   const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
   const [workspaceBodyRef, workspaceSpace] = useWorkspaceSpace();
   // The remembered sizes stay as chosen; a smaller window only shrinks what is shown, so they return when it grows.
@@ -2766,6 +2778,7 @@ function WorkspaceApp() {
     <FileIndexProvider onOpenFile={openFile}>
       <div
         className={`app-shell${sidebarOpen ? "" : " is-sidebar-hidden"}${columnsLayout ? " is-columns" : ""}${sidePane ? " has-panel" : ""}`}
+        style={sidebarWidth ? ({ "--zli-sidebar-width": `${sidebarWidth}px` } as CSSProperties) : undefined}
       >
         {sidebarOpen ? (
           <Sidebar
@@ -2819,6 +2832,7 @@ function WorkspaceApp() {
             activeBuddyId={buddyView}
           />
         ) : null}
+        {sidebarOpen ? <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} /> : null}
         <main className="main-workspace">
           {columnsLayout ? null : topbar}
           {notice ? (

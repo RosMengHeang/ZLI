@@ -1,6 +1,13 @@
 /* ---------- Sidebar ---------- */
 /* The sidebar is part of the window canvas: no border, the workbench islands beside it draw the edge. */
-.sidebar { display: flex; width: 256px; flex: 0 0 256px; flex-direction: column; background: var(--zli-sidebar); }
+.sidebar { display: flex; width: var(--zli-sidebar-width, 256px); min-width: 200px; max-width: max(200px, 40vw); flex: 0 0 var(--zli-sidebar-width, 256px); flex-direction: column; background: var(--zli-sidebar); }
+/* The sidebar's right edge drags to resize it, within the limits above. Its line only shows while in use. */
+.app-shell { position: relative; --zli-sidebar-width: 256px; }
+.sidebar-resizer { position: absolute; top: 0; bottom: 0; left: calc(clamp(200px, var(--zli-sidebar-width, 256px), max(200px, 40vw)) - 3px); z-index: 6; width: 6px; cursor: col-resize; touch-action: none; -webkit-app-region: no-drag; }
+.sidebar-resizer::after { position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; content: ""; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-resizer:hover::after, .sidebar-resizer:focus-visible::after, .sidebar-resizer.is-dragging::after { background: var(--zli-accent); }
+.sidebar-resizer:focus-visible { outline: none; }
+body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 /* In the desktop app this row is part of the title bar: it drags the window and clears macOS window buttons. */
 .sidebar-top { display: flex; align-items: center; gap: var(--zli-space-2); height: var(--zli-bar-height); flex: 0 0 auto; padding: 0 var(--zli-space-2) 0 max(var(--zli-space-4), env(titlebar-area-x, 0px)); -webkit-app-region: drag; }
 .sidebar-top button { -webkit-app-region: no-drag; }
@@ -21,6 +28,9 @@
 .sidebar-new-agent:hover .kbd-group, .sidebar-new-agent:focus-visible .kbd-group { opacity: 1; }
 
 .sidebar-scroll { min-height: 0; flex: 1; overflow: auto; padding: 0 var(--zli-space-2) var(--zli-space-3); }
+/* It scrolls with the wheel or trackpad; a scrollbar would only crowd the rows. */
+.sidebar-scroll { scrollbar-width: none; }
+.sidebar-scroll::-webkit-scrollbar { display: none; }
 .sidebar-empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--zli-space-3); padding: var(--zli-space-1) var(--zli-space-2-5); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .sidebar-empty p { margin: 0; }
 .project-label { display: flex; align-items: center; gap: var(--zli-space-1); padding: 0 var(--zli-space-1) 0 0; border-radius: var(--zli-radius-md); color: var(--zli-muted); font-weight: 500; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
@@ -199,10 +209,10 @@
 .usage-strip-settings:hover { color: var(--zli-text); text-decoration-color: currentColor; }
 .sidebar-usage { margin-left: auto; }
 @media (max-width: 1240px) {
-  .sidebar { width: 236px; flex-basis: 236px; }
+  .app-shell { --zli-sidebar-width: 236px; }
 }
 @media (max-width: 1080px) {
-  .sidebar { width: 216px; flex-basis: 216px; }
+  .app-shell { --zli-sidebar-width: 216px; }
   .session-time { display: none; }
 }
 
