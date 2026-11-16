@@ -1,6 +1,5 @@
-import type { PullRequestInfo, PullRequestStatusResult, WorktreeProjection } from "@zli-v2/contracts";
+import type { ForgeInfo, PullRequestInfo, PullRequestStatusResult, WorktreeProjection } from "@zli-v2/contracts";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
-
 import { issueLinkFor, withIssueReference } from "../issues/issueStart.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
@@ -8,6 +7,7 @@ import { Dialog } from "../ui/Dialog.js";
 import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { baseBranchOptions, useBranches } from "./branches.js";
+import { forgeWords } from "./forgeWords.js";
 import { openExternalLink, useCopyFeedback } from "./links.js";
 import { createPullRequest, pullRequestStatus, pushBranch } from "./pullRequestClient.js";
 
@@ -22,12 +22,15 @@ type Phase =
 export function PullRequestDialog({
   worktree,
   base: requestedBase,
+  forge,
   onClose,
   onCreated,
   onCommitFirst,
 }: {
   worktree: WorktreeProjection;
   base: string | undefined;
+  /** The forge from the last status; the dialog's own status check may name it again. */
+  forge?: ForgeInfo | undefined;
   onClose(): void;
   onCreated(pullRequest: PullRequestInfo): void;
   onCommitFirst(): void;
@@ -35,6 +38,7 @@ export function PullRequestDialog({
   const { bridge, dispatch } = useRuntime();
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [status, setStatus] = useState<PullRequestStatusResult>();
+  const words = forgeWords(status?.forge ?? forge);
   const [loadError, setLoadError] = useState<string>();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -122,14 +126,16 @@ export function PullRequestDialog({
     // biome-ignore lint/a11y/noStaticElementInteractions: Escape from anywhere inside the dialog closes it.
     <div onKeyDown={closeOnEscape}>
       <Dialog
-        label="Create pull request"
+        label={`Create ${words.noun}`}
         className="pr-dialog"
-        title={phase.kind === "done" ? `Pull request #${phase.pullRequest.number}` : "Create pull request"}
+        title={
+          phase.kind === "done" ? `${words.Noun} ${words.sign}${phase.pullRequest.number}` : `Create ${words.noun}`
+        }
         subtitle={
           <>
             <span className="is-mono">{branch}</span>
             {phase.kind === "done" ? (
-              " on GitHub"
+              ` on ${words.label}`
             ) : base.trim() ? (
               <>
                 {" "}
@@ -155,9 +161,9 @@ export function PullRequestDialog({
               <p className="pr-result" role="status">
                 <Icon name="check" size={14} />
                 {phase.existed
-                  ? `This branch already has an open ${phase.pullRequest.isDraft ? "draft " : ""}pull request.`
+                  ? `This branch already has an open ${phase.pullRequest.isDraft ? "draft " : ""}${words.noun}.`
                   : phase.pullRequest.isDraft
-                    ? "Opened as a draft. Mark it ready for review on GitHub when it is."
+                    ? `Opened as a draft. Mark it ready for review on ${words.label} when it is.`
                     : "Opened and ready for review."}
               </p>
               <a className="pr-url" href={phase.pullRequest.url} onClick={(event) => event.preventDefault()}>
@@ -207,7 +213,9 @@ export function PullRequestDialog({
                 />
                 <ProgressStep
                   state={stepState(phase, "create")}
-                  label={draft ? "Open a draft pull request on GitHub" : "Open the pull request on GitHub"}
+                  label={
+                    draft ? `Open a draft ${words.noun} on ${words.label}` : `Open the ${words.noun} on ${words.label}`
+                  }
                 />
               </ol>
               {phase.kind === "failed" ? (
@@ -264,7 +272,7 @@ export function PullRequestDialog({
                   <Icon name="alert" size={14} />
                   <span className="banner-message">
                     {uncommitted} file{uncommitted === 1 ? " has" : "s have"} uncommitted changes. Commit them first so
-                    they are part of the pull request.
+                    they are part of the {words.noun}.
                   </span>
                   <Button size="sm" variant="ghost" icon="commit" onClick={onCommitFirst}>
                     Commit first
@@ -329,19 +337,22 @@ export function PullRequestDialog({
                 <input type="checkbox" checked={draft} onChange={(event) => setDraft(event.target.checked)} />
                 <span className="choice-copy">
                   <span className="choice-title">Create as draft</span>
-                  <span className="choice-detail">Reviewers are not requested until you mark it ready on GitHub.</span>
+                  <span className="choice-detail">
+                    Reviewers are not requested until you mark it ready on {words.label}.
+                  </span>
                 </span>
               </label>
             </div>
             <div className="dialog-footer">
               <span className="dialog-footer-note">
-                Pushes <span className="is-mono">{branch}</span> to origin, then runs gh pr create.
+                Pushes <span className="is-mono">{branch}</span> to origin, then opens the {words.noun} with{" "}
+                {words.kind === "gitlab" ? "glab" : words.kind === "gitea" ? "tea" : "gh"}.
               </span>
               <Button variant="ghost" onClick={onClose}>
                 Cancel
               </Button>
               <Button variant="primary" type="submit" icon="pullRequest" disabled={!ready} shortcut="Mod+Enter">
-                Create PR
+                Create {words.short}
               </Button>
             </div>
           </form>

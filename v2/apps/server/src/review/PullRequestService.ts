@@ -127,8 +127,8 @@ export type PullRequestServiceOptions = {
 };
 
 function unknownForge(host: string | undefined): string {
-  const where = host ? `${host} is` : "this repository's origin is";
-  return `ZLI can't tell which forge ${where} on. For a self-hosted GitLab or Gitea, sign glab or tea in to that server, then check again.`;
+  if (!host) return "Origin isn't on a forge ZLI knows. Pull requests need a remote on GitHub, GitLab or Gitea.";
+  return `ZLI can't tell which forge ${host} is. If it's a self-hosted GitLab or Gitea, sign glab or tea in to it.`;
 }
 
 function forgeInfo(target: ForgeTarget): ForgeInfo | undefined {
@@ -283,6 +283,10 @@ export class PullRequestService {
       return result({ code: "gh_failed", message: UNREADABLE_PULL_REQUEST }, known);
     }
     if (/no (open )?pull requests? found/iu.test(view.stderr)) return result(undefined, known);
+    // A local path or SSH alias stays with gh in case it is GitHub; when gh says it is not, no forge knows it.
+    if (/none of the git remotes|not a known github host|no git remotes/iu.test(view.stderr)) {
+      return result({ code: "unknown_forge", message: unknownForge(target.host) }, extra);
+    }
     return result({ code: "gh_failed", message: ghFailure("could not look up the pull request", view) }, known);
   }
 

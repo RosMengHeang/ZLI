@@ -1084,3 +1084,16 @@ describe("PullRequestService on other forges", () => {
     expect(status.forge?.kind).toBe("gitlab");
   });
 });
+
+describe("PullRequestService with a remote gh cannot place", () => {
+  it("reports an unknown forge instead of gh's error", async () => {
+    const { runner } = fakeRunner(({ command, args }) =>
+      command === "gh" && args[0] === "pr"
+        ? fail("none of the git remotes configured for this repository point to a known GitHub host.")
+        : undefined,
+    );
+    const status = await new PullRequestService(runner).status(INPUT);
+    expect(status.problem?.code).toBe("unknown_forge");
+    expect(status.forge).toBeUndefined();
+  });
+});

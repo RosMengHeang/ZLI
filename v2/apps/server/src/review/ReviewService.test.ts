@@ -1,12 +1,10 @@
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { describe, expect, it } from "vitest";
-
-import { parseNumstat, ReviewService } from "./ReviewService.js";
 import { WorktreeId } from "@zli-v2/contracts";
+import { describe, expect, it } from "vitest";
 import { GitProcess } from "../git/GitProcess.js";
+import { parseNumstat, ReviewService } from "./ReviewService.js";
 
 const WORKTREE_ID = WorktreeId.parse("00000000-0000-4000-8000-000000000001");
 
