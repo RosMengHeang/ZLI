@@ -26,6 +26,10 @@ const MergePullRequestDialog = lazy(() =>
   import("./MergePullRequestDialog.js").then((module) => ({ default: module.MergePullRequestDialog })),
 );
 
+const PublishDialog = lazy(() =>
+  import("../forges/PublishDialog.js").then((module) => ({ default: module.PublishDialog })),
+);
+
 const ReviewPullRequestDialog = lazy(() =>
   import("./ReviewPullRequestDialog.js").then((module) => ({ default: module.ReviewPullRequestDialog })),
 );
@@ -68,6 +72,7 @@ export function PullRequestSection({
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [turningOff, setTurningOff] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const [linkError, setLinkError] = useState<string>();
   const [copyState, copy] = useCopyFeedback();
   const commitAfterClose = useRef(false);
@@ -117,9 +122,34 @@ export function PullRequestSection({
 
   if (status?.problem?.code === "no_origin" && !linkError && !error) {
     return (
-      <p className="review-pr-quiet">
-        Pull requests show here once this repository has a remote on GitHub, GitLab or Gitea.
-      </p>
+      <fieldset className="review-pr">
+        <legend className="sr-only">{words.Noun}</legend>
+        <div className="review-pr-setup">
+          <span className="review-pr-setup-icon" aria-hidden="true">
+            <Icon name="upload" size={14} />
+          </span>
+          <div className="review-pr-setup-copy">
+            <span className="review-pr-setup-title">Not on a forge yet</span>
+            <span className="review-pr-setup-detail">
+              Publish it to GitHub, GitLab or Gitea to open pull requests from here.
+            </span>
+          </div>
+          <div className="review-pr-setup-actions">
+            <Button size="sm" variant="primary" onClick={() => setPublishOpen(true)}>
+              Publish
+            </Button>
+          </div>
+        </div>
+        {publishOpen ? (
+          <Suspense fallback={null}>
+            <PublishDialog
+              worktree={worktree}
+              onClose={() => setPublishOpen(false)}
+              onPublished={() => void refreshPullRequest(dispatch, worktreeId, true)}
+            />
+          </Suspense>
+        ) : null}
+      </fieldset>
     );
   }
   // Setup problems get their own card with the way out, instead of a CLI error in the row.

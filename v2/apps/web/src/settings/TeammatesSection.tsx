@@ -3,6 +3,7 @@ import { type CSSProperties, useId, useState } from "react";
 
 import { isSelectableProvider, listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { makeCommandId } from "../runtime/commandId.js";
+import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import {
   BUDDY_BODIES,
   BUDDY_COLOR_NAMES,
@@ -14,7 +15,6 @@ import {
   buddyName,
   makeBuddy,
 } from "../teammates/buddies.js";
-import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { cleanTeammateName, MAX_TEAMMATE_INSTRUCTIONS, MAX_TEAMMATES, type Teammate } from "../teammates/teammates.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Field, Select } from "../ui/Field.js";

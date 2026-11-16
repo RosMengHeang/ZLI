@@ -55,13 +55,26 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     parent: z.string().min(1).max(4_000),
     name: z.string().trim().min(1).max(200).optional(),
   }),
+  /** Creates a repository on the forge for a worktree with no origin, adds it as origin, and pushes. */
+  z.object({
+    type: z.literal("project.publish"),
+    worktreeId: z.string().min(1).max(200),
+    forge: ForgeKind,
+    owner: z.string().trim().min(1).max(200).optional(),
+    name: z.string().trim().min(1).max(100),
+    private: z.boolean(),
+  }),
 ]);
 export type ForgeCommand = z.infer<typeof ForgeCommand>;
 export const FORGE_COMMAND_TYPES = [
   "forges.status",
   "forges.rescan",
   "project.clone",
+  "project.publish",
 ] as const satisfies readonly ForgeCommand["type"][];
 
 export const ProjectCloneResult = z.object({ path: z.string().min(1) });
 export type ProjectCloneResult = z.infer<typeof ProjectCloneResult>;
+
+export const ProjectPublishResult = z.object({ url: z.string().url() });
+export type ProjectPublishResult = z.infer<typeof ProjectPublishResult>;

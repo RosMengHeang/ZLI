@@ -1,8 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-
-import type { Buddy } from "./buddies.js";
 import { BuddyArt } from "./BuddyAvatar.js";
+import type { Buddy } from "./buddies.js";
 
 const ICON_SIZE = 96;
 const cache = new Map<Buddy, Promise<string | undefined>>();

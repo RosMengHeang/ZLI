@@ -86,3 +86,11 @@ describe("PullRequestSection on each forge", () => {
     expect(forgeWords(undefined)).toMatchObject({ label: "GitHub", short: "PR", sign: "#" });
   });
 });
+
+describe("PullRequestSection without a remote", () => {
+  it("offers to publish the repository", async () => {
+    const text = await show({ ...base, problem: { code: "no_origin", message: "No origin." } });
+    expect(text).toContain("Not on a forge yet");
+    expect([...document.querySelectorAll("button")].some((button) => button.textContent === "Publish")).toBe(true);
+  });
+});

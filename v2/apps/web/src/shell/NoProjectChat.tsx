@@ -8,9 +8,8 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-
-import { buddyHex } from "../teammates/buddies.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
+import { buddyHex } from "../teammates/buddies.js";
 import { hashedBuddy } from "../teammates/chatBuddies.js";
 import { scrollMovesAnchor, useAnchoredPlacement } from "../ui/anchoredPopup.js";
 import { Icon } from "../ui/Icon.js";

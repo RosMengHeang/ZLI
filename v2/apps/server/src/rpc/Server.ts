@@ -63,6 +63,7 @@ import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckp
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import { CloneError, cloneRepository } from "../forges/clone.js";
 import { ForgeService } from "../forges/ForgeService.js";
+import { PublishError, publishRepository } from "../forges/publish.js";
 import { huddleScopeError } from "../huddles/huddleScope.js";
 import type { TerminalInputTracker } from "../huddles/TerminalInputTracker.js";
 import type { AgentHistoryScanner } from "../import/AgentHistoryScanner.js";
@@ -854,20 +855,22 @@ export class RpcServer {
     if (!isForgeCommand(command)) return false;
     try {
       const result =
-        command.type === "project.clone"
-          ? await cloneRepository({
-              source: command.source,
-              forge: command.forge,
-              parent: command.parent,
-              name: command.name,
-            })
-          : command.type === "forges.rescan"
-            ? await this.forges.rescan()
-            : await this.forges.status();
+        command.type === "project.publish"
+          ? await this.publish(command)
+          : command.type === "project.clone"
+            ? await cloneRepository({
+                source: command.source,
+                forge: command.forge,
+                parent: command.parent,
+                name: command.name,
+              })
+            : command.type === "forges.rescan"
+              ? await this.forges.rescan()
+              : await this.forges.status();
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
     } catch (error) {
       const message =
-        error instanceof CloneError
+        error instanceof CloneError || error instanceof PublishError
           ? error.message
           : `The forge command failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`;
       send(client, {
@@ -880,6 +883,23 @@ export class RpcServer {
       });
     }
     return true;
+  }
+
+  private async publish(command: Extract<ForgeCommand, { type: "project.publish" }>) {
+    const projection = await this.engine.projection();
+    const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
+    if (!worktree) throw new PublishError("Worktree does not exist.");
+    const url = (
+      await publishRepository(worktree.path, {
+        forge: command.forge,
+        owner: command.owner,
+        name: command.name,
+        private: command.private,
+      })
+    ).url;
+    // The forge is there now; status checks run the CLIs again so pull requests show at once.
+    void this.forges.rescan();
+    return { url };
   }
 
   /** Turn diffs and restores read and write the worktree with Git and answer directly. */

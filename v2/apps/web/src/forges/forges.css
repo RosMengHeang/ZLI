@@ -38,3 +38,14 @@
 .clone-path { min-width: 0; flex: 1; overflow: hidden; padding: 6px 10px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-font-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .clone-path-name { color: var(--zli-text); }
 .clone-path-empty { color: var(--zli-dim); font-family: inherit; }
+
+/* ---------- Publish repository ---------- */
+.publish-forges { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--zli-space-2); }
+.publish-forge { display: flex; align-items: center; justify-content: center; gap: var(--zli-space-2); height: 44px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-sm); font-weight: 500; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.publish-forge:hover { background: var(--zli-hover); }
+.publish-forge.is-on { border-color: var(--zli-accent-line); background: var(--zli-accent-soft); color: var(--zli-text); }
+.publish-forge:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.publish-names { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--zli-space-3); }
+@media (max-width: 520px) { .publish-names, .publish-forges { grid-template-columns: minmax(0, 1fr); } }
+.publish-fieldset { margin: 0; padding: 0; border: 0; }
+.publish-fieldset > legend { padding: 0; margin-bottom: 6px; }

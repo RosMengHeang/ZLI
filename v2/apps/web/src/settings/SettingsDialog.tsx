@@ -237,6 +237,10 @@ export function SettingsDialog({
   onClose,
 }: Props) {
   const [page, setPage] = useState<SettingsPage>(() => settingsPageFor(initialSection));
+  // A link inside Settings, such as Issues pointing to Forges, asks for another section while the dialog is open.
+  useEffect(() => {
+    setPage(settingsPageFor(initialSection));
+  }, [initialSection]);
   const [query, setQuery] = useState("");
   const tabsId = useId();
   const tabRefs = useRef<Partial<Record<SettingsPage, HTMLButtonElement | null>>>({});

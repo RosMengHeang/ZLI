@@ -14,7 +14,7 @@ import { copyScreenshot, saveScreenshot } from "./screenshots.js";
 import { useClock } from "./useClock.js";
 import { useCompactWindow } from "./useCompactWindow.js";
 import { useDeviceFrame } from "./useDeviceFrame.js";
-import { type Zoom, useDeviceZoom } from "./useDeviceZoom.js";
+import { useDeviceZoom, type Zoom } from "./useDeviceZoom.js";
 import { useNotice } from "./useNotice.js";
 import "@zli-v2/ui/primitives.css";
 import "./mobile.css";
