@@ -37,6 +37,7 @@ import {
   withWorkStyle,
   workStyleOf,
 } from "./appSettings.js";
+import { ForgesSection } from "./ForgesSection.js";
 import { IntegrationsSection, type IntegrationsView } from "./IntegrationsSection.js";
 import { IssuesSection } from "./IssuesSection.js";
 import { MobileAccessSection } from "./MobileAccessSection.js";
@@ -60,6 +61,7 @@ export type SettingsPage =
   | "agentMessages"
   | "projects"
   | "worktrees"
+  | "forges"
   | "issues"
   | "integrations"
   | "mobile"
@@ -141,6 +143,13 @@ const pages: readonly PageEntry[] = [
     icon: "branch",
     group: "Projects",
     keywords: "branch name template workspace",
+  },
+  {
+    id: "forges",
+    label: "Forges",
+    icon: "merge",
+    group: "Projects",
+    keywords: "source control git github gitlab gitea forgejo codeberg gh glab tea pull merge request remote",
   },
   { id: "issues", label: "Issues", icon: "issue", group: "Projects", keywords: "github linear" },
   {
@@ -363,6 +372,7 @@ export function SettingsDialog({
               />
             ) : null}
             {page === "worktrees" ? <WorktreeSettings projection={projection} /> : null}
+            {page === "forges" ? <ForgesSection /> : null}
             {page === "issues" ? <IssuesSection /> : null}
             {page === "integrations" ? (
               <IntegrationsSection

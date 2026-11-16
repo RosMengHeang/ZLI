@@ -33,7 +33,7 @@ export type ProcessResult = { code: number; stdout: string; stderr: string };
 
 /** Runs `git`, `gh`, or `glab` without a shell. Resolves for any exit code; rejects when the program cannot start. */
 export type ProcessRunner = (
-  command: "git" | "gh" | "glab",
+  command: "git" | "gh" | "glab" | "tea",
   args: readonly string[],
   options: { cwd: string; timeoutMs: number; maxOutputBytes?: number; input?: string },
 ) => Promise<ProcessResult>;
