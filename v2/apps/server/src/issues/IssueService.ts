@@ -1,11 +1,10 @@
 import type { IssueCommand, IssueSourcesResult, RuntimeProjection } from "@zli-v2/contracts";
-
+import { type ProjectRemotes, readProjectRemotes } from "../forges/remotes.js";
 import { runProcess } from "../review/PullRequestService.js";
 import { GitHubIssues } from "./GitHubIssues.js";
 import { GitLabIssues } from "./GitLabIssues.js";
 import { IssueError } from "./issueText.js";
 import type { LinearIssues } from "./LinearIssues.js";
-import { type ProjectRemotes, readProjectRemotes } from "./remotes.js";
 
 export { IssueError } from "./issueText.js";
 
@@ -45,7 +44,17 @@ export async function runIssueCommand(
   if (command.type === "issues.sources") {
     const remotes = await (sources.remotes ?? ((cwd) => readProjectRemotes(runProcess, cwd)))(project.path);
     if (remotes.unavailable) return { sources: [], unavailable: remotes.unavailable } satisfies IssueSourcesResult;
-    const forges = remotes.sources.filter((source) => source === "github" || sources.gitlab);
+    // Issues come from GitHub and GitLab only; a project on Gitea reads as hosted elsewhere, as it did before.
+    const forges = remotes.sources.filter(
+      (source): source is "github" | "gitlab" => source === "github" || (source === "gitlab" && !!sources.gitlab),
+    );
+    if (forges.length === 0 && remotes.sources.includes("gitea")) {
+      const host = remotes.hosts.gitea ?? remotes.host;
+      return {
+        sources: [],
+        unavailable: { code: "other_host", ...(host ? { host } : {}) },
+      } satisfies IssueSourcesResult;
+    }
     return { sources: forges } satisfies IssueSourcesResult;
   }
   const filter = {

@@ -6,7 +6,7 @@ import {
   type IssueStateFilter,
   IssueSummary,
 } from "@zli-v2/contracts";
-
+import { CLI_HOSTS, type KnownHosts, type ProjectRemotes, readProjectRemotes } from "../forges/remotes.js";
 import {
   cliFailure,
   isMissingProgram,
@@ -15,7 +15,6 @@ import {
   runProcess,
 } from "../review/PullRequestService.js";
 import { IssueError, truncate } from "./issueText.js";
-import { CLI_HOSTS, type KnownHosts, type ProjectRemotes, readProjectRemotes } from "./remotes.js";
 
 const GLAB_TIMEOUT_MS = 60_000;
 const GLAB_READY_MS = 5 * 60_000;
