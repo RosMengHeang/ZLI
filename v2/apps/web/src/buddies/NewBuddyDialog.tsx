@@ -74,97 +74,97 @@ export function NewBuddyDialog({
 
   return (
     <Dialog label="New buddy" title="New buddy" size="md" initialFocusRef={nameRef} onClose={onClose}>
-      <form className="new-buddy" onSubmit={(event) => void submit(event)}>
-        <div className="new-buddy-face">
-          <BuddyAvatar buddy={color} size={72} />
-          <span className="new-buddy-preview">{shownName}</span>
-        </div>
-
-        <label className="new-buddy-field">
-          <span className="new-buddy-label">Name</span>
-          <input
-            ref={nameRef}
-            className="input"
-            value={name}
-            placeholder={role}
-            maxLength={24}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-
-        <fieldset className="new-buddy-field">
-          <legend className="new-buddy-label">What it does</legend>
-          <div className="new-buddy-roles">
-            {ROLES.map((entry) => (
-              <button
-                key={entry.title}
-                type="button"
-                className={`new-buddy-role${role === entry.title ? " is-on" : ""}`}
-                aria-pressed={role === entry.title}
-                onClick={() => pickRole(entry.title)}
-              >
-                <span className="new-buddy-role-dot" style={{ background: buddyHex(entry.color) }} />
-                <span className="new-buddy-role-text">
-                  <span className="new-buddy-role-name">{entry.title}</span>
-                  <span className="new-buddy-role-blurb">{entry.blurb}</span>
-                </span>
-              </button>
-            ))}
+      <form className="new-buddy-form" onSubmit={(event) => void submit(event)}>
+        <div className="dialog-body new-buddy">
+          <div className="new-buddy-face">
+            <BuddyAvatar buddy={color} size={56} />
+            <span className="new-buddy-preview">{shownName}</span>
           </div>
-        </fieldset>
 
-        <fieldset className="new-buddy-field">
-          <legend className="new-buddy-label">Color</legend>
-          <div className="new-buddy-colors">
-            {BUDDY_COLOR_NAMES.map((entry) => (
-              <button
-                key={entry}
-                type="button"
-                className={`new-buddy-color${color === entry ? " is-on" : ""}`}
-                aria-label={entry}
-                aria-pressed={color === entry}
-                style={{ background: buddyHex(entry) }}
-                onClick={() => {
-                  touched.current.color = true;
-                  setColor(entry);
-                }}
-              />
-            ))}
+          <label className="new-buddy-field">
+            <span className="new-buddy-label">Name</span>
+            <input
+              ref={nameRef}
+              className="input"
+              value={name}
+              placeholder={role}
+              maxLength={24}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+
+          <fieldset className="new-buddy-field">
+            <legend className="new-buddy-label">What it does</legend>
+            <div className="new-buddy-roles">
+              {ROLES.map((entry) => (
+                <button
+                  key={entry.title}
+                  type="button"
+                  className={`new-buddy-role${role === entry.title ? " is-on" : ""}`}
+                  aria-pressed={role === entry.title}
+                  onClick={() => pickRole(entry.title)}
+                >
+                  <span className="new-buddy-role-dot" style={{ background: buddyHex(entry.color) }} />
+                  <span className="new-buddy-role-text">
+                    <span className="new-buddy-role-name">{entry.title}</span>
+                    <span className="new-buddy-role-blurb">{entry.blurb}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="new-buddy-field">
+            <legend className="new-buddy-label">Color</legend>
+            <div className="new-buddy-colors">
+              {BUDDY_COLOR_NAMES.map((entry) => (
+                <button
+                  key={entry}
+                  type="button"
+                  className={`new-buddy-color${color === entry ? " is-on" : ""}`}
+                  aria-label={entry}
+                  aria-pressed={color === entry}
+                  style={{ background: buddyHex(entry) }}
+                  onClick={() => {
+                    touched.current.color = true;
+                    setColor(entry);
+                  }}
+                />
+              ))}
+            </div>
+          </fieldset>
+
+          <div className="new-buddy-field">
+            <span className="new-buddy-label">Most it may do</span>
+            <Segmented<PermissionMode> label="Most it may do" value={access} options={ACCESS} onChange={setAccess} />
+            <span className="new-buddy-hint">{ACCESS.find((entry) => entry.value === access)?.tooltip}.</span>
           </div>
-        </fieldset>
 
-        <div className="new-buddy-field">
-          <span className="new-buddy-label">Most it may do</span>
-          <Segmented<PermissionMode> label="Most it may do" value={access} options={ACCESS} onChange={setAccess} />
-          <span className="new-buddy-hint">{ACCESS.find((entry) => entry.value === access)?.tooltip}.</span>
+          <label className="new-buddy-field">
+            <span className="new-buddy-label">Standing instructions</span>
+            <textarea
+              className="input new-buddy-instructions"
+              rows={4}
+              maxLength={4_000}
+              value={instructions}
+              placeholder="What it should always keep in mind"
+              onChange={(event) => {
+                touched.current.instructions = true;
+                setInstructions(event.target.value);
+              }}
+            />
+          </label>
+
+          {error ? (
+            <p className="inline-error" role="alert">
+              {error}
+            </p>
+          ) : null}
         </div>
-
-        <label className="new-buddy-field">
-          <span className="new-buddy-label">Standing instructions</span>
-          <textarea
-            className="input new-buddy-instructions"
-            rows={4}
-            maxLength={4_000}
-            value={instructions}
-            placeholder="What it should always keep in mind"
-            onChange={(event) => {
-              touched.current.instructions = true;
-              setInstructions(event.target.value);
-            }}
-          />
-        </label>
-
-        {error ? (
-          <p className="inline-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <div className="new-buddy-actions">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
+        <div className="dialog-footer">
+          <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" type="submit">
-            Add {shownName}
+            Create
           </Button>
         </div>
       </form>

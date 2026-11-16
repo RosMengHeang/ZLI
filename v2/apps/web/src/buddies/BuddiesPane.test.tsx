@@ -282,12 +282,37 @@ describe("NewBuddyDialog", () => {
     await act(async () => role?.click());
     await act(async () => buttonNamed("rose").click());
     await act(async () => buttonNamed("Read only").click());
-    await act(async () => buttonNamed("Add Nova").click());
+    await act(async () => buttonNamed("Create").click());
     expect(commands.at(-1)).toMatchObject({
       type: "buddy.create",
       buddy: { name: "Nova", title: "Reviewer", color: "rose", permissionMode: "read-only", role: "buddy" },
     });
     expect(onOpen).toHaveBeenCalledWith((commands.at(-1) as { buddy: { buddyId: string } }).buddy.buddyId);
+  });
+});
+
+describe("SidebarBuddies", () => {
+  it("removes a buddy from its right-click menu after asking", async () => {
+    const onOpen = vi.fn();
+    const commands = await renderWithRuntime(
+      <SidebarBuddies
+        projection={projection({ buddies: [buddy("b2", "Builder", 0), buddy("b3", "Tester", 1)] })}
+        onOpen={onOpen}
+        active="b3"
+      />,
+      accept,
+    );
+    const row = [...document.querySelectorAll<HTMLElement>(".sidebar-buddy")].find((entry) =>
+      entry.textContent?.includes("Tester"),
+    );
+    await act(async () => {
+      row?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 20, clientY: 40 }));
+    });
+    await act(async () => buttonNamed("Remove Tester").click());
+    expect(commands.some((command) => command.type === "buddy.archive")).toBe(false);
+    await act(async () => buttonNamed("Remove").click());
+    expect(commands.at(-1)).toEqual({ type: "buddy.archive", buddyId: "b3" });
+    expect(onOpen).toHaveBeenCalledWith();
   });
 });
 

@@ -60,7 +60,7 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
     await dialog.locator(".new-buddy input").fill("Nova");
     await dialog.getByRole("button", { name: "rose" }).click();
     await shot("new-buddy");
-    await dialog.getByRole("button", { name: "Add Nova" }).click();
+    await dialog.getByRole("button", { name: "Create" }).click();
     await expect(sidebar.locator(".sidebar-buddy-name")).toContainText(["Nova"]);
     await expect(pane.locator(".buddy-view-name")).toHaveText("Nova");
     await shot("nova");

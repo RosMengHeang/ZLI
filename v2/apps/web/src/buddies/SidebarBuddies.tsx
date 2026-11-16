@@ -1,11 +1,14 @@
-import { buddiesInOrder, needsYou, type RuntimeProjection } from "@zli-v2/contracts";
-import { useState } from "react";
+import { type BuddyProjection, buddiesInOrder, needsYou, type RuntimeProjection } from "@zli-v2/contracts";
+import { type MouseEvent, useState } from "react";
+import { ConfirmDialog } from "../review/ConfirmDialog.js";
 import { relativeTime } from "../sessions/sessions.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { IconButton } from "../ui/Button.js";
+import { Menu, type MenuRequest } from "../ui/Menu.js";
 
 import { buddyMood } from "./BuddiesPane.js";
 import { NewBuddyDialog } from "./NewBuddyDialog.js";
+import { useRun } from "./useRun.js";
 
 /**
  * The team at the top of the sidebar, in the order the person set: the Primary first, then the rest
@@ -23,6 +26,11 @@ export function SidebarBuddies({
   onOpen(buddyId?: string): void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [menu, setMenu] = useState<MenuRequest>();
+  const [removing, setRemoving] = useState<BuddyProjection>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const run = useRun(setError);
   if (!projection) return null;
   const team = buddiesInOrder(projection);
   if (team.length === 0)
@@ -38,6 +46,30 @@ export function SidebarBuddies({
       </section>
     ) : null;
   const waiting = needsYou(projection).length;
+  /** Right-click, Shift+F10 or the Menu key on a row. With no pointer position, the menu opens under the row. */
+  const openMenu = (event: MouseEvent<HTMLElement>, buddy: BuddyProjection) => {
+    event.preventDefault();
+    const row = event.currentTarget.getBoundingClientRect();
+    const fromKeyboard = event.clientX === 0 && event.clientY === 0;
+    setMenu({
+      x: fromKeyboard ? row.left : event.clientX,
+      y: fromKeyboard ? row.bottom : event.clientY,
+      label: `${buddy.name} actions`,
+      items: [
+        { label: "Open chat", icon: "message", run: () => onOpen(buddy.buddyId) },
+        { separator: true },
+        { label: `Remove ${buddy.name}`, icon: "trash", tone: "danger", run: () => setRemoving(buddy) },
+      ],
+    });
+  };
+  const remove = async (buddy: BuddyProjection) => {
+    setBusy(true);
+    const ok = await run({ type: "buddy.archive", buddyId: buddy.buddyId });
+    setBusy(false);
+    if (!ok) return;
+    setRemoving(undefined);
+    if (active === buddy.buddyId) onOpen();
+  };
   const tasks = projection.tasks ?? [];
   return (
     <section className="sidebar-buddies" aria-label="Buddies">
@@ -74,6 +106,7 @@ export function SidebarBuddies({
           className={`sidebar-buddy${active === buddy.buddyId ? " is-active" : ""}`}
           aria-current={active === buddy.buddyId ? "page" : undefined}
           onClick={() => onOpen(buddy.buddyId)}
+          onContextMenu={(event) => openMenu(event, buddy)}
           title={buddy.lastLine?.text}
         >
           <BuddyAvatar buddy={buddy.color} size={24} mood={buddyMood(buddy, tasks)} name={buddy.name} />
@@ -86,6 +119,32 @@ export function SidebarBuddies({
           </span>
         </button>
       ))}
+      {menu ? <Menu request={menu} onClose={() => setMenu(undefined)} /> : null}
+      {removing ? (
+        <ConfirmDialog
+          label={`Remove ${removing.name}`}
+          title={`Remove ${removing.name}?`}
+          detail={
+            <>
+              {removing.name} leaves the team for good, with its chat and what it remembers. Jobs waiting in its queue
+              are cancelled. This can't be undone.
+              {error ? (
+                <span className="inline-error" role="alert">
+                  {" "}
+                  {error}
+                </span>
+              ) : null}
+            </>
+          }
+          confirmLabel="Remove"
+          busy={busy}
+          onConfirm={() => void remove(removing)}
+          onCancel={() => {
+            setError(undefined);
+            setRemoving(undefined);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
