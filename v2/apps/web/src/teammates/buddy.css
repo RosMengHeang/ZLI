@@ -63,7 +63,7 @@
   display: grid;
   place-items: center;
   padding: 1px;
-  border-radius: 4px;
+  border-radius: var(--zli-radius-xs);
   background: var(--zli-surface);
   line-height: 0;
 }

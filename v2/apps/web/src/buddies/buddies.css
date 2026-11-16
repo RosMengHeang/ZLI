@@ -17,10 +17,10 @@
 .buddies-row { border-radius: var(--zli-radius-md); }
 .buddies-row.is-dragging { opacity: 0.5; }
 .buddies-row[draggable="true"] { cursor: grab; }
-.buddies-row-main { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-1-5) var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.buddies-row-main { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-1-5) var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: default; text-align: left; }
 .buddies-row-main:hover { background: var(--zli-hover); }
 .buddies-row-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
-.buddies-row-name { display: flex; align-items: baseline; gap: var(--zli-space-1-5); color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.buddies-row-name { display: flex; align-items: baseline; gap: var(--zli-space-1-5); color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
 .buddies-row-title { color: var(--zli-dim); font-size: var(--zli-text-2xs); font-weight: 500; }
 .buddies-row-line { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 
@@ -28,7 +28,7 @@
 .buddies-add .input { min-width: 120px; flex: 1; }
 .buddies-import { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2); }
 .buddies-import .btn { position: relative; }
-.buddies-file { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.buddies-file { position: absolute; inset: 0; opacity: 0; cursor: default; }
 
 .buddies-welcome { display: flex; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-2) 0; }
 .buddies-welcome h3 { margin: 0; color: var(--zli-text); font-size: var(--zli-text-md); }
@@ -54,7 +54,7 @@
 .job-card.is-failed { border-color: var(--zli-red-line); }
 .job-card p { margin: 0; }
 .job-card-head { display: flex; align-items: center; gap: var(--zli-space-1-5); }
-.job-card-status { color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 600; }
+.job-card-status { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
 .job-card.is-waiting .job-card-status { color: var(--zli-amber); }
 .job-card.is-failed .job-card-status { color: var(--zli-red-ink); }
 .job-card-tag { padding: 0 6px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-pill); color: var(--zli-muted); font-size: var(--zli-text-2xs); }
@@ -82,7 +82,7 @@
 .buddy-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--zli-space-2); margin: 0; }
 .buddy-stats div { display: flex; flex-direction: column; gap: 2px; }
 .buddy-stats dt { color: var(--zli-dim); font-size: var(--zli-text-2xs); }
-.buddy-stats dd { margin: 0; color: var(--zli-text); font-size: var(--zli-text-md); font-variant-numeric: tabular-nums; font-weight: 600; }
+.buddy-stats dd { margin: 0; color: var(--zli-text); font-size: var(--zli-text-md); font-variant-numeric: tabular-nums; font-weight: 500; }
 .buddy-models, .buddy-memory { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .buddy-models li, .buddy-memory li { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-xs); }
 .buddy-memory li span { color: var(--zli-text); font-size: var(--zli-text-sm); }
@@ -99,14 +99,14 @@
 
 /* ---------- Sidebar buddies ---------- */
 .sidebar-buddies { display: flex; flex-direction: column; gap: 1px; padding: var(--zli-space-1) var(--zli-space-2) var(--zli-space-2); }
-.sidebar-buddies-head { display: flex; align-items: center; gap: var(--zli-space-1-5); padding: 0 var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-2xs); font-weight: 600; }
-.sidebar-buddies-needs { margin-left: auto; padding: 0 6px; border: 1px solid var(--zli-amber-line); border-radius: var(--zli-radius-pill); background: transparent; color: var(--zli-amber); cursor: pointer; font-size: var(--zli-text-2xs); font-weight: 600; }
-.sidebar-buddy { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2); padding: 3px var(--zli-space-1); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.sidebar-buddies-head { display: flex; align-items: center; gap: var(--zli-space-1-5); padding: 0 var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-2xs); font-weight: 500; }
+.sidebar-buddies-needs { margin-left: auto; padding: 0 6px; border: 1px solid var(--zli-amber-line); border-radius: var(--zli-radius-pill); background: transparent; color: var(--zli-amber); cursor: default; font-size: var(--zli-text-2xs); font-weight: 500; }
+.sidebar-buddy { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2); padding: 3px var(--zli-space-1); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: inherit; cursor: default; text-align: left; }
 .sidebar-buddy:hover { background: var(--zli-hover); }
 .sidebar-buddy-text { display: flex; min-width: 0; flex: 1; flex-direction: column; }
-.sidebar-buddy-name { display: flex; align-items: baseline; gap: var(--zli-space-1); color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 600; }
+.sidebar-buddy-name { display: flex; align-items: baseline; gap: var(--zli-space-1); color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 500; }
 .sidebar-buddy-time { margin-left: auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; font-weight: 400; }
-.sidebar-buddy-line { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-buddy-line { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 fieldset.job-card-actions, fieldset.job-card-confirm, fieldset.buddy-colors { min-inline-size: 0; margin: 0; }
 fieldset.job-card-actions, fieldset.buddy-colors { padding: 0; border: 0; }
 

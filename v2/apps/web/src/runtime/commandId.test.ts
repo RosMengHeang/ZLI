@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
 import { CommandId } from "@zli-v2/contracts";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeCommandId } from "./commandId.js";
 
 afterEach(() => {

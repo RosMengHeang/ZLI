@@ -15,13 +15,13 @@
    * gutters between work panels. Work panels (tiles, the drawer, the side panel) are islands of
    * --zli-surface on it, so tone separates regions and borders can stay faint.
    */
-  --zli-canvas: #000000;
-  --zli-sidebar: #000000;
-  --zli-surface: #000000;
-  --zli-raised: #121212;
-  --zli-overlay: #181818;
+  --zli-canvas: #0b0b0c;
+  --zli-sidebar: #0b0b0c;
+  --zli-surface: #121214;
+  --zli-raised: #1a1a1d;
+  --zli-overlay: #202023;
   /* Equals the terminal theme's background so a terminal blends into its tile. */
-  --zli-terminal: #000000;
+  --zli-terminal: #121214;
   /* Sunken wells for fields, code, and logs, on any surface. */
   --zli-well: rgba(0, 0, 0, .22);
 
@@ -122,7 +122,7 @@
   --zli-text-lead: calc(16px * var(--zli-ui-scale));
   --zli-text-lg: calc(17px * var(--zli-ui-scale));
   --zli-text-xl: calc(21px * var(--zli-ui-scale));
-  --zli-text-chat: 14px;
+  --zli-text-chat: 15px;
   --zli-text-code: 13px;
   --zli-leading-tight: 1.3;
   --zli-leading-normal: 1.5;
@@ -196,6 +196,16 @@ code { padding: 1px 5px; border-radius: var(--zli-radius-xs); background: var(--
 /* Ligatures would draw operators such as != and => as single glyphs, which misreads code. */
 code, kbd, pre, samp { font-variant-ligatures: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/*
+ * Desktop chrome: the arrow cursor on controls (the hand is for links only) and labels that do not select when
+ * dragged over, as in a native app. Chat, code, files and fields stay selectable.
+ */
+button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"],
+[role="option"], [role="switch"], [role="treeitem"], label, summary,
+.sidebar, .topbar, .pane-header { -webkit-user-select: none; user-select: none; }
+input, textarea, [contenteditable="true"], pre, code { -webkit-user-select: text; user-select: text; }
+a[href] { cursor: pointer; }
 
 /* One focus ring for everything that takes keyboard focus. Fields replace it with their own border ring. */
 :focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }

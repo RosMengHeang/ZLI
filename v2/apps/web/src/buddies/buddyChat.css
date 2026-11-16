@@ -2,17 +2,17 @@
 .buddies-main { display: flex; min-width: 0; height: 100%; min-height: 0; flex: 1; flex-direction: column; background: var(--zli-surface); }
 .buddies-home { display: flex; width: 100%; max-width: 760px; min-height: 0; flex: 1; flex-direction: column; margin: 0 auto; }
 .buddies-home-head { display: flex; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-4) var(--zli-space-4) var(--zli-space-2); }
-.buddies-home-head h2 { margin: 0; color: var(--zli-text); font-size: var(--zli-text-lg, 18px); font-weight: 650; }
+.buddies-home-head h2 { margin: 0; color: var(--zli-text); font-size: var(--zli-text-lg, 18px); font-weight: 600; }
 .buddies-home .buddies-body { padding: var(--zli-space-2) var(--zli-space-4) var(--zli-space-6, 32px); }
 
 /* ---------- One buddy: the chat in the middle, its details beside it ---------- */
 .buddy-view { display: flex; min-width: 0; min-height: 0; flex: 1; }
 .buddy-view-main { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
 /* A name tag floating over the top of the chat; the messages scroll under it. */
-.buddy-view-top { position: absolute; top: 0; right: 0; left: 0; z-index: 2; display: flex; height: 52px; align-items: center; justify-content: center; padding: 0 var(--zli-space-3); background: linear-gradient(var(--zli-surface) 40%, transparent); pointer-events: none; }
+.buddy-view-top { position: absolute; top: 0; right: 0; left: 0; z-index: 2; display: flex; height: 72px; align-items: flex-start; justify-content: center; padding: 10px var(--zli-space-3) 0; background: linear-gradient(var(--zli-surface) 62%, color-mix(in srgb, var(--zli-surface) 0%, transparent)); pointer-events: none; }
 .buddy-view-top > * { pointer-events: auto; }
-.buddy-view-tag { color: inherit; cursor: pointer; font: inherit; transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); display: inline-flex; height: 34px; align-items: center; gap: var(--zli-space-2); padding: 0 14px 0 6px; border: 1px solid var(--zli-border); border-radius: 17px; background: var(--zli-raised); box-shadow: 0 4px 14px rgb(0 0 0 / 18%); }
-.buddy-view-name { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.buddy-view-tag { color: inherit; cursor: default; font: inherit; transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); display: inline-flex; height: 34px; align-items: center; gap: var(--zli-space-2); padding: 0 14px 0 6px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-pill); background: var(--zli-raised); box-shadow: var(--zli-highlight); }
+.buddy-view-name { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
 .buddy-view-open { position: absolute; right: var(--zli-space-3); }
 .app-shell.is-columns .buddy-view-open { right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
 .buddy-view-main .buddy-chat-column { padding-top: 60px; }
@@ -21,7 +21,7 @@
 .buddy-info-close { display: flex; height: 48px; flex: 0 0 auto; align-items: center; justify-content: flex-start; }
 .buddy-info-close .btn { border: 1px solid var(--zli-border); border-radius: 50%; }
 .buddy-info-hero { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-1); margin-top: calc(-1 * var(--zli-space-2)); text-align: center; }
-.buddy-info-hero h2 { margin: var(--zli-space-2) 0 0; color: var(--zli-text); font-size: var(--zli-text-lg, 18px); font-weight: 650; }
+.buddy-info-hero h2 { margin: var(--zli-space-2) 0 0; color: var(--zli-text); font-size: var(--zli-text-lg, 18px); font-weight: 600; }
 .buddy-info-hero span { color: var(--zli-muted); font-size: var(--zli-text-xs); }
 .buddy-tabs.segmented { align-self: center; border: 0; background: transparent; }
 .buddy-tabs .segmented-item { padding: 4px 12px; border-radius: 15px; color: var(--zli-muted); }
@@ -31,7 +31,7 @@
 @media (max-width: 1100px) { .buddy-view-info { width: 280px; } }
 
 /* A rounded card, like the rows of a settings sheet. */
-.buddy-card { margin: 0; padding: 10px 12px; border: 1px solid var(--zli-border); border-radius: 12px; background: var(--zli-raised); }
+.buddy-card { margin: 0; padding: 10px 12px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
 .buddy-card-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; text-align: left; }
 .buddy-card-title { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .buddy-card-sub { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
@@ -47,30 +47,30 @@
 .buddy-view-info .buddy-rule { padding: 8px 10px 8px 12px; }
 
 
-/* ---------- The transcript: your messages as pills on the right, the buddy's as bubbles, events between ---------- */
+/* ---------- The transcript: your messages as soft bubbles on the right, the buddy's as plain text, events between ---------- */
 .buddy-chat { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .buddy-chat-log { min-height: 0; flex: 1; overflow-y: auto; }
-.buddy-chat-column { display: flex; width: 100%; max-width: 720px; flex-direction: column; gap: 6px; margin: 0 auto; padding: var(--zli-space-4) var(--zli-space-4) var(--zli-space-2); }
+.buddy-chat-column { display: flex; width: 100%; max-width: 760px; flex-direction: column; gap: var(--zli-space-3); margin: 0 auto; padding: 64px var(--zli-space-6) var(--zli-space-2); }
 .buddy-chat-entry { display: flex; flex-direction: column; }
 .buddy-chat-entry.is-event, .buddy-chat-entry.is-event + .buddy-chat-entry,
 .buddy-chat-entry.is-you + .buddy-chat-entry:not(.is-you), .buddy-chat-entry:not(.is-you) + .buddy-chat-entry.is-you { margin-top: var(--zli-space-2); }
 .buddy-chat-time { margin: var(--zli-space-3) 0 var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-align: center; }
 .buddy-chat-you {
-  align-self: flex-end; max-width: 75%; padding: 9px 14px; border-radius: 18px; background: color-mix(in srgb, var(--zli-text) 20%, var(--zli-surface));
-  color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; white-space: pre-wrap;
+  align-self: flex-end; max-width: 75%; padding: 10px 16px; border-radius: 20px; background: color-mix(in srgb, var(--zli-text) 9%, var(--zli-surface));
+  color: var(--zli-text); font-size: var(--zli-text-chat); line-height: var(--zli-leading-relaxed); overflow-wrap: anywhere; white-space: pre-wrap;
 }
 .buddy-chat-say {
-  align-self: flex-start; max-width: 78%; padding: 9px 14px; border-radius: 16px; background: var(--zli-raised);
-  color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; white-space: pre-wrap;
+  align-self: stretch; max-width: 100%; padding: 0 2px;
+  color: var(--zli-text); font-size: var(--zli-text-chat); line-height: var(--zli-leading-relaxed); overflow-wrap: anywhere; white-space: pre-wrap;
 }
 .buddy-chat-event { display: flex; max-width: 100%; align-items: center; align-self: center; justify-content: center; gap: 6px; color: var(--zli-muted); font-size: var(--zli-text-xs); }
 .buddy-chat-event span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.buddy-chat-open { flex: 0 0 auto; padding: 0; border: 0; background: transparent; color: var(--zli-text); cursor: pointer; font-size: var(--zli-text-xs); font-weight: 600; }
+.buddy-chat-open { flex: 0 0 auto; padding: 0; border: 0; background: transparent; color: var(--zli-text); cursor: default; font-size: var(--zli-text-xs); font-weight: 500; }
 .buddy-chat-open:hover { text-decoration: underline; }
 .buddy-chat-card { align-self: flex-start; width: min(78%, 520px); }
-.buddy-chat-card .job-card.is-inline { padding: var(--zli-space-2) var(--zli-space-3); border-radius: 16px; background: var(--zli-raised); }
+.buddy-chat-card .job-card.is-inline { padding: var(--zli-space-2-5) var(--zli-space-3); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
 .buddy-chat-card .job-card.is-inline:not(.is-waiting):not(.is-failed) { border-color: var(--zli-border); }
-.buddy-chat-live { display: flex; align-self: flex-start; flex-direction: column; gap: var(--zli-space-1-5); max-width: 78%; padding: 9px 14px; border-radius: 16px; background: var(--zli-raised); }
+.buddy-chat-live { display: flex; align-self: flex-start; flex-direction: column; gap: var(--zli-space-1-5); max-width: 78%; padding: 10px 14px; border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
 .buddy-chat-live-head { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-sm); }
 
 /* What the buddy is doing: its last few steps, the older ones fading. */
@@ -86,20 +86,21 @@
 .buddy-chat-empty h3 { margin: var(--zli-space-1) 0 0; color: var(--zli-text); font-size: var(--zli-text-md); }
 .buddy-chat-empty p { max-width: 320px; margin: 0; font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 
-/* The message box: one pill. */
+/* The message box: a filled, gently raised surface, like the main chat's composer. */
 .buddy-chat-composer {
-  display: flex; width: calc(100% - 2 * var(--zli-space-4)); max-width: 720px; flex: 0 0 auto; align-items: flex-end; gap: var(--zli-space-1-5);
-  margin: var(--zli-space-2) auto var(--zli-space-4); padding: 6px 6px 6px 8px; border: 1px solid var(--zli-border-strong); border-radius: 22px; background: var(--zli-raised);
+  display: flex; width: calc(100% - 2 * var(--zli-space-4)); max-width: 712px; flex: 0 0 auto; align-items: flex-end; gap: var(--zli-space-1-5);
+  margin: var(--zli-space-2) auto var(--zli-space-4); padding: 8px 8px 8px 12px; border: 1px solid var(--zli-border); border-radius: 24px; background: var(--zli-raised);
+  box-shadow: var(--zli-highlight), var(--zli-shadow-lift); transition: border-color var(--zli-duration-fast) var(--zli-ease);
 }
-.buddy-chat-composer:focus-within { border-color: var(--zli-border-hover); }
-.buddy-chat-input { min-width: 0; max-height: 160px; flex: 1; align-self: center; padding: 5px 2px; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); outline: none; resize: none; field-sizing: content; }
+.buddy-chat-composer:focus-within { border-color: var(--zli-border-strong); }
+.buddy-chat-input { min-width: 0; max-height: 160px; flex: 1; align-self: center; padding: 5px 2px; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-chat); line-height: var(--zli-leading-normal); outline: none; resize: none; field-sizing: content; }
 .buddy-chat-input:focus, .buddy-chat-input:focus-visible { outline: none; box-shadow: none; }
 .buddy-chat-note { margin: var(--zli-space-3) auto; }
 
 /* Sidebar roster rows: face, name and time, one line under it. */
 .sidebar-buddy { padding: 6px var(--zli-space-1-5); border-radius: var(--zli-radius-md); }
 .sidebar-buddy.is-active { background: var(--zli-active); }
-/* The team and the projects are two lists: a rule between them, and the same heading style. */
+/* The team and the projects are two lists with the same heading style. */
 .sidebar-buddies { margin-bottom: var(--zli-space-1); }
 .sidebar-buddies-add { margin-left: auto; color: var(--zli-dim); }
 .sidebar-buddies-needs + .sidebar-buddies-add { margin-left: 0; }
@@ -115,7 +116,7 @@
 .buddy-chat-row { display: flex; align-items: flex-end; gap: var(--zli-space-1-5); }
 .buddy-chat-attach { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; color: var(--zli-muted); }
 .buddy-chat-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 4px 4px 0; list-style: none; }
-.buddy-chat-files li { display: inline-flex; max-width: 220px; align-items: center; gap: 5px; padding: 3px 4px 3px 8px; border: 1px solid var(--zli-border); border-radius: 8px; background: var(--zli-hover); color: var(--zli-text); font-size: var(--zli-text-xs); }
+.buddy-chat-files li { display: inline-flex; max-width: 220px; align-items: center; gap: 5px; padding: 3px 4px 3px 8px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-text); font-size: var(--zli-text-xs); }
 .buddy-chat-files li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .buddy-chat-files.is-sent { align-self: flex-end; justify-content: flex-end; margin-top: 4px; padding: 0; }
 .buddy-chat-files.is-sent li { padding-right: 8px; }
@@ -137,26 +138,26 @@
 .buddy-info-rename svg { color: var(--zli-dim); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
 .buddy-info-rename:hover { background: var(--zli-hover); }
 .buddy-info-rename:hover svg, .buddy-info-rename:focus-visible svg { opacity: 1; }
-.buddy-info-name-input { width: 200px; margin-top: var(--zli-space-2); text-align: center; font-size: var(--zli-text-lg, 18px); font-weight: 650; }
+.buddy-info-name-input { width: 200px; margin-top: var(--zli-space-2); text-align: center; font-size: var(--zli-text-lg, 18px); font-weight: 600; }
 
 /* ---------- New buddy ---------- */
 .new-buddy { display: flex; flex-direction: column; gap: var(--zli-space-4); padding: 0 24px 20px; }
 .new-buddy-face { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-2) 0 0; }
-.new-buddy-preview { color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 600; }
+.new-buddy-preview { color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 500; }
 .new-buddy-field { display: flex; min-width: 0; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; }
-.new-buddy-label { padding: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 600; }
+.new-buddy-label { padding: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
 .new-buddy-hint { color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .new-buddy-roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.new-buddy-role { display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; text-align: left; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.new-buddy-role { display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; text-align: left; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
 .new-buddy-role:hover { background: var(--zli-hover); }
 .new-buddy-role.is-on { border-color: var(--zli-accent-line); background: var(--zli-accent-soft); color: var(--zli-text); }
 .new-buddy-role:focus-visible, .new-buddy-color:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 .new-buddy-role-dot { width: 8px; height: 8px; flex: 0 0 8px; margin-top: 5px; border-radius: 50%; }
 .new-buddy-role-text { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
-.new-buddy-role-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.new-buddy-role-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
 .new-buddy-role-blurb { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 1.35; }
 .new-buddy-colors { display: flex; flex-wrap: wrap; gap: 8px; }
-.new-buddy-color { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 8px; cursor: pointer; transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.new-buddy-color { width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--zli-radius-md); cursor: default; transition: transform var(--zli-duration-fast) var(--zli-ease); }
 .new-buddy-color:hover { transform: scale(1.08); }
 .new-buddy-color.is-on { box-shadow: 0 0 0 2px var(--zli-surface), 0 0 0 4px var(--zli-text); }
 .new-buddy-instructions { min-height: 84px; resize: vertical; line-height: 1.5; }

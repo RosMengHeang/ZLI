@@ -222,13 +222,13 @@ const neutralTerminal: TerminalPalette = {
 };
 
 export const THEMES: Record<ThemeId, Theme> = {
-  midnight: theme("midnight", "Midnight", "Pure black with a calm blue accent. The default.", {
+  midnight: theme("midnight", "Midnight", "Layered near-black with a calm blue accent. The default.", {
     scheme: "dark",
-    canvas: "#000000",
-    sidebar: "#000000",
-    surface: "#000000",
-    raised: "#121212",
-    overlay: "#181818",
+    canvas: "#0b0b0c",
+    sidebar: "#0b0b0c",
+    surface: "#121214",
+    raised: "#1a1a1d",
+    overlay: "#202023",
     text: "#ededed",
     muted: "#a3a3a3",
     dim: "#949494",

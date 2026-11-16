@@ -10,7 +10,7 @@
 }
 .teammate-row:hover { background: var(--zli-hover); }
 .teammate-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
-.teammate-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.teammate-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
 .teammate-meta { color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .teammate-notes { overflow: hidden; color: var(--zli-muted, var(--zli-dim)); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .teammate-form { display: flex; flex-direction: column; gap: var(--zli-space-3); margin-top: var(--zli-space-2); padding: var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md, 8px); }
@@ -36,7 +36,7 @@
   border: 1px solid transparent;
   border-radius: var(--zli-radius-md, 8px);
   background: none;
-  cursor: pointer;
+  cursor: default;
 }
 .teammate-color:hover { background: var(--zli-hover); }
 .teammate-color.is-picked { border-color: var(--zli-accent); background: var(--zli-raised); }

@@ -894,24 +894,28 @@ function ActivityTab({ buddy, projection, run }: { buddy: BuddyProjection; proje
 
       <section className="buddies-section" aria-label="Track record">
         <h3 className="buddies-heading">Track record</h3>
-        <dl className="buddy-card buddy-stats">
-          <div>
-            <dt>Jobs done</dt>
-            <dd>{stats.done}</dd>
-          </div>
-          <div>
-            <dt>Went well</dt>
-            <dd>{stats.successRate === undefined ? "—" : `${Math.round(stats.successRate * 100)}%`}</dd>
-          </div>
-          <div>
-            <dt>Changes asked</dt>
-            <dd>{stats.revisions}</dd>
-          </div>
-          <div>
-            <dt>Spent</dt>
-            <dd>{money(stats.costUsd)}</dd>
-          </div>
-        </dl>
+        {stats.done === 0 && stats.successRate === undefined ? (
+          <p className="buddies-hint">No jobs yet. How its jobs go shows up here.</p>
+        ) : (
+          <dl className="buddy-card buddy-stats">
+            <div>
+              <dt>Jobs done</dt>
+              <dd>{stats.done}</dd>
+            </div>
+            <div>
+              <dt>Went well</dt>
+              <dd>{stats.successRate === undefined ? "—" : `${Math.round(stats.successRate * 100)}%`}</dd>
+            </div>
+            <div>
+              <dt>Changes asked</dt>
+              <dd>{stats.revisions}</dd>
+            </div>
+            <div>
+              <dt>Spent</dt>
+              <dd>{money(stats.costUsd)}</dd>
+            </div>
+          </dl>
+        )}
         {stats.models.length > 0 ? (
           <ul className="buddy-card buddy-models">
             {stats.models.map((entry) => (

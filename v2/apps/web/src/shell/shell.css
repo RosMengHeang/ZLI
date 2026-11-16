@@ -34,7 +34,7 @@
 .topbar :is(button, a, input, select, [role="menu"], [role="dialog"]) { -webkit-app-region: no-drag; }
 .app-shell.is-sidebar-hidden .topbar { padding-left: max(var(--zli-space-2), env(titlebar-area-x, 0px)); }
 .topbar-context { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); font-size: var(--zli-text-base); }
-.topbar-project { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--zli-text); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-project { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--zli-text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-project.is-empty { color: var(--zli-muted); font-weight: 500; }
 .topbar-separator { color: var(--zli-disabled); }
 .topbar-branch { display: inline-flex; min-width: 0; align-items: center; gap: 5px; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
@@ -67,9 +67,9 @@
 .palette-search input { width: 100%; height: 52px; border: 0; outline: none; background: transparent; color: var(--zli-text); font-size: var(--zli-text-md); }
 .palette-search input:focus-visible { outline: none; }
 .palette-list { display: flex; min-height: 0; max-height: min(420px, 56vh); flex-direction: column; padding: var(--zli-space-1-5); overflow: auto; }
-.palette-group { margin: var(--zli-space-2) var(--zli-space-2-5) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 600; }
+.palette-group { margin: var(--zli-space-2) var(--zli-space-2-5) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
 .palette-entry:first-child .palette-group { margin-top: var(--zli-space-1); }
-.palette-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); height: 36px; padding: 0 var(--zli-space-2) 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text); cursor: pointer; font-size: var(--zli-text-base); text-align: left; }
+.palette-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); height: 36px; padding: 0 var(--zli-space-2) 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text); cursor: default; font-size: var(--zli-text-base); text-align: left; }
 .palette-item > svg { color: var(--zli-dim); }
 .palette-item.is-active { background: var(--zli-active); }
 .palette-item.is-active > svg { color: var(--zli-text); }
@@ -102,7 +102,7 @@
 .panel-launcher-head h2 { margin: 0; overflow: hidden; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .panel-launcher-head p { margin: 3px 0 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .panel-launcher-list { display: flex; flex-direction: column; gap: 1px; margin-block: 0; padding: 0; list-style: none; }
-.panel-launcher-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); padding: 6px var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.panel-launcher-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); padding: 6px var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
 .panel-launcher-item:hover { background: var(--zli-hover); }
 .panel-launcher-item:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 .panel-launcher-icon { position: relative; display: inline-grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-dim); transition: color var(--zli-duration-fast) var(--zli-ease); }
@@ -121,10 +121,10 @@
 .panel-launcher-item.is-red .panel-launcher-detail { color: var(--zli-red); }
 .panel-launcher-add { color: var(--zli-green); font-family: var(--zli-mono); font-size: 11px; }
 .panel-launcher-del { color: var(--zli-red); font-family: var(--zli-mono); font-size: 11px; }
-.panel-launcher-key { display: inline-grid; min-width: 20px; height: 20px; flex: 0 0 auto; place-items: center; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: 5px; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; opacity: .7; transition: opacity var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.panel-launcher-key { display: inline-grid; min-width: 20px; height: 20px; flex: 0 0 auto; place-items: center; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; opacity: .7; transition: opacity var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
 .panel-launcher-item:hover .panel-launcher-key { color: var(--zli-text); opacity: 1; }
 .panel-launcher-foot { margin-top: var(--zli-space-3); padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); }
-.panel-launcher-foot kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: 4px; font-family: var(--zli-mono); font-size: 10.5px; }
+.panel-launcher-foot kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xs); font-family: var(--zli-mono); font-size: 10.5px; }
 
 /* ---------- The right panel's tabs ---------- */
 /* One tab per panel opened, then a plus that lists every panel. The tab in use is lifted onto a soft pill; the
@@ -134,17 +134,17 @@
 .panel-tab { position: relative; display: flex; min-width: 0; flex: 0 1 auto; align-items: center; height: 26px; border-radius: var(--zli-radius-md); color: var(--zli-dim); transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
 .panel-tab:hover { background: var(--zli-hover); color: var(--zli-muted); }
 .panel-tab.is-active { flex-shrink: 0; background: var(--zli-hover); color: var(--zli-text); }
-.panel-tab-name { display: flex; min-width: 29px; height: 100%; overflow: hidden; align-items: center; gap: 6px; padding: 0 8px; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: var(--zli-text-xs); font-weight: 500; white-space: nowrap; }
+.panel-tab-name { display: flex; min-width: 29px; height: 100%; overflow: hidden; align-items: center; gap: 6px; padding: 0 8px; border: 0; background: transparent; color: inherit; cursor: default; font: inherit; font-size: var(--zli-text-xs); font-weight: 500; white-space: nowrap; }
 .panel-tab-name:focus-visible, .panel-tab-close:focus-visible, .panel-tabs-plus:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; border-radius: var(--zli-radius-md); }
 .panel-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .panel-tab-icon { display: inline-grid; flex: 0 0 auto; width: 13px; height: 13px; place-items: center; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
 /* No × beside the name: on hover the tab's own icon turns into the close mark, in the same spot. */
-.panel-tab-close { position: absolute; top: 50%; left: 4px; z-index: 1; display: inline-grid; width: 21px; height: 21px; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--zli-muted); cursor: pointer; opacity: 0; transform: translateY(-50%); transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.panel-tab-close { position: absolute; top: 50%; left: 4px; z-index: 1; display: inline-grid; width: 21px; height: 21px; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: default; opacity: 0; transform: translateY(-50%); transition: opacity var(--zli-duration-fast) var(--zli-ease); }
 .panel-tab:hover .panel-tab-close, .panel-tab-close:focus-visible { opacity: 1; }
 .panel-tab:hover .panel-tab-icon, .panel-tab:has(.panel-tab-close:focus-visible) .panel-tab-icon { opacity: 0; }
 .panel-tab-close:hover { background: var(--zli-border); color: var(--zli-text); }
 .panel-tabs-add { position: relative; flex: 0 0 auto; }
-.panel-tabs-plus { display: inline-grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); cursor: pointer; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.panel-tabs-plus { display: inline-grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); cursor: default; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
 .panel-tabs-plus:hover, .panel-tabs-plus[aria-expanded="true"] { background: var(--zli-hover); color: var(--zli-text); }
 
 /* The list behind the plus: icon, name, what is going on in it, and its key. */

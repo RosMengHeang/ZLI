@@ -76,7 +76,7 @@ export function SidebarBuddies({
           onClick={() => onOpen(buddy.buddyId)}
           title={buddy.lastLine?.text}
         >
-          <BuddyAvatar buddy={buddy.color} size={28} mood={buddyMood(buddy, tasks)} name={buddy.name} />
+          <BuddyAvatar buddy={buddy.color} size={24} mood={buddyMood(buddy, tasks)} name={buddy.name} />
           <span className="sidebar-buddy-text">
             <span className="sidebar-buddy-name">
               {buddy.name}

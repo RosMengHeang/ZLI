@@ -2,7 +2,7 @@
 .devserver-chip {
   display: inline-flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: var(--zli-space-1-5); height: 22px; padding: 0 var(--zli-space-2);
   border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted);
-  cursor: pointer; font-family: var(--zli-mono); font-size: var(--zli-text-xs);
+  cursor: default; font-family: var(--zli-mono); font-size: var(--zli-text-xs);
   transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
 }
 .devserver-chip:hover { background: var(--zli-hover); color: var(--zli-text); }
