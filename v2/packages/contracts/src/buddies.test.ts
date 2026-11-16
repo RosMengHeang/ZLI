@@ -7,6 +7,7 @@ import {
   buddiesInOrder,
   firstSentence,
   needsYou,
+  playbooksFor,
   RuntimeCommand,
   RuntimeEvent,
 } from "./index.js";
@@ -41,6 +42,41 @@ const assign = (taskId: string, buddyId: string, extra: Record<string, unknown> 
     ...extra,
   },
   handoffDepth: 0,
+});
+
+describe("playbooks", () => {
+  const save = (playbookId: string, title: string, steps: string[], projectId = "p1"): BuddyEvent => ({
+    type: "buddy.playbook.saved",
+    buddyId: "a",
+    playbook: { playbookId, projectId, title, steps },
+  });
+
+  it("keeps one playbook per title in a project, the newest steps winning", () => {
+    const state = fold([
+      { type: "buddy.created", buddy: buddy("a", "Builder"), order: 0 },
+      save("p-1", "Add an API route", ["Add the handler in src/routes"]),
+      save("p-2", "add an api route", ["Add the handler in src/api", "Run pnpm test:api"]),
+      save("p-3", "Add an API route", ["Elsewhere"], "p2"),
+    ]);
+    const playbooks = state.buddies?.[0]?.playbooks ?? [];
+    expect(playbooks.map((entry) => [entry.projectId, entry.steps.length])).toEqual([
+      ["p1", 2],
+      ["p2", 1],
+    ]);
+    const removed = fold([{ type: "buddy.playbook.removed", buddyId: "a", playbookId: "p-3" }], state);
+    expect(removed.buddies?.[0]?.playbooks).toHaveLength(1);
+  });
+
+  it("offers a job the playbooks of its project that share the most words with it", () => {
+    const state = fold([
+      { type: "buddy.created", buddy: buddy("a", "Builder"), order: 0 },
+      save("p-1", "Release a version", ["Bump package.json", "Tag and push"]),
+      save("p-2", "Add an API route", ["Add the handler in src/api", "Run the api tests"]),
+      save("p-3", "Add an API route elsewhere", ["Other project"], "p2"),
+    ]);
+    const found = playbooksFor(state.buddies?.[0] as never, "p1", "Add a route to the API for invoices");
+    expect(found.map((entry) => entry.title)).toEqual(["Add an API route", "Release a version"]);
+  });
 });
 
 describe("buddies", () => {

@@ -4,6 +4,7 @@ import {
   buddiesInOrder,
   type HandoffAction,
   isOpenTask,
+  type MemoryNote,
   needsYou,
   openQuestion,
   type PermissionMode,
@@ -17,6 +18,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { makeCommandId } from "../runtime/commandId.js";
+import { relativeTime } from "../sessions/sessions.js";
 import { updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import { type AvatarMood, BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { BUDDY_COLOR_NAMES, buddyName } from "../teammates/buddies.js";
@@ -559,7 +561,7 @@ function BuddyPage({
           {tab === "activity" ? (
             <ActivityTab buddy={buddy} projection={projection} run={run} />
           ) : tab === "library" ? (
-            <LibraryTab buddy={buddy} run={run} />
+            <LibraryTab buddy={buddy} projection={projection} run={run} />
           ) : (
             <SettingsTab buddy={buddy} projection={projection} run={run} onRemoved={() => onSelect(undefined)} />
           )}
@@ -950,7 +952,14 @@ function ActivityTab({ buddy, projection, run }: { buddy: BuddyProjection; proje
 }
 
 /** What it has learned: lessons waiting for a yes, and the notes it keeps. */
-function LibraryTab({ buddy, run }: { buddy: BuddyProjection; run: Run }) {
+/** Where its notes came from, most trusted first. */
+const NOTE_GROUPS: readonly { label: string; hint: string; sources: readonly MemoryNote["source"][] }[] = [
+  { label: "From you", hint: "What you told it, in chat or here.", sources: ["you", "told"] },
+  { label: "Learned on jobs", hint: "Facts its jobs found worth keeping.", sources: ["lesson"] },
+  { label: "From look-backs", hint: "Lessons from reviews and the changes you asked for.", sources: ["lookback"] },
+];
+
+function LibraryTab({ buddy, projection, run }: { buddy: BuddyProjection; projection: RuntimeProjection; run: Run }) {
   const [editing, setEditing] = useState<{ noteId: string; text: string }>();
   return (
     <div className="buddy-profile">
@@ -1015,30 +1024,114 @@ function LibraryTab({ buddy, run }: { buddy: BuddyProjection; run: Run }) {
           )}
         </section>
       ) : null}
+      <LearnedSummary buddy={buddy} />
+      <Playbooks buddy={buddy} projection={projection} run={run} />
       <section className="buddies-section" aria-label="What it knows">
         <h3 className="buddies-heading">What it knows</h3>
         {buddy.memory.length === 0 ? (
           <p className="buddies-hint">
-            Nothing yet. Each evening it looks back at the day's jobs and suggests lessons.
+            Nothing yet. It keeps what you tell it, what its jobs learn, and lessons from each day's work.
           </p>
         ) : (
-          <ul className="buddy-card buddy-memory">
-            {buddy.memory.map((note) => (
-              <li key={note.noteId}>
-                <span>{note.text}</span>
-                <IconButton
-                  label="Forget"
-                  icon="x"
-                  size="xs"
-                  onClick={() => void run({ type: "buddy.memory.remove", buddyId: buddy.buddyId, noteId: note.noteId })}
-                />
-              </li>
-            ))}
-          </ul>
+          NOTE_GROUPS.map((group) => {
+            const notes = buddy.memory.filter((note) => group.sources.includes(note.source)).reverse();
+            if (notes.length === 0) return null;
+            return (
+              <div key={group.label} className="buddy-learned-group">
+                <h4 className="buddy-learned-label" title={group.hint}>
+                  {group.label} <span>{notes.length}</span>
+                </h4>
+                <ul className="buddy-card buddy-memory">
+                  {notes.map((note) => (
+                    <li key={note.noteId}>
+                      <span className="buddy-learned-text">
+                        {note.text}
+                        <span className="buddy-learned-meta">
+                          {note.projectId ? `${projectName(projection, note.projectId)} · ` : ""}
+                          {relativeTime(note.at)}
+                        </span>
+                      </span>
+                      <IconButton
+                        label="Forget"
+                        icon="x"
+                        size="xs"
+                        onClick={() =>
+                          void run({ type: "buddy.memory.remove", buddyId: buddy.buddyId, noteId: note.noteId })
+                        }
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })
         )}
         <AddNote buddy={buddy} run={run} />
       </section>
     </div>
+  );
+}
+
+function projectName(projection: RuntimeProjection, projectId: string): string {
+  return projection.projects.find((entry) => entry.projectId === projectId)?.name ?? "a project";
+}
+
+/** One line on how much it has learned, and from where. */
+function LearnedSummary({ buddy }: { buddy: BuddyProjection }) {
+  const learned = buddy.memory.filter((note) => note.source === "lesson" || note.source === "lookback").length;
+  const playbooks = (buddy.playbooks ?? []).length;
+  if (buddy.memory.length === 0 && playbooks === 0) return null;
+  return (
+    <p className="buddy-learned-summary">
+      Knows <strong>{buddy.memory.length}</strong> {buddy.memory.length === 1 ? "thing" : "things"}
+      {learned > 0 ? `, ${learned} learned on its own,` : ""} and has <strong>{playbooks}</strong>{" "}
+      {playbooks === 1 ? "playbook" : "playbooks"}. It reads them before every chat and job.
+    </p>
+  );
+}
+
+/** Steps that worked before, by project: what its next job like that starts from. */
+function Playbooks({ buddy, projection, run }: { buddy: BuddyProjection; projection: RuntimeProjection; run: Run }) {
+  const playbooks = [...(buddy.playbooks ?? [])].sort((left, right) => right.at.localeCompare(left.at));
+  return (
+    <section className="buddies-section" aria-label="Playbooks">
+      <h3 className="buddies-heading">Playbooks</h3>
+      {playbooks.length === 0 ? (
+        <p className="buddies-hint">
+          None yet. When a job works out steps worth repeating, it writes them here for the next job like it.
+        </p>
+      ) : (
+        <ul className="buddy-playbooks">
+          {playbooks.map((playbook) => (
+            <li key={playbook.playbookId} className="buddy-card buddy-playbook">
+              <details>
+                <summary>
+                  <span className="buddy-playbook-title">{playbook.title}</span>
+                  <span className="buddy-learned-meta">
+                    {projectName(projection, playbook.projectId)} · {playbook.steps.length}{" "}
+                    {playbook.steps.length === 1 ? "step" : "steps"} · {relativeTime(playbook.at)}
+                  </span>
+                </summary>
+                <ol>
+                  {playbook.steps.map((step, index) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: steps are fixed text in a fixed order.
+                    <li key={index}>{step}</li>
+                  ))}
+                </ol>
+              </details>
+              <IconButton
+                label={`Delete ${playbook.title}`}
+                icon="x"
+                size="xs"
+                onClick={() =>
+                  void run({ type: "buddy.playbook.remove", buddyId: buddy.buddyId, playbookId: playbook.playbookId })
+                }
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

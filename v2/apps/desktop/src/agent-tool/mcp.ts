@@ -42,13 +42,27 @@ const BUDDY_TOOLS: readonly McpTool[] = [
     name: "task_done",
     title: "Finish the job",
     action: "buddydone",
-    description: `${BUDDY_JOB} Call this when the job is done, with a 2–3 sentence summary of what you changed and how you checked it. For UI changes, pass the screenshot paths from browser_screenshot. Then end your turn.`,
+    description: `${BUDDY_JOB} Call this when the job is done, with a 2–3 sentence summary of what you changed and how you checked it. For UI changes, pass the screenshot paths from browser_screenshot. If you worked out steps worth reusing on the next job like this in this project, pass them as a playbook. Then end your turn.`,
     properties: {
       summary: { type: "string", description: "What you did and how you checked it, 2–3 sentences." },
       screenshots: {
         type: "array",
         items: { type: "string" },
         description: "Paths of screenshots that show the change.",
+      },
+      playbook: {
+        type: "object",
+        description:
+          "Optional. Steps that worked for this kind of job in this project, for next time: how to run, test or check it, and any pitfall with its fix. Reuse a playbook's title from your brief to correct it.",
+        properties: {
+          title: { type: "string", description: "The kind of job, such as 'Add an API route'. Up to 120 characters." },
+          steps: {
+            type: "array",
+            items: { type: "string" },
+            description: "Up to 12 short steps, each one concrete: a file, a command, a check.",
+          },
+        },
+        required: ["title", "steps"],
       },
     },
     required: ["summary"],
@@ -66,9 +80,9 @@ const BUDDY_TOOLS: readonly McpTool[] = [
   },
   {
     name: "remember",
-    title: "Propose a lesson",
+    title: "Keep a lesson",
     action: "buddyremember",
-    description: `${BUDDY_JOB} Propose one short thing worth knowing on later jobs in this project, such as how to run its tests. The person keeps or skips it; kept notes are in your next briefs.`,
+    description: `${BUDDY_JOB} Keep one short fact worth knowing on later jobs in this project, such as how to run its tests. It is in your next briefs for this project; the person can remove it.`,
     properties: { note: { type: "string", description: "One sentence, up to 400 characters." } },
     required: ["note"],
   },

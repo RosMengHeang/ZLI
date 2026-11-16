@@ -33,6 +33,9 @@ export const MAX_HANDOFF_DEPTH = 3;
 export const DEFAULT_HANDOFF_ROUNDS = 2;
 export const MAX_MEMORY_NOTES = 40;
 export const MAX_PENDING_NOTES = 10;
+/** Playbooks a buddy keeps, across all its projects. */
+export const MAX_PLAYBOOKS = 24;
+export const MAX_PLAYBOOK_STEPS = 12;
 export const MAX_TASKS_KEPT = 500;
 export const MAX_GOAL = 4_000;
 export const ROUTINE_FAILURES_BEFORE_PAUSE = 3;
@@ -107,6 +110,21 @@ export const MemoryNote = z.object({
 });
 export type MemoryNote = z.infer<typeof MemoryNote>;
 
+/**
+ * Steps that worked for a kind of job in one project, written by the buddy when the job finished, so the next
+ * job like it starts from what worked instead of finding it again.
+ */
+export const Playbook = z.object({
+  playbookId: Id,
+  projectId: Id,
+  title: z.string().trim().min(1).max(120),
+  steps: z.array(z.string().trim().min(1).max(300)).min(1).max(MAX_PLAYBOOK_STEPS),
+  /** The job it was learned on, or last corrected on. */
+  taskId: Id.optional(),
+  at: Time,
+});
+export type Playbook = z.infer<typeof Playbook>;
+
 export const BuddyProjection = z.object({
   buddyId: Id,
   name: BuddyName,
@@ -129,6 +147,7 @@ export const BuddyProjection = z.object({
   memory: z.array(MemoryNote).max(MAX_MEMORY_NOTES),
   /** Notes waiting for the person to keep or skip. */
   pendingMemory: z.array(MemoryNote).max(MAX_PENDING_NOTES),
+  playbooks: z.array(Playbook).max(MAX_PLAYBOOKS).optional(),
   /** One sentence about the latest thing the buddy did, for its row. */
   lastLine: z.object({ text: Line, at: Time, taskId: Id.optional() }).optional(),
   archived: z.literal(true).optional(),
@@ -387,6 +406,9 @@ export const BuddyCommand = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("buddy.memory.add"), buddyId: Id, note: MemoryNote.omit({ at: true }) }),
   z.object({ type: z.literal("buddy.memory.remove"), buddyId: Id, noteId: Id }),
+  /** Saves a playbook, or replaces the one with the same title in the same project. */
+  z.object({ type: z.literal("buddy.playbook.save"), buddyId: Id, playbook: Playbook.omit({ at: true }) }),
+  z.object({ type: z.literal("buddy.playbook.remove"), buddyId: Id, playbookId: Id }),
   z.object({
     type: z.literal("buddy.chat.send"),
     buddyId: Id,
@@ -498,6 +520,8 @@ export const BuddyEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("buddy.memory.added"), buddyId: Id, note: MemoryNote.omit({ at: true }) }),
   z.object({ type: z.literal("buddy.memory.removed"), buddyId: Id, noteId: Id }),
+  z.object({ type: z.literal("buddy.playbook.saved"), buddyId: Id, playbook: Playbook.omit({ at: true }) }),
+  z.object({ type: z.literal("buddy.playbook.removed"), buddyId: Id, playbookId: Id }),
   z.object({
     type: z.literal("buddy.chat.sent"),
     buddyId: Id,
@@ -819,6 +843,20 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
         ),
       }));
       break;
+    case "buddy.playbook.saved":
+      updateBuddy(event.buddyId, (buddy) => {
+        const others = (buddy.playbooks ?? []).filter(
+          (entry) => entry.playbookId !== event.playbook.playbookId && !samePlaybook(entry, event.playbook),
+        );
+        return { ...buddy, playbooks: [...others, { ...event.playbook, at }].slice(-MAX_PLAYBOOKS) };
+      });
+      break;
+    case "buddy.playbook.removed":
+      updateBuddy(event.buddyId, (buddy) => ({
+        ...buddy,
+        playbooks: (buddy.playbooks ?? []).filter((entry) => entry.playbookId !== event.playbookId),
+      }));
+      break;
     case "buddy.memory.removed":
       updateBuddy(event.buddyId, (buddy) => ({
         ...buddy,
@@ -1123,4 +1161,43 @@ export function guessProject(
   if (focusedProjectId && projects.some((project) => project.projectId === focusedProjectId))
     return { projectId: focusedProjectId, why: "focus" };
   return only ? { projectId: only.projectId, why: "focus" } : undefined;
+}
+
+/** Two playbooks are the same one when they share a project and a title, however it is capitalised. */
+export function samePlaybook(
+  left: Pick<Playbook, "projectId" | "title">,
+  right: Pick<Playbook, "projectId" | "title">,
+): boolean {
+  return left.projectId === right.projectId && left.title.trim().toLowerCase() === right.title.trim().toLowerCase();
+}
+
+const PLAYBOOK_STOP = new Set(
+  "the and for with from into this that are was were you your can could would should have has had what when where how why who will just about there their them then than not but all any its our out get got make made fix add update change job jobs please thanks".split(
+    " ",
+  ),
+);
+
+/** The words in a text that say what it is about: lower case, without short and filler words. */
+export function keywordsOf(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((word) => word.length > 2 && !PLAYBOOK_STOP.has(word)),
+  );
+}
+
+/** A buddy's playbooks for a project, the ones that share the most words with the job first. */
+export function playbooksFor(buddy: Pick<BuddyProjection, "playbooks">, projectId: string, goal: string): Playbook[] {
+  const wanted = keywordsOf(goal);
+  const score = (playbook: Playbook) => {
+    let shared = 0;
+    for (const word of keywordsOf(`${playbook.title} ${playbook.steps.join(" ")}`)) if (wanted.has(word)) shared += 1;
+    return shared;
+  };
+  return (buddy.playbooks ?? [])
+    .filter((playbook) => playbook.projectId === projectId)
+    .map((playbook) => ({ playbook, score: score(playbook) }))
+    .sort((left, right) => right.score - left.score || right.playbook.at.localeCompare(left.playbook.at))
+    .map((entry) => entry.playbook);
 }

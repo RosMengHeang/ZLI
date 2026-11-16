@@ -116,6 +116,7 @@ export class BuddyChatReactor {
             guess,
             ...(history ? { history } : {}),
             ...(this.options.now ? { now: this.options.now() } : {}),
+            ask: message.text,
           }),
         } as RuntimeCommand,
         `buddy-chat-queue:${message.messageId}:${threadId}`,

@@ -261,6 +261,39 @@ describe("BuddiesPane", () => {
   });
 });
 
+describe("Library", () => {
+  it("shows what a buddy learned by where it came from, and its playbooks, each one removable", async () => {
+    const state = projection({
+      buddies: [
+        {
+          ...buddy("b2", "Builder", 0),
+          memory: [
+            { noteId: "n1", text: "Prefers small PRs.", source: "you", at },
+            { noteId: "n2", text: "Tests need Docker running.", source: "lesson", projectId: "p1", at },
+          ],
+          playbooks: [
+            {
+              playbookId: "pb1",
+              projectId: "p1",
+              title: "Add an API route",
+              steps: ["Add src/api/x.ts", "Run pnpm test"],
+              at,
+            },
+          ],
+        },
+      ],
+    });
+    const { commands } = await render(state, "b2");
+    await act(async () => buttonNamed("Library").click());
+    const labels = [...document.querySelectorAll(".buddy-learned-label")].map((node) => node.textContent);
+    expect(labels).toEqual(["From you 1", "Learned on jobs 1"]);
+    expect(document.querySelector(".buddy-learned-summary")?.textContent).toContain("1 learned on its own");
+    expect(document.querySelector(".buddy-playbook ol")?.textContent).toBe("Add src/api/x.tsRun pnpm test");
+    await act(async () => buttonNamed("Delete Add an API route").click());
+    expect(commands.at(-1)).toEqual({ type: "buddy.playbook.remove", buddyId: "b2", playbookId: "pb1" });
+  });
+});
+
 describe("useTeammatesToBuddies", () => {
   it("turns saved teammates into buddies once, skipping a name the team already has", async () => {
     updateAppSettings((settings) => ({

@@ -161,6 +161,29 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
       if (buddy.memory.some((note) => note.text.trim().toLowerCase() === clean.toLowerCase())) return [];
       return [{ type: "buddy.memory.added", buddyId: command.buddyId, note: { ...command.note, text: clean } }];
     }
+    case "buddy.playbook.save": {
+      requireBuddy(projection, command.buddyId);
+      if (!projection.projects.some((project) => project.projectId === command.playbook.projectId))
+        throw new DomainError("project_missing", "That project is not in ZLI.");
+      const { taskId, ...rest } = command.playbook;
+      return [
+        {
+          type: "buddy.playbook.saved",
+          buddyId: command.buddyId,
+          playbook: {
+            ...rest,
+            title: safeNote(command.playbook.title),
+            steps: command.playbook.steps.map((step) => safeNote(step)),
+            ...(taskId ? { taskId } : {}),
+          },
+        },
+      ];
+    }
+    case "buddy.playbook.remove": {
+      const buddy = requireBuddy(projection, command.buddyId);
+      if (!(buddy.playbooks ?? []).some((entry) => entry.playbookId === command.playbookId)) return [];
+      return [{ type: "buddy.playbook.removed", buddyId: command.buddyId, playbookId: command.playbookId }];
+    }
     case "buddy.memory.remove":
       requireBuddy(projection, command.buddyId);
       return [{ type: "buddy.memory.removed", buddyId: command.buddyId, noteId: command.noteId }];

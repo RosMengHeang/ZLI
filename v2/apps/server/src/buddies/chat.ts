@@ -4,6 +4,7 @@ import {
   buddiesInOrder,
   firstSentence,
   isOpenTask,
+  keywordsOf,
   type ProjectGuess,
   type ProjectProjection,
   type RuntimeProjection,
@@ -92,6 +93,8 @@ export function chatBrief(options: {
   guess: ProjectGuess | undefined;
   history?: readonly BuddyMessage[];
   now?: Date;
+  /** The message this brief goes with, matched against the buddy's past chats and jobs. */
+  ask?: string;
 }): string {
   const { buddy, state, guess } = options;
   const now = options.now ?? new Date();
@@ -188,6 +191,15 @@ export function chatBrief(options: {
         (note) => `- ${note.projectId ? `(${project(note.projectId) ?? "a project"}) ` : ""}${note.text}`,
       ),
     );
+  if ((buddy.playbooks ?? []).length > 0)
+    lines.push(
+      "",
+      "## Your playbooks (steps that worked before; a job in that project gets them in full)",
+      ...(buddy.playbooks ?? []).map((entry) => `- ${project(entry.projectId) ?? "a project"}: ${entry.title}`),
+    );
+  const recalled = options.ask ? recall(state, buddy, options.ask, now) : [];
+  if (recalled.length > 0)
+    lines.push("", "## From earlier, matched to this message (your own records; may be out of date)", ...recalled);
   if (options.history && options.history.length > 0)
     lines.push(
       "",
@@ -197,4 +209,56 @@ export function chatBrief(options: {
       ),
     );
   return lines.join("\n");
+}
+
+/** The newest messages are in the chat already; recall reaches past them. */
+const RECENT_SKIPPED = 12;
+const MAX_RECALLED = 4;
+
+/**
+ * What the buddy said, heard or did before that bears on a message: its older chat messages and its jobs,
+ * the ones sharing the most words with the message first. A plain word match, so it costs nothing and never
+ * makes anything up.
+ */
+export function recall(state: RuntimeProjection, buddy: BuddyProjection, ask: string, now: Date): string[] {
+  const wanted = keywordsOf(ask);
+  if (wanted.size === 0) return [];
+  const needed = wanted.size <= 2 ? 1 : 2;
+  const score = (text: string) => {
+    let shared = 0;
+    for (const word of keywordsOf(text)) if (wanted.has(word)) shared += 1;
+    return shared;
+  };
+  const day = (at: string) => {
+    const days = Math.round((now.getTime() - new Date(at).getTime()) / 86_400_000);
+    return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+  };
+  const project = (projectId: string) => state.projects.find((entry) => entry.projectId === projectId)?.name;
+  const messages = (state.buddyMessages ?? []).filter((message) => message.buddyId === buddy.buddyId);
+  const older = messages.slice(0, Math.max(0, messages.length - RECENT_SKIPPED));
+  const found: Array<{ score: number; at: string; line: string }> = [];
+  for (const message of older) {
+    const points = score(message.text);
+    if (points >= needed)
+      found.push({
+        score: points,
+        at: message.at,
+        line: `- ${day(message.at)}, ${senderName(state, message)}: ${firstSentence(message.text, 240)}`,
+      });
+  }
+  for (const task of state.tasks ?? []) {
+    if (task.buddyId !== buddy.buddyId) continue;
+    const notes = task.revisions.map((revision) => revision.note).join(" ");
+    const points = score(`${task.goal} ${task.result?.summary ?? ""} ${notes}`);
+    if (points >= needed)
+      found.push({
+        score: points,
+        at: task.updatedAt,
+        line: `- ${day(task.updatedAt)}, job in ${project(task.projectId) ?? "a project"} (${task.status.replace("_", " ")}): ${firstSentence(task.goal, 120)}.${task.result ? ` Result: ${firstSentence(task.result.summary, 160)}` : ""}${notes ? ` The person asked for: ${firstSentence(notes, 120)}` : ""}`,
+      });
+  }
+  return found
+    .sort((left, right) => right.score - left.score || right.at.localeCompare(left.at))
+    .slice(0, MAX_RECALLED)
+    .map((entry) => entry.line);
 }

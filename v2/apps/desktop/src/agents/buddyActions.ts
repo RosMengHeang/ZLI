@@ -38,7 +38,11 @@ export type BuddyActionHost = {
 
 const Text = (max: number) => z.string().trim().min(1).max(max);
 const Inputs = {
-  buddydone: z.object({ summary: Text(2_000), screenshots: z.array(Text(4_000)).max(8).optional() }),
+  buddydone: z.object({
+    summary: Text(2_000),
+    screenshots: z.array(Text(4_000)).max(8).optional(),
+    playbook: z.object({ title: Text(120), steps: z.array(Text(300)).min(1).max(12) }).optional(),
+  }),
   buddyask: z.object({ question: Text(2_000), options: z.array(Text(200)).max(6).optional() }),
   buddyremember: z.object({ note: Text(400) }),
   buddyverdict: z.object({ verdict: z.enum(["ok", "notes"]), notes: z.array(Text(1_000)).max(20).optional() }),
@@ -174,7 +178,24 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
         summary: input.summary,
         ...(input.screenshots ? { screenshots: input.screenshots } : {}),
       });
-      return { done: true, note: "Recorded. End your turn now; the person gets the result card." };
+      let playbook: string | undefined;
+      if (input.playbook) {
+        // A playbook that cannot be kept never undoes the finished job: the job is done either way.
+        try {
+          await host.run({
+            type: "buddy.playbook.save",
+            buddyId: task.buddyId,
+            playbook: { playbookId: host.newId(), projectId: task.projectId, taskId: task.taskId, ...input.playbook },
+          });
+          playbook = "Playbook kept for the next job like this.";
+        } catch (error) {
+          playbook = `Playbook not kept: ${error instanceof Error ? error.message : "it was refused"}`;
+        }
+      }
+      return {
+        done: true,
+        note: `Recorded. End your turn now; the person gets the result card.${playbook ? ` ${playbook}` : ""}`,
+      };
     },
     buddyask: async (raw) => {
       const input = parse("buddyask", raw);

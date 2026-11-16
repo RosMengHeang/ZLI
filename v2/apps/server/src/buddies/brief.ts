@@ -1,4 +1,10 @@
-import type { BuddyProjection, HandoffAction, ProjectProjection, TaskProjection } from "@zli-v2/contracts";
+import {
+  type BuddyProjection,
+  type HandoffAction,
+  type ProjectProjection,
+  playbooksFor,
+  type TaskProjection,
+} from "@zli-v2/contracts";
 
 /** The first message a buddy's job chat gets: who it is, the job, and how to report back. */
 export function jobBrief(options: {
@@ -20,6 +26,23 @@ export function jobBrief(options: {
   if (buddy.instructions?.trim()) lines.push("", "Your instructions:", buddy.instructions.trim());
   if (notes.length > 0)
     lines.push("", "What you know (lessons from earlier jobs):", ...notes.map((note) => `- ${note.text}`));
+  // The playbooks closest to this job in full; the rest by title, so the buddy knows they exist.
+  const playbooks = playbooksFor(buddy, project.projectId, task.goal);
+  if (playbooks.length > 0) {
+    lines.push(
+      "",
+      "Your playbooks for this project (steps that worked before; follow them unless the code says otherwise):",
+    );
+    for (const playbook of playbooks.slice(0, 2))
+      lines.push(`### ${playbook.title}`, ...playbook.steps.map((step, index) => `${index + 1}. ${step}`));
+    if (playbooks.length > 2)
+      lines.push(
+        `Others: ${playbooks
+          .slice(2)
+          .map((entry) => entry.title)
+          .join("; ")}.`,
+      );
+  }
   if (options.parent?.result)
     lines.push(
       "",
@@ -34,6 +57,7 @@ export function jobBrief(options: {
     lines.push(
       "If you change UI, open it with the browser tools and pass the screenshot paths to task_done.",
       "When you're done, call task_done with a 2–3 sentence summary of what you changed and how you checked it.",
+      "If you worked out steps worth reusing for the next job like this here (how to run, test or check it, a pitfall and its fix), pass them to task_done as a playbook. If a playbook above was wrong or out of date, pass the corrected one under the same title.",
       "If you need a decision, call ask_person with options. Don't guess on product choices.",
       "If part of the work suits another buddy better (tests, docs, a review), call hand_off.",
       "If you learn something about this project worth keeping, call remember with one short sentence.",

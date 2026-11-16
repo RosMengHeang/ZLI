@@ -76,6 +76,29 @@ describe("buddy actions", () => {
     expect(sent).toEqual([{ type: "task.finish", taskId: "t1", summary: "Added the page." }]);
   });
 
+  it("keeps the steps a finished job worked out as a playbook for its project", async () => {
+    const { actions, sent } = host();
+    const result = (await actions.buddydone({
+      summary: "Added the page.",
+      playbook: { title: "Add a page", steps: ["Add the route in src/routes", "Run pnpm test"] },
+    })) as { note: string };
+    expect(sent).toEqual([
+      { type: "task.finish", taskId: "t1", summary: "Added the page." },
+      {
+        type: "buddy.playbook.save",
+        buddyId: "b1",
+        playbook: {
+          playbookId: "id-1",
+          projectId: "p1",
+          taskId: "t1",
+          title: "Add a page",
+          steps: ["Add the route in src/routes", "Run pnpm test"],
+        },
+      },
+    ]);
+    expect(result.note).toContain("Playbook kept");
+  });
+
   it("hands work on from the caller's branch and links it to the caller's job", async () => {
     const { actions, sent } = host();
     const result = (await actions.buddyhandoff({ goal: "Write tests for the login page" })) as { handedTo: string };
