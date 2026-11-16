@@ -56,6 +56,7 @@ export type DomainErrorCode =
   | "buddy_limit"
   | "buddy_name_taken"
   | "handoff_invalid"
+  | "memory_unsafe"
   | "handoff_limit"
   | "task_missing"
   | "task_closed"

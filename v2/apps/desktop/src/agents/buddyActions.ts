@@ -194,18 +194,20 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
     buddyremember: async (raw) => {
       const input = parse("buddyremember", raw);
       const { task } = callerJob(raw);
+      // What a job learns about its project is kept for the buddy's next jobs there, the way the person would
+      // keep a note. The note is screened first, and the person can remove it from the buddy's page.
       await host.run({
-        type: "buddy.memory.propose",
+        type: "buddy.memory.add",
         buddyId: task.buddyId,
         note: {
           noteId: host.newId(),
           text: input.note,
-          source: "told",
+          source: "lesson",
           projectId: task.projectId,
           taskId: task.taskId,
         },
       });
-      return { proposed: true, note: "The person decides whether to keep it." };
+      return { kept: true, note: "Kept for your next jobs in this project." };
     },
     buddyverdict: async (raw) => {
       const input = parse("buddyverdict", raw);

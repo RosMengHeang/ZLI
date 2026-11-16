@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { keepNotes } from "./memoryGuard.js";
 
 import { PermissionMode, ProviderKind } from "./provider.js";
 
@@ -805,15 +806,16 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
         return {
           ...buddy,
           pendingMemory: buddy.pendingMemory.filter((candidate) => candidate.noteId !== event.noteId),
-          memory: [...buddy.memory, { ...note, text: event.text ?? note.text, at }].slice(-MAX_MEMORY_NOTES),
+          memory: keepNotes([...buddy.memory, { ...note, text: event.text ?? note.text, at }], MAX_MEMORY_NOTES),
         };
       });
       break;
     case "buddy.memory.added":
       updateBuddy(event.buddyId, (buddy) => ({
         ...buddy,
-        memory: [...buddy.memory.filter((note) => note.noteId !== event.note.noteId), { ...event.note, at }].slice(
-          -MAX_MEMORY_NOTES,
+        memory: keepNotes(
+          [...buddy.memory.filter((note) => note.noteId !== event.note.noteId), { ...event.note, at }],
+          MAX_MEMORY_NOTES,
         ),
       }));
       break;

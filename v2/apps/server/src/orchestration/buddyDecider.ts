@@ -7,6 +7,7 @@ import {
   MAX_BUDDIES,
   MAX_HANDOFF_DEPTH,
   type RuntimeProjection,
+  screenNote,
   type TaskProjection,
   type TaskStatus,
 } from "@zli-v2/contracts";
@@ -136,10 +137,11 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
       return [{ type: "buddy.handoff.removed", buddyId: command.buddyId, ruleId: command.ruleId }];
     case "buddy.memory.propose": {
       const buddy = requireBuddy(projection, command.buddyId);
-      const text = command.note.text.trim().toLowerCase();
+      const clean = safeNote(command.note.text);
+      const text = clean.toLowerCase();
       // A note it already has, or already proposed, is not proposed again.
       if ([...buddy.memory, ...buddy.pendingMemory].some((note) => note.text.trim().toLowerCase() === text)) return [];
-      return [{ type: "buddy.memory.proposed", buddyId: command.buddyId, note: command.note }];
+      return [{ type: "buddy.memory.proposed", buddyId: command.buddyId, note: { ...command.note, text: clean } }];
     }
     case "buddy.memory.accept": {
       const buddy = requireBuddy(projection, command.buddyId);
@@ -149,13 +151,16 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
           type: "buddy.memory.accepted",
           buddyId: command.buddyId,
           noteId: command.noteId,
-          ...(command.text ? { text: command.text } : {}),
+          ...(command.text ? { text: safeNote(command.text) } : {}),
         },
       ];
     }
-    case "buddy.memory.add":
-      requireBuddy(projection, command.buddyId);
-      return [{ type: "buddy.memory.added", buddyId: command.buddyId, note: command.note }];
+    case "buddy.memory.add": {
+      const buddy = requireBuddy(projection, command.buddyId);
+      const clean = safeNote(command.note.text);
+      if (buddy.memory.some((note) => note.text.trim().toLowerCase() === clean.toLowerCase())) return [];
+      return [{ type: "buddy.memory.added", buddyId: command.buddyId, note: { ...command.note, text: clean } }];
+    }
     case "buddy.memory.remove":
       requireBuddy(projection, command.buddyId);
       return [{ type: "buddy.memory.removed", buddyId: command.buddyId, noteId: command.noteId }];
@@ -355,4 +360,11 @@ function requireRoutine(projection: RuntimeProjection, routineId: string) {
   const routine = (projection.routines ?? []).find((candidate) => candidate.routineId === routineId);
   if (!routine) throw new DomainError("routine_missing", `No routine with id ${routineId}.`);
   return routine;
+}
+
+/** A note goes into every brief the buddy reads, so one that could steer or leak is never kept. */
+function safeNote(text: string): string {
+  const check = screenNote(text);
+  if (!check.ok) throw new DomainError("memory_unsafe", `Not kept: ${check.reason}`);
+  return check.text;
 }
