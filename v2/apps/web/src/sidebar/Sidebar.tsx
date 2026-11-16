@@ -773,7 +773,7 @@ export function Sidebar({
     items.push({
       label: pinned ? "Unpin chat" : "Pin chat",
       icon: "pin",
-      title: pinned ? undefined : "Keep this chat at the top of the sidebar",
+      title: pinned ? undefined : "Keep this chat at the top of its project",
       run: () => layout.toggleChatPinned(session.sessionId),
     });
     const agentId = onOpenHuddle ? sessionAgentId(session) : undefined;
@@ -915,6 +915,9 @@ export function Sidebar({
             <span className="session-line">
               {runIndex === undefined ? (
                 <>
+                  {layout.chatPinned(session.sessionId) ? (
+                    <Icon name="pin" size={11} className="session-pin" aria-label="Pinned" />
+                  ) : null}
                   <span className="session-title">{title}</span>
                   {guests.length > 0 ? (
                     <span
@@ -1030,7 +1033,6 @@ export function Sidebar({
     const worktree = worktrees.find((entry) => entry.worktreeId === session.worktreeId);
     return projects.find((entry) => entry.projectId === worktree?.projectId);
   };
-  const pinnedChats = sessions.filter((session) => layout.chatPinned(session.sessionId));
 
   // Typing in the search box lists every chat it matches, from all projects, newest first.
   const needle = query.trim().toLowerCase();
@@ -1239,30 +1241,6 @@ export function Sidebar({
             {onOpenBuddies ? <h2 className="sidebar-heading sidebar-projects-heading">Projects</h2> : null}
             {/* With one project every chat is already in view, so the shelf would only repeat it. */}
             {shelf.length > 0 && listedProjects.length > 1 ? renderShelf() : null}
-            {pinnedChats.length > 0 ? (
-              <section className="sidebar-pinned" aria-label="Pinned chats">
-                <h2 className="sidebar-heading">Pinned</h2>
-                <ul className="session-list">
-                  {pinnedChats.map((session) => {
-                    const projectWorktrees = worktrees.filter((worktree) =>
-                      worktrees.some(
-                        (entry) => entry.worktreeId === session.worktreeId && entry.projectId === worktree.projectId,
-                      ),
-                    );
-                    return renderSession(
-                      session,
-                      projectWorktrees,
-                      undefined,
-                      undefined,
-                      false,
-                      noAncestors,
-                      false,
-                      true,
-                    );
-                  })}
-                </ul>
-              </section>
-            ) : null}
             {listedProjects.map((project) => {
               const projectWorktrees = worktrees.filter((worktree) => worktree.projectId === project.projectId);
               const worktreeIds = new Set<string>(projectWorktrees.map((worktree) => worktree.worktreeId));
@@ -1290,19 +1268,20 @@ export function Sidebar({
               );
               const empty = projectSessions.length === 0;
               // Sub-agents and best-of runs list under the chat they came from, in this project too.
-              // Pinned chats list once, at the top of the sidebar.
-              const top = projectSessions.filter(
-                (session) =>
-                  !runIds.has(session.sessionId) &&
-                  !parents.has(session.sessionId) &&
-                  !layout.chatPinned(session.sessionId),
-              );
+              // Pinned chats stay in their project, above its other chats.
+              const top = projectSessions
+                .filter((session) => !runIds.has(session.sessionId) && !parents.has(session.sessionId))
+                .sort(
+                  (left, right) =>
+                    Number(layout.chatPinned(right.sessionId)) - Number(layout.chatPinned(left.sessionId)),
+                );
               // Past the newest few, a chat folds away once nothing about it asks to be seen.
               const older = top.filter(
                 (session, index) =>
                   index >= RECENT_CHATS &&
                   (session.status === "ready" || session.status === "ended" || session.status === "failed") &&
                   session.sessionId !== activeSessionId &&
+                  !layout.chatPinned(session.sessionId) &&
                   !unread.has(session.sessionId) &&
                   !subAgentsOf.has(session.sessionId) &&
                   !groupsBySource.has(session.sessionId),

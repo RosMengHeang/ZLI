@@ -42,6 +42,7 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .project-confirm-problem { display: block; margin-top: var(--zli-space-1); color: var(--zli-red); overflow-wrap: anywhere; }
 .project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-pin { flex: 0 0 auto; color: var(--zli-dim); }
+.session-pin { flex: 0 0 auto; margin-right: 4px; color: var(--zli-dim); }
 .project-rename { min-width: 0; flex: 1; height: 100%; padding: 0 var(--zli-space-2); border: 1px solid var(--zli-focus); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text); font: inherit; outline: none; }
 /* The chevron says the folder folds. It stays out of the way until the row is pointed at, or the folder is closed. */
 .project-chevron { flex: 0 0 auto; color: var(--zli-dim); opacity: 0; transform: rotate(90deg); transition: opacity var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
@@ -352,7 +353,7 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .sidebar-heading { margin: var(--zli-space-1) 0 2px; padding: 0 10px; color: var(--zli-dim); font-size: var(--zli-text-sm); font-weight: 500; line-height: 24px; }
 
 /* Chat cards. One line when nothing is new: face, title, time. A second line only for news. */
-.sidebar-project > .session-list, .sidebar-pinned > .session-list, .sidebar-results > .session-list { display: flex; flex-direction: column; gap: 1px; }
+.sidebar-project > .session-list, .sidebar-results > .session-list { display: flex; flex-direction: column; gap: 1px; }
 .session-row,
 .session-row.has-branch,
 .session-row.has-state,
@@ -416,7 +417,6 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .shelf-title { font-size: var(--zli-text-base); font-weight: 500; }
 .shelf-reason { font-size: var(--zli-text-sm); }
 
-.sidebar-pinned { margin-bottom: var(--zli-space-5); }
 .sidebar-results-empty { margin: 0; padding: 0 10px; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .sidebar-results .session-row:focus-visible, .sidebar-scroll .session-row:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 

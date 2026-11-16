@@ -469,21 +469,39 @@ describe("Sidebar projects", () => {
     expect(container.querySelector(".project-label")).not.toBeNull();
   });
 
-  it("pins a chat above every project and remembers it", async () => {
+  it("pins a chat to the top of its own project and remembers it", async () => {
+    const chat = (sessionId: string, name: string, createdAt: string): AgentSession => ({
+      ...agent(checkoutId),
+      sessionId,
+      status: "ready",
+      createdAt,
+      updatedAt: createdAt,
+      terminal: {
+        terminalId: `terminal-${sessionId}`,
+        worktreeId: checkoutId,
+        title: "Codex",
+        status: "running",
+        name,
+      } as unknown as NonNullable<AgentSession["terminal"]>,
+    });
+    const older = chat("session-1", "Older chat", "2025-01-01T00:00:00.000Z");
+    const newer = chat("session-2", "Newer chat", "2025-01-02T00:00:00.000Z");
     const { container } = await mount(
       projection([
         { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
       ]),
-      { sessions: [{ ...agent(checkoutId), status: "ready", mode: "chat" }] },
+      { sessions: [older, newer] },
     );
-    expect(container.querySelector('[aria-label="Pinned chats"]')).toBeNull();
-    await openMenu(container, "Agent actions");
+    const titles = () =>
+      [...container.querySelectorAll(".sidebar-project .session-name")].map((node) => node.textContent);
+    expect(titles()).toEqual(["Newer chat", "Older chat"]);
+    const menus = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="Agent actions"]')];
+    await act(async () => menus[1]?.click());
     await act(async () => button(document.body, "Pin chat").click());
-    const pinned = container.querySelector('[aria-label="Pinned chats"]') as HTMLElement;
-    expect(pinned.querySelectorAll(".session-row")).toHaveLength(1);
-    expect(pinned.querySelector(".session-project")?.textContent).toBe("repo");
-    // Listed once: the project no longer shows it.
-    expect(container.querySelector(".sidebar-project .session-row")).toBeNull();
+    // It stays in the project, above the others, with no list of its own.
+    expect(titles()).toEqual(["Older chat", "Newer chat"]);
+    expect(container.querySelector('[aria-label="Pinned chats"]')).toBeNull();
+    expect(container.querySelectorAll(".sidebar-project .session-pin")).toHaveLength(1);
     expect(parseSidebarCollapsed(window.localStorage.getItem("zli.sidebar.collapsed")).chats).toEqual(["session-1"]);
   });
 
