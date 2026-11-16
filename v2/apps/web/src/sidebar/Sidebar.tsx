@@ -1221,9 +1221,12 @@ export function Sidebar({
           />
         </div>
       </div>
-      {onOpenBuddies ? <SidebarBuddies projection={projection} onOpen={onOpenBuddies} active={activeBuddyId} /> : null}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the chat buttons inside. */}
       <div className="sidebar-scroll" onKeyDown={moveBetweenChats}>
+        {/* The team scrolls with the projects, so a long project list gets the whole height. */}
+        {onOpenBuddies ? (
+          <SidebarBuddies projection={projection} onOpen={onOpenBuddies} active={activeBuddyId} />
+        ) : null}
         {projects.length === 0 ? (
           <div className="sidebar-empty">
             <p>No projects yet. Start a chat and pick its folder when you send, or add a project here.</p>

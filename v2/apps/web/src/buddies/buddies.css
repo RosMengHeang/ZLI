@@ -98,7 +98,7 @@
 .buddy-field textarea { resize: vertical; }
 
 /* ---------- Sidebar buddies ---------- */
-.sidebar-buddies { display: flex; flex-direction: column; gap: 1px; padding: var(--zli-space-1) var(--zli-space-2) var(--zli-space-2); }
+.sidebar-buddies { display: flex; flex-direction: column; gap: 1px; padding: var(--zli-space-1) 0 var(--zli-space-2); }
 .sidebar-buddies-head { display: flex; align-items: center; gap: var(--zli-space-1-5); padding: 0 var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-2xs); font-weight: 500; }
 .sidebar-buddies-needs { margin-left: auto; padding: 0 6px; border: 1px solid var(--zli-amber-line); border-radius: var(--zli-radius-pill); background: transparent; color: var(--zli-amber); cursor: default; font-size: var(--zli-text-2xs); font-weight: 500; }
 .sidebar-buddy { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2); padding: 3px var(--zli-space-1); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: inherit; cursor: default; text-align: left; }
