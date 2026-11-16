@@ -175,13 +175,48 @@ export type PullRequestInfo = z.infer<typeof PullRequestInfo>;
 
 /** Why a pull request cannot be created from this worktree right now. */
 export const PullRequestProblem = z.object({
-  code: z.enum(["detached", "no_origin", "gh_missing", "gh_unauthenticated", "gh_failed"]),
+  /** gh_* are GitHub's; the cli_* codes are the same problems with GitLab's or Gitea's CLI. */
+  code: z.enum([
+    "detached",
+    "no_origin",
+    "gh_missing",
+    "gh_unauthenticated",
+    "gh_failed",
+    "cli_missing",
+    "cli_outdated",
+    "cli_unauthenticated",
+    "cli_failed",
+    "unknown_forge",
+  ]),
   message: z.string().min(1),
 });
 export type PullRequestProblem = z.infer<typeof PullRequestProblem>;
 
+/** What the forge a worktree's origin points to can do from ZLI. */
+export const ForgeCapabilities = z.object({
+  checks: z.boolean(),
+  checkLog: z.boolean(),
+  reviewThreads: z.boolean(),
+  review: z.boolean(),
+  autoMerge: z.boolean(),
+  mergeMethods: z.array(PullRequestMergeMethod).max(3),
+});
+export type ForgeCapabilities = z.infer<typeof ForgeCapabilities>;
+
+/** The forge a worktree's origin is on, as ZLI shows it: "GitLab", "merge request". */
+export const ForgeInfo = z.object({
+  kind: z.enum(["github", "gitlab", "gitea"]),
+  label: z.string().min(1).max(40),
+  requestNoun: z.enum(["pull request", "merge request"]),
+  host: z.string().min(1).max(253).optional(),
+  capabilities: ForgeCapabilities,
+});
+export type ForgeInfo = z.infer<typeof ForgeInfo>;
+
 export const PullRequestStatusResult = z.object({
   branch: z.string().min(1),
+  /** Absent from older runtimes, which only knew GitHub. */
+  forge: ForgeInfo.optional(),
   pullRequest: PullRequestInfo.optional(),
   problem: PullRequestProblem.optional(),
   /** Files `git status` reports; they are not part of a pull request until committed. */

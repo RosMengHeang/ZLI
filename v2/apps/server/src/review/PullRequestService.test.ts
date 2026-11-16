@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { type ForgeDriver, GITHUB_CAPABILITIES } from "../forges/ForgeDriver.js";
+import { GitLabDriver } from "../forges/GitLabDriver.js";
 
 import {
   actionsJob,
@@ -64,6 +66,7 @@ describe("PullRequestService.status", () => {
     const status = await new PullRequestService(runner).status(INPUT);
     expect(status).toEqual({
       branch: "feature/pr",
+      forge: { kind: "github", label: "GitHub", requestNoun: "pull request", capabilities: GITHUB_CAPABILITIES },
       uncommittedFiles: 0,
       commitsAhead: 2,
       defaults: { title: "Wire the dialog", body: "- Add the button\n- Wire the dialog", base: "main" },
@@ -976,5 +979,108 @@ describe("helpers", () => {
     );
     expect(redacted).not.toMatch(/hunter2|ghp_0123|github_pat_11|abc/u);
     expect(redactSecrets("Bearer xyz and password=pw")).toBe("Bearer [redacted] and password=[redacted]");
+  });
+});
+
+describe("PullRequestService on other forges", () => {
+  const remote = (url: string) => (call: Call) =>
+    call.command === "git" && call.args.join(" ") === "remote -v"
+      ? ok(`origin\t${url} (fetch)\norigin\t${url} (push)\n`)
+      : undefined;
+  const noHosts = { github: async () => [], gitlab: async () => [], gitea: async () => [] };
+  const MR = {
+    number: 7,
+    url: "https://gitlab.com/acme/app/-/merge_requests/7",
+    state: "OPEN" as const,
+    isDraft: false,
+  };
+
+  function fakeDriver(over: Partial<ForgeDriver> = {}) {
+    const seen: string[] = [];
+    const driver: ForgeDriver = {
+      info: new GitLabDriver(async () => ok()).info,
+      problem: async () => undefined,
+      view: async () => MR,
+      create: async (_cwd, request) => {
+        seen.push(`create ${request.branch}->${request.base} ${request.title}`);
+        return MR;
+      },
+      merge: async (_cwd, number, method) => {
+        seen.push(`merge ${number} ${method}`);
+      },
+      comment: async (_cwd, number, body) => {
+        seen.push(`comment ${number} ${body}`);
+      },
+      ...over,
+    };
+    return { driver, seen };
+  }
+
+  it("reads a GitLab merge request through the GitLab driver and never runs gh", async () => {
+    const { runner, calls } = fakeRunner(remote("git@gitlab.com:acme/app.git"));
+    const { driver } = fakeDriver();
+    const status = await new PullRequestService(runner, { knownHosts: noHosts, drivers: { gitlab: driver } }).status(
+      INPUT,
+    );
+    expect(status.forge).toMatchObject({
+      kind: "gitlab",
+      label: "GitLab",
+      requestNoun: "merge request",
+      host: "gitlab.com",
+    });
+    expect(status.pullRequest).toEqual(MR);
+    expect(calls.some((call) => call.command === "gh")).toBe(false);
+  });
+
+  it("creates, merges and comments through the driver", async () => {
+    const { runner, calls } = fakeRunner(remote("https://gitlab.com/acme/app.git"));
+    const { driver, seen } = fakeDriver();
+    const service = new PullRequestService(runner, { knownHosts: noHosts, drivers: { gitlab: driver } });
+    await service.create(INPUT, { title: "Add login", body: "", base: "main", draft: false });
+    const merged = await service.merge(INPUT, { method: "squash", deleteBranch: true });
+    await service.comment(INPUT, "Thanks");
+    expect(seen).toEqual(["create feature/pr->main Add login", "merge 7 squash", "comment 7 Thanks"]);
+    expect(merged.branchDeleted).toBe(true);
+    expect(calls.some((call) => call.args.join(" ") === "push origin --delete feature/pr")).toBe(true);
+  });
+
+  it("shows the driver's problem, such as a missing glab, instead of a GitHub error", async () => {
+    const { runner } = fakeRunner(remote("https://gitlab.com/acme/app.git"));
+    const { driver } = fakeDriver({
+      problem: async () => ({ code: "cli_missing", message: "GitLab needs glab, which is not installed." }),
+    });
+    const status = await new PullRequestService(runner, { knownHosts: noHosts, drivers: { gitlab: driver } }).status(
+      INPUT,
+    );
+    expect(status.problem).toEqual({ code: "cli_missing", message: "GitLab needs glab, which is not installed." });
+    expect(status.forge?.kind).toBe("gitlab");
+  });
+
+  it("says plainly when no forge CLI knows the host", async () => {
+    const { runner, calls } = fakeRunner(remote("https://git.company.internal/acme/app.git"));
+    const status = await new PullRequestService(runner, { knownHosts: noHosts }).status(INPUT);
+    expect(status.problem?.code).toBe("unknown_forge");
+    expect(status.problem?.message).toContain("git.company.internal");
+    expect(status.forge).toBeUndefined();
+    expect(calls.some((call) => call.command === "gh")).toBe(false);
+  });
+
+  it("keeps GitHub-only actions to GitHub", async () => {
+    const { runner } = fakeRunner(remote("https://codeberg.org/acme/app.git"));
+    const service = new PullRequestService(runner, { knownHosts: noHosts, drivers: { gitea: fakeDriver().driver } });
+    await expect(service.review(INPUT, { event: "APPROVE", body: "" })).rejects.toThrow(/can't send reviews/u);
+  });
+
+  it("uses the first remote when there is no origin", async () => {
+    const { runner } = fakeRunner((call) =>
+      call.command === "git" && call.args.join(" ") === "remote -v"
+        ? ok("upstream\thttps://gitlab.com/acme/app.git (fetch)\nupstream\thttps://gitlab.com/acme/app.git (push)\n")
+        : undefined,
+    );
+    const { driver } = fakeDriver();
+    const status = await new PullRequestService(runner, { knownHosts: noHosts, drivers: { gitlab: driver } }).status(
+      INPUT,
+    );
+    expect(status.forge?.kind).toBe("gitlab");
   });
 });
