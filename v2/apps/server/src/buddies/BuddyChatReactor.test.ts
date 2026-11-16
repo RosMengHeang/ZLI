@@ -202,6 +202,39 @@ describe("BuddyChatReactor", () => {
     expect(chat("b1")?.filter(([role]) => role === "you")).toHaveLength(1);
   });
 
+  it("replaces a chat started before chats ran unattended, which may be stuck on a prompt", async () => {
+    const { engine, settle } = await setup();
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "msg-5", text: "hello" } as RuntimeCommand);
+    const first = await settle();
+    const old = first.threads.find((candidate) => candidate.threadId === first.buddies?.[0]?.chatThreadId);
+    if (!old) throw new Error("No chat thread");
+    const legacy = stableId("legacy-chat");
+    await send(engine, {
+      type: "thread.start",
+      threadId: legacy,
+      worktreeId: old.worktreeId,
+      provider: "claude-code",
+      cwd: "unused",
+      permissionMode: "read-only",
+      shareWorktree: true,
+    } as RuntimeCommand);
+    await send(engine, { type: "buddy.chat.thread", buddyId: "b1", threadId: legacy } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-6",
+      text: "still there?",
+    } as RuntimeCommand);
+    const state = await settle();
+    const stops = (await engine.eventsAfter(0)).filter(
+      (envelope) => envelope.event.type === "thread.stop.requested" && envelope.event.threadId === legacy,
+    );
+    expect(stops).toHaveLength(1);
+    const current = state.threads.find((candidate) => candidate.threadId === state.buddies?.[0]?.chatThreadId);
+    expect(current?.threadId).not.toBe(legacy);
+    expect(current?.unattended).toBe(true);
+  });
+
   it("does not let a buddy send itself a teammate's message", async () => {
     const { engine } = await setup();
     const receipt = await send(engine, {

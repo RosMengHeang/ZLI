@@ -88,10 +88,16 @@ export class BuddyChatReactor {
     if (thread && waiting.length > 0) await this.collect(state, buddy, thread.threadId, waiting);
     if (waiting.length === 0) return;
     const usable =
-      thread &&
+      thread?.unattended &&
       thread.status !== "failed" &&
       thread.status !== "stopped" &&
       state.worktrees.some((worktree) => worktree.worktreeId === thread.worktreeId && worktree.status === "ready");
+    // A chat started before chats ran unattended can be stuck waiting on a prompt nobody sees: end it.
+    if (thread && !thread.unattended && thread.status !== "failed" && thread.status !== "stopped")
+      await this.dispatch(
+        { type: "thread.stop", threadId: thread.threadId } as RuntimeCommand,
+        `buddy-chat-retire:${thread.threadId}`,
+      );
     const threadId = usable ? thread.threadId : await this.open(state, buddy, waiting[0] as BuddyMessage);
     if (!threadId) return;
     const fresh = !(state.messages ?? []).some((message) => message.threadId === threadId);
