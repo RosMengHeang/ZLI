@@ -56,7 +56,29 @@ export class StoredEventCompatibilityError extends Error {
   }
 }
 
+const KNOWN_EVENT_TYPES = new Set<string>(RuntimeEvent.options.map((option) => option.shape.type.value));
+
+/**
+ * A stored envelope whose event type this build does not know, as a placeholder that keeps its place in the
+ * sequence. Anything else that fails to parse stays an error.
+ */
+function unknownEventPlaceholder(json: string): RuntimeEventEnvelope | undefined {
+  try {
+    const stored = JSON.parse(json) as { event?: { type?: unknown } };
+    const type = stored?.event?.type;
+    if (typeof type !== "string" || KNOWN_EVENT_TYPES.has(type)) return undefined;
+    const placeholder = RuntimeEventEnvelope.safeParse({
+      ...stored,
+      event: { type: "runtime.event.unknown", originalType: type.slice(0, 200) },
+    });
+    return placeholder.success ? placeholder.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class Engine {
+  private readonly skippedEventTypes = new Set<string>();
   readonly database: Database;
   private readonly environment: EnvironmentDescriptor;
   private readonly applyEvent: ProjectEvent;
@@ -406,13 +428,29 @@ export class Engine {
     const rows = this.database.raw
       .prepare("SELECT sequence, event_json FROM events WHERE sequence > ? ORDER BY sequence ASC")
       .all(sequence) as Array<{ sequence: number; event_json: string }>;
-    return rows.map((row) => {
+    const events: RuntimeEventEnvelope[] = [];
+    for (const row of rows) {
       try {
-        return RuntimeEventEnvelope.parse(JSON.parse(row.event_json));
+        events.push(RuntimeEventEnvelope.parse(JSON.parse(row.event_json)));
       } catch (error) {
-        throw new StoredEventCompatibilityError(row.sequence, error);
+        const placeholder = unknownEventPlaceholder(row.event_json);
+        if (placeholder?.event.type !== "runtime.event.unknown" || placeholder.sequence !== row.sequence)
+          throw new StoredEventCompatibilityError(row.sequence, error);
+        this.noteUnknownEvent(row.sequence, placeholder.event.originalType);
+        events.push(placeholder);
       }
-    });
+    }
+    return events;
+  }
+
+  /**
+   * A newer or side build wrote an event this one cannot read. Its effects are left out instead of the app
+   * refusing to open the data; a known event that no longer parses still stops the load.
+   */
+  private noteUnknownEvent(sequence: number, type: string): void {
+    if (this.skippedEventTypes.has(type)) return;
+    this.skippedEventTypes.add(type);
+    this.logger.record("warn", "stored event of an unknown type skipped", {}, { sequence, type });
   }
 
   private readReceipt(commandId: string): CommandReceipt | undefined {

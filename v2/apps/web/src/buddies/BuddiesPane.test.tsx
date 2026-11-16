@@ -84,13 +84,7 @@ describe("BuddiesPane", () => {
   it("starts the team with a Primary, a Builder and a Tester who checks the Builder's work", async () => {
     const { commands } = await render(projection());
     await act(async () => buttonNamed("Start with these three").click());
-    expect(sent(commands)).toEqual([
-      "buddy.create",
-      "buddy.create",
-      "buddy.create",
-      "buddy.handoff.set",
-      "routine.create",
-    ]);
+    expect(sent(commands)).toEqual(["buddy.create", "buddy.create", "buddy.create", "buddy.handoff.set"]);
     const names = commands.slice(0, 3).map((entry) => (entry as { buddy: { name: string } }).buddy.name);
     expect(names).toEqual(["Primary", "Builder", "Tester"]);
   });

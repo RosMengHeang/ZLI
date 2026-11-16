@@ -120,8 +120,11 @@ export function BuddiesPane(props: BuddiesPaneProps) {
 
 /* ---------- First run ---------- */
 
-/** Primary, Builder and Tester, Builder's work checked by Tester, and Primary's morning brief. */
-async function startTeam(run: Run, projection: RuntimeProjection): Promise<void> {
+/**
+ * Primary, Builder and Tester, Builder's work checked by Tester. Nothing is scheduled: routines start when the
+ * person asks a buddy for one or adds one on its page.
+ */
+async function startTeam(run: Run): Promise<void> {
   const { buddies, handoff } = starterTeam(makeCommandId);
   for (const buddy of buddies) if (!(await run({ type: "buddy.create", buddy }))) return;
   await run({
@@ -129,21 +132,6 @@ async function startTeam(run: Run, projection: RuntimeProjection): Promise<void>
     buddyId: handoff.from,
     rule: { ruleId: handoff.ruleId, when: "finished", to: handoff.to, action: "check", maxRounds: 2, enabled: true },
   });
-  const primary = buddies[0];
-  const project = projection.projects[0];
-  if (primary && project)
-    await run({
-      type: "routine.create",
-      routine: {
-        routineId: makeCommandId(),
-        buddyId: primary.buddyId,
-        projectId: project.projectId,
-        goal: "Write the morning brief: what each buddy did since yesterday, what is waiting on the person, and what is next. Use task_status. Keep it to six lines and finish with task_done.",
-        trigger: { kind: "schedule", cron: "0 9 * * 1-5" },
-        paused: false,
-        builtin: "morning_brief",
-      },
-    });
 }
 
 /**
@@ -157,7 +145,7 @@ export function useStarterTeam(projection: RuntimeProjection | undefined): void 
   useEffect(() => {
     if (!empty || !projection || started.current) return;
     started.current = true;
-    void startTeam(run, projection);
+    void startTeam(run);
   }, [empty, projection, run]);
 }
 
@@ -166,7 +154,7 @@ function Welcome({ run, projection }: { run: Run; projection: RuntimeProjection 
   const [busy, setBusy] = useState(false);
   const start = async () => {
     setBusy(true);
-    await startTeam(run, projection);
+    await startTeam(run);
     setBusy(false);
   };
   const bringTeammates = async () => {

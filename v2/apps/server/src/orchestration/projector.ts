@@ -507,6 +507,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
       };
     case "runtime.ready":
     case "runtime.reactor.failed":
+    case "runtime.event.unknown":
       return { ...projection, lastSequence: envelope.sequence };
     case "devserver.detected":
       return {

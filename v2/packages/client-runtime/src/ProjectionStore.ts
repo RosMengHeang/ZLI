@@ -80,6 +80,7 @@ export class ProjectionStore {
         this.#projection = { ...current, lastSequence: envelope.sequence };
         break;
       case "runtime.reactor.failed":
+      case "runtime.event.unknown":
       case "worktree.remove.requested":
       case "worktree.archive.requested":
       case "terminal.write.requested":
