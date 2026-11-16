@@ -7,7 +7,7 @@ import {
   type TaskProjection,
   type ThreadActivityProjection,
 } from "@zli-v2/contracts";
-import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
 import { fileName, splitAttachedFiles, withAttachedFiles } from "../chat/attachedFiles.js";
@@ -15,7 +15,7 @@ import { liveStepLabel } from "../chat/liveStatus.js";
 import { getBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
-import type { Buddy } from "../teammates/buddies.js";
+import { type Buddy, buddyHex } from "../teammates/buddies.js";
 import { IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { triggerLabel } from "./team.js";
@@ -29,6 +29,8 @@ type Who = { name: string; color: Buddy };
 export type ChatItem =
   | { kind: "you"; key: string; at: string; text: string }
   | { kind: "say"; key: string; at: string; text: string }
+  /** A message between this buddy and a teammate: one it got, an answer brought back, or one it sent. */
+  | { kind: "teammate"; key: string; at: string; text: string; who: Who; way: "asked" | "replied" | "sent" }
   | {
       kind: "event";
       key: string;
@@ -63,13 +65,25 @@ export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection
   const tasks = state.tasks ?? [];
   const messages = (state.buddyMessages ?? []).filter((message) => message.buddyId === buddy.buddyId);
   for (const message of messages) {
-    // A teammate's message sits on the buddy's side, named, since you did not write it.
-    const sender = message.from ? state.buddies?.find((entry) => entry.buddyId === message.from) : undefined;
+    // A message between teammates is shown as theirs, named, since you did not write it.
+    const teammateId = message.from ?? message.to;
+    const teammate = teammateId ? (who(state, teammateId) ?? { name: "A teammate", color: "slate" }) : undefined;
+    if (teammate) {
+      items.push({
+        kind: "teammate",
+        key: message.messageId,
+        at: message.at,
+        text: message.text,
+        who: teammate,
+        way: message.to ? "sent" : message.role === "you" ? "asked" : "replied",
+      });
+      continue;
+    }
     items.push({
-      kind: message.role === "you" && !message.from ? "you" : "say",
+      kind: message.role === "you" ? "you" : "say",
       key: message.messageId,
       at: message.at,
-      text: message.from ? `${sender?.name ?? "A teammate"} asked: ${message.text}` : message.text,
+      text: message.text,
     });
   }
   for (const routine of state.routines ?? [])
@@ -317,6 +331,32 @@ export function BuddyChat({
   );
 }
 
+const TEAMMATE_WAY = { asked: "asked", replied: "replied", sent: "To" } as const;
+
+/** A note between teammates: whose words they are, and which way they went. */
+function TeammateNote({ item }: { item: Extract<ChatItem, { kind: "teammate" }> }) {
+  return (
+    <figure
+      className={`buddy-chat-teammate is-${item.way}`}
+      style={{ "--teammate": buddyHex(item.who.color) } as CSSProperties}
+    >
+      <figcaption className="buddy-chat-teammate-head">
+        <BuddyAvatar buddy={item.who.color} size={16} />
+        {item.way === "sent" ? (
+          <span>
+            {TEAMMATE_WAY.sent} <strong>{item.who.name}</strong>
+          </span>
+        ) : (
+          <span>
+            <strong>{item.who.name}</strong> {TEAMMATE_WAY[item.way]}
+          </span>
+        )}
+      </figcaption>
+      <blockquote className="buddy-chat-teammate-text">{item.text}</blockquote>
+    </figure>
+  );
+}
+
 function ChatEntry({
   item,
   buddy,
@@ -335,6 +375,8 @@ function ChatEntry({
       return <YouMessage text={item.text} />;
     case "say":
       return <div className="buddy-chat-say">{item.text}</div>;
+    case "teammate":
+      return <TeammateNote item={item} />;
     case "event":
       return (
         <div className="buddy-chat-event">

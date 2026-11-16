@@ -221,6 +221,10 @@ export class BuddyChatReactor {
     const log = (state.messages ?? []).filter((message) => message.threadId === threadId);
     const lastAsk = log.findLastIndex((message) => message.role === "user");
     if (lastAsk === -1) return;
+    // The chat may still hold the answer to an earlier message, such as one the person stopped. Only an
+    // answer to one of the waiting messages counts, or a teammate would get a reply meant for someone else.
+    const asked = log[lastAsk]?.text ?? "";
+    if (!answered.some((message) => asked.includes(message.text.trim()))) return;
     const answer = log.slice(lastAsk + 1).findLast((message) => message.role === "assistant" && message.text.trim());
     if (!answer) {
       if (thread.status === "failed")
@@ -268,6 +272,7 @@ export class BuddyChatReactor {
       );
     // A teammate's message is answered once and not passed on, so two buddies never message each other in a loop.
     const fromTeammate = answered.some((message) => message.from);
+    const sent: Array<{ to: string; text: string; key: string }> = [];
     if (!fromTeammate)
       for (const [index, tell] of parsed.tells.entries()) {
         const target = buddyNamed(state, tell.buddy);
@@ -285,28 +290,35 @@ export class BuddyChatReactor {
           } as RuntimeCommand,
           `buddy-chat-tell:${answer.messageId}:${index}`,
         );
-        started.push(
-          receipt.status === "rejected"
-            ? `I could not message ${target.name}: ${receipt.error?.message ?? "it was refused"}.`
-            : `Sent ${target.name}: "${tell.text.length > 120 ? `${tell.text.slice(0, 119)}…` : tell.text}"`,
-        );
+        if (receipt.status === "rejected")
+          started.push(`I could not message ${target.name}: ${receipt.error?.message ?? "it was refused"}.`);
+        else sent.push({ to: target.buddyId, text: tell.text, key: `tell:${answer.messageId}:${index}` });
       }
     const text = [parsed.text || (parsed.jobs.length > 0 ? "On it." : ""), ...started].filter(Boolean).join("\n\n");
+    if (text) await this.reply(buddy, `answer:${answer.messageId}`, text);
+    // Each message to a teammate shows in this chat as its own note, addressed to them.
+    for (const note of sent) await this.reply(buddy, note.key, note.text, { to: note.to });
     if (!text) return;
-    await this.reply(buddy, `answer:${answer.messageId}`, text);
+    // The answer goes back to each teammate who asked, as that teammate's own words.
     for (const senderId of new Set(answered.flatMap((message) => (message.from ? [message.from] : [])))) {
       const sender = state.buddies?.find((entry) => entry.buddyId === senderId && !entry.archived);
-      if (sender) await this.reply(sender, `relay:${answer.messageId}:${senderId}`, `${buddy.name} replied: ${text}`);
+      if (sender) await this.reply(sender, `relay:${answer.messageId}:${senderId}`, text, { from: buddy.buddyId });
     }
   }
 
-  private reply(buddy: BuddyProjection, key: string, text: string): Promise<CommandReceipt> {
+  private reply(
+    buddy: BuddyProjection,
+    key: string,
+    text: string,
+    teammate: { from?: string; to?: string } = {},
+  ): Promise<CommandReceipt> {
     return this.dispatch(
       {
         type: "buddy.chat.reply",
         buddyId: buddy.buddyId,
         messageId: stableId(`buddy-chat-reply:${key}`),
         text: text.slice(0, 20_000),
+        ...teammate,
       } as RuntimeCommand,
       `buddy-chat-reply:${key}`,
     );

@@ -187,8 +187,13 @@ describe("BuddyChatReactor", () => {
     const chat = (buddyId: string) =>
       state.buddyMessages
         ?.filter((message) => message.buddyId === buddyId)
-        .map((message) => [message.role, message.from ?? "", message.text]);
-    expect(chat("b1")?.at(-1)).toEqual(["buddy", "", 'Asking now.\n\nSent Primary: "How was your day?"']);
+        .map((message) => [message.role, message.from ?? message.to ?? "", message.text]);
+    // The reply, then the message to Primary as its own note addressed to Primary.
+    expect(chat("b1")?.slice(-2)).toEqual([
+      ["buddy", "", "Asking now."],
+      ["buddy", "b2", "How was your day?"],
+    ]);
+    expect(state.buddyMessages?.findLast((message) => message.buddyId === "b1")?.to).toBe("b2");
     expect(chat("b2")).toEqual([["you", "b1", "How was your day?"]]);
     const primaryThread = state.buddies?.find((entry) => entry.buddyId === "b2")?.chatThreadId;
     expect(state.queuedMessages?.find((queued) => queued.threadId === primaryThread)?.text).toContain(
@@ -198,8 +203,43 @@ describe("BuddyChatReactor", () => {
     // Primary answers and tries to message back: the answer goes to Builder, the message does not.
     state = await answer('Great, thanks!\n[[tell buddy="Builder"]]And yours?[[/tell]]', "b2");
     expect(chat("b2")?.at(-1)).toEqual(["buddy", "", "Great, thanks!"]);
-    expect(chat("b1")?.at(-1)).toEqual(["buddy", "", "Primary replied: Great, thanks!"]);
+    // Primary's answer comes back to Builder as Primary's words.
+    expect(chat("b1")?.at(-1)).toEqual(["buddy", "b2", "Great, thanks!"]);
+    expect(state.buddyMessages?.findLast((message) => message.buddyId === "b1")?.from).toBe("b2");
     expect(chat("b1")?.filter(([role]) => role === "you")).toHaveLength(1);
+  });
+
+  it("does not pass a teammate an old answer the chat gave before their message", async () => {
+    const { engine, settle, answer } = await setup();
+    await send(engine, {
+      type: "buddy.create",
+      buddy: {
+        buddyId: "b2",
+        name: "Primary",
+        color: "indigo",
+        role: "primary",
+        engine: { mode: "auto" },
+        permissionMode: "read-only",
+        maxActiveJobs: 1,
+        handoffs: [],
+      },
+    } as RuntimeCommand);
+    // The person asks Builder something, and its chat answers.
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "msg-7", text: "stop" } as RuntimeCommand);
+    await settle();
+    await answer("Okay, I've stopped.");
+    // The person's reply is cleared by Stop: the next message waits with the old answer still in the chat.
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-8",
+      text: "Are you free?",
+      from: "b2",
+    } as RuntimeCommand);
+    const state = await settle();
+    expect(
+      state.buddyMessages?.filter((message) => message.buddyId === "b2" && message.from === "b1").map((m) => m.text),
+    ).toEqual([]);
   });
 
   it("replaces a chat started before chats ran unattended, which may be stuck on a prompt", async () => {

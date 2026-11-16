@@ -145,10 +145,22 @@ describe("BuddiesPane", () => {
   it("shows a teammate's message as theirs, not yours", () => {
     const state = projection({
       buddies: [buddy("b1", "Primary", 0), buddy("b2", "Builder", 1)],
-      buddyMessages: [{ messageId: "m1", buddyId: "b1", role: "you", text: "How was your day?", at, from: "b2" }],
+      buddyMessages: [
+        { messageId: "m1", buddyId: "b1", role: "you", text: "How was your day?", at, from: "b2" },
+        { messageId: "m2", buddyId: "b1", role: "buddy", text: "Good, yours?", at },
+        { messageId: "m3", buddyId: "b1", role: "buddy", text: "Can you check the tests?", at, to: "b2" },
+        { messageId: "m4", buddyId: "b1", role: "buddy", text: "On it.", at, from: "b2" },
+      ],
     });
-    const [item] = buddyTranscript(state.buddies?.[0] as BuddyProjection, state);
-    expect(item).toMatchObject({ kind: "say", text: "Builder asked: How was your day?" });
+    const items = buddyTranscript(state.buddies?.[0] as BuddyProjection, state);
+    expect(
+      items.map((item) => [item.kind, "way" in item ? item.way : "", "who" in item ? item.who?.name : ""]),
+    ).toEqual([
+      ["teammate", "asked", "Builder"],
+      ["say", "", ""],
+      ["teammate", "sent", "Builder"],
+      ["teammate", "replied", "Builder"],
+    ]);
   });
 
   it("stops a reply: drops what is queued, interrupts the agent, and says so", async () => {

@@ -56,8 +56,13 @@ export function parseChatReply(raw: string): ChatReply {
 
 /** Who sent a message in a buddy's chat: the person, or the teammate who sent it. */
 export function senderName(state: RuntimeProjection, message: BuddyMessage): string {
-  if (!message.from) return "Person";
-  return state.buddies?.find((entry) => entry.buddyId === message.from)?.name ?? "A teammate";
+  const name = (buddyId: string) => state.buddies?.find((entry) => entry.buddyId === buddyId)?.name ?? "A teammate";
+  if (message.role === "buddy") {
+    if (message.to) return `You, to ${name(message.to)}`;
+    if (message.from) return `${name(message.from)}, answering you`;
+    return "You";
+  }
+  return message.from ? name(message.from) : "Person";
 }
 
 /** The project a job names, by name or folder; with one project, that one. */
@@ -135,8 +140,7 @@ export function chatBrief(options: {
       "",
       "Your conversation so far:",
       ...options.history.map(
-        (message) =>
-          `${message.role === "you" ? senderName(state, message) : "You"}:${message.text.replace(/\s+/gu, " ").slice(0, 400)}`,
+        (message) => `${senderName(state, message)}: ${message.text.replace(/\s+/gu, " ").slice(0, 400)}`,
       ),
     );
   return lines.join("\n");

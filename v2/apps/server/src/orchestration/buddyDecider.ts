@@ -63,12 +63,23 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
           },
         ];
       }
+      if (command.type === "buddy.chat.send")
+        return [{ type: "buddy.chat.sent", buddyId: buddy.buddyId, messageId: command.messageId, text: command.text }];
+      // A teammate named on a reply must be someone else on the team.
+      for (const teammateId of [command.from, command.to]) {
+        if (teammateId === undefined) continue;
+        const teammate = requireBuddy(projection, teammateId);
+        if (teammate.archived || teammate.buddyId === buddy.buddyId)
+          throw new DomainError("buddy_missing", "Only another buddy on the team can be named here.");
+      }
       return [
         {
-          type: command.type === "buddy.chat.send" ? "buddy.chat.sent" : "buddy.chat.replied",
+          type: "buddy.chat.replied",
           buddyId: buddy.buddyId,
           messageId: command.messageId,
           text: command.text,
+          ...(command.from ? { from: command.from } : {}),
+          ...(command.to ? { to: command.to } : {}),
         },
       ];
     }
