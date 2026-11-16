@@ -136,7 +136,7 @@ export function RoomBar({
         <MenuButton
           className="room-bring"
           label="Bring in an agent"
-          tooltip="Add an agent or a saved teammate to this chat"
+          tooltip="Add a buddy or an agent to this chat"
           icon="plus"
           size="xs"
           items={bringInItems}

@@ -157,7 +157,7 @@ export function Composer({
   peopleItems,
   issueRequest,
 }: {
-  /** Who "@" offers: the chat's other members and saved teammates. Empty turns the list off. */
+  /** Who "@" offers: the chat's other members and the buddies. Empty turns the list off. */
   mentions?: readonly MentionOption[] | undefined;
   /** Puts text such as "@Owl " at the start of the message box; a new nonce asks again. */
   /** Text to put in the message box. replace swaps the draft for it, as editing a sent message does. */

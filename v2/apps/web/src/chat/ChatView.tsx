@@ -35,11 +35,11 @@ import type { RunAgent, RunStart } from "../sessions/bestOf.js";
 import { takeoverContext } from "../sessions/handoff.js";
 import type { ChatPlace } from "../sessions/launch.js";
 import { buildTimeline, conversationThreads, type TimelineItem } from "../sessions/sessions.js";
-import { useAppSettings } from "../settings/appSettings.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
-import { useChatBuddy } from "../teammates/chatBuddies.js";
 import { type Buddy, buddyName } from "../teammates/buddies.js";
+import { useChatBuddy } from "../teammates/chatBuddies.js";
 import {
+  buddyGuests,
   defaultBuddy,
   freeAgentName,
   freeBuddy,
@@ -108,7 +108,6 @@ export function ChatView({
   onStartRuns,
   onBringIn,
   onOpenAgent,
-  onManageTeammates,
   onBranch,
   onNewChatWithPrompt,
   onAskAside,
@@ -141,8 +140,6 @@ export function ChatView({
   onBringIn?: ((request: GuestRequest) => Promise<{ threadId: string } | { error: string }>) | undefined;
   /** Shows an agent's own chat or terminal, found by its thread or terminal id. */
   onOpenAgent?: ((agentId: string) => void) | undefined;
-  /** Opens Settings at the saved teammates. */
-  onManageTeammates?: (() => void) | undefined;
   /** Starts a new chat that carries this conversation up to a reply. */
   onBranch?: ((branch: { from: string; context: string }) => void) | undefined;
   /** Opens a new chat in this project with the task already typed. */
@@ -235,8 +232,8 @@ export function ChatView({
     useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.turns, chainKey), [chainKey]),
     shallowArrayEqual,
   );
-  // The agents the person brought into this chat talk in it, so the chat reads as one room.
-  const { teammates } = useAppSettings();
+  // The team's buddies, which the person can bring into this chat to talk in it, so the chat reads as one room.
+  const teammates = useMemo(() => buddyGuests(projection), [projection]);
   // The chat's own buddy, the same one the sidebar shows for it.
   const hostBuddy = useChatBuddy(thread.sessionId ?? thread.threadId);
   const chainIds = useMemo(() => new Set(chain.map((entry) => entry.threadId)), [chain]);
@@ -774,13 +771,13 @@ export function ChatView({
           const items: MenuItem[] = [];
           const saved = teammates.filter((teammate) => !presentNames.has(agentNameKey(teammate.name)));
           if (saved.length > 0) {
-            items.push({ heading: "Your teammates" });
+            items.push({ heading: "Your buddies" });
             for (const teammate of saved) {
               items.push({
                 id: `teammate-${teammate.id}`,
                 label: teammate.name,
                 media: <BuddyAvatar buddy={teammate.buddy} provider={teammate.provider} size={20} />,
-                title: `${providerDisplayName(teammate.provider, projection.providers)}${teammate.model ? `, ${teammate.model}` : ""}`,
+                title: `Joins this chat on ${providerDisplayName(teammate.provider, projection.providers)}${teammate.model ? `, ${teammate.model}` : ""}`,
                 run: () =>
                   void bringIn(
                     {
@@ -809,15 +806,6 @@ export function ChatView({
                 run: () => void bringIn({ provider: entry.provider, name: buddyName(buddy) }, true),
               });
             }
-          }
-          if (onManageTeammates) {
-            items.push({ separator: true });
-            items.push({
-              id: "teammates",
-              label: teammates.length > 0 ? "Edit teammates" : "Save a teammate",
-              icon: "users",
-              run: onManageTeammates,
-            });
           }
           return items;
         }
@@ -861,17 +849,7 @@ export function ChatView({
         detail: `${person.agent} · ${person.role === "helper" ? "helper" : "in this chat"}`,
       }));
     const present = new Set(inChat.map((option) => agentNameKey(option.name)));
-    const saved = onBringIn
-      ? teammates
-          .filter((teammate) => !present.has(agentNameKey(teammate.name)))
-          .map((teammate) => ({
-            name: teammate.name,
-            buddy: teammate.buddy,
-            provider: teammate.provider,
-            detail: `${providerDisplayName(teammate.provider, projection.providers)} · joins when you send`,
-          }))
-      : [];
-    const taken = new Set([...present, ...saved.map((option) => agentNameKey(option.name))]);
+    const taken = present;
     // A buddy called with @Name gets the message as a job, in its own worktree and chat.
     const team = (projection.buddies ?? [])
       .filter((buddy) => !buddy.archived && !taken.has(agentNameKey(buddy.name)))
@@ -881,8 +859,8 @@ export function ChatView({
         provider: buddy.engine.mode === "auto" ? "" : buddy.engine.provider,
         detail: `${buddy.title ? `${buddy.title} · ` : ""}gets this as a job`,
       }));
-    return [...inChat, ...saved, ...team];
-  }, [people, teammates, onBringIn, projection.providers, projection.buddies]);
+    return [...inChat, ...team];
+  }, [people, projection.buddies]);
 
   const queueTo = async (
     targetId: string,
@@ -916,8 +894,8 @@ export function ChatView({
   };
 
   /**
-   * A message that opens with @Name goes to that member of the chat, or brings the saved teammate of that name
-   * in first. Anything else goes to the chat's own agent.
+   * A message that opens with @Name goes to that member of the chat, or to that buddy as a job. Anything else
+   * goes to the chat's own agent.
    */
   const send = async (text: string, attachments: ComposerAttachment[]): Promise<boolean> => {
     setError(undefined);
@@ -966,15 +944,10 @@ export function ChatView({
       }
       return true;
     }
-    const saved = onBringIn
-      ? teammates.filter(
-          (teammate) => !callable.some((person) => agentNameKey(person.name) === agentNameKey(teammate.name)),
-        )
-      : [];
-    const { names } = leadingMentions(text, [
-      ...callable.map((person) => person.name),
-      ...saved.map((entry) => entry.name),
-    ]);
+    const { names } = leadingMentions(
+      text,
+      callable.map((person) => person.name),
+    );
     if (names.length === 0) {
       const note = editing
         ? "The person edited their previous message. This message replaces it: follow this version, and undo or drop what you did for the earlier one where it no longer applies."
@@ -986,37 +959,18 @@ export function ChatView({
     let sent = true;
     for (const called of names) {
       const target = callable.find((person) => agentNameKey(person.name) === agentNameKey(called));
-      let targetId = target?.id;
-      let name = target?.name ?? called;
+      if (!target) continue;
+      const targetId = target.id;
+      const name = target.name;
       let joining = false;
-      let instructions = teammateNamed(teammates, name)?.instructions;
-      if (!target) {
-        const teammate = teammateNamed(teammates, called);
-        if (!teammate) continue;
-        const started = await bringIn(
-          {
-            provider: teammate.provider,
-            name: teammate.name,
-            ...(teammate.model ? { model: teammate.model } : {}),
-            ...(teammate.permissionMode ? { permissionMode: teammate.permissionMode } : {}),
-          },
-          false,
-        );
-        if (!started) {
-          sent = false;
-          continue;
-        }
-        targetId = started.threadId;
-        name = started.name;
-        joining = true;
-        instructions = teammate.instructions;
-      } else if (target.role === "guest") {
+      // A buddy brought into the chat reads its standing instructions and what it remembers.
+      const instructions = teammateNamed(teammates, name)?.instructions;
+      if (target.role === "guest") {
         joining = !roomMessages.some((message) => message.threadId === target.id && message.role === "user");
       }
-      if (!targetId) continue;
       const id = targetId;
       const context =
-        target?.role === "helper"
+        target.role === "helper"
           ? undefined
           : roomBrief({
               name,

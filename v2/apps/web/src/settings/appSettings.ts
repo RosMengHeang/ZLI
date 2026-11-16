@@ -84,7 +84,7 @@ export type AppSettings = {
   theme: string;
   /** Themes the person made in the theme editor. */
   customThemes: CustomTheme[];
-  /** Saved teammates, brought into a chat from its team bar or called with @Name. */
+  /** Teammates saved before buddies replaced them. Read once, turned into buddies, then cleared. */
   teammates: Teammate[];
   /** The buddy avatars move while their agent works. Off keeps them still. */
   animateTeammates: boolean;

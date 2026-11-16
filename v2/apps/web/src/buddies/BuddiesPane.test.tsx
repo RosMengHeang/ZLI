@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buttonNamed, typeInput } from "../huddle/testHuddles.js";
 import { cleanupRuntimeRenders, renderWithRuntime, typeInto } from "../review/testRuntime.js";
-import { BuddiesPane } from "./BuddiesPane.js";
+import { DEFAULT_SETTINGS, readAppSettings, updateAppSettings } from "../settings/appSettings.js";
+import { BuddiesPane, useTeammatesToBuddies } from "./BuddiesPane.js";
 import { buddyTranscript } from "./BuddyChat.js";
 import { SidebarBuddies } from "./SidebarBuddies.js";
 
@@ -245,6 +246,38 @@ describe("BuddiesPane", () => {
     const home = await render(state);
     await act(async () => buttonNamed("Pause all").click());
     expect(home.commands.at(-1)).toEqual({ type: "buddies.pause" });
+  });
+});
+
+describe("useTeammatesToBuddies", () => {
+  it("turns saved teammates into buddies once, skipping a name the team already has", async () => {
+    updateAppSettings((settings) => ({
+      ...settings,
+      teammates: [
+        { id: "t1", name: "Nova", buddy: "rose", provider: "codex", model: "gpt-5", instructions: "Be brief." },
+        { id: "t2", name: "Builder", buddy: "sky", provider: "claude-code" },
+      ],
+    }));
+    function Mover({ state }: { state: RuntimeProjection }) {
+      useTeammatesToBuddies(state);
+      return null;
+    }
+    const commands = await renderWithRuntime(
+      <Mover state={projection({ buddies: [buddy("b2", "Builder", 0)] })} />,
+      accept,
+    );
+    expect(commands.filter((command) => command.type === "buddy.create")).toMatchObject([
+      {
+        buddy: {
+          name: "Nova",
+          color: "rose",
+          engine: { mode: "locked", provider: "codex", model: "gpt-5" },
+          instructions: "Be brief.",
+        },
+      },
+    ]);
+    expect(readAppSettings().teammates).toEqual([]);
+    updateAppSettings(() => structuredClone(DEFAULT_SETTINGS));
   });
 });
 

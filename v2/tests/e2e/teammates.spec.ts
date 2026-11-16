@@ -51,28 +51,16 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
 
     if (process.env.ZLI_E2E_SHOT) await page.screenshot({ path: process.env.ZLI_E2E_SHOT });
 
-    // A saved teammate joins the chat the first time it is called by name.
-    await page.getByRole("button", { name: "Settings" }).click();
-    const settings = page.getByRole("dialog", { name: "Settings" });
-    await settings.getByRole("tab", { name: "Teammates" }).click();
-    await settings.getByRole("button", { name: "Add teammate" }).click();
-    await settings.getByRole("button", { name: "Jade", exact: true }).click();
-    await settings.getByLabel("Name").fill("Reviewer");
-    await settings.getByLabel("Instructions").fill("Look for missing tests.");
-    if (process.env.ZLI_E2E_SHOT)
-      await page.screenshot({ path: process.env.ZLI_E2E_SHOT.replace(".png", "-settings.png") });
-    await settings.getByRole("button", { name: "Add teammate" }).click();
-    await expect(settings).toContainText("@Reviewer");
-    await page.keyboard.press("Escape");
-
-    await composer.fill("@Rev");
-    await expect(page.getByRole("listbox", { name: "Teammates" })).toContainText("joins when you send");
-    await composer.press("Enter");
-    await expect(composer).toHaveValue("@Reviewer ");
+    // A buddy joins from the same menu, under its own name, and reads its standing instructions first.
+    await page.getByRole("button", { name: "Other agents" }).last().click();
+    await page.getByRole("menuitem", { name: /^Bring in an agent/u }).click();
+    await page.getByRole("menuitem", { name: "Builder", exact: true }).click();
+    await expect(composer).toHaveValue("@Builder ");
+    await expect(room).toContainText("Builder");
     await composer.pressSequentially("any missing tests?");
     await composer.press("Enter");
-    await expect(page.locator(".room-speaker-name", { hasText: "Reviewer" })).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator(".chat-message-assistant").last()).toContainText("Look for missing tests.");
+    await expect(page.locator(".room-speaker-name", { hasText: "Builder" })).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".chat-message-assistant").last()).toContainText("Make the change the job asks for");
   } finally {
     await closeDesktop(fixture);
   }

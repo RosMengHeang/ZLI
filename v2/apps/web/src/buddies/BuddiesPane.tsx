@@ -17,7 +17,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { makeCommandId } from "../runtime/commandId.js";
-import { useAppSettings } from "../settings/appSettings.js";
+import { updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import { type AvatarMood, BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { BUDDY_COLOR_NAMES, buddyName } from "../teammates/buddies.js";
 import { Button, IconButton } from "../ui/Button.js";
@@ -149,33 +149,54 @@ export function useStarterTeam(projection: RuntimeProjection | undefined): void 
   }, [empty, projection, run]);
 }
 
-function Welcome({ run, projection }: { run: Run; projection: RuntimeProjection }) {
+/**
+ * Teammates saved in Settings before buddies replaced them become buddies once, with their name, color, agent,
+ * model and instructions. A buddy that already has the name, even a removed one, is left as it is.
+ */
+export function useTeammatesToBuddies(projection: RuntimeProjection | undefined): void {
   const { teammates } = useAppSettings();
+  const run = useRun(() => undefined);
+  const moving = useRef(false);
+  const ready = projection !== undefined;
+  useEffect(() => {
+    if (!ready || !projection || teammates.length === 0 || moving.current) return;
+    moving.current = true;
+    void (async () => {
+      const known = new Set((projection.buddies ?? []).map((buddy) => buddy.name.toLowerCase()));
+      let moved = true;
+      for (const teammate of teammates) {
+        const name = teammate.name.slice(0, 24).trim();
+        if (!name || known.has(name.toLowerCase())) continue;
+        known.add(name.toLowerCase());
+        const created = await run({
+          type: "buddy.create",
+          buddy: {
+            buddyId: makeCommandId(),
+            name,
+            color: teammate.buddy,
+            role: "buddy",
+            engine: teammate.model
+              ? { mode: "locked", provider: teammate.provider, model: teammate.model }
+              : { mode: "prefer", provider: teammate.provider },
+            ...(teammate.instructions ? { instructions: teammate.instructions } : {}),
+            permissionMode: teammate.permissionMode ?? "full-access",
+            maxActiveJobs: 2,
+            handoffs: [],
+          },
+        });
+        moved = moved && created;
+      }
+      if (moved) updateAppSettings((current) => ({ ...current, teammates: [] }));
+      else moving.current = false;
+    })();
+  }, [ready, projection, teammates, run]);
+}
+
+function Welcome({ run, projection }: { run: Run; projection: RuntimeProjection }) {
   const [busy, setBusy] = useState(false);
   const start = async () => {
     setBusy(true);
     await startTeam(run);
-    setBusy(false);
-  };
-  const bringTeammates = async () => {
-    setBusy(true);
-    for (const teammate of teammates)
-      await run({
-        type: "buddy.create",
-        buddy: {
-          buddyId: makeCommandId(),
-          name: teammate.name.slice(0, 24),
-          color: teammate.buddy,
-          role: "buddy",
-          engine: teammate.model
-            ? { mode: "locked", provider: teammate.provider, model: teammate.model }
-            : { mode: "prefer", provider: teammate.provider },
-          ...(teammate.instructions ? { instructions: teammate.instructions } : {}),
-          permissionMode: teammate.permissionMode ?? "full-access",
-          maxActiveJobs: 2,
-          handoffs: [],
-        },
-      });
     setBusy(false);
   };
   return (
@@ -209,11 +230,6 @@ function Welcome({ run, projection }: { run: Run; projection: RuntimeProjection 
         <Button variant="primary" loading={busy} onClick={() => void start()}>
           Start with these three
         </Button>
-        {teammates.length > 0 ? (
-          <Button loading={busy} onClick={() => void bringTeammates()}>
-            Bring in my {teammates.length} teammate{teammates.length === 1 ? "" : "s"}
-          </Button>
-        ) : null}
       </div>
       <ImportBuddy run={run} projection={projection} />
     </section>
@@ -1195,7 +1211,7 @@ function SettingsTab({
             <button
               key={color}
               type="button"
-              className="teammate-color"
+              className="buddy-color-choice"
               aria-label={buddyName(color)}
               aria-pressed={buddy.color === color}
               onClick={() => void update({ color })}

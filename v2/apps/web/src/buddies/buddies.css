@@ -110,3 +110,8 @@
 fieldset.job-card-actions, fieldset.job-card-confirm, fieldset.buddy-colors { min-inline-size: 0; margin: 0; }
 fieldset.job-card-actions, fieldset.buddy-colors { padding: 0; border: 0; }
 
+/* A color choice in a buddy's settings. */
+.buddy-color-choice { display: grid; place-items: center; padding: 3px; border: 1px solid transparent; border-radius: var(--zli-radius-md); background: none; cursor: default; }
+.buddy-color-choice:hover { background: var(--zli-hover); }
+.buddy-color-choice[aria-pressed="true"] { border-color: var(--zli-accent); background: var(--zli-raised); }
+.buddy-color-choice:focus-visible { outline: 2px solid var(--zli-accent); outline-offset: 2px; }

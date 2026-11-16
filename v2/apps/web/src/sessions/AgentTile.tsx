@@ -72,7 +72,6 @@ export function AgentTile({
   onStartRuns,
   onBringIn,
   onOpenAgent,
-  onManageTeammates,
   onBranch,
   onNewChatWithPrompt,
   onAskAside,
@@ -129,7 +128,6 @@ export function AgentTile({
   onBringIn?: ((request: GuestRequest) => Promise<{ threadId: string } | { error: string }>) | undefined;
   /** Shows another agent's own tile, found by its thread or terminal id. */
   onOpenAgent?: ((agentId: string) => void) | undefined;
-  onManageTeammates?: (() => void) | undefined;
   onBranch?: ((branch: { from: string; context: string }) => void) | undefined;
   onNewChatWithPrompt?: ((text: string) => void) | undefined;
   onAskAside?:
@@ -615,7 +613,6 @@ export function AgentTile({
             onStartRuns={onStartRuns}
             onBringIn={onBringIn}
             onOpenAgent={onOpenAgent}
-            onManageTeammates={onManageTeammates}
             onBranch={onBranch}
             onNewChatWithPrompt={onNewChatWithPrompt}
             onAskAside={onAskAside}

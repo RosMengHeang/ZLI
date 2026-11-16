@@ -28,7 +28,7 @@ import {
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
-import { BuddiesPane, useStarterTeam } from "../buddies/BuddiesPane.js";
+import { BuddiesPane, useStarterTeam, useTeammatesToBuddies } from "../buddies/BuddiesPane.js";
 import { type ChatBranch, saveChatBranch, takeChatBranch } from "../chat/branches.js";
 import type { GuestRequest, StartRunsRequest } from "../chat/ChatView.js";
 import { seedComposerDraft } from "../chat/Composer.js";
@@ -660,6 +660,7 @@ function WorkspaceApp() {
     setSidePane(undefined);
   }, []);
   useStarterTeam(projection);
+  useTeammatesToBuddies(projection);
   // Chat only keeps the terminal out of sight: its toggle and shortcut only close a drawer something else opened.
   const chatOnly = workStyleOf(settings.defaults) === "chat";
   // The right panel's picker: every panel with one key, and a live line for what is going on in it for this
@@ -2992,7 +2993,6 @@ function WorkspaceApp() {
                             }
                             onBringIn={session.thread ? (request) => bringIntoChat(session, request) : undefined}
                             onOpenAgent={openAgent}
-                            onManageTeammates={() => setSettingsSection("teammates")}
                             onBranch={(branch) => branchChat(session, branch)}
                             onNewChatWithPrompt={(text) => newChatWithPrompt(session, text)}
                             onAskAside={(question, context) => askAside(session, question, context)}
