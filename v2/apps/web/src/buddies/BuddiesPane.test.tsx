@@ -262,6 +262,9 @@ describe("BuddiesPane", () => {
 
   it("hides the details from the name tag, and renames the buddy from its name", async () => {
     const { commands } = await render(projection({ buddies: [buddy("b2", "Builder", 0)] }), "b2");
+    // The details open from the name in the chat's head, and start closed.
+    expect(document.querySelector('aside[aria-label="About Builder"]')).toBeNull();
+    await act(async () => document.querySelector<HTMLButtonElement>(".buddy-view-tag")?.click());
     await act(async () => buttonNamed("Rename Builder").click());
     const box = document.querySelector<HTMLInputElement>(".buddy-info-name-input");
     if (!box) throw new Error("No name box");
@@ -284,8 +287,9 @@ describe("BuddiesPane", () => {
       ],
     });
     const { commands } = await render(state, "b2");
-    // The profile sits beside the chat, like the bot's details in Grok.
-    expect(document.querySelector('[aria-label="About Builder"]')).not.toBeNull();
+    // The profile opens beside the chat from its head.
+    await act(async () => document.querySelector<HTMLButtonElement>(".buddy-view-tag")?.click());
+    expect(document.querySelector('aside[aria-label="About Builder"]')).not.toBeNull();
     // New lessons wait in its library.
     await act(async () => buttonNamed("Library").click());
     await act(async () => buttonNamed("Keep").click());
@@ -320,6 +324,7 @@ describe("Library", () => {
       ],
     });
     const { commands } = await render(state, "b2");
+    await act(async () => document.querySelector<HTMLButtonElement>(".buddy-view-tag")?.click());
     await act(async () => buttonNamed("Library").click());
     const labels = [...document.querySelectorAll(".buddy-learned-label")].map((node) => node.textContent);
     expect(labels).toEqual(["From you 1", "Learned on jobs 1"]);

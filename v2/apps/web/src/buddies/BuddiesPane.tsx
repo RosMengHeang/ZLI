@@ -28,7 +28,7 @@ import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
 import { BuddyChat } from "./BuddyChat.js";
-import { NewBuddyDialog } from "./NewBuddyDialog.js";
+import { BuddyList } from "./BuddyList.js";
 import {
   buddyStats,
   duration,
@@ -79,42 +79,43 @@ export function BuddiesPane(props: BuddiesPaneProps) {
       {error}
     </p>
   ) : null;
-  // A buddy opens as its own chat, like any chat in the workspace.
-  if (selected)
+  // No team yet: the welcome takes the whole page.
+  if (team.length === 0)
     return (
       <section className="buddies-main" aria-label="Buddies">
-        <BuddyPage {...props} buddy={selected} run={run} error={errorLine} />
+        <div className="buddies-home">
+          {errorLine}
+          <div className="buddies-body">
+            <Welcome run={run} projection={projection} />
+          </div>
+        </div>
       </section>
     );
+  // Like a messenger: the team on the left, the chosen buddy's chat (or the team board) on the right.
   return (
-    <section className="buddies-main" aria-label="Buddies">
-      <div className="buddies-home">
-        <header className="buddies-home-head">
-          <h2>Buddies</h2>
-          <span className="buddy-spacer" />
-          {team.length > 0 ? (
-            <Button
-              size="sm"
-              variant={paused ? "primary" : "ghost"}
-              icon={paused ? "play" : "pause"}
-              tooltip={
-                paused ? "Let buddies start jobs and routines again" : "No new jobs or routines start until you resume"
-              }
-              onClick={() => void run({ type: paused ? "buddies.resume" : "buddies.pause" })}
-            >
-              {paused ? "Resume" : "Pause all"}
-            </Button>
-          ) : null}
-        </header>
-        {errorLine}
-        {paused ? <p className="buddies-paused">Paused. Running jobs finish; nothing new starts.</p> : null}
-        <div className="buddies-body">
-          {team.length === 0 ? (
-            <Welcome run={run} projection={projection} />
-          ) : (
-            <TeamPage {...props} team={team} run={run} />
-          )}
-        </div>
+    <section className="buddies-main is-split" aria-label="Buddies">
+      <BuddyList
+        projection={projection}
+        team={team}
+        selectedId={selected?.buddyId}
+        run={run}
+        onSelect={props.onSelect}
+      />
+      <div className="buddies-detail">
+        {selected ? (
+          <BuddyPage {...props} buddy={selected} run={run} error={errorLine} />
+        ) : (
+          <div className="buddies-home">
+            <header className="buddies-home-head">
+              <h2>Team board</h2>
+            </header>
+            {errorLine}
+            {paused ? <p className="buddies-paused">Paused. Running jobs finish; nothing new starts.</p> : null}
+            <div className="buddies-body">
+              <TeamPage {...props} run={run} />
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -246,25 +247,8 @@ const QUALITY: readonly { value: BuddyQuality; label: string; tooltip: string }[
   { value: "best", label: "Best quality", tooltip: "Stronger models, even for small jobs" },
 ];
 
-function TeamPage({
-  projection,
-  team,
-  run,
-  onSelect,
-  onOpenThread,
-  onOpenPullRequest,
-}: BuddiesPaneProps & { team: BuddyProjection[]; run: Run }) {
-  const tasks = projection.tasks ?? [];
+function TeamPage({ projection, run, onOpenThread, onOpenPullRequest }: BuddiesPaneProps & { run: Run }) {
   const waiting = needsYou(projection);
-  const [dragged, setDragged] = useState<string>();
-  const [adding, setAdding] = useState(false);
-  const drop = (targetId: string) => {
-    if (!dragged || dragged === targetId) return;
-    const ids = team.map((buddy) => buddy.buddyId).filter((id) => id !== dragged);
-    ids.splice(ids.indexOf(targetId), 0, dragged);
-    setDragged(undefined);
-    void run({ type: "buddy.reorder", buddyIds: ids });
-  };
   return (
     <>
       {waiting.length > 0 ? (
@@ -287,55 +271,6 @@ function TeamPage({
           </div>
         </section>
       ) : null}
-      <section className="buddies-section" aria-label="Team">
-        <h3 className="buddies-heading">Team</h3>
-        <ul className="buddies-list">
-          {team.map((buddy) => {
-            const open = tasks.filter((task) => task.buddyId === buddy.buddyId && isOpenTask(task)).length;
-            return (
-              <li
-                key={buddy.buddyId}
-                className={`buddies-row${dragged === buddy.buddyId ? " is-dragging" : ""}`}
-                draggable={buddy.role !== "primary"}
-                onDragStart={() => setDragged(buddy.buddyId)}
-                onDragEnd={() => setDragged(undefined)}
-                onDragOver={(event) => {
-                  if (dragged && buddy.role !== "primary") event.preventDefault();
-                }}
-                onDrop={() => drop(buddy.buddyId)}
-              >
-                <button type="button" className="buddies-row-main" onClick={() => onSelect(buddy.buddyId)}>
-                  <BuddyAvatar buddy={buddy.color} size={28} mood={buddyMood(buddy, tasks)} name={buddy.name} />
-                  <span className="buddies-row-text">
-                    <span className="buddies-row-name">
-                      {buddy.name}
-                      {buddy.title && buddy.title !== buddy.name ? (
-                        <span className="buddies-row-title">{buddy.title}</span>
-                      ) : null}
-                      {buddy.role === "primary" ? <span className="buddies-row-title">Primary</span> : null}
-                    </span>
-                    <span className="buddies-row-line">{buddy.lastLine?.text ?? "Ready for a job"}</span>
-                  </span>
-                  {open > 0 ? <span className="buddies-count">{open}</span> : null}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-        <Button size="sm" variant="ghost" icon="plus" onClick={() => setAdding(true)}>
-          Add a buddy
-        </Button>
-        {adding ? (
-          <NewBuddyDialog
-            projection={projection}
-            onClose={() => setAdding(false)}
-            onCreated={(buddyId) => {
-              setAdding(false);
-              onSelect(buddyId);
-            }}
-          />
-        ) : null}
-      </section>
       <section className="buddies-section" aria-label="How Auto picks">
         <h3 className="buddies-heading">How Auto picks models</h3>
         <Segmented
@@ -492,15 +427,16 @@ function BuddyPage({
   onOpenThread,
   onOpenPullRequest,
 }: BuddiesPaneProps & { buddy: BuddyProjection; run: Run; error: ReactNode }) {
-  const [info, setInfo] = useState(true);
+  const [info, setInfo] = useState(false);
   const [tab, setTab] = useState<InfoTab>("activity");
   const mood = buddyMood(buddy, projection.tasks ?? []);
+  const jobsOpen = (projection.tasks ?? []).filter((task) => isOpenTask(task) && task.buddyId === buddy.buddyId).length;
   const title =
     buddy.role === "primary" ? "Primary buddy" : buddy.title && buddy.title !== buddy.name ? buddy.title : "";
   return (
     <div className="buddy-view">
       <div className="buddy-view-main">
-        {/* The chat runs under a floating name tag, like a message thread. */}
+        {/* Who the chat is with: face, name, role, what runs it and how many jobs it has out. */}
         <header className="buddy-view-top">
           <button
             type="button"
@@ -510,18 +446,29 @@ function BuddyPage({
             title={info ? "Hide details" : "Show details"}
             onClick={() => setInfo((open) => !open)}
           >
-            <BuddyAvatar buddy={buddy.color} size={22} mood={mood} />
-            <h2 className="buddy-view-name">{buddy.name}</h2>
+            <BuddyAvatar buddy={buddy.color} size={34} mood={mood} />
+            <span className="buddy-view-who">
+              <h2 className="buddy-view-name">{buddy.name}</h2>
+              <span className="buddy-view-meta">
+                {[
+                  title || undefined,
+                  engineLabel(buddy, projection),
+                  jobsOpen > 0 ? `${jobsOpen} job${jobsOpen === 1 ? "" : "s"} open` : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </span>
           </button>
-          {info ? null : (
-            <IconButton
-              className="buddy-view-open"
-              label={`About ${buddy.name}`}
-              tooltip="Show details"
-              icon="panelRight"
-              onClick={() => setInfo(true)}
-            />
-          )}
+          <span className="buddy-spacer" />
+          <IconButton
+            className="buddy-view-open"
+            label={info ? "Hide details" : `About ${buddy.name}`}
+            tooltip={info ? "Hide details" : "Show details"}
+            icon="panelRight"
+            pressed={info}
+            onClick={() => setInfo((open) => !open)}
+          />
         </header>
         {error}
         <BuddyChat
@@ -569,6 +516,14 @@ function BuddyPage({
       ) : null}
     </div>
   );
+}
+
+/** What runs the buddy's jobs, in a few words. */
+function engineLabel(buddy: BuddyProjection, projection: RuntimeProjection): string {
+  const engine = buddy.engine;
+  if (engine.mode === "auto") return "Auto";
+  const name = providerDisplayName(engine.provider, projection.providers);
+  return engine.mode === "locked" && engine.model ? `${name} · ${engine.model}` : name;
 }
 
 const STATUS_LABEL: Record<TaskProjection["status"], string> = {

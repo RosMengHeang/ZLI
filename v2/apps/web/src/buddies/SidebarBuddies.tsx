@@ -3,8 +3,8 @@ import { type MouseEvent, useState } from "react";
 import { ConfirmDialog } from "../review/ConfirmDialog.js";
 import { relativeTime } from "../sessions/sessions.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
+import { BuddyGlyph } from "../ui/BuddyGlyph.js";
 import { IconButton } from "../ui/Button.js";
-import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuRequest } from "../ui/Menu.js";
 
 import { buddyMood } from "./BuddiesPane.js";
@@ -64,7 +64,7 @@ export function SidebarBuddies({
           title="Start a team that takes jobs for you"
           onClick={() => onOpen()}
         >
-          <Icon name="users" size={16} />
+          <BuddyGlyph size={16} />
           <span className="sidebar-nav-label">Buddies</span>
           <BuddyAvatar buddy="tangerine" size={18} />
         </button>
@@ -99,14 +99,14 @@ export function SidebarBuddies({
   return (
     <section className="sidebar-buddies" aria-label="Buddies">
       {/* One menu line for the whole team: their faces show who is busy; the roster opens under it. */}
-      <div className={`sidebar-nav-row${active === "team" ? " is-active" : ""}`}>
+      <div className={`sidebar-nav-row${active ? " is-active" : ""}`}>
         <button
           type="button"
           className="sidebar-nav-item sidebar-team"
-          aria-current={active === "team" ? "page" : undefined}
+          aria-current={active ? "page" : undefined}
           onClick={() => onOpen()}
         >
-          <Icon name="users" size={16} />
+          <BuddyGlyph size={16} />
           <span className="sidebar-nav-label">Buddies</span>
           {waiting > 0 ? (
             <span className="sidebar-nav-badge is-needs" title={`${waiting} need${waiting === 1 ? "s" : ""} you`}>
@@ -148,7 +148,7 @@ export function SidebarBuddies({
           }}
         />
       ) : null}
-      {(rosterOpen ? team : team.filter((buddy) => buddy.buddyId === active)).map((buddy) => (
+      {(rosterOpen ? team : []).map((buddy) => (
         <button
           key={buddy.buddyId}
           type="button"

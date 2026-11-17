@@ -200,3 +200,48 @@
 .buddy-chat-job-state.is-needs { color: var(--zli-amber); }
 .buddy-chat-job-state.is-failed { color: var(--zli-red); }
 .buddy-chat-job:has(.is-needs) { background: var(--zli-amber-soft); }
+
+/* ---------- Buddies, like a messenger ---------- */
+/* The team down the left, the chosen buddy's chat (or the team board) on the right. */
+.buddies-main.is-split { flex-direction: row; }
+.buddies-detail { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
+.buddy-list { display: flex; width: 300px; min-height: 0; flex: 0 0 auto; flex-direction: column; border-right: 1px solid var(--zli-border); }
+.buddy-list-head { display: flex; height: 52px; flex: 0 0 auto; align-items: center; gap: 2px; padding: 0 var(--zli-space-2) 0 18px; }
+.buddy-list-head h2 { min-width: 0; flex: 1; margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.buddy-list-find { display: flex; height: 32px; flex: 0 0 auto; align-items: center; gap: 8px; margin: 0 var(--zli-space-3) var(--zli-space-2); padding: 0 10px; border-radius: 10px; background: var(--zli-hover); color: var(--zli-dim); }
+.buddy-list-find input { min-width: 0; flex: 1; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); }
+.buddy-list-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 0 var(--zli-space-2) var(--zli-space-3); scrollbar-width: thin; }
+.buddy-list-section { margin-top: var(--zli-space-2); }
+.buddy-list-heading { display: flex; justify-content: space-between; margin: var(--zli-space-2) 0 2px; padding: 0 10px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
+.buddy-list-heading span { font-variant-numeric: tabular-nums; }
+.buddy-list-items { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.buddy-list-items .buddies-row { margin: 0; padding: 0; border: 0; background: transparent; }
+.buddy-list-row { display: flex; width: 100%; min-width: 0; align-items: center; gap: 11px; padding: 8px 10px; border: 0; border-radius: 12px; background: transparent; color: inherit; cursor: default; font: inherit; text-align: left; }
+.buddy-list-row:hover { background: var(--zli-hover); }
+.buddy-list-row.is-active { background: var(--zli-active); }
+.buddy-list-board { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 11px; background: var(--zli-raised); color: var(--zli-muted); }
+.buddy-list-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.buddy-list-name { display: flex; min-width: 0; align-items: baseline; gap: 6px; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.buddy-list-role { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.buddy-list-time { margin-left: auto; flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; font-weight: 400; }
+.buddy-list-line { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.buddy-list-row.is-working .buddy-list-line { color: var(--zli-blue); }
+.buddy-list-row.is-needs .buddy-list-line, .buddy-list-row.is-waiting .buddy-list-line { color: var(--zli-amber); }
+.buddy-list-row.is-failed .buddy-list-line { color: var(--zli-red); }
+.buddy-list-empty { margin: var(--zli-space-2) 10px; color: var(--zli-dim); font-size: var(--zli-text-sm); }
+
+/* The chat's head: a bar with who it is with, not a floating tag. */
+.buddies-main.is-split .buddy-view-top { position: static; height: 60px; flex: 0 0 auto; align-items: center; justify-content: flex-start; gap: var(--zli-space-2); padding: 0 var(--zli-space-3) 0 var(--zli-space-4); border-bottom: 1px solid var(--zli-border); background: transparent; pointer-events: auto; }
+.buddies-main.is-split .buddy-view-tag { height: 46px; gap: 11px; padding: 0 12px 0 6px; border: 0; border-radius: 12px; background: transparent; box-shadow: none; text-align: left; }
+.buddies-main.is-split .buddy-view-tag:hover { background: var(--zli-hover); }
+.buddy-view-who { display: flex; min-width: 0; flex-direction: column; }
+.buddies-main.is-split .buddy-view-name { font-size: var(--zli-text-base); font-weight: 600; line-height: 1.25; }
+.buddy-view-meta { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.buddies-main.is-split .buddy-view-open { position: static; }
+.buddies-main.is-split .buddy-view-main .buddy-chat-column { padding-top: var(--zli-space-5); }
+.buddies-main.is-split .buddies-home { max-width: 820px; }
+@media (max-width: 860px) {
+  .buddy-list { width: 232px; }
+}
+/* The sidebar's switch sits in the panel's top-left corner; the list's head leaves room for it. */
+.app-shell:not(.is-sidebar-hidden) .buddy-list-head { padding-left: 52px; }
