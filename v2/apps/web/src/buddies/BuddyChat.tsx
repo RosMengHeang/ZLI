@@ -22,6 +22,7 @@ import { type Buddy, buddyHex } from "../teammates/buddies.js";
 import { lookOf } from "../teammates/pixelBuddies.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
+import { ProviderMark } from "../ui/ProviderMark.js";
 import { triggerLabel } from "./team.js";
 import "./buddyChat.css";
 
@@ -52,6 +53,8 @@ export type ChatItem =
       icon: IconName;
       text: string;
       who?: Who | undefined;
+      /** The agent the line is about, shown by its own logo. */
+      provider?: string | undefined;
       threadId?: string | undefined;
     }
   | { kind: "reply"; key: string; at: string; task: TaskProjection }
@@ -187,6 +190,7 @@ export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection
         key: `${task.taskId}-pick`,
         at: task.startedAt,
         icon: "cpu",
+        provider: task.pick.provider,
         text: `${model}${task.pick.effort ? ` · ${task.pick.effort}` : ""} — ${task.pick.reason}`,
         threadId: task.threadId,
       });
@@ -488,6 +492,8 @@ function ChatEntry({
         <div className="buddy-chat-event">
           {item.who ? (
             <BuddyAvatar buddy={item.who.color} look={item.who.look} size={14} />
+          ) : item.provider ? (
+            <ProviderMark provider={item.provider} size={13} />
           ) : (
             <Icon name={item.icon} size={12} />
           )}
