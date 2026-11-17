@@ -309,7 +309,7 @@ export function SettingsDialog({
                       tabIndex={focusable === entry.id ? 0 : -1}
                       onClick={() => select(entry.id)}
                     >
-                      <Icon name={entry.icon} size={14} />
+                      <Icon name={entry.icon} size={16} />
                       <span>{entry.label}</span>
                     </button>
                   ))}

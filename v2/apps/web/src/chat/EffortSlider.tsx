@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 
 import { scrollMovesAnchor, useAnchoredPlacement } from "../ui/anchoredPopup.js";
 import { Icon } from "../ui/Icon.js";
-import { EffortDial } from "./ReasoningMeter.js";
+import { EffortBars } from "./ReasoningMeter.js";
 import { ReasoningTrack } from "./ReasoningTrack.js";
 import { reasoningHint, reasoningLabel } from "./reasoning.js";
 
@@ -143,13 +143,12 @@ export function EffortSlider({
           setOpen(true);
         }}
       >
-        <EffortDial fraction={index < 0 ? 0.5 : index / last} />
         {/* Keyed by level, so the chip's name lifts in with each step, as the popup's does. */}
         <span className="picker-trigger-label effort-chip-label" key={shown ?? noun}>
           {shown ? reasoningLabel(shown) : noun}
         </span>
+        <EffortBars fraction={index < 0 ? 0.5 : last > 0 ? index / last : 1} />
         {fast ? <Icon name="zap" size={11} className="effort-chip-fast" /> : null}
-        <Icon name="chevronDown" size={12} className="picker-chevron" />
       </button>
       {open
         ? createPortal(

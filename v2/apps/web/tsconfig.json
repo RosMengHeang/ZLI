@@ -3,6 +3,9 @@
   "compilerOptions": {
     "rootDir": "src",
     "jsx": "react-jsx",
+    // Vite bundles the web app, so imports resolve the way a bundler does; some packages' types need it.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "lib": ["ES2023", "DOM"],
     "types": ["vite/client"]
   },

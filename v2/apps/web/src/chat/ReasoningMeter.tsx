@@ -77,3 +77,35 @@ export function EffortDial({ fraction }: { fraction: number }) {
     </svg>
   );
 }
+
+/**
+ * Four signal bars for the effort chip, rising left to right and lit up to the level along the model's own levels.
+ * `fraction` is 0 for the lowest level and 1 for the highest; the lowest still lights one bar.
+ */
+export function EffortBars({ fraction }: { fraction: number }) {
+  const f = Math.min(1, Math.max(0, fraction));
+  const lit = 1 + Math.round(f * 3);
+  return (
+    <svg
+      width={14}
+      height={12}
+      viewBox="0 0 14 12"
+      aria-hidden="true"
+      focusable="false"
+      className="effort-bars"
+      data-lit={lit}
+    >
+      {[4, 6, 9, 12].map((height, index) => (
+        <rect
+          key={height}
+          className={index < lit ? "effort-bar is-lit" : "effort-bar"}
+          x={index * 3.5}
+          y={12 - height}
+          width={2}
+          height={height}
+          rx={0.75}
+        />
+      ))}
+    </svg>
+  );
+}

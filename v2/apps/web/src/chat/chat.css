@@ -1075,3 +1075,9 @@ button.thought-row:hover .thought-label { color: var(--zli-muted); }
 .chat-dock .chat-slot-item { border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
 .chat-jump { bottom: calc(var(--dock-h, 0px) + var(--zli-space-3)); }
 .turn-rail { top: calc((100% - var(--dock-h, 0px)) / 2); }
+
+/* The effort chip: the level's name, then four signal bars lit up to it. */
+.effort-bars { flex: 0 0 auto; }
+.effort-bar { fill: var(--zli-disabled); transition: fill var(--zli-duration-fast) var(--zli-ease); }
+.effort-bar.is-lit { fill: currentColor; }
+.composer-reasoning { gap: 6px; }

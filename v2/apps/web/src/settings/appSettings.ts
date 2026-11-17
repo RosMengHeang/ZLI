@@ -98,6 +98,8 @@ export type AppSettings = {
   severalChats: boolean;
   /** Columns: each column carries its own header on one row, no top bar. Classic: a top bar over separate panels. */
   layout: WindowLayout;
+  /** The person chose the layout. Before Classic became the default, Columns was saved for everyone who never chose. */
+  layoutChosen?: true;
   /** Text sizes and fonts, from Settings > Appearance. */
   typography: Typography;
 };
@@ -120,7 +122,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   chatTint: "card",
   archiveMergedChats: true,
   severalChats: false,
-  layout: "columns",
+  layout: "classic",
   typography: DEFAULT_TYPOGRAPHY,
 };
 
@@ -220,7 +222,9 @@ export function parseAppSettings(raw: string | null): AppSettings {
     chatTint: value.chatTint === "selection" || value.chatTint === "none" ? value.chatTint : "card",
     archiveMergedChats: value.archiveMergedChats !== false,
     severalChats: value.severalChats === true,
-    layout: value.layout === "classic" ? "classic" : "columns",
+    // Rounded panels are the default; Columns stays for whoever picked it.
+    layout: value.layoutChosen === true && value.layout === "columns" ? "columns" : "classic",
+    ...(value.layoutChosen === true ? { layoutChosen: true as const } : {}),
     typography: parseTypography(value.typography),
   };
 }

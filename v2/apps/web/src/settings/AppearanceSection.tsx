@@ -168,7 +168,9 @@ export function AppearanceSection() {
                   name={`${name}-layout`}
                   value={layout.id}
                   checked={settings.layout === layout.id}
-                  onChange={() => updateAppSettings((current) => ({ ...current, layout: layout.id }))}
+                  onChange={() =>
+                    updateAppSettings((current) => ({ ...current, layout: layout.id, layoutChosen: true }))
+                  }
                 />
                 <LayoutPreview layout={layout.id} />
                 <span className="theme-tile-name">{layout.name}</span>

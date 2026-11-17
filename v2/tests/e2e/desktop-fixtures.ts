@@ -96,25 +96,16 @@ export async function clickProjectAction(row: Locator, button: Locator): Promise
   }).toPass({ timeout: 30_000 });
 }
 
-/** Opens the Create worktree dialog from the first project's row. */
+/** Opens the Create worktree dialog from the command palette, where New worktree lives since the project menu was trimmed. */
 export async function openCreateWorktree(page: Page): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Create worktree" });
-  const row = page.locator(".project-label").first();
-  // New worktree sits in the project's menu, so the row keeps only New chat and the menu on hover.
-  const menu = row.getByRole("button", { name: / actions$/u });
-  const item = page.getByRole("menuitem", { name: "New worktree" });
-  // The scrim covers the sidebar button. A click that already opened the dialog is still reported
-  // as a miss, and every retry then times out on that same scrim.
   await expect(async () => {
     if (await dialog.isVisible()) return;
-    await revealProjectActions(row);
-    try {
-      if (!(await item.isVisible())) await menu.click({ timeout: 2_000 });
-      await item.click({ timeout: 2_000 });
-    } catch (error) {
-      if (await dialog.isVisible()) return;
-      throw error;
-    }
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("Control+K");
+    await page.getByRole("textbox", { name: "Search commands" }).fill("New worktree");
+    await page.keyboard.press("Enter");
+    await expect(dialog).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
   await expect(dialog).toBeVisible();
 }
