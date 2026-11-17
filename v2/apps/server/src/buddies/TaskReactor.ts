@@ -36,6 +36,8 @@ export type TaskReactorOptions = {
   checkEveryMs?: number;
 };
 
+/** How long a finished job waits for its last turn's snapshot before recording its result without it. */
+const SNAPSHOT_GRACE_MS = 15_000;
 /** One turn of a job's agent past this is stuck or looping, not working. */
 const TURN_LIMIT_MS = 90 * 60_000;
 
@@ -90,7 +92,7 @@ export class TaskReactor {
   ) {
     this.now = options.now ?? (() => new Date());
     this.unsubscribe = engine.subscribe((envelope) => this.observe(envelope));
-    this.timer = setInterval(() => this.schedule(), options.checkEveryMs ?? 60_000);
+    this.timer = setInterval(() => this.schedule(), options.checkEveryMs ?? 15_000);
     this.timer.unref?.();
     this.schedule();
   }
@@ -397,6 +399,8 @@ export class TaskReactor {
     );
     const waiting = (state.queuedMessages ?? []).some((message) => message.threadId === thread.threadId);
     if (!answered || waiting) return;
+    // The last turn's changes are snapshotted just after it ends; the result counts its files from that snapshot.
+    if (this.snapshotPending(state, thread.threadId)) return;
     if (task.finished) {
       await this.recordResult(state, task, task.finished.summary, task.finished.screenshots);
       return;
@@ -417,6 +421,23 @@ export class TaskReactor {
       task,
       last?.text.trim() ? firstSentence(last.text, 400) : "Finished without a summary.",
       [],
+    );
+  }
+
+  /**
+   * Whether the thread's last finished turn is still being snapshotted. The result waits for it, up to a short
+   * grace in case no snapshot comes, as when the worktree could not be read.
+   */
+  private snapshotPending(state: RuntimeProjection, threadId: string): boolean {
+    const turn = (state.turns ?? []).findLast((entry) => entry.threadId === threadId && entry.completedAt);
+    if (!turn?.completedAt) return false;
+    const ended = Date.parse(turn.completedAt);
+    if (this.now().getTime() - ended > SNAPSHOT_GRACE_MS) return false;
+    return !(state.checkpoints ?? []).some(
+      (checkpoint) =>
+        checkpoint.threadId === threadId &&
+        checkpoint.recordedAt !== undefined &&
+        Date.parse(checkpoint.recordedAt) >= ended,
     );
   }
 

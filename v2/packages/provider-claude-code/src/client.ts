@@ -163,6 +163,7 @@ export class ClaudeCodeClient {
   /** Tools the person allowed for the rest of this session. Claude Code does not remember them for us. */
   private readonly sessionAllowedTools = new Set<string>();
   private approveTool?: (name: string) => boolean;
+  private staleResult = false;
   /** Claude reports cost as a running session total, so each turn's cost is the change since the last result. */
   private sessionCostUsd: number | undefined;
   /** Undefined is the model's own default, which is how every session starts. */
@@ -282,6 +283,8 @@ export class ClaudeCodeClient {
       throw new ClaudeProviderError("request_failed", "Claude Code turn does not match the active turn.");
     }
     this.write(interruptRequest(`interrupt_${randomUUID()}`));
+    // Claude still sends the stopped turn's result, after the turn has ended here. The next result is that one.
+    this.staleResult = true;
     this.finishTurn("interrupted");
   }
 
@@ -409,6 +412,11 @@ export class ClaudeCodeClient {
   }
 
   private onResult(message: { isError: boolean; text?: string; subtype?: string; usage?: ClaudeResultUsage }): void {
+    // The result of a turn that was stopped arrives late; applied to the next turn, it would fail that one.
+    if (this.staleResult) {
+      this.staleResult = false;
+      return;
+    }
     if (!this.active) return;
     this.emitUsage(this.active, message.usage);
     if (this.active.usageLimit) {

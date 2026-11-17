@@ -254,6 +254,23 @@ describe("ClaudeCodeClient", () => {
     ]);
   });
 
+  it("does not fail the next turn with the stopped turn's late result", async () => {
+    const { client, peer, events } = await startedClient();
+    const turn = await client.sendTurn({ text: "Write a long story" });
+    await client.interruptTurn(turn.providerTurnId);
+    const next = await client.sendTurn({ text: "Say ok" });
+    // Claude reports the stopped turn only now, after the next one began.
+    peer.emit({ type: "result", subtype: "error_during_execution", is_error: true });
+    peer.emit({ type: "result", subtype: "success", is_error: false, result: "ok" });
+    expect(events.filter((event) => "providerTurnId" in event && event.providerTurnId === next.providerTurnId)).toEqual(
+      [
+        { type: "turn.started", providerTurnId: next.providerTurnId },
+        { type: "assistant.delta", providerTurnId: next.providerTurnId, text: "ok" },
+        { type: "turn.completed", providerTurnId: next.providerTurnId, status: "completed" },
+      ],
+    );
+  });
+
   it("denies tool approval without a thread-fatal session error", async () => {
     const { client, peer, events } = await startedClient();
     await client.sendTurn({ text: "Run tests" });

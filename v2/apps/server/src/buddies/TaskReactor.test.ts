@@ -215,6 +215,46 @@ describe("TaskReactor", () => {
     });
   });
 
+  it("waits for the last turn's snapshot before counting a finished job's files", async () => {
+    const { engine, projectId, settle, runtime } = await setup();
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "t1", buddyId: "b1", projectId, kind: "job", goal: "Add hello.txt", origin: { kind: "chat" } },
+    });
+    let state = await runtime();
+    const task = state.tasks?.[0];
+    const threadId = task?.threadId as string;
+    await send(engine, {
+      type: "thread.status",
+      threadId,
+      status: "working",
+      providerTurnId: "turn-2",
+    } as RuntimeCommand);
+    await send(engine, { type: "task.finish", taskId: "t1", summary: "Added hello.txt." });
+    await send(engine, { type: "thread.status", threadId, status: "idle", providerTurnId: "turn-2" } as RuntimeCommand);
+    state = await settle();
+    // The turn ended, but its snapshot has not landed: no result yet.
+    expect(state.tasks?.[0]?.status).toBe("working");
+
+    await send(engine, {
+      type: "thread.checkpoint",
+      checkpoint: {
+        checkpointId: "00000000-0000-4000-8000-0000000000c1",
+        threadId,
+        worktreeId: task?.worktreeId,
+        turnId: "turn-2",
+        startTree: "a".repeat(40),
+        endTree: "b".repeat(40),
+        files: [{ path: "hello.txt", kind: "added", additions: 1, deletions: 0, binary: false }],
+        fileCount: 1,
+        additions: 1,
+        deletions: 0,
+      },
+    } as RuntimeCommand);
+    state = await settle();
+    expect(state.tasks?.[0]).toMatchObject({ status: "ready", result: { files: 1, insertions: 1 } });
+  });
+
   it("refuses more jobs than a buddy may hold open", async () => {
     const { engine, projectId } = await setup();
     await send(engine, { type: "buddies.pause" } as RuntimeCommand);

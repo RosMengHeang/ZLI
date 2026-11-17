@@ -291,7 +291,7 @@ export class BuddyChatReactor {
           buddy,
           answered,
           `failed:${asked}`,
-          `Something went wrong: ${thread.errorMessage ?? "the agent stopped"}.`,
+          `Something went wrong: ${(thread.errorMessage ?? "the agent stopped").replace(/[.!?]+$/u, "")}.`,
         );
       // A turn can end with nothing said. Once it has had time to land, say so rather than leave the person waiting.
       else if (waited >= SETTLE_MS)
