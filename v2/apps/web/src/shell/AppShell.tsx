@@ -642,8 +642,6 @@ function WorkspaceApp() {
     narrow
       ? setNarrowSidebarOpen((open) => !open)
       : updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
-  const hideSidebar = () =>
-    narrow ? setNarrowSidebarOpen(false) : updateWorkbench((state) => ({ ...state, sidebarOpen: false }));
   const openHuddle = useCallback((next: string) => {
     setHuddleId(next);
     setSidePane("huddle");
@@ -2820,7 +2818,6 @@ function WorkspaceApp() {
             onOpenHelp={() => setHelpOpen(true)}
             onOpenSettings={openSettings}
             onOpenUsage={openUsage}
-            onHideSidebar={hideSidebar}
             runGroups={workbench.groups}
             runStates={runStates}
             onCompareRuns={(group) => setCompareGroupId(group.groupId)}
@@ -3110,24 +3107,23 @@ function WorkspaceApp() {
             </div>
           )}
           {topbar}
-          {!sidebarOpen ? (
-            <div className="columns-lead">
+          {/* The sidebar's switch sits in the main panel's corner, by the chat's title, open or closed. */}
+          <div className={`columns-lead${sidebarOpen ? "" : " is-sidebar-hidden"}`}>
+            <IconButton
+              label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              icon="panelLeft"
+              shortcut={shortcuts.toggleSidebar}
+              onClick={toggleSidebar}
+            />
+            {!sidebarOpen && hasProjects ? (
               <IconButton
-                label="Show sidebar"
-                icon="panelLeft"
-                shortcut={shortcuts.toggleSidebar}
-                onClick={toggleSidebar}
+                label="New chat"
+                icon="squarePen"
+                shortcut={shortcuts.newAgent}
+                onClick={() => openNewAgent()}
               />
-              {hasProjects ? (
-                <IconButton
-                  label="New chat"
-                  icon="squarePen"
-                  shortcut={shortcuts.newAgent}
-                  onClick={() => openNewAgent()}
-                />
-              ) : null}
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </main>
         {paletteOpen ? <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} /> : null}
         {quickOpen && contextWorktree ? (

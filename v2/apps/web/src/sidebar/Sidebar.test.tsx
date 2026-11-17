@@ -108,7 +108,6 @@ async function mount(current: RuntimeProjection | undefined, options: MountOptio
           onOpenHelp={noop}
           onOpenSettings={options.onOpenSettings ?? noop}
           onOpenUsage={noop}
-          onHideSidebar={noop}
           projectAgentActions={options.projectAgentActions}
         />
       </RuntimeProvider>,

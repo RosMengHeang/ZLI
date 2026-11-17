@@ -149,7 +149,6 @@ type Props = {
   /** Opens Settings, at `section` when given. */
   onOpenSettings(section?: SettingsSection): void;
   onOpenUsage(): void;
-  onHideSidebar(): void;
   /** Best-of runs still being compared; their sessions list under the chat they came from. */
   runGroups?: readonly RunGroup[];
   runStates?: ReadonlyMap<string, RunState>;
@@ -203,7 +202,6 @@ export function Sidebar({
   onOpenHelp,
   onOpenSettings,
   onOpenUsage,
-  onHideSidebar,
   runGroups = noGroups,
   runStates = noStates,
   onCompareRuns = () => undefined,
@@ -215,7 +213,6 @@ export function Sidebar({
   activeBuddyId,
 }: Props) {
   const newAgentShortcut = useShortcut("newAgent");
-  const sidebarShortcut = useShortcut("toggleSidebar");
   const settingsShortcut = useShortcut("settings");
   const [confirmRemoveId, setConfirmRemoveId] = useState<string>();
   const [contextMenu, setContextMenu] = useState<MenuRequest>();
@@ -1179,9 +1176,6 @@ export function Sidebar({
         <span className="brand">
           <ZliLogo className="brand-mark" />
           <span className="wordmark">ZLI</span>
-        </span>
-        <span className="sidebar-top-actions">
-          <IconButton label="Hide sidebar" icon="panelLeft" shortcut={sidebarShortcut} onClick={onHideSidebar} />
         </span>
       </div>
       <div className="sidebar-primary">

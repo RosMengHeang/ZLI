@@ -216,3 +216,8 @@
 .start-chat-more .btn { height: var(--zli-control-sm); font-size: var(--zli-text-sm); }
 /* A notice under the floating bar keeps clear of its buttons. */
 .app-shell:not(.is-columns) .main-workspace > .banner { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
+
+/* The sidebar's switch lives in the main panel's top-left corner; the chat's header keeps room for it. */
+.columns-lead:not(.is-sidebar-hidden) { padding-left: var(--zli-space-2); }
+.app-shell:not(.is-sidebar-hidden) .tile-header { padding-left: 44px; }
+.app-shell.is-columns:not(.is-sidebar-hidden) .columns-lead { left: 0; }
