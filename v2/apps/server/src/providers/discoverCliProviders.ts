@@ -592,18 +592,35 @@ async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boo
       ? probe.readLogin(spec.provider, path).catch(() => undefined)
       : Promise.resolve(undefined),
   ]);
+  const shown = modelsForPlan(spec.provider, models, login?.status === "signed-in" ? login.plan : undefined);
   const reasoningEfforts =
-    includeModels && probe.readModels ? providerReasoningEfforts(spec.provider, models) : undefined;
+    includeModels && probe.readModels ? providerReasoningEfforts(spec.provider, shown) : undefined;
   return {
     provider: spec.provider,
     displayName: spec.displayName,
     status: "found",
     path,
     ...(version ? { version } : {}),
-    ...(models ? { models } : {}),
+    ...(shown ? { models: [...shown] } : {}),
     ...(reasoningEfforts?.length ? { reasoningEfforts: [...reasoningEfforts] } : {}),
     ...(login ? { login } : {}),
   };
+}
+
+/** Claude plans that cannot run Fable, which the CLI lists for every account anyway. */
+const NO_FABLE_PLANS = /^(free|pro)$/iu;
+
+/**
+ * The models this login can actually run. Claude Code lists Fable for every account, but Free and Pro plans
+ * cannot use it, so it is left out for them rather than offered and then refused.
+ */
+export function modelsForPlan(
+  provider: string,
+  models: readonly ProviderModelOption[] | undefined,
+  plan: string | undefined,
+): readonly ProviderModelOption[] | undefined {
+  if (!models || provider !== "claude-code" || !plan || !NO_FABLE_PLANS.test(plan.trim())) return models;
+  return models.filter((model) => !/fable/iu.test(`${model.id} ${model.label}`));
 }
 
 async function readFoundModels(

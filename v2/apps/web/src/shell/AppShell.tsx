@@ -1322,6 +1322,9 @@ function WorkspaceApp() {
   /** Opens a new chat; with `typed`, the text from the empty screen goes out as its first message. */
   const openNewAgent = (project?: ProjectProjection, typed?: string) => {
     if (!projection) return;
+    // A new chat is where the person goes next, so the Buddies or Pull requests page steps aside for it.
+    setBuddyView(undefined);
+    setPullView(undefined);
     // With no project yet, a chat still opens: its folder tab adds the first project.
     if (!hasProjects) {
       setPaletteOpen(false);
