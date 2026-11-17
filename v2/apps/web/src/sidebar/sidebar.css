@@ -477,3 +477,37 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .session-row.is-one-line.is-active .session-title, .session-row.is-one-line.is-unread .session-title { color: var(--zli-text); font-weight: 500; }
 .session-row.is-one-line .session-time { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 .session-name.is-inline { flex: 0 1 auto; margin-right: 6px; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
+
+/* ---------- Activity ---------- */
+/*
+ * The list's head: which chats it shows (all, or one project's) and the switch to the project tree. Then every chat
+ * by when it last moved, in quiet time groups. Each row is the agent's mark (or what it is doing), the title, and
+ * one dim line: project, pull request, branch.
+ */
+.sidebar-list-head { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); margin: var(--zli-space-3) 0 var(--zli-space-1); padding: 0 var(--zli-space-1) 0 var(--zli-space-2); }
+.sidebar-list-head .sidebar-projects-heading { margin: 0; }
+.sidebar-scope { display: inline-flex; min-width: 0; align-items: center; gap: 4px; height: 24px; padding: 0 6px; margin-left: -6px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-sm); font-weight: 500; }
+.sidebar-scope:hover, .sidebar-scope[aria-expanded="true"] { background: var(--zli-hover); color: var(--zli-text); }
+.sidebar-scope-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-scope > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.activity-group + .activity-group { margin-top: var(--zli-space-3); }
+.activity-heading { margin: 0 0 2px; padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
+.session-row.is-activity { height: auto; min-height: 46px; align-items: flex-start; gap: 9px; padding: 6px 10px 6px 8px; }
+.session-row.is-activity ~ .row-more { top: 23px; }
+.activity-mark { display: inline-grid; flex: 0 0 auto; width: 16px; height: 18px; place-items: center; color: var(--zli-muted); }
+.activity-mark.is-failed { color: var(--zli-red); }
+.activity-mark.is-working, .activity-mark.is-starting { color: var(--zli-blue); }
+.activity-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--zli-amber); }
+.activity-spin { animation: zli-spin 900ms linear infinite; }
+.activity-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.activity-title { display: flex; min-width: 0; align-items: center; gap: 5px; line-height: 18px; }
+.session-row.is-activity .session-title { color: var(--zli-text); font-weight: 400; }
+.session-row.is-activity.is-unread .session-title, .session-row.is-activity.is-active .session-title { font-weight: 500; }
+.activity-agent { flex: 0 0 auto; color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 500; }
+.activity-meta { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 16px; }
+.activity-meta > * { display: inline-flex; min-width: 0; align-items: center; gap: 4px; }
+.activity-meta > * > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-project { flex: 0 1 auto; max-width: 45%; }
+.activity-branch { flex: 1 1 auto; }
+.activity-meta .worktree-pr { flex: 0 0 auto; }
+@media (prefers-reduced-motion: reduce) { .activity-spin { animation: none; } }

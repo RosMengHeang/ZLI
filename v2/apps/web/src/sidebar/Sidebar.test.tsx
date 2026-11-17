@@ -24,7 +24,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 // Most of these read the second line under each chat; one test below covers the one-line rows.
 beforeEach(() => {
-  updateAppSettings((current) => ({ ...current, compactChats: false }));
+  updateAppSettings((current) => ({ ...current, compactChats: false, sidebarView: "projects" }));
 });
 
 afterEach(() => {
@@ -390,6 +390,42 @@ describe("Sidebar projects", () => {
     expect(rows.map((row) => row.className.includes("is-one-line"))).toEqual([true, false]);
     expect(rows[0]?.querySelector(".session-sub")).toBeNull();
     expect(rows[0]?.querySelector(".session-time")).not.toBeNull();
+  });
+
+  it("lists every chat by when it moved, naming its project and branch, and narrows to one project", async () => {
+    updateAppSettings((current) => ({ ...current, sidebarView: "activity" }));
+    const now = Date.now();
+    const chat = (
+      sessionId: string,
+      worktreeId: string,
+      minutesAgo: number,
+      status: AgentSession["status"] = "ready",
+    ) => ({
+      ...agent(worktreeId),
+      sessionId,
+      mode: "chat" as const,
+      status,
+      createdAt: new Date(now - minutesAgo * 60_000).toISOString(),
+      updatedAt: new Date(now - minutesAgo * 60_000).toISOString(),
+    });
+    const { container } = await mount(
+      projection([
+        { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
+        { worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat/login", status: "ready" },
+      ]),
+      { sessions: [chat("old", checkoutId, 3 * 24 * 60), chat("busy", featureId, 600, "working")] },
+    );
+    const groups = [...container.querySelectorAll(".activity-group")].map((group) => group.getAttribute("aria-label"));
+    expect(groups).toEqual(["Recent", "Previous 7 days"]);
+    const rows = [...container.querySelectorAll(".session-row.is-activity")];
+    expect(rows.map((row) => row.querySelector(".activity-branch")?.textContent)).toEqual(["feat/login", "main"]);
+    expect(rows[0]?.querySelector(".activity-project")?.textContent).toBe("repo");
+    expect(rows[0]?.querySelector(".activity-spin")).not.toBeNull();
+    expect(container.querySelector(".project-label")).toBeNull();
+
+    // The sort switch goes back to the project tree.
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Group by project"]')?.click());
+    expect(container.querySelector(".project-label")).not.toBeNull();
   });
 
   it("folds quiet chats past the newest five into one row that opens", async () => {

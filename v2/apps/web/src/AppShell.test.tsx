@@ -203,6 +203,9 @@ function button(container: HTMLElement, name: string): HTMLButtonElement | undef
   );
 }
 
+// These read the sidebar's project tree; the activity list has tests of its own.
+beforeEach(() => updateAppSettings((current) => ({ ...current, sidebarView: "projects" })));
+
 afterEach(() => {
   document.body.replaceChildren();
   window.localStorage.clear();

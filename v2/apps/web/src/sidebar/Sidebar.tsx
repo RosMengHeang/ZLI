@@ -29,7 +29,7 @@ import {
   sessionTitle,
 } from "../sessions/sessions.js";
 import { groupFinished } from "../sessions/useRunStates.js";
-import { useAppSettings } from "../settings/appSettings.js";
+import { updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import type { SettingsSection } from "../settings/SettingsDialog.js";
 import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
@@ -39,6 +39,7 @@ import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuAction, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
+import { activityGroups } from "./activity.js";
 import { SessionDot } from "./SessionDot.js";
 import { SidebarPlanLimits } from "./SidebarUsageStrip.js";
 import { AskLine, LiveStep, ReplyPreview } from "./sessionLines.js";
@@ -169,6 +170,7 @@ type Props = {
 
 const noGroups: readonly RunGroup[] = [];
 const noAncestors: ReadonlySet<string> = new Set();
+const SCOPE_KEY = "zli.sidebar.scope";
 const noStates: ReadonlyMap<string, RunState> = new Map();
 
 /** How many projects without agents it takes before they fold into one row. */
@@ -305,7 +307,23 @@ export function Sidebar({
   const quietProjects = fold ? quiet : [];
 
   const asideRef = useRef<HTMLElement>(null);
-  const { tintProjects, chatTint, compactChats } = useAppSettings();
+  const { tintProjects, chatTint, compactChats, sidebarView } = useAppSettings();
+  // Which chats the activity list shows: all of them, or one project's. Remembered in this browser.
+  const [scope, setScope] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem(SCOPE_KEY) ?? "all";
+    } catch {
+      return "all";
+    }
+  });
+  const pickScope = (next: string) => {
+    setScope(next);
+    try {
+      window.localStorage.setItem(SCOPE_KEY, next);
+    } catch {
+      // Blocked storage: the choice lasts until the window closes.
+    }
+  };
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const { expandProject } = layout;
@@ -1086,6 +1104,136 @@ export function Sidebar({
     </section>
   );
 
+  // The activity list: every chat by when it last moved, each naming its project, pull request and branch.
+  const scopeProject = projects.find((project) => project.projectId === scope);
+  const listHead = (
+    <div className="sidebar-list-head">
+      {sidebarView === "activity" ? (
+        <button
+          type="button"
+          className="sidebar-scope"
+          aria-haspopup="menu"
+          onClick={(event) =>
+            openContextMenu(event, "Show chats from", () => [
+              { label: "All activity", icon: "history", run: () => pickScope("all") },
+              { separator: true },
+              ...projects.map((project) => ({
+                label: project.name,
+                icon: "folder" as const,
+                run: () => pickScope(project.projectId),
+              })),
+            ])
+          }
+        >
+          <span className="sidebar-scope-label">{scopeProject?.name ?? "All activity"}</span>
+          <Icon name="chevronRight" size={12} />
+        </button>
+      ) : onOpenBuddies ? (
+        // Under the team, so the two lists read as two things; alone, the project headings say it already.
+        <h2 className="sidebar-heading sidebar-projects-heading">Projects</h2>
+      ) : (
+        <span />
+      )}
+      <IconButton
+        label={sidebarView === "activity" ? "Group by project" : "Show all activity"}
+        icon="sort"
+        size="xs"
+        onClick={() =>
+          updateAppSettings((current) => ({
+            ...current,
+            sidebarView: current.sidebarView === "activity" ? "projects" : "activity",
+          }))
+        }
+      />
+    </div>
+  );
+
+  const renderActivityRow = (session: AgentSession) => {
+    const worktree = worktrees.find((entry) => entry.worktreeId === session.worktreeId);
+    const project = projectOf(session);
+    const title = sessionTitle(session, projection?.messages, projection?.providers);
+    const agentName = sessionAgentName(session);
+    const active = session.sessionId === activeSessionId;
+    const isUnread = unread.has(session.sessionId);
+    const stoppable = sessionStopCommands(session).length > 0;
+    const subAgents = subAgentsOf.get(session.sessionId) ?? [];
+    const status = sessionStatusLabel[session.status];
+    const busy = session.status === "working" || session.status === "starting";
+    const menu = () => sessionMenuItems(session, stoppable, worktree, subAgents);
+    return (
+      <li className="session-entry" key={session.sessionId}>
+        <button
+          type="button"
+          className={`session-row is-activity${active ? " is-active" : ""}${isUnread ? " is-unread" : ""}`}
+          aria-label={`${agentName ? `${agentName}, ` : ""}${title}, ${status}${isUnread ? ", unread" : ""}`}
+          aria-current={active ? "true" : undefined}
+          title={`${title}${project ? `\n${project.name}` : ""}${worktree ? ` · ${worktree.branch}` : ""}\n${status} · ${relativeTime(session.updatedAt, now)}`}
+          onClick={() => onSelectSession(session)}
+          onContextMenu={(event) => openContextMenu(event, "Agent actions", menu)}
+        >
+          <span className={`activity-mark is-${session.status}`} aria-hidden="true">
+            {busy ? (
+              <Icon name="loader" size={14} className="activity-spin" />
+            ) : session.status === "waiting" ? (
+              <span className="activity-dot" />
+            ) : session.status === "failed" ? (
+              <Icon name="alert" size={14} />
+            ) : (
+              <ProviderMark provider={session.provider} size={14} />
+            )}
+          </span>
+          <span className="activity-copy">
+            <span className="activity-title">
+              {layout.chatPinned(session.sessionId) ? (
+                <Icon name="pin" size={11} className="session-pin" aria-label="Pinned" />
+              ) : null}
+              {agentName ? <span className="activity-agent">{agentName}</span> : null}
+              <span className="session-title">{title}</span>
+            </span>
+            <span className="activity-meta">
+              {project ? (
+                <span className="activity-project">
+                  <Icon name="folder" size={11} />
+                  <span>{project.name}</span>
+                </span>
+              ) : null}
+              {worktree ? <WorktreePrBadge entry={prEntries.get(worktree.worktreeId)} /> : null}
+              {worktree ? (
+                <span className="activity-branch">
+                  <Icon name="branch" size={11} />
+                  <span>{worktree.branch}</span>
+                </span>
+              ) : null}
+            </span>
+          </span>
+        </button>
+        <span className="row-more">
+          <MenuButton label="Agent actions" tooltip="More" size="xs" items={menu} />
+        </span>
+      </li>
+    );
+  };
+
+  const renderActivity = () => {
+    const chats = sessions.filter(
+      (session) =>
+        !parents.has(session.sessionId) && (!scopeProject || projectOf(session)?.projectId === scopeProject.projectId),
+    );
+    const groups = activityGroups(chats, new Date(now), (sessionId) => layout.chatPinned(sessionId));
+    if (groups.length === 0)
+      return (
+        <p className="sidebar-results-empty">
+          {scopeProject ? `No chats in ${scopeProject.name} yet.` : "No chats yet. Start one from New chat."}
+        </p>
+      );
+    return groups.map((group) => (
+      <section key={group.key} className="activity-group" aria-label={group.label}>
+        <h3 className="activity-heading">{group.label}</h3>
+        <ul className="session-list">{group.chats.map(renderActivityRow)}</ul>
+      </section>
+    ));
+  };
+
   /** Up and Down move between the chats in the list, so the keyboard can walk it without Tab. */
   const moveBetweenChats = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -1237,10 +1385,15 @@ export function Sidebar({
           </div>
         ) : searching ? (
           renderSearch()
+        ) : sidebarView === "activity" ? (
+          <>
+            {listHead}
+            {renderActivity()}
+          </>
         ) : (
           <>
             {/* Under the team, so the two lists read as two things. */}
-            {onOpenBuddies ? <h2 className="sidebar-heading sidebar-projects-heading">Projects</h2> : null}
+            {listHead}
             {/* With one project every chat is already in view, so the shelf would only repeat it. */}
             {shelf.length > 0 && listedProjects.length > 1 ? renderShelf() : null}
             {listedProjects.map((project) => {

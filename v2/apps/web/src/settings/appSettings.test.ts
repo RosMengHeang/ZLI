@@ -45,6 +45,7 @@ describe("app settings", () => {
       severalChats: false,
       layout: "classic",
       compactChats: true,
+      sidebarView: "activity",
       typography: DEFAULT_TYPOGRAPHY,
     });
   });

@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowSquareOut,
+  ArrowsDownUp,
   ArrowsIn,
   ArrowsLeftRight,
   ArrowsOut,
@@ -49,6 +50,7 @@ import {
   GitPullRequest,
   Globe,
   GridFour,
+  type IconProps,
   Image,
   Keyboard,
   Lightning,
@@ -65,7 +67,6 @@ import {
   Pause,
   PencilSimple,
   type Icon as PhosphorIcon,
-  type IconProps,
   Play,
   Plus,
   PlusSquare,
@@ -200,6 +201,7 @@ const icons = {
   squarePen: { icon: NotePencil },
   scratch: { icon: Scribble },
   split: { icon: SquareSplitHorizontal },
+  sort: { icon: ArrowsDownUp },
 } satisfies Record<string, { icon: PhosphorIcon; weight?: "fill" | "bold"; mirrored?: boolean }>;
 
 export type IconName = Extract<keyof typeof icons, string>;

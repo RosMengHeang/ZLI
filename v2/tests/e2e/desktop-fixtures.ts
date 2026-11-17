@@ -55,6 +55,8 @@ export type DesktopLaunchOptions = {
   trustAgents?: boolean;
   /** Puts every open agent on screen side by side, for tests about the board rather than one chat. */
   severalChats?: boolean;
+  /** The sidebar's list: the project tree most tests drive, unless a test is about the activity list. */
+  sidebarView?: "activity" | "projects";
 };
 
 /** Sends a message from the chat composer of a newly started Codex agent once it is ready. */
@@ -235,6 +237,13 @@ export async function launchDesktop(
       // A relaunch in the same test keeps the profile of the launch before it, which can leave the sidebar hidden.
       if (await showSidebar.isVisible()) await showSidebar.click();
       await runtime.waitFor({ state: "visible" });
+      // The settings store follows storage events, so the sidebar switches without a reload.
+      await page.evaluate((view) => {
+        const key = "zli.settings.v1";
+        const settings = JSON.parse(window.localStorage.getItem(key) ?? "{}") as Record<string, unknown>;
+        window.localStorage.setItem(key, JSON.stringify({ ...settings, sidebarView: view }));
+        window.dispatchEvent(new StorageEvent("storage", { key }));
+      }, options.sidebarView ?? "projects");
       if (options.severalChats) {
         await page.evaluate(() => {
           const key = "zli.settings.v1";

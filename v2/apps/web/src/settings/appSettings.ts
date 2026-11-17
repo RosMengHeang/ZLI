@@ -102,11 +102,14 @@ export type AppSettings = {
   layoutChosen?: true;
   /** Chats in the sidebar take one line, title and time, unless they are working, waiting on you, or failed. */
   compactChats: boolean;
+  /** The sidebar lists chats by when they last moved (activity) or under their projects. */
+  sidebarView: SidebarView;
   /** Text sizes and fonts, from Settings > Appearance. */
   typography: Typography;
 };
 
 export type WindowLayout = "columns" | "classic";
+export type SidebarView = "activity" | "projects";
 export type ChatTint = "card" | "selection" | "none";
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -126,6 +129,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   severalChats: false,
   layout: "classic",
   compactChats: true,
+  sidebarView: "activity",
   typography: DEFAULT_TYPOGRAPHY,
 };
 
@@ -229,6 +233,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     layout: value.layoutChosen === true && value.layout === "columns" ? "columns" : "classic",
     ...(value.layoutChosen === true ? { layoutChosen: true as const } : {}),
     compactChats: value.compactChats !== false,
+    sidebarView: value.sidebarView === "projects" ? "projects" : "activity",
     typography: parseTypography(value.typography),
   };
 }
