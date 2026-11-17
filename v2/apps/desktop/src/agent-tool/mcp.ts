@@ -82,7 +82,7 @@ const BUDDY_TOOLS: readonly McpTool[] = [
     name: "remember",
     title: "Keep a lesson",
     action: "buddyremember",
-    description: `${BUDDY_JOB} Keep one short fact worth knowing on later jobs in this project, such as how to run its tests. It is in your next briefs for this project; the person can remove it.`,
+    description: `${BUDDY_JOB} Keep one short fact worth knowing on later jobs in this project, such as how to run its tests. The person reviews it first; once they keep it, it is in your next briefs for this project.`,
     properties: { note: { type: "string", description: "One sentence, up to 400 characters." } },
     required: ["note"],
   },

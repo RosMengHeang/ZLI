@@ -99,6 +99,24 @@ describe("buddy actions", () => {
     expect(result.note).toContain("Playbook kept");
   });
 
+  it("offers what a job learns to the person instead of keeping it outright", async () => {
+    const { actions, sent } = host();
+    await actions.buddyremember({ note: "Run pnpm test:unit before pushing." });
+    expect(sent).toEqual([
+      {
+        type: "buddy.memory.propose",
+        buddyId: "b1",
+        note: {
+          noteId: "id-1",
+          text: "Run pnpm test:unit before pushing.",
+          source: "lesson",
+          projectId: "p1",
+          taskId: "t1",
+        },
+      },
+    ]);
+  });
+
   it("hands work on from the caller's branch and links it to the caller's job", async () => {
     const { actions, sent } = host();
     const result = (await actions.buddyhandoff({ goal: "Write tests for the login page" })) as { handedTo: string };
