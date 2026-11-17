@@ -15,7 +15,7 @@ import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuRequest } from "../ui/Menu.js";
-import { buddyMood } from "./BuddiesPane.js";
+import { buddyMood, TeamSettingsDialog } from "./BuddiesPane.js";
 import { NewBuddyDialog } from "./NewBuddyDialog.js";
 import type { Run } from "./useRun.js";
 
@@ -43,6 +43,7 @@ export function BuddyList({
 }) {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [dragged, setDragged] = useState<string>();
   const [menu, setMenu] = useState<MenuRequest>();
   const [removing, setRemoving] = useState<BuddyProjection>();
@@ -92,17 +93,24 @@ export function BuddyList({
       <header className="buddy-list-head">
         <h2>Buddies</h2>
         <IconButton
-          label={paused ? "Resume" : "Pause all"}
-          tooltip={
-            paused ? "Let buddies start jobs and routines again" : "No new jobs or routines start until you resume"
-          }
-          icon={paused ? "play" : "pause"}
+          label="Team settings"
+          tooltip="Team settings: pause, how Auto picks models, import"
+          icon="settings"
           size="sm"
-          pressed={paused}
-          onClick={() => void run({ type: paused ? "buddies.resume" : "buddies.pause" })}
+          onClick={() => setSettingsOpen(true)}
         />
         <IconButton label="Add a buddy" tooltip="Add a buddy" icon="plus" size="sm" onClick={() => setAdding(true)} />
       </header>
+      {/* Paused says so where the team is listed, with the way back one click away. */}
+      {paused ? (
+        <div className="buddy-list-paused" role="status">
+          <Icon name="pause" size={13} />
+          <span>Paused. Nothing new starts.</span>
+          <button type="button" onClick={() => void run({ type: "buddies.resume" })}>
+            Resume
+          </button>
+        </div>
+      ) : null}
       {team.length > 4 ? (
         <label className="buddy-list-find">
           <Icon name="search" size={14} />
@@ -210,6 +218,9 @@ export function BuddyList({
           {shown.length === 0 ? <p className="buddy-list-empty">No buddy by that name.</p> : null}
         </section>
       </div>
+      {settingsOpen ? (
+        <TeamSettingsDialog projection={projection} run={run} onClose={() => setSettingsOpen(false)} />
+      ) : null}
       {menu ? <Menu request={menu} onClose={() => setMenu(undefined)} /> : null}
       {removing ? (
         <ConfirmDialog

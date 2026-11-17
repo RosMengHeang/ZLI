@@ -247,8 +247,46 @@ const QUALITY: readonly { value: BuddyQuality; label: string; tooltip: string }[
   { value: "best", label: "Best quality", tooltip: "Stronger models, even for small jobs" },
 ];
 
-function TeamPage({ projection, run, onOpenThread, onOpenPullRequest }: BuddiesPaneProps & { run: Run }) {
+/** Finished jobs, as the board's last lane names them. */
+const DONE_STATUSES = new Set<TaskProjection["status"]>([
+  "ready",
+  "shipped",
+  "closed",
+  "failed",
+  "stopped",
+  "cancelled",
+]);
+/** How many finished jobs the board keeps in view. */
+const DONE_SHOWN = 8;
+
+/**
+ * The team board: what needs the person, what each buddy is doing right now, and every job in three lanes
+ * (up next, doing, done), each card with the buddy's face. A card opens that buddy's chat.
+ */
+function TeamPage({ projection, run, onSelect, onOpenThread, onOpenPullRequest }: BuddiesPaneProps & { run: Run }) {
+  const tasks = projection.tasks ?? [];
+  const team = buddiesInOrder(projection);
+  const byId = new Map(team.map((buddy) => [buddy.buddyId, buddy]));
+  const ours = tasks.filter((task) => byId.has(task.buddyId) && !task.undone);
   const waiting = needsYou(projection);
+  const latest = (task: TaskProjection) => task.endedAt ?? task.updatedAt;
+  const lanes: { key: string; label: string; tasks: TaskProjection[] }[] = [
+    { key: "queued", label: "Up next", tasks: ours.filter((task) => task.status === "queued") },
+    {
+      key: "doing",
+      label: "Doing",
+      tasks: ours.filter((task) => task.status === "preparing" || task.status === "working"),
+    },
+    {
+      key: "done",
+      label: "Done",
+      tasks: ours
+        .filter((task) => DONE_STATUSES.has(task.status))
+        .sort((left, right) => latest(right).localeCompare(latest(left)))
+        .slice(0, DONE_SHOWN),
+    },
+  ];
+  const anyJobs = lanes.some((lane) => lane.tasks.length > 0);
   return (
     <>
       {waiting.length > 0 ? (
@@ -271,23 +309,131 @@ function TeamPage({ projection, run, onOpenThread, onOpenPullRequest }: BuddiesP
           </div>
         </section>
       ) : null}
-      <section className="buddies-section" aria-label="How Auto picks">
-        <h3 className="buddies-heading">How Auto picks models</h3>
-        <Segmented
-          label="How Auto picks models"
-          value={projection.buddySettings?.quality ?? "balanced"}
-          options={QUALITY}
-          onChange={(quality) => void run({ type: "buddies.quality", quality })}
-        />
-        <p className="buddies-hint">
-          Auto reads each job, then picks the agent, model and effort that fit it, steering away from logins near their
-          limits. It learns from how each job went.
-        </p>
+
+      <section className="buddies-section" aria-label="Right now">
+        <h3 className="buddies-heading">Right now</h3>
+        <ul className="board-crew">
+          {team.map((buddy) => {
+            const working = ours.find(
+              (task) => task.buddyId === buddy.buddyId && (task.status === "working" || task.status === "preparing"),
+            );
+            const mood = buddyMood(buddy, tasks);
+            return (
+              <li key={buddy.buddyId}>
+                <button type="button" className={`board-crew-item is-${mood}`} onClick={() => onSelect(buddy.buddyId)}>
+                  <BuddyAvatar buddy={buddy.color} size={28} mood={mood} />
+                  <span className="board-crew-text">
+                    <span className="board-crew-name">{buddy.name}</span>
+                    <span className="board-crew-line">
+                      {working ? working.goal : mood === "waiting" ? "Needs you" : "Free"}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       </section>
-      <section className="buddies-section" aria-label="Import">
-        <ImportBuddy run={run} projection={projection} />
+
+      <section className="buddies-section" aria-label="Jobs">
+        <h3 className="buddies-heading">Jobs</h3>
+        {anyJobs ? (
+          <div className="board-lanes">
+            {lanes.map((lane) => (
+              <section key={lane.key} className={`board-lane is-${lane.key}`} aria-label={lane.label}>
+                <h4 className="board-lane-head">
+                  {lane.label}
+                  <span>{lane.tasks.length}</span>
+                </h4>
+                {lane.tasks.length === 0 ? <p className="board-lane-empty">Nothing here</p> : null}
+                {lane.tasks.map((task) => {
+                  const buddy = byId.get(task.buddyId);
+                  if (!buddy) return null;
+                  const project = projection.projects.find((entry) => entry.projectId === task.projectId);
+                  return (
+                    <button
+                      key={task.taskId}
+                      type="button"
+                      className={`board-card is-${task.status}`}
+                      title={task.goal}
+                      onClick={() => onSelect(buddy.buddyId)}
+                    >
+                      <span className="board-card-goal">{task.goal}</span>
+                      <span className="board-card-meta">
+                        <BuddyAvatar buddy={buddy.color} size={16} mood={buddyMood(buddy, tasks)} />
+                        <span className="board-card-who">{buddy.name}</span>
+                        {project ? <span className="board-card-project">{project.name}</span> : null}
+                        <span className="board-card-state">
+                          {lane.key === "done" ? STATUS_LABEL[task.status] : relativeTime(latest(task))}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <p className="board-empty">
+            No jobs yet. Ask any buddy for something in its chat, and the job shows up here.
+          </p>
+        )}
       </section>
     </>
+  );
+}
+
+/** The team's settings, behind the gear on the Buddies list: pausing, how Auto picks models, and importing. */
+export function TeamSettingsDialog({
+  projection,
+  run,
+  onClose,
+}: {
+  projection: RuntimeProjection;
+  run: Run;
+  onClose(): void;
+}) {
+  const paused = projection.buddySettings?.paused ?? false;
+  return (
+    <Dialog label="Team settings" title="Team settings" size="sm" onClose={onClose}>
+      <div className="dialog-body team-settings">
+        <section className="buddies-section" aria-label="Pause">
+          <h3 className="buddies-heading">Work</h3>
+          <div className="team-settings-row">
+            <p className="buddies-hint">
+              {paused
+                ? "Paused: no new jobs or routines start. Queued jobs wait until you resume."
+                : "Pausing stops new jobs and routines from starting. Running jobs finish; nothing is cancelled."}
+            </p>
+            <Button
+              size="sm"
+              variant={paused ? "primary" : "secondary"}
+              icon={paused ? "play" : "pause"}
+              onClick={() => void run({ type: paused ? "buddies.resume" : "buddies.pause" })}
+            >
+              {paused ? "Resume" : "Pause all"}
+            </Button>
+          </div>
+        </section>
+        <section className="buddies-section" aria-label="How Auto picks">
+          <h3 className="buddies-heading">How Auto picks models</h3>
+          <Segmented
+            label="How Auto picks models"
+            value={projection.buddySettings?.quality ?? "balanced"}
+            options={QUALITY}
+            onChange={(quality) => void run({ type: "buddies.quality", quality })}
+          />
+          <p className="buddies-hint">
+            Auto reads each job, then picks the agent, model and effort that fit it, steering away from logins near
+            their limits. It learns from how each job went.
+          </p>
+        </section>
+        <section className="buddies-section" aria-label="Import">
+          <h3 className="buddies-heading">Import</h3>
+          <ImportBuddy run={run} projection={projection} />
+        </section>
+      </div>
+    </Dialog>
   );
 }
 

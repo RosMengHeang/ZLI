@@ -298,8 +298,37 @@ describe("BuddiesPane", () => {
     expect(commands.at(-1)).toEqual({ type: "buddy.memory.accept", buddyId: "b2", noteId: "n1" });
     await cleanupRuntimeRenders();
     const home = await render(state);
+    // Pausing lives in Team settings, behind the gear on the list.
+    await act(async () => buttonNamed("Team settings").click());
     await act(async () => buttonNamed("Pause all").click());
     expect(home.commands.at(-1)).toEqual({ type: "buddies.pause" });
+  });
+});
+
+describe("Team board", () => {
+  it("shows each buddy right now and the jobs in three lanes, and says when the team is paused", async () => {
+    const state = projection({
+      buddies: [buddy("b2", "Builder", 0), buddy("b3", "Tester", 1)],
+      tasks: [
+        task({ taskId: "q1", buddyId: "b3", status: "queued", goal: "Check the login page" }),
+        task({ taskId: "w1", buddyId: "b2", status: "working", goal: "Add a health check" }),
+        task({ taskId: "d1", buddyId: "b2", status: "ready", goal: "Fix the flaky test" }),
+      ],
+    });
+    const { onSelect } = await render({ ...state, buddySettings: { ...state.buddySettings, paused: true } } as never);
+    const lanes = [...document.querySelectorAll(".board-lane")].map((lane) => [
+      lane.getAttribute("aria-label"),
+      [...lane.querySelectorAll(".board-card-goal")].map((goal) => goal.textContent),
+    ]);
+    expect(lanes).toEqual([
+      ["Up next", ["Check the login page"]],
+      ["Doing", ["Add a health check"]],
+      ["Done", ["Fix the flaky test"]],
+    ]);
+    expect(document.querySelector(".board-crew")?.textContent).toContain("Add a health check");
+    expect(document.querySelector(".buddy-list-paused")?.textContent).toContain("Paused");
+    await act(async () => document.querySelector<HTMLButtonElement>(".board-card")?.click());
+    expect(onSelect).toHaveBeenLastCalledWith("b3");
   });
 });
 

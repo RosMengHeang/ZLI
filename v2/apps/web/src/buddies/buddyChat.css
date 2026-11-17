@@ -245,3 +245,45 @@
 .app-shell:not(.has-panel) .buddies-main.is-split .buddies-home-head { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
 /* With the sidebar folded, its switch sits alone in the corner (no New chat on these pages); the heads leave room. */
 .app-shell.is-sidebar-hidden :is(.buddy-list-head, .pr-list-head) { padding-left: calc(max(var(--zli-space-2), env(titlebar-area-x, 0px)) + 40px); }
+
+/* ---------- Team board ---------- */
+/* Who is doing what right now, then every job in three quiet lanes. Cards are text first; the face says whose. */
+.buddies-main.is-split .buddies-home .buddies-body { max-width: 980px; }
+.board-crew { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.board-crew-item { display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--zli-border); border-radius: 12px; background: transparent; color: inherit; cursor: default; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.board-crew-item:hover { background: var(--zli-hover); }
+.board-crew-text { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.board-crew-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
+.board-crew-line { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.board-crew-item.is-working .board-crew-line { color: var(--zli-blue); }
+.board-crew-item.is-waiting .board-crew-line { color: var(--zli-amber); }
+
+.board-lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.board-lane { display: flex; min-width: 0; flex-direction: column; gap: 6px; padding: 8px; border-radius: 14px; background: var(--zli-hover); }
+.board-lane-head { display: flex; align-items: center; justify-content: space-between; margin: 0; padding: 2px 4px 4px; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
+.board-lane-head span { color: var(--zli-dim); font-variant-numeric: tabular-nums; }
+.board-lane-empty { margin: 0; padding: 10px 4px; color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
+.board-card { display: flex; width: 100%; min-width: 0; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--zli-border); border-radius: 10px; background: var(--zli-surface); color: inherit; cursor: default; font: inherit; text-align: left; transition: border-color var(--zli-duration-fast) var(--zli-ease); }
+.board-card:hover { border-color: var(--zli-border-hover); }
+.board-card-goal { display: -webkit-box; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.board-card-meta { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
+.board-card-who { color: var(--zli-muted); }
+.board-card-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.board-card-state { margin-left: auto; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.board-card.is-ready .board-card-state, .board-card.is-shipped .board-card-state, .board-card.is-closed .board-card-state { color: var(--zli-green); }
+.board-card.is-failed .board-card-state { color: var(--zli-red); }
+.board-lane.is-doing .board-card { border-color: color-mix(in srgb, var(--zli-blue) 22%, var(--zli-border)); }
+.board-empty { margin: 0; padding: var(--zli-space-4); border: 1px dashed var(--zli-border-strong); border-radius: 12px; color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: center; }
+@media (max-width: 1100px) { .board-lanes { grid-template-columns: minmax(0, 1fr); } }
+
+/* Paused: a strip under the list's head, with the way back one click away. */
+.buddy-list-paused { display: flex; align-items: center; gap: 8px; margin: var(--zli-space-2) var(--zli-space-3) 0; padding: 7px 8px 7px 10px; border: 1px solid var(--zli-amber-line); border-radius: 10px; background: var(--zli-amber-soft); color: var(--zli-amber-ink); font-size: var(--zli-text-xs); }
+.buddy-list-paused > span { flex: 1; }
+.buddy-list-paused button { height: 22px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--zli-amber); color: #1a1408; cursor: default; font: inherit; font-weight: 600; }
+.buddy-list-paused button:hover { filter: brightness(1.08); }
+
+/* Team settings: three short sections in a small dialog. */
+.team-settings { display: flex; flex-direction: column; gap: var(--zli-space-5); }
+.team-settings .buddies-section { margin: 0; }
+.team-settings-row { display: flex; align-items: center; gap: var(--zli-space-3); }
+.team-settings-row .buddies-hint { flex: 1; margin: 0; }
