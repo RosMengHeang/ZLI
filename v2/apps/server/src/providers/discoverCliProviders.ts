@@ -153,7 +153,16 @@ export async function discoverCliProviders(
   options: { models?: boolean } = {},
 ): Promise<ProviderDiscovery[]> {
   const includeModels = options.models ?? true;
-  return Promise.all(LISTED.map((spec) => discoverOne(spec, probe, includeModels)));
+  const found = await Promise.all(LISTED.map((spec) => discoverOne(spec, probe, includeModels)));
+  // Fable runs only on Claude plans that include it. When the person's Claude login says theirs does not, every
+  // agent's Fable models go, OpenCode's and Copilot's routes to it too, so none is offered and then refused.
+  const claude = found.find((entry) => entry.provider === "claude-code");
+  const claudePlan = claude?.status === "found" && claude.login?.status === "signed-in" ? claude.login.plan : undefined;
+  return found.map((entry) => {
+    if (entry.status !== "found" || !entry.models) return entry;
+    const models = modelsForPlan(entry.models, claudePlan);
+    return models === entry.models ? entry : { ...entry, models: [...models] };
+  });
 }
 
 /** Bounded `--version` read. This does not start an agent session. */
@@ -592,16 +601,15 @@ async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boo
       ? probe.readLogin(spec.provider, path).catch(() => undefined)
       : Promise.resolve(undefined),
   ]);
-  const shown = modelsForPlan(spec.provider, models, login?.status === "signed-in" ? login.plan : undefined);
   const reasoningEfforts =
-    includeModels && probe.readModels ? providerReasoningEfforts(spec.provider, shown) : undefined;
+    includeModels && probe.readModels ? providerReasoningEfforts(spec.provider, models) : undefined;
   return {
     provider: spec.provider,
     displayName: spec.displayName,
     status: "found",
     path,
     ...(version ? { version } : {}),
-    ...(shown ? { models: [...shown] } : {}),
+    ...(models ? { models } : {}),
     ...(reasoningEfforts?.length ? { reasoningEfforts: [...reasoningEfforts] } : {}),
     ...(login ? { login } : {}),
   };
@@ -611,15 +619,15 @@ async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boo
 const NO_FABLE_PLANS = /^(free|pro)$/iu;
 
 /**
- * The models this login can actually run. Claude Code lists Fable for every account, but Free and Pro plans
- * cannot use it, so it is left out for them rather than offered and then refused.
+ * The models the person can actually run, given their Claude plan. Agents list Fable for every account (Claude
+ * Code's alias, OpenCode's and Copilot's routes), but Free and Pro Claude plans cannot use it, so it is left out
+ * for them rather than offered and then refused. Without a known plan the list stays as it is.
  */
 export function modelsForPlan(
-  provider: string,
-  models: readonly ProviderModelOption[] | undefined,
-  plan: string | undefined,
-): readonly ProviderModelOption[] | undefined {
-  if (!models || provider !== "claude-code" || !plan || !NO_FABLE_PLANS.test(plan.trim())) return models;
+  models: readonly ProviderModelOption[],
+  claudePlan: string | undefined,
+): readonly ProviderModelOption[] {
+  if (!claudePlan || !NO_FABLE_PLANS.test(claudePlan.trim())) return models;
   return models.filter((model) => !/fable/iu.test(`${model.id} ${model.label}`));
 }
 

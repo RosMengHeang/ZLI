@@ -1,4 +1,10 @@
-import type { Account, ProjectProjection, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type {
+  Account,
+  BuddyProjection,
+  ProjectProjection,
+  RuntimeProjection,
+  WorktreeProjection,
+} from "@zli-v2/contracts";
 import { huddlesOf, MAX_HUDDLE_MEMBERS, threadOccupiesWorktree } from "@zli-v2/contracts";
 import { type CSSProperties, type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
@@ -33,11 +39,12 @@ import { updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import type { SettingsSection } from "../settings/SettingsDialog.js";
 import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
+import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { assignChatBuddies } from "../teammates/chatBuddies.js";
+import { lookOf } from "../teammates/pixelBuddies.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuAction, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
-import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
 import { AgentStack, chatAgents } from "./AgentStack.js";
@@ -1175,11 +1182,24 @@ export function Sidebar({
     </div>
   );
 
+  // A buddy's own chat, or a job it runs, is shown as that buddy: its face, and for its chat just its name.
+  const buddyThreads = new Map<string, { buddy: BuddyProjection; chat: boolean }>();
+  const buddiesById = new Map((projection?.buddies ?? []).map((buddy) => [buddy.buddyId, buddy]));
+  for (const task of projection?.tasks ?? []) {
+    const buddy = buddiesById.get(task.buddyId);
+    if (buddy && task.threadId) buddyThreads.set(task.threadId, { buddy, chat: false });
+  }
+  for (const buddy of projection?.buddies ?? [])
+    if (buddy.chatThreadId) buddyThreads.set(buddy.chatThreadId, { buddy, chat: true });
+  const buddyOf = (session: AgentSession) =>
+    (session.threads ?? []).map((thread) => buddyThreads.get(thread.threadId)).find(Boolean);
+
   const renderActivityRow = (session: AgentSession) => {
     const worktree = worktrees.find((entry) => entry.worktreeId === session.worktreeId);
     const project = projectOf(session);
-    const title = sessionTitle(session, projection?.messages, projection?.providers);
-    const agentName = sessionAgentName(session);
+    const owner = buddyOf(session);
+    const title = owner?.chat ? owner.buddy.name : sessionTitle(session, projection?.messages, projection?.providers);
+    const agentName = owner ? undefined : sessionAgentName(session);
     const active = session.sessionId === activeSessionId;
     const isUnread = unread.has(session.sessionId);
     const stoppable = sessionStopCommands(session).length > 0;
@@ -1199,7 +1219,23 @@ export function Sidebar({
           onContextMenu={(event) => openContextMenu(event, "Agent actions", menu)}
         >
           <span className={`activity-mark is-${session.status}`} aria-hidden="true">
-            {busy ? (
+            {owner ? (
+              <BuddyAvatar
+                buddy={owner.buddy.color}
+                look={lookOf(owner.buddy)}
+                image={owner.buddy.image}
+                size={18}
+                mood={
+                  busy
+                    ? "working"
+                    : session.status === "waiting"
+                      ? "waiting"
+                      : session.status === "failed"
+                        ? "failed"
+                        : "idle"
+                }
+              />
+            ) : busy ? (
               <Icon name="loader" size={14} className="activity-spin" />
             ) : session.status === "waiting" ? (
               <span className="activity-dot" />
