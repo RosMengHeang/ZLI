@@ -1061,3 +1061,17 @@ button.thought-row:hover .thought-label { color: var(--zli-muted); }
 .chat-request-prev svg { transform: rotate(180deg); }
 .plan-card-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); }
 .plan-card.is-approval .plan-card-label { padding-left: 6px; }
+
+/* ---------- The floating message box ----------
+   The dock floats over the end of the log, so the chat scrolls on under the message box. The log keeps room
+   at its end for the dock's height (--dock-h, measured by useDockHeight), and the box is frosted, so what scrolls
+   under it shows through, softened. Only the strip under the box is solid, to keep its pickers readable. */
+.chat-view { position: relative; }
+.chat-log > .chat-column { padding-bottom: calc(var(--dock-h, 0px) + var(--zli-space-4)); }
+.chat-dock { position: absolute; right: 0; bottom: 0; left: 0; z-index: 3; padding-top: var(--zli-space-3); background: linear-gradient(to top, var(--zli-surface) 0, var(--zli-surface) 116px, color-mix(in srgb, var(--zli-surface) 0%, transparent) 156px); pointer-events: none; }
+.chat-dock > * { pointer-events: auto; }
+.chat-dock::before { display: none; }
+.chat-dock .composer { background: color-mix(in srgb, color-mix(in srgb, var(--zli-raised) 45%, var(--zli-surface)) 72%, transparent); -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2); }
+.chat-dock .chat-slot-item { border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
+.chat-jump { bottom: calc(var(--dock-h, 0px) + var(--zli-space-3)); }
+.turn-rail { top: calc((100% - var(--dock-h, 0px)) / 2); }

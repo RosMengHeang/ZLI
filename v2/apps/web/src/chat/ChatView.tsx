@@ -91,6 +91,7 @@ import { TurnChanges } from "./TurnChanges.js";
 import { TurnRail } from "./TurnRail.js";
 import { groupTurns, trailSummary, workedFor } from "./turns.js";
 import { UsageLimitNote } from "./UsageLimitNote.js";
+import { useDockHeight } from "./useDockHeight.js";
 import { ChangedFiles, elapsedLabel, WorkSteps } from "./WorkLog.js";
 import { WorkspaceBar } from "./WorkspaceBar.js";
 import "./chat.css";
@@ -165,6 +166,9 @@ export function ChatView({
   const [peerDraft, setPeerDraft] = useState("");
   const [peerTargetId, setPeerTargetId] = useState<string>();
   const logRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+  useDockHeight(viewRef, dockRef, logRef);
   const stickToBottom = useRef(true);
   /** Scrolled up from the end of the chat, which offers the way back down. */
   const [away, setAway] = useState(false);
@@ -1244,7 +1248,7 @@ export function ChatView({
     ) : null;
 
   return (
-    <div className="chat-view">
+    <div className="chat-view" ref={viewRef}>
       <ChatImageScope value={worktree?.worktreeId}>
         <div className="chat-stage">
           <div
@@ -1342,7 +1346,7 @@ export function ChatView({
           ) : null}
         </div>
       </ChatImageScope>
-      <div className="chat-dock">
+      <div className="chat-dock" ref={dockRef}>
         <div className="chat-column">
           {/* One thing above the message box at a time, the most pressing first: what holds the agent up, then
               the messages waiting their turn, then one quiet line about the chat. The next shows as each clears. */}

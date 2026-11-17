@@ -12,6 +12,7 @@ import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo,
 import { providerDisplayName } from "../agent/providers.js";
 import { fileName, splitAttachedFiles, withAttachedFiles } from "../chat/attachedFiles.js";
 import { liveStepLabel } from "../chat/liveStatus.js";
+import { useDockHeight } from "../chat/useDockHeight.js";
 import { getBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
@@ -291,14 +292,28 @@ export function BuddyChat({
   renderReply(task: TaskProjection): ReactNode;
 }) {
   const items = useMemo(() => buddyTranscript(buddy, projection), [buddy, projection]);
-  const end = useRef<HTMLDivElement>(null);
-  const count = items.length;
+  const view = useRef<HTMLDivElement>(null);
+  const log = useRef<HTMLDivElement>(null);
+  const dock = useRef<HTMLDivElement>(null);
+  useDockHeight(view, dock, log);
+  // The chat follows its newest line, as long replies grow too, until the person scrolls up to read.
+  const stick = useRef(true);
   useEffect(() => {
-    if (count > 0) end.current?.scrollIntoView?.({ block: "end" });
-  }, [count]);
+    const element = log.current;
+    if (element && stick.current) element.scrollTop = element.scrollHeight;
+  });
   return (
-    <div className="buddy-chat">
-      <div className="buddy-chat-log" role="log" aria-label={`Chat with ${buddy.name}`}>
+    <div className="buddy-chat" ref={view}>
+      <div
+        className="buddy-chat-log"
+        ref={log}
+        role="log"
+        aria-label={`Chat with ${buddy.name}`}
+        onScroll={(event) => {
+          const target = event.currentTarget;
+          stick.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
+        }}
+      >
         <div className="buddy-chat-column">
           {items.length === 0 ? (
             <div className="buddy-chat-empty">
@@ -323,10 +338,12 @@ export function BuddyChat({
               />
             </div>
           ))}
-          <div ref={end} />
+          <div className="buddy-chat-end" />
         </div>
       </div>
-      <Composer buddy={buddy} projection={projection} run={run} />
+      <div className="buddy-chat-dock" ref={dock}>
+        <Composer buddy={buddy} projection={projection} run={run} />
+      </div>
     </div>
   );
 }
