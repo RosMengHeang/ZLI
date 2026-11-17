@@ -308,7 +308,7 @@ export function Sidebar({
   const quietProjects = fold ? quiet : [];
 
   const asideRef = useRef<HTMLElement>(null);
-  const { tintProjects, chatTint } = useAppSettings();
+  const { tintProjects, chatTint, compactChats } = useAppSettings();
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const { expandProject } = layout;
@@ -873,10 +873,13 @@ export function Sidebar({
     // the last thing it said.
     const lastWord =
       !live && !failure && runIndex === undefined && isUnread && session.thread ? session.thread : undefined;
+    // One line, title and time, unless the chat has something to say now; Appearance can show every second line.
+    // A chat in a worktree of its own keeps its branch line: where it works is part of what it is.
+    const twoLine = runIndex === undefined && (!compactChats || !!live || !!failure || !!lastWord || !!branchLine);
     return (
       <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
         <button
-          className={`session-row${runIndex === undefined ? " is-two-line" : ""}${active ? " is-active" : ""}${isUnread ? " is-unread" : ""}`}
+          className={`session-row${twoLine ? " is-two-line" : runIndex === undefined ? " is-one-line" : ""}${active ? " is-active" : ""}${isUnread ? " is-unread" : ""}`}
           type="button"
           aria-label={`${name}, ${providerName}, ${status}${background ? ", in the background" : ""}${isUnread ? ", unread" : ""}`}
           aria-current={active ? "true" : undefined}
@@ -918,6 +921,7 @@ export function Sidebar({
                   {layout.chatPinned(session.sessionId) ? (
                     <Icon name="pin" size={11} className="session-pin" aria-label="Pinned" />
                   ) : null}
+                  {agentName && !twoLine ? <span className="session-name is-inline">{agentName}</span> : null}
                   <span className="session-title">{title}</span>
                   {guests.length > 0 ? (
                     <span
@@ -938,7 +942,7 @@ export function Sidebar({
                 <span className="session-project">{projectOf(session)?.name}</span>
               ) : null}
             </span>
-            {runIndex === undefined ? (
+            {twoLine ? (
               // The second line says one thing: what the chat is doing or asks, why it failed, what it last
               // said, or else where it works.
               <span className="session-sub">
@@ -982,7 +986,11 @@ export function Sidebar({
               </span>
             ) : null}
           </span>
-          {runIndex === undefined ? (
+          {runIndex === undefined && !twoLine ? (
+            <span className="session-side">
+              <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
+            </span>
+          ) : runIndex === undefined ? (
             // Time on the first line, the agent's mark on the second, like the lines they sit beside.
             <span className="session-side is-stacked">
               <span className="session-time">{relativeTime(session.updatedAt, now)}</span>

@@ -15,6 +15,8 @@ export type LauncherItem = {
   hotkey: string;
   /** What is going on in the panel right now, in place of the detail: changes waiting, a server up, checks failing. */
   live?: { text: ReactNode; tone: LiveTone } | undefined;
+  /** How many things wait in the panel, shown beside its icon in the right panel's strip. */
+  count?: number | undefined;
   run(): void;
 };
 

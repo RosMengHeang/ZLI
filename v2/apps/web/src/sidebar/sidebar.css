@@ -470,3 +470,10 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .session-side.is-stacked .session-agent { position: static; width: 12px; height: 18px; }
 .session-row.is-two-line .session-face { margin-top: 1px; }
 .session-row.is-two-line ~ .row-more { top: 14px; }
+
+/* A chat with nothing to say right now: one line, its status dot, title, and time. */
+.session-row.is-one-line { height: 34px; gap: 8px; padding: 0 10px 0 8px; }
+.session-row.is-one-line ~ .row-more { top: 17px; }
+.session-row.is-one-line.is-active .session-title, .session-row.is-one-line.is-unread .session-title { color: var(--zli-text); font-weight: 500; }
+.session-row.is-one-line .session-time { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.session-name.is-inline { flex: 0 1 auto; margin-right: 6px; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }

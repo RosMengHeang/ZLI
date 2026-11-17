@@ -60,9 +60,17 @@ const NO_AGENTS: readonly AgentChoice[] = [];
  * Unsent text is kept by chat session (see drafts.ts). Moving a chat to another agent, folder, or branch opens a
  * new thread and a new message box, and the text typed so far comes along instead of being lost.
  */
-/** Puts text in a chat's message box before it opens, as if it had been typed there. */
-export function seedComposerDraft(key: string, text: string): void {
+/** Chats whose seeded text goes out as soon as their message box can send it. */
+const sendOnOpen = new Set<string>();
+
+/**
+ * Puts text in a chat's message box before it opens, as if it had been typed there. With `send`, the box sends it
+ * the moment it is ready, as when the person typed it on the empty screen and pressed Enter.
+ */
+export function seedComposerDraft(key: string, text: string, options: { send?: boolean } = {}): void {
   writeDraft(key, text);
+  if (options.send && text.trim()) sendOnOpen.add(key);
+  else sendOnOpen.delete(key);
 }
 
 const CapturePicker = lazy(() => import("./CapturePicker.js").then((module) => ({ default: module.CapturePicker })));
@@ -443,6 +451,15 @@ export function Composer({
       setSending(false);
     }
   };
+
+  // Text typed on the empty screen goes out once this box can send, so starting a chat there takes one Enter.
+  const sendWhenReady = useRef(draftKey ? sendOnOpen.has(draftKey) : false);
+  useEffect(() => {
+    if (!sendWhenReady.current || !draftKey || disabled || blocked) return;
+    sendWhenReady.current = false;
+    sendOnOpen.delete(draftKey);
+    void submit({ preventDefault() {} } as FormEvent);
+  });
 
   useEffect(() => {
     if (!sendMenuOpen) return;

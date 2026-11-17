@@ -182,6 +182,12 @@ export function AppearanceSection() {
 
       <SettingsGroup title="Sidebar">
         <Switch
+          label="One line per chat"
+          hint="Each chat shows its title and time. A chat that is working, waiting on you, or failed still says so on a second line."
+          checked={settings.compactChats}
+          onChange={(checked) => updateAppSettings((current) => ({ ...current, compactChats: checked }))}
+        />
+        <Switch
           label="Color project headings"
           hint="Each project heading takes a soft tint of its own color, the same as its ring. Off keeps headings plain."
           checked={settings.tintProjects}

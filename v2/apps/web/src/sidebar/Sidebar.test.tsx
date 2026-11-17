@@ -3,11 +3,12 @@
 import { EnvironmentId, ProjectId, type RuntimeProjection, WorktreeId } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import type { AgentSession } from "../sessions/sessions.js";
+import { updateAppSettings } from "../settings/appSettings.js";
 import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "./Sidebar.js";
 import { parseSidebarCollapsed } from "./sidebarLayout.js";
 
@@ -20,6 +21,11 @@ const bridge = {
 } as unknown as ZliBridge;
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+// Most of these read the second line under each chat; one test below covers the one-line rows.
+beforeEach(() => {
+  updateAppSettings((current) => ({ ...current, compactChats: false }));
+});
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -356,6 +362,35 @@ describe("Sidebar projects", () => {
     expect(branches).toEqual(["feat/login", "feat/login"]);
     expect(container.querySelectorAll(".session-via")).toHaveLength(2);
     expect(container.querySelectorAll(".session-row")).toHaveLength(4);
+  });
+
+  it("shows a quiet chat on one line and keeps the second line for one that is working", async () => {
+    updateAppSettings((current) => ({ ...current, compactChats: true }));
+    const chat = (sessionId: string, status: AgentSession["status"]): AgentSession => ({
+      ...agent(checkoutId),
+      sessionId,
+      mode: "chat",
+      status,
+      createdAt: "2025-01-03T00:00:00.000Z",
+    });
+    const { container } = await mount(
+      projection([
+        { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
+      ]),
+      {
+        sessions: [
+          chat("quiet", "ready"),
+          {
+            ...chat("failed", "failed"),
+            pending: { errorMessage: "The agent crashed" } as NonNullable<AgentSession["pending"]>,
+          },
+        ],
+      },
+    );
+    const rows = [...container.querySelectorAll(".session-row")];
+    expect(rows.map((row) => row.className.includes("is-one-line"))).toEqual([true, false]);
+    expect(rows[0]?.querySelector(".session-sub")).toBeNull();
+    expect(rows[0]?.querySelector(".session-time")).not.toBeNull();
   });
 
   it("folds quiet chats past the newest five into one row that opens", async () => {

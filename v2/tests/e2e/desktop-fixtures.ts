@@ -458,7 +458,7 @@ export async function git(cwd: string, args: string[]): Promise<string> {
 
 /**
  * Shows or hides a side panel the way a person does: the right-panel switch in the top bar closes what is
- * open, and opens on a picker that lists every panel.
+ * open; once open, the panel's icon strip switches to any panel.
  */
 export async function togglePanel(page: Page, name: string): Promise<void> {
   const toggle = page.locator(".topbar-tools").getByRole("button", { name: "Right panel", exact: true });
@@ -468,11 +468,7 @@ export async function togglePanel(page: Page, name: string): Promise<void> {
     return;
   }
   if (!(await panel.isVisible())) await toggle.click();
-  await panel.getByRole("button", { name: "Add a panel", exact: true }).click();
-  await page
-    .getByRole("menu", { name: "Add a panel" })
-    .getByRole("menuitem", { name: new RegExp(`^${name}`, "u") })
-    .click();
+  await panel.getByRole("tablist", { name: "Panels" }).getByRole("tab", { name, exact: true }).click();
 }
 
 /**

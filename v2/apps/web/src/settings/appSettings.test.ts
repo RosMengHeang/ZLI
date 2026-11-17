@@ -44,6 +44,7 @@ describe("app settings", () => {
       archiveMergedChats: true,
       severalChats: false,
       layout: "classic",
+      compactChats: true,
       typography: DEFAULT_TYPOGRAPHY,
     });
   });

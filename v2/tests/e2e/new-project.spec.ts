@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 
 import {
-  clickProjectAction,
   closeDesktop,
   createGitFixture,
   type DesktopFixture,
@@ -59,12 +58,9 @@ test("points a newly added project at New agent until it has one", async () => {
     // An empty project shows only its heading; starting a chat in it is in its menu.
     await expect(project).not.toContainText("No chats yet.");
 
-    // The project's menu opens the dialog with every option, already on that project.
-    await clickProjectAction(
-      project.locator(".project-label"),
-      project.getByRole("button", { name: "guider-crm actions" }),
-    );
-    await page.getByRole("menuitem", { name: "New agent with options…" }).click();
+    // With the project selected, New agent with options in the palette opens on that project.
+    await project.locator(".project-label").click();
+    await openNewAgentOptions(page);
     await expect(newAgent.getByRole("button", { name: "Project: guider-crm" })).toBeVisible();
     await startChat(page, "Beta");
 

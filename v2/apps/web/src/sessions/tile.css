@@ -1,7 +1,7 @@
 /* ---------- Agent grid ---------- */
 .agent-grid-region { display: flex; min-height: min(160px, 50%); flex: 1; flex-direction: column; }
 /* An empty board is still a work surface, so it keeps the island shape the tiles would have. */
-.agent-grid-region:has(> .empty-state) { border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
+.agent-grid-region:has(> :is(.empty-state, .start-chat)) { border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
 .agent-grid { display: grid; height: 100%; min-height: 0; gap: var(--zli-gutter); overflow-y: auto; }
 /* Drawn like the notices above the workspace; the grid below takes the space that is left. */
 .board-project-notice { margin-bottom: var(--zli-gutter); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); }
@@ -14,7 +14,8 @@
 }
 .agent-tile.is-tall { grid-row: span 2; }
 /* The selected agent is the one place a tile carries the accent: it is where typing goes. */
-.agent-tile.is-active { border-color: var(--zli-accent-edge); }
+/* A quiet hairline edge; the accent marks the active chat only when several share the screen. */
+.agent-grid:has(> .agent-tile + .agent-tile) .agent-tile.is-active { border-color: var(--zli-accent-edge); }
 .tile-header {
   display: flex; align-items: center; gap: var(--zli-space-2); height: 40px; flex: 0 0 auto; padding: 0 var(--zli-space-1-5) 0 var(--zli-space-3);
 }

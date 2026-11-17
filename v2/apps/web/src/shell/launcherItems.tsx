@@ -41,8 +41,9 @@ const host = (url: string) => {
 
 /** The picker's rows in their fixed order, each with its live line when there is something to say. */
 export function launcherItems(state: LauncherState, actions: LauncherActions): LauncherItem[] {
-  const pane = (id: ToolbarPane, live?: LauncherItem["live"], run?: () => void): LauncherItem => ({
+  const pane = (id: ToolbarPane, live?: LauncherItem["live"], run?: () => void, count?: number): LauncherItem => ({
     id,
+    ...(count ? { count } : {}),
     label: sidePaneLabel[id],
     detail: sidePaneDetail[id],
     icon: sidePaneIcon[id],
@@ -51,7 +52,8 @@ export function launcherItems(state: LauncherState, actions: LauncherActions): L
     run: run ?? (() => actions.open(id)),
   });
   const server = state.devServers[0];
-  const items: LauncherItem[] = [pane("review", changesLine(state)), pane("files")];
+  const changed = state.review ? state.review.files.length : (state.uncommittedFiles ?? 0);
+  const items: LauncherItem[] = [pane("review", changesLine(state), undefined, changed), pane("files")];
   if (state.pullRequest && state.pullRequest.state !== "CLOSED") {
     items.push({
       id: "pullRequest",
@@ -70,6 +72,7 @@ export function launcherItems(state: LauncherState, actions: LauncherActions): L
       detail: "A shell in the worktree, at the bottom",
       icon: "terminal",
       hotkey: "t",
+      ...(state.runningTerminals > 0 ? { count: state.runningTerminals } : {}),
       live: state.drawerOpen
         ? { text: "Open at the bottom", tone: "muted" }
         : state.runningTerminals > 0
@@ -95,6 +98,8 @@ export function launcherItems(state: LauncherState, actions: LauncherActions): L
             tone: "accent",
           }
         : undefined,
+      undefined,
+      state.activeHuddles,
     ),
   );
   if (state.sideChat) {

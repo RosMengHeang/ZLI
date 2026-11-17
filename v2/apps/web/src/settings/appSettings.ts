@@ -100,6 +100,8 @@ export type AppSettings = {
   layout: WindowLayout;
   /** The person chose the layout. Before Classic became the default, Columns was saved for everyone who never chose. */
   layoutChosen?: true;
+  /** Chats in the sidebar take one line, title and time, unless they are working, waiting on you, or failed. */
+  compactChats: boolean;
   /** Text sizes and fonts, from Settings > Appearance. */
   typography: Typography;
 };
@@ -123,6 +125,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   archiveMergedChats: true,
   severalChats: false,
   layout: "classic",
+  compactChats: true,
   typography: DEFAULT_TYPOGRAPHY,
 };
 
@@ -225,6 +228,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     // Rounded panels are the default; Columns stays for whoever picked it.
     layout: value.layoutChosen === true && value.layout === "columns" ? "columns" : "classic",
     ...(value.layoutChosen === true ? { layoutChosen: true as const } : {}),
+    compactChats: value.compactChats !== false,
     typography: parseTypography(value.typography),
   };
 }

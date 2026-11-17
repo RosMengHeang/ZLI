@@ -630,12 +630,6 @@ function WorkspaceApp() {
       const last = lastPane.current;
       return last && last !== "launcher" && panelTabs.includes(last) ? last : "launcher";
     });
-  const closePanelTab = (pane: SidePane) => {
-    const index = panelTabs.indexOf(pane as Exclude<SidePane, "launcher">);
-    const rest = panelTabs.filter((tab) => tab !== pane);
-    setPanelTabs(rest);
-    if (sidePane === pane) setSidePane(rest[Math.min(index, rest.length - 1)]);
-  };
   // The side chat in the right panel: the chat in view draws its side question into this element.
   const [sideChatSlot, setSideChatSlot] = useState<HTMLElement | null>(null);
   const sideChatAvailable = !!activeSession?.thread;
@@ -1317,7 +1311,8 @@ function WorkspaceApp() {
       }
     : undefined;
 
-  const openNewAgent = (project?: ProjectProjection) => {
+  /** Opens a new chat; with `typed`, the text from the empty screen goes out as its first message. */
+  const openNewAgent = (project?: ProjectProjection, typed?: string) => {
     if (!projection) return;
     // With no project yet, a chat still opens: its folder tab adds the first project.
     if (!hasProjects) {
@@ -1345,7 +1340,10 @@ function WorkspaceApp() {
     }
     setPaletteOpen(false);
     const accountId = launchAccountId(accounts, agent.provider, undefined);
+    const sessionId = typed?.trim() ? makeCommandId() : undefined;
+    if (sessionId && typed) seedComposerDraft(sessionId, typed, { send: true });
     void submitNewAgent({
+      ...(sessionId ? { sessionId } : {}),
       project: target,
       draft: true,
       placement: { kind: "checkout" },
@@ -2742,12 +2740,12 @@ function WorkspaceApp() {
   const compareGroup = workbench.groups.find((group) => group.groupId === compareGroupId);
 
   const columnsLayout = settings.layout === "columns";
-  // In the columns layout the top bar floats over the column headers, so it comes last in the page: the
-  // window takes its later drag areas over earlier ones, and the bar's buttons must win to take clicks.
+  // The top bar floats over the panel headers in both layouts, so the panels reach the top of the window. It comes
+  // last in the page: the window takes its later drag areas over earlier ones, and the bar's buttons must win.
   const topbar = (
     <Topbar
       sidebarOpen={sidebarOpen}
-      sidebarButton={!columnsLayout}
+      sidebarButton={false}
       project={contextWorktree && !buddyView ? contextProject : undefined}
       worktree={buddyView ? undefined : contextWorktree}
       hasProjects={hasProjects}
@@ -2835,7 +2833,6 @@ function WorkspaceApp() {
         ) : null}
         {sidebarOpen ? <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} /> : null}
         <main className="main-workspace">
-          {columnsLayout ? null : topbar}
           {notice ? (
             <div className={`banner banner-${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
               <Icon name={notice.tone === "danger" ? "alert" : "check"} size={14} />
@@ -2897,6 +2894,7 @@ function WorkspaceApp() {
                       closedCount={sessions.length}
                       onOpenProject={() => void openProject()}
                       onNewAgent={() => openNewAgent()}
+                      onStartChat={(text) => openNewAgent(emptySelectedProject, text)}
                       onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
                     />
                   ) : (
@@ -3031,7 +3029,6 @@ function WorkspaceApp() {
                       active={sidePane}
                       items={launcherItems}
                       onSelect={(pane) => setSidePane(pane as SidePane)}
-                      onClose={(pane) => closePanelTab(pane as SidePane)}
                     />
                     {panelTabs.includes("sideChat") ? (
                       <div className="side-chat-panel" hidden={sidePane !== "sideChat"}>
@@ -3112,8 +3109,8 @@ function WorkspaceApp() {
               ) : null}
             </div>
           )}
-          {columnsLayout ? topbar : null}
-          {columnsLayout && !sidebarOpen ? (
+          {topbar}
+          {!sidebarOpen ? (
             <div className="columns-lead">
               <IconButton
                 label="Show sidebar"
