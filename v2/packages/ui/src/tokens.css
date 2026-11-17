@@ -15,13 +15,13 @@
    * gutters between work panels. Work panels (tiles, the drawer, the side panel) are islands of
    * --zli-surface on it, so tone separates regions and borders can stay faint.
    */
-  --zli-canvas: #0b0b0c;
-  --zli-sidebar: #0b0b0c;
-  --zli-surface: #121214;
-  --zli-raised: #1a1a1d;
-  --zli-overlay: #202023;
+  --zli-canvas: #171717;
+  --zli-sidebar: #171717;
+  --zli-surface: #212121;
+  --zli-raised: #2a2a2a;
+  --zli-overlay: #303030;
   /* Equals the terminal theme's background so a terminal blends into its tile. */
-  --zli-terminal: #121214;
+  --zli-terminal: #212121;
   /* Sunken wells for fields, code, and logs, on any surface. */
   --zli-well: rgba(0, 0, 0, .22);
 
@@ -39,10 +39,10 @@
    * Text. Each step keeps WCAG AA (4.5:1) on every surface above, including --zli-overlay.
    * --zli-disabled is only for disabled controls and decorative glyphs, never for readable copy.
    */
-  --zli-text: #ededed;
-  --zli-muted: #a3a3a3;
-  --zli-dim: #949494;
-  --zli-disabled: #5c5c5c;
+  --zli-text: #ececec;
+  --zli-muted: #b4b4b4;
+  --zli-dim: #a0a0a0;
+  --zli-disabled: #5f5f5f;
 
   /* The one accent: primary actions, focus, and the selected agent. */
   --zli-accent: #4a6fdc;

@@ -183,3 +183,20 @@
 .buddy-chat-dock > * { pointer-events: auto; }
 .buddy-chat-dock .buddy-chat-composer { background: color-mix(in srgb, var(--zli-raised) 80%, transparent); -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2); }
 .buddy-chat-resend { display: flex; margin-top: var(--zli-space-2); }
+
+/* Calm chat: the same soft bubble and round box as an agent's chat. */
+.buddy-chat-you { padding: 10px 18px; border-radius: 22px; background: var(--zli-overlay); }
+.buddy-chat-composer, .buddy-chat-dock .buddy-chat-composer { border-color: transparent; border-radius: 26px; background: var(--zli-overlay); box-shadow: 0 0 0 1px var(--zli-border), 0 10px 30px -14px rgba(0, 0, 0, .55); }
+.buddy-chat-composer:focus-within { border-color: transparent; }
+
+/* A job handed to a teammate: their face (its mood is the job's), the job, and a word for how it is going. */
+.buddy-chat-job { display: flex; align-self: stretch; min-width: 0; align-items: center; gap: 11px; padding: 8px 12px; border-radius: 14px; }
+.buddy-chat-job:hover { background: var(--zli-hover); }
+.buddy-chat-job-text { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.buddy-chat-job-text strong { color: var(--zli-text); font-weight: 500; }
+.buddy-chat-job-state { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.buddy-chat-job-state.is-busy > svg { color: var(--zli-accent); }
+.buddy-chat-job-state.is-done > svg { color: var(--zli-green); }
+.buddy-chat-job-state.is-needs { color: var(--zli-amber); }
+.buddy-chat-job-state.is-failed { color: var(--zli-red); }
+.buddy-chat-job:has(.is-needs) { background: var(--zli-amber-soft); }

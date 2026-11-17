@@ -5,11 +5,11 @@
  */
 export const themeColors = {
   /** --zli-canvas */
-  canvas: "#0b0b0c",
+  canvas: "#171717",
   /** --zli-muted */
-  muted: "#a3a3a3",
+  muted: "#b4b4b4",
   /** --zli-terminal */
-  terminal: "#121214",
+  terminal: "#212121",
 } as const;
 
 export const themeColorTokens: Record<keyof typeof themeColors, string> = {

@@ -16,7 +16,7 @@ import { liveStepLabel } from "../chat/liveStatus.js";
 import { useDockHeight } from "../chat/useDockHeight.js";
 import { getBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
-import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
+import { type AvatarMood, BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { type Buddy, buddyHex } from "../teammates/buddies.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
@@ -33,7 +33,16 @@ export type ChatItem =
   /** resend: the person's message the buddy could not answer, offered to send again. */
   | { kind: "say"; key: string; at: string; text: string; resend?: string | undefined }
   /** A message between this buddy and a teammate: one it got, an answer brought back, or one it sent. */
-  | { kind: "teammate"; key: string; at: string; text: string; who: Who; way: "asked" | "replied" | "sent" }
+  | {
+      kind: "teammate";
+      key: string;
+      at: string;
+      text: string;
+      who: Who;
+      way: "asked" | "replied" | "sent";
+      /** A job this buddy gave the teammate: what it is, and how far the teammate got. */
+      job?: { goal: string; status: TaskProjection["status"] | undefined } | undefined;
+    }
   | {
       kind: "event";
       key: string;
@@ -74,7 +83,13 @@ export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection
     const teammateId = message.from ?? message.to;
     const teammate = teammateId ? (who(state, teammateId) ?? { name: "A teammate", color: "slate" }) : undefined;
     if (teammate) {
+      const goal = message.to && message.text.startsWith(JOB_NOTE) ? message.text.slice(JOB_NOTE.length) : undefined;
+      const task =
+        goal === undefined
+          ? undefined
+          : tasks.findLast((entry) => entry.buddyId === message.to && entry.goal.slice(0, 600) === goal);
       items.push({
+        ...(goal === undefined ? {} : { job: { goal, status: task?.status } }),
         kind: "teammate",
         key: message.messageId,
         at: message.at,
@@ -366,6 +381,41 @@ export function BuddyChat({
 
 const TEAMMATE_WAY = { asked: "asked", replied: "replied", sent: "To" } as const;
 
+/** How the runtime words a job handed to a teammate in the giver's chat. */
+const JOB_NOTE = "New job: ";
+
+/** A job's status as the teammate's face and a word. */
+const JOB_STATE: Record<TaskProjection["status"], { mood: AvatarMood; label: string; tone: string }> = {
+  queued: { mood: "idle", label: "Queued", tone: "quiet" },
+  preparing: { mood: "thinking", label: "Starting", tone: "busy" },
+  working: { mood: "working", label: "Working", tone: "busy" },
+  needs_you: { mood: "waiting", label: "Needs you", tone: "needs" },
+  ready: { mood: "done", label: "Done", tone: "done" },
+  shipped: { mood: "done", label: "Shipped", tone: "done" },
+  closed: { mood: "done", label: "Done", tone: "done" },
+  failed: { mood: "failed", label: "Failed", tone: "failed" },
+  stopped: { mood: "stopped", label: "Stopped", tone: "quiet" },
+  cancelled: { mood: "stopped", label: "Cancelled", tone: "quiet" },
+};
+
+/** A job handed to a teammate: one line with their face, the job, and how it is going. */
+function JobLine({ who, job }: { who: Who; job: { goal: string; status: TaskProjection["status"] | undefined } }) {
+  const state = job.status ? JOB_STATE[job.status] : { mood: "idle" as const, label: "Sent", tone: "quiet" };
+  return (
+    <div className="buddy-chat-job" style={{ "--teammate": buddyHex(who.color) } as CSSProperties}>
+      <BuddyAvatar buddy={who.color} mood={state.mood} size={22} />
+      <span className="buddy-chat-job-text">
+        <strong>{who.name}</strong> <span>{job.goal}</span>
+      </span>
+      <span className={`buddy-chat-job-state is-${state.tone}`}>
+        {state.tone === "busy" ? <Icon name="loader" size={12} className="activity-spin" /> : null}
+        {state.tone === "done" ? <Icon name="check" size={12} /> : null}
+        {state.label}
+      </span>
+    </div>
+  );
+}
+
 /** A note between teammates: whose words they are, and which way they went. */
 function TeammateNote({ item }: { item: Extract<ChatItem, { kind: "teammate" }> }) {
   return (
@@ -422,7 +472,7 @@ function ChatEntry({
         </>
       );
     case "teammate":
-      return <TeammateNote item={item} />;
+      return item.job ? <JobLine who={item.who} job={item.job} /> : <TeammateNote item={item} />;
     case "event":
       return (
         <div className="buddy-chat-event">

@@ -4,7 +4,7 @@
  * is applied, and a test keeps the two in step.
  */
 
-export const THEME_IDS = ["midnight", "graphite", "sakura", "frost", "ember", "matrix", "daylight"] as const;
+export const THEME_IDS = ["midnight", "onyx", "graphite", "sakura", "frost", "ember", "matrix", "daylight"] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 export const DEFAULT_THEME: ThemeId = "midnight";
 
@@ -222,7 +222,27 @@ const neutralTerminal: TerminalPalette = {
 };
 
 export const THEMES: Record<ThemeId, Theme> = {
-  midnight: theme("midnight", "Midnight", "Layered near-black with a calm blue accent. The default.", {
+  midnight: theme("midnight", "Midnight", "Soft charcoal greys with a calm blue accent. The default.", {
+    scheme: "dark",
+    canvas: "#171717",
+    sidebar: "#171717",
+    surface: "#212121",
+    raised: "#2a2a2a",
+    overlay: "#303030",
+    text: "#ececec",
+    muted: "#b4b4b4",
+    dim: "#a0a0a0",
+    disabled: "#5f5f5f",
+    accent: "#4a6fdc",
+    accentHover: "#5f80e3",
+    accentPressed: "#3f60c4",
+    accentInk: "#ffffff",
+    blue: "#a3b8f0",
+    ...darkStatus,
+    syntax: neutralSyntax,
+    terminal: neutralTerminal,
+  }),
+  onyx: theme("onyx", "Onyx", "Layered near-black with a calm blue accent.", {
     scheme: "dark",
     canvas: "#0b0b0c",
     sidebar: "#0b0b0c",

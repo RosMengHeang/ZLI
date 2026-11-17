@@ -1081,3 +1081,24 @@ button.thought-row:hover .thought-label { color: var(--zli-muted); }
 .effort-bar { fill: var(--zli-disabled); transition: fill var(--zli-duration-fast) var(--zli-ease); }
 .effort-bar.is-lit { fill: currentColor; }
 .composer-reasoning { gap: 6px; }
+
+/* ---------- Calm chat ---------- */
+/*
+ * One reading column, soft grey bubbles, and a round message box with a round send button. The box is the
+ * brightest thing in the chat, lifted by tone and shadow rather than a drawn edge.
+ */
+.chat-column { max-width: 50rem; }
+.chat-message-user { padding: 10px 18px; border-radius: 22px; background: var(--zli-overlay); }
+.composer, .composer:focus-within { border-color: transparent; border-radius: 26px; background: var(--zli-overlay); box-shadow: 0 0 0 1px var(--zli-border), 0 10px 30px -14px rgba(0, 0, 0, .55); }
+.composer:hover { border-color: transparent; }
+.composer-shell.is-working .composer { border-color: transparent; box-shadow: 0 0 0 1px color-mix(in srgb, var(--zli-accent) 30%, var(--zli-border)), 0 10px 30px -14px rgba(0, 0, 0, .55); }
+.composer { padding: 14px var(--zli-space-3) 10px 18px; }
+.composer-footer > .composer-add, .composer-footer .picker-trigger { border-radius: var(--zli-radius-pill); }
+.send-button { width: 34px; height: 34px; background: var(--zli-text); box-shadow: none; color: var(--zli-surface); }
+.send-button:hover:not(:disabled) { background: color-mix(in srgb, var(--zli-text) 86%, var(--zli-surface)); }
+.send-button:active:not(:disabled) { background: color-mix(in srgb, var(--zli-text) 76%, var(--zli-surface)); }
+.send-button:disabled { background: var(--zli-pressed); color: var(--zli-dim); }
+.send-split.has-menu .send-button { width: 34px; }
+.send-more { height: 34px; background: var(--zli-text); box-shadow: none; color: var(--zli-surface); }
+.send-more:hover:not(:disabled) { background: color-mix(in srgb, var(--zli-text) 86%, var(--zli-surface)); }
+.composer-below { padding: 8px var(--zli-space-3) 0; }
