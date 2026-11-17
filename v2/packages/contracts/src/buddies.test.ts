@@ -6,6 +6,7 @@ import {
   type BuddyState,
   buddiesInOrder,
   firstSentence,
+  isBuddyToolCall,
   needsYou,
   playbooksFor,
   RuntimeCommand,
@@ -152,5 +153,28 @@ describe("buddies", () => {
 
   it("shortens to the first sentence", () => {
     expect(firstSentence("Add a login page. Then tests.")).toBe("Add a login page");
+  });
+});
+
+describe("isBuddyToolCall", () => {
+  it("knows ZLI's buddy tools in each agent's naming, and nothing else", () => {
+    for (const name of [
+      "mcp__zli__task_done",
+      "zli___remember",
+      "zli_ask_person",
+      "zli:hand_off",
+      "task_done (zli MCP Server)",
+    ])
+      expect(isBuddyToolCall(name), name).toBe(true);
+    for (const name of [
+      "Bash",
+      "mcp__zli__browser_open",
+      "mcp__zli-browser__task_done",
+      "zli-mobile:task_done",
+      "task_done",
+      "mcp__other__task_done",
+      "task_done (zli-mobile MCP Server)",
+    ])
+      expect(isBuddyToolCall(name), name).toBe(false);
   });
 });

@@ -55,6 +55,19 @@ export const BUDDY_TOOL_NAMES: ReadonlySet<string> = new Set([
   "task_revise",
   "set_routine",
 ]);
+
+/**
+ * Whether an agent's tool call is one of ZLI's buddy tools, in the way each agent names MCP tools:
+ * `mcp__zli__task_done` (Claude), `zli___task_done` or `zli_task_done` (Droid, OpenCode), `zli:task_done`,
+ * or `task_done (zli MCP Server)` (Gemini). Other servers, like zli-browser, never match.
+ */
+export function isBuddyToolCall(name: string): boolean {
+  const text = name.trim();
+  const named =
+    /^(?:mcp__)?zli(?:__|___|[:/._-])([a-z_]+)$/iu.exec(text) ?? /^([a-z_]+)\s*\(zli(?![-\w])[^)]*\)$/iu.exec(text);
+  const tool = named?.[1]?.replace(/^_+/u, "").toLowerCase();
+  return tool !== undefined && BUDDY_TOOL_NAMES.has(tool);
+}
 /** Messages kept per buddy in its chat with the person. */
 export const MAX_CHAT_KEPT = 200;
 export const MAX_CHAT_TEXT = 20_000;

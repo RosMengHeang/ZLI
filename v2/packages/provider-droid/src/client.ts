@@ -94,6 +94,8 @@ export type DroidSpawnOptions = {
 };
 
 export type DroidClientOptions = {
+  /** Tools that run without asking the person, by the name the agent gives them: ZLI's own trusted tools. */
+  approveTool?: (name: string) => boolean;
   cwd: string;
   command?: string;
   env?: NodeJS.ProcessEnv;
@@ -185,7 +187,7 @@ export class DroidClient {
       assertWorktree(options.cwd);
       await assertCommand(command);
     }
-    return new DroidClient(
+    const client = new DroidClient(
       options.cwd,
       command,
       options.spawnProcess,
@@ -194,7 +196,11 @@ export class DroidClient {
       options.model?.trim() || undefined,
       options.resumeSessionId?.trim() || undefined,
     );
+    if (options.approveTool) client.approveTool = options.approveTool;
+    return client;
   }
+
+  private approveTool?: (name: string) => boolean;
 
   subscribe(listener: (event: DroidProviderEvent) => void): () => void {
     this.listeners.add(listener);
@@ -493,7 +499,8 @@ export class DroidClient {
     const toolNames = request.toolUses.map((tool) => tool.name);
     const allowed =
       this.permissionMode === "full-access" ||
-      (toolNames.length > 0 && toolNames.every((name) => this.sessionAllowedTools.has(name)));
+      (toolNames.length > 0 &&
+        toolNames.every((name) => this.sessionAllowedTools.has(name) || this.approveTool?.(name) === true));
     if (allowed) {
       this.respond(id, { selectedOption: approveOption(request.options) });
       return;

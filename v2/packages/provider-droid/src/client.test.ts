@@ -138,6 +138,7 @@ async function harness(
     resumeSessionId?: string;
     permissionMode?: "read-only" | "supervised" | "full-access";
     model?: string;
+    approveTool?: (name: string) => boolean;
   } = {},
   setup?: (child: FakeProcess) => void,
 ): Promise<{
@@ -550,6 +551,21 @@ describe("DroidClient permissions", () => {
     { label: "Yes, and always allow medium impact commands", value: "proceed_always" },
     { label: "No, cancel", value: "cancel" },
   ];
+
+  it("runs the tools it is told to trust without asking", async () => {
+    const { client, children, events } = await harness({
+      permissionMode: "supervised",
+      approveTool: (name) => name === "zli___task_done",
+    });
+    await client.sendTurn({ text: "Finish" });
+    const droid = child(children);
+    droid.ask("perm-1", "droid.request_permission", {
+      toolUses: [{ toolUse: { type: "tool_use", id: "t1", name: "zli___task_done", input: { summary: "Done" } } }],
+      options,
+    });
+    expect(events.some((event) => event.type === "approval.requested")).toBe(false);
+    expect(droid.responses()).toMatchObject([{ id: "perm-1", result: { selectedOption: "proceed_once" } }]);
+  });
 
   it("asks before a supervised turn runs a riskier command and sends back allow or deny", async () => {
     const { client, children, events } = await harness({ permissionMode: "supervised", model: "claude-opus-5-5" });

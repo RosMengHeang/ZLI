@@ -102,6 +102,8 @@ export type ClaudeCodeClientOptions = {
   spawnProcess?: (command: string, args: readonly string[], options: ClaudeSpawnOptions) => ClaudeChild;
   initTimeoutMs?: number;
   permissionMode?: ClaudePermissionMode;
+  /** Tools that run without asking the person, by the name the agent gives them: ZLI's own trusted tools. */
+  approveTool?: (name: string) => boolean;
   /** Nobody answers prompts as they come: see claudeSessionArgs. */
   unattended?: boolean;
   model?: string;
@@ -160,6 +162,7 @@ export class ClaudeCodeClient {
   private readonly pendingApprovals = new Map<string, { toolName: string; input: Record<string, unknown> }>();
   /** Tools the person allowed for the rest of this session. Claude Code does not remember them for us. */
   private readonly sessionAllowedTools = new Set<string>();
+  private approveTool?: (name: string) => boolean;
   /** Claude reports cost as a running session total, so each turn's cost is the change since the last result. */
   private sessionCostUsd: number | undefined;
   /** Undefined is the model's own default, which is how every session starts. */
@@ -197,6 +200,7 @@ export class ClaudeCodeClient {
       sessionId,
     );
     if (options.now) client.now = options.now;
+    if (options.approveTool) client.approveTool = options.approveTool;
     try {
       client.sendInitialize();
       await client.waitForInit(options.initTimeoutMs ?? SESSION_INIT_TIMEOUT_MS);
@@ -555,7 +559,7 @@ export class ClaudeCodeClient {
       if (subtype === "can_use_tool" && this.permissionMode !== "full-access") {
         const input = message.input ?? {};
         const toolName = message.toolName ?? "Tool";
-        if (this.sessionAllowedTools.has(toolName)) {
+        if (this.sessionAllowedTools.has(toolName) || this.approveTool?.(toolName)) {
           this.write(allowToolRequest(requestId, input));
           return;
         }

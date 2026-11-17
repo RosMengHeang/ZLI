@@ -785,6 +785,37 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
     await expect(client.respondToApproval("req-1", true)).rejects.toMatchObject({ code: "request_failed" });
   });
 
+  it("runs the tools it is told to trust without asking, and asks for the rest", async () => {
+    const peer = new FakePeer();
+    const pending = ClaudeCodeClient.start({
+      peer,
+      cwd: "/work/tree",
+      permissionMode: "supervised",
+      approveTool: (name) => name === "mcp__zli__task_done",
+    });
+    peer.emit({ type: "system", subtype: "init", session_id: "sess-a" });
+    const client = await pending;
+    const events: ClaudeProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    await client.sendTurn({ text: "Finish" });
+    peer.emit({
+      type: "control_request",
+      request_id: "req-1",
+      request: { subtype: "can_use_tool", tool_name: "mcp__zli__task_done", input: { summary: "Done" } },
+    });
+    peer.emit({
+      type: "control_request",
+      request_id: "req-2",
+      request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } },
+    });
+    expect(JSON.parse(peer.written.at(-1) ?? "{}")).toMatchObject({
+      response: { request_id: "req-1", response: { behavior: "allow", updatedInput: { summary: "Done" } } },
+    });
+    expect(events.filter((event) => event.type === "approval.requested").map((event) => event.requestId)).toEqual([
+      "req-2",
+    ]);
+  });
+
   it("allows a tool for the rest of the session without asking again", async () => {
     const peer = new FakePeer();
     const pending = ClaudeCodeClient.start({ peer, cwd: "/work/tree", permissionMode: "supervised" });

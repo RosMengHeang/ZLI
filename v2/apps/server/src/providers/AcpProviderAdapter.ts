@@ -38,6 +38,8 @@ export type AcpProviderConfig = {
   acpArgs: readonly string[];
   /** Shown when the agent reports that it needs a login. */
   authHint: string;
+  /** ZLI's own tools, which run without asking the person. */
+  approveTool?: (name: string) => boolean;
   /** Offered to every session as an MCP server, with its shell shim on PATH. */
   browserTool?: BrowserToolConfig;
   /** MCP servers added in Settings, read when each session starts. */
@@ -108,6 +110,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
           args: [...config.acpArgs, ...(trust?.args ?? [])],
           displayName: config.displayName,
           authHint: config.authHint,
+          ...(config.approveTool ? { approveTool: config.approveTool } : {}),
           ...(Object.keys(env).length > 0 ? { env } : {}),
           ...(specs.length > 0 ? { mcpServers: specs.map(acpMcpServer) } : {}),
         });

@@ -1,4 +1,4 @@
-import { BUDDY_TOOL_NAMES } from "@zli-v2/contracts";
+import { BUDDY_TOOL_NAMES, isBuddyToolCall } from "@zli-v2/contracts";
 import { AcpProviderError } from "@zli-v2/provider-acp";
 import { ClaudeCodeClient, ClaudeProviderError } from "@zli-v2/provider-claude-code";
 import { CodexAppServerClient, CodexProviderError } from "@zli-v2/provider-codex";
@@ -260,6 +260,7 @@ export function createProviderRegistry(
         const autoCompactTokens = options.claudeAutoCompactTokens?.();
         return ClaudeCodeClient.start({
           ...input,
+          approveTool: isBuddyToolCall,
           command: await resolveClaudeCommand(),
           ...(await chatEnv(worktreeId, account)),
           ...(await claudeMcpConfig(worktreeId)),
@@ -287,6 +288,7 @@ export function createProviderRegistry(
         await worktreeMcpFile("droid", input.cwd, worktreeId);
         return DroidClient.start({
           ...input,
+          approveTool: isBuddyToolCall,
           command: await resolveDroidCommand(),
           ...(await chatEnv(worktreeId, account)),
         });
@@ -297,6 +299,7 @@ export function createProviderRegistry(
         new AcpProviderAdapter({
           ...config,
           resolveCommand: () => resolveAcpCommand(config.provider),
+          approveTool: isBuddyToolCall,
           ...(browserTool ? { browserTool } : {}),
           ...(options.mcpServers ? { mcpServers: (context) => addedServers(context.worktreeId) } : {}),
           ...(options.metroEnv ? { metroEnv } : {}),

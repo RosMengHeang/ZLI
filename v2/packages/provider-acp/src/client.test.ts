@@ -755,6 +755,35 @@ describe("AcpClient agent requests", () => {
     expect(events.some((event) => event.type === "approval.requested")).toBe(false);
   });
 
+  it("runs the tools it is told to trust without asking, even read-only, by the title of the earlier tool call", async () => {
+    const { client, agent, events } = await harness(new FakeAgent(), {
+      permissionMode: "read-only",
+      approveTool: (name) => name === "task_done (zli MCP Server)",
+    });
+    await client.sendTurn({ text: "go" });
+    agent.send({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "s1",
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "call-z",
+          title: "task_done (zli MCP Server)",
+          kind: "other",
+        },
+      },
+    });
+    agent.send({
+      jsonrpc: "2.0",
+      id: 500,
+      method: "session/request_permission",
+      params: { sessionId: "s1", toolCall: { toolCallId: "call-z" }, options },
+    });
+    expect(agent.responseTo(500)?.result).toEqual({ outcome: { outcome: "selected", optionId: "once" } });
+    expect(events.some((event) => event.type === "approval.requested")).toBe(false);
+  });
+
   it("cancels a permission request that arrives with no turn running", async () => {
     const { agent } = await harness(new FakeAgent(), { permissionMode: "supervised" });
     agent.send(permission(300));
