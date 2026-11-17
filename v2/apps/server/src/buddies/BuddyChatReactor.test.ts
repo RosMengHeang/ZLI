@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
-import { BuddyChatReactor } from "./BuddyChatReactor.js";
+import { BuddyChatReactor, type BuddyChatReactorOptions } from "./BuddyChatReactor.js";
 import { jobBrief } from "./brief.js";
 import { chatBrief, parseChatReply } from "./chat.js";
 import { stableId } from "./TaskReactor.js";
@@ -51,10 +51,10 @@ function send(engine: Engine, command: RuntimeCommand) {
   });
 }
 
-async function setup() {
+async function setup(options: Partial<BuddyChatReactorOptions> = {}) {
   const database = new Database({ path: ":memory:" });
   const engine = new Engine({ database, environment });
-  const reactor = new BuddyChatReactor(engine, { providers: async () => providers });
+  const reactor = new BuddyChatReactor(engine, { providers: async () => providers, ...options });
   const folder = mkdtempSync(join(tmpdir(), "zli-buddy-chat-"));
   cleanup.push(
     () => rmSync(folder, { recursive: true, force: true }),
@@ -80,9 +80,9 @@ async function setup() {
     for (let round = 0; round < 5; round += 1) await reactor.waitForIdle();
     return engine.projection();
   };
-  /** What the agent would do: take the queued message, answer, and go idle. */
-  const answer = async (text: string, buddyId = "b1") => {
-    let state = await settle();
+  /** What the agent would do first: take the queued message. Returns the chat's thread. */
+  const deliver = async (buddyId = "b1") => {
+    const state = await settle();
     const threadId = state.buddies?.find((entry) => entry.buddyId === buddyId)?.chatThreadId as string;
     for (const queued of state.queuedMessages ?? [])
       if (queued.threadId === threadId) {
@@ -92,15 +92,19 @@ async function setup() {
           message: { messageId: `u-${queued.queueId}`, threadId, role: "user", text: queued.text },
         } as RuntimeCommand);
       }
+    return threadId;
+  };
+  /** What the agent would do: take the queued message, answer, and go idle. */
+  const answer = async (text: string, buddyId = "b1") => {
+    const threadId = await deliver(buddyId);
     await send(engine, {
       type: "thread.message",
       message: { messageId: `a-${counter}`, threadId, role: "assistant", text },
     } as RuntimeCommand);
     await send(engine, { type: "thread.status", threadId, status: "idle" } as RuntimeCommand);
-    state = await settle();
-    return state;
+    return settle();
   };
-  return { engine, projectId, settle, answer };
+  return { engine, projectId, settle, deliver, answer };
 }
 
 describe("parseChatReply", () => {
@@ -328,6 +332,111 @@ describe("BuddyChatReactor", () => {
     expect(
       state.buddyMessages?.filter((message) => message.buddyId === "b2" && message.from === "b1").map((m) => m.text),
     ).toEqual([]);
+  });
+
+  it("stops a chat that goes too long without an answer, and says so", async () => {
+    let clock = Date.now();
+    const { engine, settle } = await setup({ now: () => new Date(clock), checkEveryMs: 5 });
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-slow",
+      text: "Explain the repo",
+    } as RuntimeCommand);
+    let state = await settle();
+    const threadId = state.buddies?.[0]?.chatThreadId as string;
+    await send(engine, { type: "thread.status", threadId, status: "working" } as RuntimeCommand);
+    state = await settle();
+    expect(state.buddyMessages?.at(-1)?.role).toBe("you");
+
+    clock += 11 * 60_000;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    state = await settle();
+    expect(state.buddyMessages?.at(-1)).toMatchObject({
+      role: "buddy",
+      text: expect.stringContaining("10 minutes without an answer"),
+    });
+    expect((state.queuedMessages ?? []).filter((queued) => queued.threadId === threadId)).toEqual([]);
+  });
+
+  it("says so when the chat ends with nothing said, or at the plan's usage limit", async () => {
+    let clock = Date.now();
+    const { engine, settle, deliver } = await setup({ now: () => new Date(clock), checkEveryMs: 5 });
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-quiet",
+      text: "hello",
+    } as RuntimeCommand);
+    const threadId = await deliver();
+    await send(engine, { type: "thread.status", threadId, status: "idle" } as RuntimeCommand);
+    let state = await settle();
+    // An answer may still land: nothing is said yet.
+    expect(state.buddyMessages?.at(-1)?.role).toBe("you");
+    clock += 31_000;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    state = await settle();
+    expect(state.buddyMessages?.at(-1)?.text).toBe("I finished without an answer. Send your message again?");
+
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-limit",
+      text: "and now?",
+    } as RuntimeCommand);
+    // The chat is idle, so the message goes straight to the agent, which shows it in the chat.
+    await settle();
+    await send(engine, {
+      type: "thread.message",
+      message: { messageId: "u-limit", threadId, role: "user", text: "and now?" },
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "thread.status",
+      threadId,
+      status: "idle",
+      usageLimit: { resetsAt: "2026-11-17T18:00:00.000Z" },
+    } as RuntimeCommand);
+    state = await settle();
+    expect(state.buddyMessages?.at(-1)?.text).toContain("usage limit");
+  });
+
+  it("tells the teammate who asked when the answer is not coming", async () => {
+    const { engine, settle, deliver, answer } = await setup();
+    await send(engine, {
+      type: "buddy.create",
+      buddy: {
+        buddyId: "b2",
+        name: "Primary",
+        color: "indigo",
+        role: "primary",
+        engine: { mode: "auto" },
+        permissionMode: "read-only",
+        maxActiveJobs: 1,
+        handoffs: [],
+      },
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-ask",
+      text: "Ask Primary for the plan",
+    } as RuntimeCommand);
+    await settle();
+    await answer('Asking.\n[[tell buddy="Primary"]]What is the plan?[[/tell]]');
+    const threadId = await deliver("b2");
+    await send(engine, {
+      type: "thread.status",
+      threadId,
+      status: "failed",
+      errorMessage: "The agent crashed",
+    } as RuntimeCommand);
+    const state = await settle();
+    const last = (buddyId: string) => state.buddyMessages?.findLast((message) => message.buddyId === buddyId);
+    expect(last("b2")?.text).toBe("Something went wrong: The agent crashed.");
+    expect(last("b1")).toMatchObject({
+      from: "b2",
+      text: "I could not answer this time. Something went wrong: The agent crashed.",
+    });
   });
 
   it("replaces a chat started before chats ran unattended, which may be stuck on a prompt", async () => {

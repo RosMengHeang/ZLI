@@ -21,7 +21,18 @@ export type BuddyChatReactorOptions = {
   providers: () => Promise<readonly ProviderDiscovery[]>;
   now?: () => Date;
   onError?: (error: unknown) => void;
+  /** How long a chat may take over one answer before ZLI stops it and says so. */
+  stallMs?: number;
+  /** How often waiting chats are looked at again, so a stalled one is noticed without new events. */
+  checkEveryMs?: number;
 };
+
+/** A chat reply that takes this long is stuck, not thinking: a big piece of work belongs in a job. */
+const STALL_MS = 10 * 60_000;
+/** An unattended chat waiting on a prompt has nobody to answer it. */
+const STUCK_MS = 60_000;
+/** A chat that went quiet with no answer is given this long for the answer to land before ZLI says so. */
+const SETTLE_MS = 30_000;
 
 /** Messages a fresh chat gets from before, so a restarted chat still knows the conversation. */
 const HISTORY = 16;
@@ -38,17 +49,21 @@ export class BuddyChatReactor {
   private readonly unsubscribe: () => void;
   private running: Promise<void> | undefined;
   private dirty = false;
+  private readonly timer: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly engine: Engine,
     private readonly options: BuddyChatReactorOptions,
   ) {
     this.unsubscribe = engine.subscribe((envelope) => this.observe(envelope));
+    this.timer = setInterval(() => this.schedule(), options.checkEveryMs ?? 60_000);
+    this.timer.unref?.();
     this.schedule();
   }
 
   stop(): void {
     this.unsubscribe();
+    clearInterval(this.timer);
   }
 
   async waitForIdle(): Promise<void> {
@@ -221,7 +236,40 @@ export class BuddyChatReactor {
     answered: readonly BuddyMessage[],
   ): Promise<void> {
     const thread = state.threads.find((candidate) => candidate.threadId === threadId);
-    if (!thread || thread.status === "working" || thread.status === "starting") return;
+    if (!thread) return;
+    const now = (this.options.now?.() ?? new Date()).getTime();
+    const waited = now - Date.parse(answered[0]?.at ?? new Date(now).toISOString());
+    const asking = answered.at(-1)?.messageId ?? "";
+    if (thread.status === "working" || thread.status === "starting" || thread.status === "waiting") {
+      // Nobody answers a hidden chat's prompts, and a chat answer is never hours of work: stop it and say so.
+      const stuck = thread.status === "waiting";
+      const limit = stuck ? STUCK_MS : (this.options.stallMs ?? STALL_MS);
+      if (waited < limit) return;
+      await this.dispatch(
+        { type: "thread.stop", threadId } as RuntimeCommand,
+        `buddy-chat-stall-stop:${asking}:${threadId}`,
+      );
+      // What is still queued behind it would be answered after this wait has ended, where nobody reads it.
+      for (const queued of state.queuedMessages ?? [])
+        if (
+          queued.threadId === threadId &&
+          answered.some((message) => queued.queueId === `buddy-chat:${message.messageId}`)
+        )
+          await this.dispatch(
+            { type: "thread.queue.remove", threadId, queueId: queued.queueId } as RuntimeCommand,
+            `buddy-chat-stall-unqueue:${queued.queueId}`,
+          );
+      await this.giveUp(
+        state,
+        buddy,
+        answered,
+        `stall:${asking}`,
+        stuck
+          ? "I got stuck on a prompt nobody could answer, so I stopped. Send your message again."
+          : `I went ${Math.round(limit / 60_000)} minutes without an answer, so I stopped. Send your message again, or ask for it as a job if it is bigger work.`,
+      );
+      return;
+    }
     if ((state.queuedMessages ?? []).some((queued) => queued.threadId === threadId)) return;
     const log = (state.messages ?? []).filter((message) => message.threadId === threadId);
     const lastAsk = log.findLastIndex((message) => message.role === "user");
@@ -232,11 +280,25 @@ export class BuddyChatReactor {
     if (!answered.some((message) => asked.includes(message.text.trim()))) return;
     const answer = log.slice(lastAsk + 1).findLast((message) => message.role === "assistant" && message.text.trim());
     if (!answer) {
-      if (thread.status === "failed")
-        await this.reply(
+      const asked = log[lastAsk]?.messageId;
+      if (thread.usageLimit)
+        await this.giveUp(state, buddy, answered, `limit:${asked}`, usageLimitText(thread.usageLimit.resetsAt));
+      else if (thread.status === "failed")
+        await this.giveUp(
+          state,
           buddy,
-          `failed:${log[lastAsk]?.messageId}`,
+          answered,
+          `failed:${asked}`,
           `Something went wrong: ${thread.errorMessage ?? "the agent stopped"}.`,
+        );
+      // A turn can end with nothing said. Once it has had time to land, say so rather than leave the person waiting.
+      else if (waited >= SETTLE_MS)
+        await this.giveUp(
+          state,
+          buddy,
+          answered,
+          `empty:${asked}`,
+          "I finished without an answer. Send your message again?",
         );
       return;
     }
@@ -322,6 +384,27 @@ export class BuddyChatReactor {
     }
   }
 
+  /**
+   * Ends the wait with what went wrong. A teammate who asked hears it too, so they never wait on an answer that
+   * is not coming.
+   */
+  private async giveUp(
+    state: RuntimeProjection,
+    buddy: BuddyProjection,
+    answered: readonly BuddyMessage[],
+    key: string,
+    text: string,
+  ): Promise<void> {
+    await this.reply(buddy, key, text);
+    for (const senderId of new Set(answered.flatMap((message) => (message.from ? [message.from] : [])))) {
+      const sender = state.buddies?.find((entry) => entry.buddyId === senderId && !entry.archived);
+      if (sender)
+        await this.reply(sender, `${key}:${senderId}`, `I could not answer this time. ${text}`, {
+          from: buddy.buddyId,
+        });
+    }
+  }
+
   private reply(
     buddy: BuddyProjection,
     key: string,
@@ -358,4 +441,14 @@ export function teammateAsk(sender: string, text: string): string {
     "teammate message>>>",
     "Answer them in your reply. ZLI passes it back to them.",
   ].join("\n");
+}
+
+/** What a buddy says when its agent's plan hit its usage limit. */
+export function usageLimitText(resetsAt: string | undefined): string {
+  const when = resetsAt ? new Date(resetsAt) : undefined;
+  const reset =
+    when && !Number.isNaN(when.getTime())
+      ? ` It resets at ${when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`
+      : "";
+  return `My agent hit its plan's usage limit, so I could not answer.${reset} Send your message again then, or pick another agent for me in my Settings tab.`;
 }
