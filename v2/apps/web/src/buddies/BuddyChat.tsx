@@ -11,6 +11,7 @@ import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo,
 
 import { providerDisplayName } from "../agent/providers.js";
 import { fileName, splitAttachedFiles, withAttachedFiles } from "../chat/attachedFiles.js";
+import { readDraft, writeDraft } from "../chat/drafts.js";
 import { liveStepLabel } from "../chat/liveStatus.js";
 import { useDockHeight } from "../chat/useDockHeight.js";
 import { getBridge } from "../runtime/bridge.js";
@@ -357,7 +358,7 @@ export function BuddyChat({
         </div>
       </div>
       <div className="buddy-chat-dock" ref={dock}>
-        <Composer buddy={buddy} projection={projection} run={run} />
+        <Composer key={buddy.buddyId} buddy={buddy} projection={projection} run={run} />
       </div>
     </div>
   );
@@ -487,7 +488,10 @@ function LiveRow({
 }
 
 function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projection: RuntimeProjection; run: Run }) {
-  const [text, setText] = useState("");
+  const draftKey = `buddy:${buddy.buddyId}`;
+  const [text, setText] = useState(() => readDraft(draftKey));
+  const sendingNow = useRef(false);
+  useEffect(() => writeDraft(draftKey, text), [draftKey, text]);
   const [files, setFiles] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
@@ -503,13 +507,17 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
   const send = async (event?: FormEvent) => {
     event?.preventDefault();
     const typed = text.trim();
-    if ((!typed && files.length === 0) || busy) return;
+    // The ref turns a second Enter away at once, before the state that disables Send has rendered.
+    if ((!typed && files.length === 0) || busy || sendingNow.current) return;
+    sendingNow.current = true;
     setBusy(true);
     const ok = await run({
       type: "buddy.chat.send",
       buddyId: buddy.buddyId,
       messageId: makeCommandId(),
       text: withAttachedFiles(files, typed || "Look at these files."),
+    }).finally(() => {
+      sendingNow.current = false;
     });
     setBusy(false);
     if (ok) {

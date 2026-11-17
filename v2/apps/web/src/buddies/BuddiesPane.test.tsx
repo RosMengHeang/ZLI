@@ -3,7 +3,7 @@
 import type { BuddyProjection, RuntimeProjection, TaskProjection } from "@zli-v2/contracts";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { readDraft } from "../chat/drafts.js";
 import { buttonNamed, typeInput } from "../huddle/testHuddles.js";
 import { cleanupRuntimeRenders, renderWithRuntime, typeInto } from "../review/testRuntime.js";
 import { DEFAULT_SETTINGS, readAppSettings, updateAppSettings } from "../settings/appSettings.js";
@@ -127,6 +127,20 @@ describe("BuddiesPane", () => {
     await typeInto(box, "hello");
     await act(async () => buttonNamed("Send").click());
     expect(commands.at(-1)).toMatchObject({ type: "buddy.chat.send", buddyId: "b2", text: "hello" });
+  });
+
+  it("sends once when Enter is pressed twice before the first send lands, and keeps the draft per buddy", async () => {
+    const state = projection({ buddies: [buddy("b2", "Builder", 0)] });
+    const { commands } = await render(state, "b2");
+    const box = document.querySelector<HTMLTextAreaElement>('[aria-label="Message Builder"]');
+    if (!box) throw new Error("No message box");
+    await typeInto(box, "fix the login");
+    await act(async () => {
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(commands.filter((entry) => entry.type === "buddy.chat.send")).toHaveLength(1);
+    expect(readDraft("buddy:b2")).toBe("");
   });
 
   it("shows the conversation, and a dots bubble while the buddy thinks", () => {
