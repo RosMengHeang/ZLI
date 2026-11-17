@@ -603,9 +603,9 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 /* The row's menu button sits up by the title, not over the second line. */
 .session-row.is-activity ~ .row-more { top: 15px; }
 /* One-line chats: the title and the time share one line height, so they sit on the same middle. */
-.session-row.is-one-line .session-copy { align-self: stretch; }
-.session-row.is-one-line :is(.session-line, .session-side) { align-self: center; }
+.session-row.is-one-line { align-items: center; }
 .session-row.is-one-line :is(.session-title, .session-time) { line-height: 18px; }
 .session-row.is-one-line .session-side { height: 18px; }
 /* While the menu button shows, the title stops short of it instead of running under it. */
 .session-entry:is(:has(> .session-row:hover), :has(> .row-more:hover), :has(> .row-more :focus-visible), :has(> .row-more [aria-expanded="true"])) > .session-row.is-activity .activity-title { padding-right: 24px; }
+.session-row.is-one-line .session-copy { padding-top: 0; }
