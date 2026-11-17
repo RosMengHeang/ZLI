@@ -17,10 +17,10 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
     await expect(page.locator(".project-label")).toContainText("repo");
 
     // The team is there from the first run, in its fixed order, Primary first.
-    const sidebar = page.locator(".sidebar-buddies");
-    // The roster folds under the Buddies line in the menu.
-    await sidebar.getByRole("button", { name: "Show the team" }).click();
-    await expect(sidebar.locator(".sidebar-buddy-name")).toHaveText(["Primary", "Builder", "Tester"]);
+    // Buddies in the menu opens the team as a list beside the chat.
+    await page.locator(".sidebar-team").click();
+    const sidebar = page.locator(".buddy-list");
+    await expect(sidebar.locator(".buddy-list-person")).toHaveText(["Primary", "Builder", "Tester"]);
 
     await sidebar.getByRole("button", { name: /Builder/u }).click();
     const pane = page.getByRole("region", { name: "Buddies" }).last();
@@ -63,7 +63,7 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
     await dialog.getByRole("button", { name: "rose" }).click();
     await shot("new-buddy");
     await dialog.getByRole("button", { name: "Create" }).click();
-    await expect(sidebar.locator(".sidebar-buddy-name")).toContainText(["Nova"]);
+    await expect(sidebar.locator(".buddy-list-person")).toContainText(["Nova"]);
     await expect(pane.locator(".buddy-view-name")).toHaveText("Nova");
     await shot("nova");
   } finally {

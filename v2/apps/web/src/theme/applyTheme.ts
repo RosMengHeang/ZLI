@@ -27,6 +27,8 @@ function updateChrome(theme: Theme): void {
     void setChrome({
       background: theme.tokens["--zli-canvas"] ?? "",
       symbols: theme.tokens["--zli-muted"] ?? "",
+      // The window's buttons sit over the top-right panel's corner, so they take the panel's color.
+      controls: theme.tokens["--zli-surface"] ?? "",
     }).catch(() => undefined);
   }, CHROME_DELAY_MS);
 }

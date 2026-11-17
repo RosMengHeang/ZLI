@@ -245,3 +245,6 @@
 }
 /* The sidebar's switch sits in the panel's top-left corner; the list's head leaves room for it. */
 .app-shell:not(.is-sidebar-hidden) .buddy-list-head { padding-left: 52px; }
+/* The floating top bar sits over the detail's top-right corner; the chat's head keeps clear of it. */
+.app-shell:not(.has-panel) .buddies-main.is-split .buddy-view-top,
+.app-shell:not(.has-panel) .buddies-main.is-split .buddies-home-head { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }

@@ -368,7 +368,7 @@ describe("useTeammatesToBuddies", () => {
 });
 
 describe("SidebarBuddies", () => {
-  it("opens the panel on a buddy and on the Needs you list", async () => {
+  it("is one menu line that opens the Buddies page, with a count when someone needs you", async () => {
     const onOpen = vi.fn();
     await renderWithRuntime(
       <SidebarBuddies
@@ -378,24 +378,27 @@ describe("SidebarBuddies", () => {
       accept,
     );
     const team = document.querySelector<HTMLButtonElement>(".sidebar-team");
+    expect(team?.textContent).toBe("Buddies1");
     expect(team?.querySelector(".sidebar-nav-badge.is-needs")?.textContent).toBe("1");
+    // No faces, buttons or roster on the line: the team lives on the Buddies page.
+    expect(document.querySelectorAll(".sidebar-team .buddy-avatar, .sidebar-buddy, .btn")).toHaveLength(0);
     await act(async () => team?.click());
     expect(onOpen).toHaveBeenLastCalledWith();
-    // The roster starts folded under the Buddies line.
-    expect(document.querySelector(".sidebar-buddy")).toBeNull();
-    await act(async () => buttonNamed("Show the team").click());
-    await act(async () => document.querySelector<HTMLButtonElement>(".sidebar-buddy")?.click());
-    expect(onOpen).toHaveBeenLastCalledWith("b2");
   });
 });
 
-describe("NewBuddyDialog", () => {
-  it("makes a buddy from the + with its name, color and what it may do, then opens it", async () => {
-    const onOpen = vi.fn();
-    const commands = await renderWithRuntime(
-      <SidebarBuddies projection={projection({ buddies: [buddy("b2", "Builder", 0)] })} onOpen={onOpen} />,
-      accept,
+describe("BuddyList", () => {
+  it("opens a buddy's chat from its row", async () => {
+    const { onSelect } = await render(projection({ buddies: [buddy("b2", "Builder", 0)] }));
+    const row = [...document.querySelectorAll<HTMLButtonElement>(".buddy-list-row")].find((entry) =>
+      entry.textContent?.includes("Builder"),
     );
+    await act(async () => row?.click());
+    expect(onSelect).toHaveBeenLastCalledWith("b2");
+  });
+
+  it("makes a buddy from the + with its name, color and what it may do, then opens it", async () => {
+    const { commands, onSelect } = await render(projection({ buddies: [buddy("b2", "Builder", 0)] }));
     await act(async () => buttonNamed("Add a buddy").click());
     const name = document.querySelector<HTMLInputElement>(".new-buddy input");
     if (!name) throw new Error("No name box");
@@ -411,22 +414,15 @@ describe("NewBuddyDialog", () => {
       type: "buddy.create",
       buddy: { name: "Nova", title: "Reviewer", color: "rose", permissionMode: "read-only", role: "buddy" },
     });
-    expect(onOpen).toHaveBeenCalledWith((commands.at(-1) as { buddy: { buddyId: string } }).buddy.buddyId);
+    expect(onSelect).toHaveBeenCalledWith((commands.at(-1) as { buddy: { buddyId: string } }).buddy.buddyId);
   });
-});
 
-describe("SidebarBuddies", () => {
   it("removes a buddy from its right-click menu after asking", async () => {
-    const onOpen = vi.fn();
-    const commands = await renderWithRuntime(
-      <SidebarBuddies
-        projection={projection({ buddies: [buddy("b2", "Builder", 0), buddy("b3", "Tester", 1)] })}
-        onOpen={onOpen}
-        active="b3"
-      />,
-      accept,
+    const { commands, onSelect } = await render(
+      projection({ buddies: [buddy("b2", "Builder", 0), buddy("b3", "Tester", 1)] }),
+      "b3",
     );
-    const row = [...document.querySelectorAll<HTMLElement>(".sidebar-buddy")].find((entry) =>
+    const row = [...document.querySelectorAll<HTMLElement>(".buddy-list-row")].find((entry) =>
       entry.textContent?.includes("Tester"),
     );
     await act(async () => {
@@ -436,7 +432,7 @@ describe("SidebarBuddies", () => {
     expect(commands.some((command) => command.type === "buddy.archive")).toBe(false);
     await act(async () => buttonNamed("Remove").click());
     expect(commands.at(-1)).toEqual({ type: "buddy.archive", buddyId: "b3" });
-    expect(onOpen).toHaveBeenCalledWith();
+    expect(onSelect).toHaveBeenCalledWith(undefined);
   });
 });
 

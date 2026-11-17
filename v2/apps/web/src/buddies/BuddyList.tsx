@@ -6,12 +6,15 @@ import {
   type RuntimeProjection,
   type TaskProjection,
 } from "@zli-v2/contracts";
-import { useState } from "react";
+import { type MouseEvent, useState } from "react";
+
+import { ConfirmDialog } from "../review/ConfirmDialog.js";
 
 import { relativeTime } from "../sessions/sessions.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { Menu, type MenuRequest } from "../ui/Menu.js";
 import { buddyMood } from "./BuddiesPane.js";
 import { NewBuddyDialog } from "./NewBuddyDialog.js";
 import type { Run } from "./useRun.js";
@@ -41,6 +44,33 @@ export function BuddyList({
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [dragged, setDragged] = useState<string>();
+  const [menu, setMenu] = useState<MenuRequest>();
+  const [removing, setRemoving] = useState<BuddyProjection>();
+  const [busy, setBusy] = useState(false);
+  /** Right-click, Shift+F10 or the Menu key on a row. With no pointer position, the menu opens under the row. */
+  const openMenu = (event: MouseEvent<HTMLElement>, buddy: BuddyProjection) => {
+    event.preventDefault();
+    const row = event.currentTarget.getBoundingClientRect();
+    const fromKeyboard = event.clientX === 0 && event.clientY === 0;
+    setMenu({
+      x: fromKeyboard ? row.left : event.clientX,
+      y: fromKeyboard ? row.bottom : event.clientY,
+      label: `${buddy.name} actions`,
+      items: [
+        { label: "Open chat", icon: "message", run: () => onSelect(buddy.buddyId) },
+        { separator: true },
+        { label: `Remove ${buddy.name}`, icon: "trash", tone: "danger", run: () => setRemoving(buddy) },
+      ],
+    });
+  };
+  const remove = async (buddy: BuddyProjection) => {
+    setBusy(true);
+    const ok = await run({ type: "buddy.archive", buddyId: buddy.buddyId });
+    setBusy(false);
+    if (!ok) return;
+    setRemoving(undefined);
+    if (selectedId === buddy.buddyId) onSelect(undefined);
+  };
   const tasks = projection.tasks ?? [];
   const waiting = needsYou(projection);
   const paused = projection.buddySettings?.paused ?? false;
@@ -159,11 +189,12 @@ export function BuddyList({
                     className={`buddy-list-row buddies-row-main is-${mood}${active ? " is-active" : ""}`}
                     aria-current={active ? "page" : undefined}
                     onClick={() => onSelect(buddy.buddyId)}
+                    onContextMenu={(event) => openMenu(event, buddy)}
                   >
                     <BuddyAvatar buddy={buddy.color} size={36} mood={mood} name={buddy.name} />
                     <span className="buddy-list-text">
                       <span className="buddy-list-name buddies-row-name">
-                        {buddy.name}
+                        <span className="buddy-list-person">{buddy.name}</span>
                         {roleShown ? <span className="buddy-list-role">{roleShown}</span> : null}
                         {buddy.lastLine ? (
                           <span className="buddy-list-time">{relativeTime(buddy.lastLine.at)}</span>
@@ -179,6 +210,18 @@ export function BuddyList({
           {shown.length === 0 ? <p className="buddy-list-empty">No buddy by that name.</p> : null}
         </section>
       </div>
+      {menu ? <Menu request={menu} onClose={() => setMenu(undefined)} /> : null}
+      {removing ? (
+        <ConfirmDialog
+          label={`Remove ${removing.name}`}
+          title={`Remove ${removing.name}?`}
+          detail={`${removing.name} leaves the team for good, with its chat and what it remembers. Jobs waiting in its queue are cancelled. This can't be undone.`}
+          confirmLabel="Remove"
+          busy={busy}
+          onConfirm={() => void remove(removing)}
+          onCancel={() => setRemoving(undefined)}
+        />
+      ) : null}
       {adding ? (
         <NewBuddyDialog
           projection={projection}

@@ -191,6 +191,16 @@ describe("window chrome", () => {
     expect(parseWindowChrome({ background: "red", symbols: "#52525b" })).toBeUndefined();
     expect(parseWindowChrome({ background: "#ececef" })).toBeUndefined();
     expect(parseWindowChrome(null)).toBeUndefined();
+    // The panel color for the window's buttons is optional, and dropped when it is not a color.
+    expect(parseWindowChrome({ background: "#171717", symbols: "#b4b4b4", controls: "#212121" })).toEqual({
+      background: "#171717",
+      symbols: "#b4b4b4",
+      controls: "#212121",
+    });
+    expect(parseWindowChrome({ background: "#171717", symbols: "#b4b4b4", controls: "url(x)" })).toEqual({
+      background: "#171717",
+      symbols: "#b4b4b4",
+    });
   });
 
   it("recolors the title bar overlay except on macOS", () => {
@@ -201,10 +211,14 @@ describe("window chrome", () => {
     };
     applyWindowChrome(window, { background: "#120a10", symbols: "#d3afc3" }, "win32");
     applyWindowChrome(window, { background: "#000000", symbols: "#86c99b" }, "darwin");
+    applyWindowChrome(window, { background: "#171717", symbols: "#b4b4b4", controls: "#212121" }, "win32");
     expect(calls).toEqual([
       ["background", "#120a10"],
       ["overlay", { color: "#120a10", symbolColor: "#d3afc3" }],
       ["background", "#000000"],
+      // The buttons take the panel's color; the window keeps the canvas.
+      ["background", "#171717"],
+      ["overlay", { color: "#212121", symbolColor: "#b4b4b4" }],
     ]);
   });
 

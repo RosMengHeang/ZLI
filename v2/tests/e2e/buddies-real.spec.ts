@@ -36,15 +36,14 @@ function buddyFile(root: string, name: string, color: string): string {
 }
 
 async function removeBuddy(page: Page, name: string): Promise<void> {
-  const unfold = page.locator(".sidebar-buddies").getByRole("button", { name: "Show the team" });
-  if (await unfold.isVisible()) await unfold.click();
+  if (!(await page.locator(".buddy-list").isVisible())) await page.locator(".sidebar-team").click();
   await page
-    .locator(".sidebar-buddies")
+    .locator(".buddy-list")
     .getByRole("button", { name: new RegExp(name, "u") })
     .click({ button: "right" });
   await page.getByRole("menuitem", { name: `Remove ${name}` }).click();
   await page.getByRole("dialog").last().getByRole("button", { name: "Remove", exact: true }).click();
-  await expect(page.locator(".sidebar-buddy-name", { hasText: name })).toHaveCount(0);
+  await expect(page.locator(".buddy-list-person", { hasText: name })).toHaveCount(0);
 }
 
 test("buddies hold up in real use on Haiku", async () => {
@@ -85,12 +84,12 @@ test("buddies hold up in real use on Haiku", async () => {
     await page.keyboard.press("Enter");
     const input = page.locator(".buddies-file").first();
     await input.setInputFiles(buddyFile(root, "Mini", "rose"));
-    await expect(page.locator(".sidebar-buddies")).toContainText("Mini", { timeout: 30_000 });
+    await expect(page.locator(".buddy-list")).toContainText("Mini", { timeout: 30_000 });
     await input.setInputFiles(buddyFile(root, "Tiny", "jade"));
-    await expect(page.locator(".sidebar-buddies")).toContainText("Tiny", { timeout: 30_000 });
+    await expect(page.locator(".buddy-list")).toContainText("Tiny", { timeout: 30_000 });
     for (const name of ["Builder", "Tester", "Primary"]) await removeBuddy(page, name);
 
-    await page.locator(".sidebar-buddies").getByRole("button", { name: /Mini/u }).click();
+    await page.locator(".buddy-list").getByRole("button", { name: /Mini/u }).click();
     const pane = page.getByRole("region", { name: "Buddies" }).last();
     const message = pane.getByLabel("Message Mini");
     const says = pane.locator(".buddy-chat-say");

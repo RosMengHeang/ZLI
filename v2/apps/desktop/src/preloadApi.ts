@@ -408,7 +408,8 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
       quit: () => ipc.invoke("zli:app:quit"),
       zoom: (zoom: "in" | "out" | "reset") => ipc.invoke("zli:app:zoom", { zoom }),
       openExternal: (url: string) => ipc.invoke("zli:app:open-external", { url }),
-      setChrome: (colors: { background: string; symbols: string }) => ipc.invoke("zli:app:set-chrome", colors),
+      setChrome: (colors: { background: string; symbols: string; controls?: string }) =>
+        ipc.invoke("zli:app:set-chrome", colors),
     },
     notifications: {
       getSettings: async () => parseNotificationSettings(await ipc.invoke("zli:notifications:get-settings")),
