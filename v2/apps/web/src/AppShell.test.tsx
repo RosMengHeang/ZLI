@@ -1011,6 +1011,8 @@ describe("Settings", () => {
     expect(box).not.toBeNull();
     // Nothing runs before the person asks for something.
     expect(commands(dispatched).some((command) => command.type === "thread.start")).toBe(false);
+    // Nor does it show in the sidebar until then.
+    expect(container.querySelectorAll(".sidebar .session-row")).toHaveLength(0);
     const projectMenu = () => container.querySelector('button[aria-label^="Move this chat to another project"]');
     // Before the first message the project is a picker.
     expect(projectMenu()).not.toBeNull();

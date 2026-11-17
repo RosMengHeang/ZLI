@@ -90,6 +90,7 @@ import {
   conversationThreads,
   deriveSessions,
   gridLayout,
+  isUnsentDraft,
   type PendingLaunch,
   type SessionMode,
   sessionAgentName,
@@ -2750,6 +2751,8 @@ function WorkspaceApp() {
   const handoffWorktree = handoffSession ? findWorktree(handoffSession.worktreeId) : undefined;
   const compareGroup = workbench.groups.find((group) => group.groupId === compareGroupId);
 
+  // A new chat stays off the sidebar until its first message is sent: until then it is only a draft.
+  const listedSessions = sessions.filter((session) => !isUnsentDraft(session));
   const columnsLayout = settings.layout === "columns";
   // The top bar floats over the panel headers in both layouts, so the panels reach the top of the window. It comes
   // last in the page: the window takes its later drag areas over earlier ones, and the bar's buttons must win.
@@ -2793,7 +2796,7 @@ function WorkspaceApp() {
         {sidebarOpen ? (
           <Sidebar
             projection={projection}
-            sessions={sessions}
+            sessions={listedSessions}
             accounts={loadedAccounts}
             activeSessionId={activeSession?.sessionId}
             backgroundSessionIds={backgroundSessionIds}
