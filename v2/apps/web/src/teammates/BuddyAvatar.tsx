@@ -57,6 +57,7 @@ const flagFor: Partial<Record<AvatarMood, string>> = { waiting: "", done: " is-d
 export function BuddyAvatar({
   buddy,
   look = "blob",
+  image,
   mood = "idle",
   size = 24,
   provider,
@@ -66,6 +67,8 @@ export function BuddyAvatar({
   buddy: Buddy;
   /** Its pixel body. */
   look?: BuddyLook | undefined;
+  /** A picture the person gave it, shown in place of the body. Its mood still shows in the corner flag. */
+  image?: string | undefined;
   mood?: AvatarMood;
   size?: number;
   /** Draws the agent's own mark in the corner, so the buddy never hides which agent it is. */
@@ -92,7 +95,11 @@ export function BuddyAvatar({
       {...(name ? { role: "img", "aria-label": `${name}, ${moodText[mood]}` } : { "aria-hidden": true })}
       title={name ? `${name}, ${moodText[mood]}` : undefined}
     >
-      <TileArt buddy={buddy} look={look} mood={mood} size={size} />
+      {image ? (
+        <img className="buddy-avatar-image" src={image} alt="" width={size} height={size} draggable={false} />
+      ) : (
+        <TileArt buddy={buddy} look={look} mood={mood} size={size} />
+      )}
       {flag !== undefined ? <span className={`buddy-avatar-flag${flag}`} aria-hidden="true" /> : null}
       {provider && size >= 20 ? (
         <span className="buddy-avatar-mark" aria-hidden="true">

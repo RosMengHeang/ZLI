@@ -157,7 +157,7 @@ export function BuddyList({
                   className="buddy-list-row is-needs"
                   onClick={() => onSelect(buddy.buddyId)}
                 >
-                  <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={36} mood="waiting" />
+                  <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} image={buddy.image} size={36} mood="waiting" />
                   <span className="buddy-list-text">
                     <span className="buddy-list-name">
                       {buddy.name}
@@ -200,7 +200,14 @@ export function BuddyList({
                     onClick={() => onSelect(buddy.buddyId)}
                     onContextMenu={(event) => openMenu(event, buddy)}
                   >
-                    <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={36} mood={mood} name={buddy.name} />
+                    <BuddyAvatar
+                      buddy={buddy.color}
+                      look={lookOf(buddy)}
+                      image={buddy.image}
+                      size={36}
+                      mood={mood}
+                      name={buddy.name}
+                    />
                     <span className="buddy-list-text">
                       <span className="buddy-list-name buddies-row-name">
                         <span className="buddy-list-person">{buddy.name}</span>

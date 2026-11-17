@@ -21,8 +21,8 @@ import { makeCommandId } from "../runtime/commandId.js";
 import { relativeTime } from "../sessions/sessions.js";
 import { updateAppSettings, useAppSettings } from "../settings/appSettings.js";
 import { type AvatarMood, BuddyAvatar } from "../teammates/BuddyAvatar.js";
-import { BUDDY_COLOR_NAMES, buddyName } from "../teammates/buddies.js";
-import { BODIES, BUDDY_LOOKS, lookOf } from "../teammates/pixelBuddies.js";
+import { BUDDY_COLOR_NAMES } from "../teammates/buddies.js";
+import { lookOf } from "../teammates/pixelBuddies.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
@@ -30,6 +30,7 @@ import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
 import { BuddyChat } from "./BuddyChat.js";
 import { BuddyList } from "./BuddyList.js";
+import { BuddyLookEditor } from "./BuddyLookEditor.js";
 import {
   buddyStats,
   duration,
@@ -322,7 +323,7 @@ function TeamPage({ projection, run, onSelect, onOpenThread, onOpenPullRequest }
             return (
               <li key={buddy.buddyId}>
                 <button type="button" className={`board-crew-item is-${mood}`} onClick={() => onSelect(buddy.buddyId)}>
-                  <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={28} mood={mood} />
+                  <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} image={buddy.image} size={28} mood={mood} />
                   <span className="board-crew-text">
                     <span className="board-crew-name">{buddy.name}</span>
                     <span className="board-crew-line">
@@ -364,6 +365,7 @@ function TeamPage({ projection, run, onSelect, onOpenThread, onOpenPullRequest }
                         <BuddyAvatar
                           buddy={buddy.color}
                           look={lookOf(buddy)}
+                          image={buddy.image}
                           size={16}
                           mood={buddyMood(buddy, tasks)}
                         />
@@ -599,7 +601,7 @@ function BuddyPage({
             title={info ? "Hide details" : "Show details"}
             onClick={() => setInfo((open) => !open)}
           >
-            <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={22} mood={mood} />
+            <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} image={buddy.image} size={22} mood={mood} />
             <h2 className="buddy-view-name">{buddy.name}</h2>
           </button>
         </header>
@@ -633,7 +635,7 @@ function BuddyPage({
             <IconButton label="Hide details" icon="x" onClick={() => setInfo(false)} />
           </div>
           <div className="buddy-info-hero">
-            <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={72} mood={mood} name={buddy.name} />
+            <BuddyLookEditor buddy={buddy} mood={mood} run={run} />
             <BuddyNameEdit buddy={buddy} run={run} />
             {title ? <span>{title}</span> : null}
           </div>
@@ -733,7 +735,7 @@ export function JobCard({
         <>
           <header className="job-card-head">
             {showBuddy && buddy ? (
-              <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={20} name={buddy.name} />
+              <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} image={buddy.image} size={20} name={buddy.name} />
             ) : null}
             <span className="job-card-status">{STATUS_LABEL[task.status]}</span>
             {task.kind === "review" ? <span className="job-card-tag">Review</span> : null}
@@ -1382,40 +1384,6 @@ function SettingsTab({
             </div>
           </Dialog>
         ) : null}
-      </section>
-
-      <section className="buddies-section" aria-label="Look">
-        <h3 className="buddies-heading">Look</h3>
-        <p className="buddies-hint">Its body and color, everywhere it shows up.</p>
-        <fieldset className="buddy-bodies" aria-label="Body">
-          {BUDDY_LOOKS.map((look) => (
-            <button
-              key={look}
-              type="button"
-              className="buddy-body-choice"
-              aria-label={BODIES[look].label}
-              aria-pressed={lookOf(buddy) === look}
-              onClick={() => void update({ look })}
-            >
-              <BuddyAvatar buddy={buddy.color} look={look} size={28} />
-              <span>{BODIES[look].label}</span>
-            </button>
-          ))}
-        </fieldset>
-        <fieldset className="buddy-colors" aria-label="Color">
-          {BUDDY_COLOR_NAMES.map((color) => (
-            <button
-              key={color}
-              type="button"
-              className="buddy-color-choice"
-              aria-label={buddyName(color)}
-              aria-pressed={buddy.color === color}
-              onClick={() => void update({ color })}
-            >
-              <BuddyAvatar buddy={color} look={lookOf(buddy)} size={22} />
-            </button>
-          ))}
-        </fieldset>
       </section>
 
       <div className="job-card-actions">

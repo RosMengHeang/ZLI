@@ -25,6 +25,16 @@ export const BUDDY_COLORS = [
 export const BuddyColor = z.enum(BUDDY_COLORS);
 export type BuddyColor = z.infer<typeof BuddyColor>;
 
+/** A buddy's own picture: small, and only an image. */
+export const MAX_BUDDY_IMAGE = 60_000;
+export const BuddyImage = z
+  .string()
+  .max(MAX_BUDDY_IMAGE)
+  .regex(
+    /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/u,
+    "A buddy's picture must be a PNG, JPEG or WebP image.",
+  );
+
 /** The buddy's body, drawn in pixels: picked when it is made, changeable later. */
 export const BUDDY_LOOKS = ["bot", "blob", "critter", "ghost", "sprout", "jelly"] as const;
 export const BuddyLook = z.enum(BUDDY_LOOKS);
@@ -151,6 +161,8 @@ export const BuddyProjection = z.object({
   color: BuddyColor,
   /** Its body. Buddies from before bodies have none, and one is picked for them from their id. */
   look: BuddyLook.optional(),
+  /** A picture the person gave it, shown in place of its body: a small PNG, JPEG or WebP data URL. */
+  image: BuddyImage.optional(),
   /** What the buddy is for, such as Tester. */
   title: z.string().trim().min(1).max(40).optional(),
   role: z.enum(["primary", "buddy"]),
@@ -378,6 +390,8 @@ export const BuddyChanges = z
     name: BuddyName,
     color: BuddyColor,
     look: BuddyLook,
+    /** Empty removes the picture. */
+    image: z.union([BuddyImage, z.literal("")]),
     title: z.string().trim().max(40),
     engine: BuddyEngine,
     instructions: z.string().max(4_000),
@@ -807,7 +821,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       ];
       break;
     case "buddy.updated": {
-      const { title, instructions, ...rest } = event.changes;
+      const { title, instructions, image, ...rest } = event.changes;
       updateBuddy(event.buddyId, (buddy) => {
         const next: BuddyProjection = { ...buddy, ...defined(rest) };
         if (title !== undefined) {
@@ -817,6 +831,10 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
         if (instructions !== undefined) {
           if (instructions) next.instructions = instructions;
           else delete next.instructions;
+        }
+        if (image !== undefined) {
+          if (image) next.image = image;
+          else delete next.image;
         }
         return next;
       });

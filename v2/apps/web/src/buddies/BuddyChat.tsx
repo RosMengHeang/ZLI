@@ -28,7 +28,7 @@ import "./buddyChat.css";
 
 type Run = (command: Record<string, unknown>) => Promise<boolean>;
 
-type Who = { name: string; color: Buddy; look?: BuddyLook | undefined };
+type Who = { name: string; color: Buddy; look?: BuddyLook | undefined; image?: string | undefined };
 
 /** One entry in a buddy's chat. Conversation, events and cards share one timeline. */
 export type ChatItem =
@@ -63,7 +63,7 @@ export type ChatItem =
 
 function who(state: RuntimeProjection, buddyId: string): Who | undefined {
   const buddy = state.buddies?.find((entry) => entry.buddyId === buddyId);
-  return buddy ? { name: buddy.name, color: buddy.color, look: lookOf(buddy) } : undefined;
+  return buddy ? { name: buddy.name, color: buddy.color, look: lookOf(buddy), image: buddy.image } : undefined;
 }
 
 /** What the buddy says when a job ends, before its card. */
@@ -352,7 +352,7 @@ export function BuddyChat({
         <div className="buddy-chat-column">
           {items.length === 0 ? (
             <div className="buddy-chat-empty">
-              <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={64} name={buddy.name} />
+              <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} image={buddy.image} size={64} name={buddy.name} />
               <h3>{buddy.name}</h3>
               <p>
                 {buddy.role === "primary"
@@ -416,7 +416,7 @@ function JobLine({ who, job }: { who: Who; job: { goal: string; status: TaskProj
   const state = job.status ? JOB_STATE[job.status] : { mood: "idle" as const, label: "Sent", tone: "quiet" };
   return (
     <div className="buddy-chat-job" style={{ "--teammate": buddyHex(who.color) } as CSSProperties}>
-      <BuddyAvatar buddy={who.color} look={who.look} mood={state.mood} size={22} />
+      <BuddyAvatar buddy={who.color} look={who.look} image={who.image} mood={state.mood} size={22} />
       <span className="buddy-chat-job-text">
         <strong>{who.name}</strong> <span>{job.goal}</span>
       </span>
@@ -437,7 +437,7 @@ function TeammateNote({ item }: { item: Extract<ChatItem, { kind: "teammate" }> 
       style={{ "--teammate": buddyHex(item.who.color) } as CSSProperties}
     >
       <figcaption className="buddy-chat-teammate-head">
-        <BuddyAvatar buddy={item.who.color} look={item.who.look} size={16} />
+        <BuddyAvatar buddy={item.who.color} look={item.who.look} image={item.who.image} size={16} />
         {item.way === "sent" ? (
           <span>
             {TEAMMATE_WAY.sent} <strong>{item.who.name}</strong>
@@ -491,7 +491,7 @@ function ChatEntry({
       return (
         <div className="buddy-chat-event">
           {item.who ? (
-            <BuddyAvatar buddy={item.who.color} look={item.who.look} size={14} />
+            <BuddyAvatar buddy={item.who.color} look={item.who.look} image={item.who.image} size={14} />
           ) : item.provider ? (
             <ProviderMark provider={item.provider} size={13} />
           ) : (
@@ -544,7 +544,14 @@ function LiveRow({
   return (
     <div className="buddy-chat-live" title={preparing ? "Setting up its worktree" : liveStepLabel(steps.at(-1))}>
       <div className="buddy-chat-live-head">
-        <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={18} mood="working" name={buddy.name} />
+        <BuddyAvatar
+          buddy={buddy.color}
+          look={lookOf(buddy)}
+          image={buddy.image}
+          size={18}
+          mood="working"
+          name={buddy.name}
+        />
         <span>{preparing ? "Setting up its worktree…" : "Working…"}</span>
         {task.threadId ? (
           <button type="button" className="buddy-chat-open" onClick={() => onOpenThread(task.threadId as string)}>

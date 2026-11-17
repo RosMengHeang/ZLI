@@ -313,3 +313,26 @@
 .buddy-chat-composer .send-button:not(.is-stop) { width: 34px; height: 34px; background: var(--buddy, var(--zli-text)); color: var(--buddy-ink, #fff); }
 .buddy-chat-composer .send-button:not(.is-stop):hover:not(:disabled) { background: color-mix(in srgb, var(--buddy, var(--zli-text)) 85%, #fff); }
 .buddy-chat-composer .send-button:not(.is-stop):disabled { background: color-mix(in srgb, var(--buddy, var(--zli-text)) 35%, var(--zli-overlay)); color: color-mix(in srgb, #fff 60%, transparent); }
+
+/* ---------- The face editor ---------- */
+/* The face with a pencil on hover; a click opens a small panel under it: body and color, or a picture. */
+.buddy-look { position: relative; display: flex; justify-content: center; }
+.buddy-look-face { position: relative; display: grid; padding: 0; border: 0; border-radius: 22px; background: transparent; cursor: default; }
+.buddy-look-pencil { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 22px; background: rgba(0, 0, 0, .45); color: #fff; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.buddy-look-face:hover .buddy-look-pencil, .buddy-look-face:focus-visible .buddy-look-pencil, .buddy-look-face[aria-expanded="true"] .buddy-look-pencil { opacity: 1; }
+.buddy-look-panel { position: absolute; top: calc(100% + 8px); left: 50%; z-index: 20; display: flex; width: 284px; flex-direction: column; gap: 12px; padding: 10px; border: 1px solid var(--zli-border-strong); border-radius: 16px; background: var(--zli-raised); box-shadow: var(--zli-shadow-pop); transform: translateX(-50%); animation: zli-fade-in var(--zli-duration-fast) var(--zli-ease) both; text-align: left; }
+.buddy-look-tabs { display: flex; align-items: center; gap: 2px; }
+.buddy-look-spacer { flex: 1; }
+.buddy-look-tab { height: 28px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-sm); font-weight: 500; }
+.buddy-look-tab:hover { color: var(--zli-text); }
+.buddy-look-tab[aria-pressed="true"] { background: var(--zli-active); color: var(--zli-text); }
+.buddy-look-bodies { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.buddy-look-body { display: grid; height: 60px; place-items: center; border: 1px solid transparent; border-radius: 12px; background: transparent; cursor: default; }
+.buddy-look-body:hover { background: var(--zli-hover); }
+.buddy-look-body[aria-pressed="true"] { border-color: var(--zli-border-hover); background: var(--zli-active); }
+.buddy-look-colors { display: grid; grid-template-columns: repeat(6, 1fr); justify-items: center; gap: 8px; padding: 2px 0 4px; }
+.buddy-look-color { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; cursor: default; }
+.buddy-look-color[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--zli-raised), 0 0 0 4px var(--zli-text); }
+.buddy-look-upload { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 6px 4px 2px; }
+.buddy-look-preview { width: 72px; height: 72px; border-radius: 28%; object-fit: cover; }
+.buddy-look-hint { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
