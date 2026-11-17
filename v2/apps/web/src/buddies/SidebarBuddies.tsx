@@ -4,11 +4,23 @@ import { ConfirmDialog } from "../review/ConfirmDialog.js";
 import { relativeTime } from "../sessions/sessions.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { IconButton } from "../ui/Button.js";
+import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuRequest } from "../ui/Menu.js";
 
 import { buddyMood } from "./BuddiesPane.js";
 import { NewBuddyDialog } from "./NewBuddyDialog.js";
 import { useRun } from "./useRun.js";
+
+/** Whether the roster under Buddies is open; closed, their faces sit on the line. Remembered in this browser. */
+const ROSTER_KEY = "zli.sidebar.roster";
+
+function readRosterOpen(): boolean {
+  try {
+    return window.localStorage.getItem(ROSTER_KEY) === "open";
+  } catch {
+    return false;
+  }
+}
 
 /**
  * The team at the top of the sidebar, in the order the person set: the Primary first, then the rest
@@ -30,18 +42,31 @@ export function SidebarBuddies({
   const [removing, setRemoving] = useState<BuddyProjection>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [rosterOpen, setRosterOpen] = useState(readRosterOpen);
   const run = useRun(setError);
+  const toggleRoster = () =>
+    setRosterOpen((open) => {
+      try {
+        window.localStorage.setItem(ROSTER_KEY, open ? "closed" : "open");
+      } catch {
+        // Blocked storage: the choice lasts until the window closes.
+      }
+      return !open;
+    });
   if (!projection) return null;
   const team = buddiesInOrder(projection);
   if (team.length === 0)
     return projection.projects.length > 0 ? (
       <section className="sidebar-buddies" aria-label="Buddies">
-        <button type="button" className="sidebar-buddy" onClick={() => onOpen()}>
-          <BuddyAvatar buddy="tangerine" size={20} />
-          <span className="sidebar-buddy-text">
-            <span className="sidebar-buddy-name">Buddies</span>
-            <span className="sidebar-buddy-line">Start a team that takes jobs for you</span>
-          </span>
+        <button
+          type="button"
+          className="sidebar-nav-item"
+          title="Start a team that takes jobs for you"
+          onClick={() => onOpen()}
+        >
+          <Icon name="users" size={16} />
+          <span className="sidebar-nav-label">Buddies</span>
+          <BuddyAvatar buddy="tangerine" size={18} />
         </button>
       </section>
     ) : null;
@@ -73,13 +98,28 @@ export function SidebarBuddies({
   const tasks = projection.tasks ?? [];
   return (
     <section className="sidebar-buddies" aria-label="Buddies">
-      <h2 className="sidebar-buddies-head">
-        Buddies
-        {waiting > 0 ? (
-          <button type="button" className="sidebar-buddies-needs" onClick={() => onOpen()}>
-            Needs you · {waiting}
-          </button>
-        ) : null}
+      {/* One menu line for the whole team: their faces show who is busy; the roster opens under it. */}
+      <div className={`sidebar-nav-row${active === "team" ? " is-active" : ""}`}>
+        <button
+          type="button"
+          className="sidebar-nav-item sidebar-team"
+          aria-current={active === "team" ? "page" : undefined}
+          onClick={() => onOpen()}
+        >
+          <Icon name="users" size={16} />
+          <span className="sidebar-nav-label">Buddies</span>
+          {waiting > 0 ? (
+            <span className="sidebar-nav-badge is-needs" title={`${waiting} need${waiting === 1 ? "s" : ""} you`}>
+              {waiting}
+            </span>
+          ) : rosterOpen ? null : (
+            <span className="sidebar-team-faces" aria-hidden="true">
+              {team.slice(0, 4).map((buddy) => (
+                <BuddyAvatar key={buddy.buddyId} buddy={buddy.color} size={18} mood={buddyMood(buddy, tasks)} />
+              ))}
+            </span>
+          )}
+        </button>
         <IconButton
           className="sidebar-buddies-add"
           label="Add a buddy"
@@ -88,7 +128,16 @@ export function SidebarBuddies({
           size="xs"
           onClick={() => setAdding(true)}
         />
-      </h2>
+        <IconButton
+          className="sidebar-team-toggle"
+          label={rosterOpen ? "Hide the team" : "Show the team"}
+          tooltip={rosterOpen ? "Hide the team" : "Show the team"}
+          icon={rosterOpen ? "chevronUp" : "chevronDown"}
+          size="xs"
+          aria-expanded={rosterOpen}
+          onClick={toggleRoster}
+        />
+      </div>
       {adding ? (
         <NewBuddyDialog
           projection={projection}
@@ -99,7 +148,7 @@ export function SidebarBuddies({
           }}
         />
       ) : null}
-      {team.map((buddy) => (
+      {(rosterOpen ? team : team.filter((buddy) => buddy.buddyId === active)).map((buddy) => (
         <button
           key={buddy.buddyId}
           type="button"

@@ -36,6 +36,8 @@ function buddyFile(root: string, name: string, color: string): string {
 }
 
 async function removeBuddy(page: Page, name: string): Promise<void> {
+  const unfold = page.locator(".sidebar-buddies").getByRole("button", { name: "Show the team" });
+  if (await unfold.isVisible()) await unfold.click();
   await page
     .locator(".sidebar-buddies")
     .getByRole("button", { name: new RegExp(name, "u") })

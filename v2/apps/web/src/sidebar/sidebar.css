@@ -511,3 +511,42 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .activity-branch { flex: 1 1 auto; }
 .activity-meta .worktree-pr { flex: 0 0 auto; }
 @media (prefers-reduced-motion: reduce) { .activity-spin { animation: none; } }
+
+/* ---------- Menu ---------- */
+/*
+ * The top of the sidebar is a short menu: New chat, Search chats, Buddies (the team's faces on the line, the
+ * roster folding under it), Pull requests, and Add project. One line each, icon and words, no boxes.
+ */
+.sidebar-nav { gap: 1px; padding: var(--zli-space-1) var(--zli-space-2) var(--zli-space-3); }
+.sidebar-nav .sidebar-primary-row { display: block; }
+.sidebar-nav-item, .sidebar-nav .sidebar-primary-row .sidebar-nav-item { display: flex; width: 100%; height: 34px; min-width: 0; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--zli-text); cursor: default; font: inherit; font-size: var(--zli-text-base); font-weight: 400; text-align: left; }
+.sidebar-nav-item > svg { flex: 0 0 auto; color: var(--zli-muted); }
+.sidebar-nav-item:hover, .sidebar-nav-item:focus-visible, .sidebar-nav-row:hover > .sidebar-nav-item { background: var(--zli-hover); }
+.sidebar-nav-item:active, .sidebar-nav-item.is-active, .sidebar-nav-row.is-active > .sidebar-nav-item { background: var(--zli-active); }
+.sidebar-nav-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-nav-key { color: var(--zli-dim); font-size: var(--zli-text-xs); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-nav-item:hover .sidebar-nav-key, .sidebar-nav-item:focus-visible .sidebar-nav-key { opacity: 1; }
+.sidebar-nav-count { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.sidebar-nav-badge { display: inline-grid; min-width: 18px; height: 18px; padding: 0 5px; place-items: center; border-radius: var(--zli-radius-pill); background: var(--zli-amber-soft); color: var(--zli-amber); font-size: var(--zli-text-2xs); font-weight: 600; }
+
+/* The search is a menu line you can type into. */
+.sidebar-nav .sidebar-search { height: 34px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--zli-muted); }
+.sidebar-nav .sidebar-search:hover, .sidebar-nav .sidebar-search:focus-within { border: 0; background: var(--zli-hover); }
+.sidebar-nav .sidebar-search input, .sidebar-nav .sidebar-search input::placeholder { font-size: var(--zli-text-base); font-weight: 400; }
+.sidebar-nav .sidebar-search input::placeholder { color: var(--zli-text); }
+
+/* Buddies: the line, with add and fold buttons that show on hover, then the roster. */
+.sidebar-nav .sidebar-buddies { margin: 0; padding: 0; gap: 1px; }
+.sidebar-nav-row { position: relative; display: flex; align-items: center; }
+.sidebar-nav-row > .sidebar-nav-item { padding-right: 62px; }
+.sidebar-nav-row > .sidebar-buddies-add, .sidebar-nav-row > .sidebar-team-toggle { position: absolute; top: 50%; color: var(--zli-dim); opacity: 0; transform: translateY(-50%); transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-nav-row > .sidebar-buddies-add { right: 30px; margin: 0; }
+.sidebar-nav-row > .sidebar-team-toggle { right: 6px; }
+.sidebar-nav-row:hover > .btn-icon, .sidebar-nav-row > .btn-icon:focus-visible, .sidebar-nav-row > .sidebar-team-toggle[aria-expanded="true"] { opacity: 1; }
+.sidebar-nav-row:hover .sidebar-team-faces { opacity: 0; }
+.sidebar-team-faces { display: inline-flex; flex: 0 0 auto; margin-right: -54px; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-team-faces > * + * { margin-left: -4px; }
+.sidebar-nav-row .sidebar-nav-badge { margin-right: -54px; }
+.sidebar-nav .sidebar-buddy { padding: 5px 10px 5px 34px; border-radius: 10px; }
+.sidebar-nav > * { flex: 0 0 auto; }
+.sidebar-nav .sidebar-search { display: flex; min-height: 34px; flex: 0 0 34px; align-items: center; gap: 10px; }

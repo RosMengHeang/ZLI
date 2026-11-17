@@ -18,6 +18,8 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
 
     // The team is there from the first run, in its fixed order, Primary first.
     const sidebar = page.locator(".sidebar-buddies");
+    // The roster folds under the Buddies line in the menu.
+    await sidebar.getByRole("button", { name: "Show the team" }).click();
     await expect(sidebar.locator(".sidebar-buddy-name")).toHaveText(["Primary", "Builder", "Tester"]);
 
     await sidebar.getByRole("button", { name: /Builder/u }).click();

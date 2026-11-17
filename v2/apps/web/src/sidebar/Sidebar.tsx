@@ -38,6 +38,7 @@ import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuAction, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
 import { activityGroups } from "./activity.js";
 import { SessionDot } from "./SessionDot.js";
@@ -316,7 +317,10 @@ export function Sidebar({
       return "all";
     }
   });
+  // Pull requests in the menu narrows the list to chats with an open one; picking a scope clears it.
+  const [prOnly, setPrOnly] = useState(false);
   const pickScope = (next: string) => {
+    setPrOnly(false);
     setScope(next);
     try {
       window.localStorage.setItem(SCOPE_KEY, next);
@@ -1106,6 +1110,13 @@ export function Sidebar({
 
   // The activity list: every chat by when it last moved, each naming its project, pull request and branch.
   const scopeProject = projects.find((project) => project.projectId === scope);
+  const hasOpenPullRequest = (session: AgentSession) => {
+    const worktreeId = session.worktreeId;
+    return worktreeId ? prEntries.get(worktreeId)?.status?.pullRequest?.state === "OPEN" : false;
+  };
+  const openPullRequests = sessions.filter(
+    (session) => !parents.has(session.sessionId) && hasOpenPullRequest(session),
+  ).length;
   const listHead = (
     <div className="sidebar-list-head">
       {sidebarView === "activity" ? (
@@ -1125,7 +1136,9 @@ export function Sidebar({
             ])
           }
         >
-          <span className="sidebar-scope-label">{scopeProject?.name ?? "All activity"}</span>
+          <span className="sidebar-scope-label">
+            {prOnly ? "Open pull requests" : (scopeProject?.name ?? "All activity")}
+          </span>
           <Icon name="chevronRight" size={12} />
         </button>
       ) : onOpenBuddies ? (
@@ -1217,13 +1230,19 @@ export function Sidebar({
   const renderActivity = () => {
     const chats = sessions.filter(
       (session) =>
-        !parents.has(session.sessionId) && (!scopeProject || projectOf(session)?.projectId === scopeProject.projectId),
+        !parents.has(session.sessionId) &&
+        (!scopeProject || projectOf(session)?.projectId === scopeProject.projectId) &&
+        (!prOnly || hasOpenPullRequest(session)),
     );
     const groups = activityGroups(chats, new Date(now), (sessionId) => layout.chatPinned(sessionId));
     if (groups.length === 0)
       return (
         <p className="sidebar-results-empty">
-          {scopeProject ? `No chats in ${scopeProject.name} yet.` : "No chats yet. Start one from New chat."}
+          {prOnly
+            ? "No chats with an open pull request."
+            : scopeProject
+              ? `No chats in ${scopeProject.name} yet.`
+              : "No chats yet. Start one from New chat."}
         </p>
       );
     return groups.map((group) => (
@@ -1326,59 +1345,82 @@ export function Sidebar({
           <span className="wordmark">ZLI</span>
         </span>
       </div>
-      <div className="sidebar-primary">
-        {/* One line: search takes the width, New chat and Add project sit beside it as square buttons. */}
+      {/* The menu: one line each, icon and words, like the places the app has. */}
+      <nav className="sidebar-primary sidebar-nav" aria-label="Menu">
         <div className="sidebar-primary-row">
-          {projects.length > 0 ? (
-            <label className="sidebar-search">
-              <Icon name="search" size={13} />
-              <input
-                ref={searchRef}
-                type="search"
-                placeholder="Search"
-                aria-label="Find a chat"
-                value={query}
-                onChange={(event) => setQuery(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    setQuery("");
-                    return;
-                  }
-                  if (event.key === "ArrowDown" || event.key === "Enter") {
-                    const first = asideRef.current?.querySelector<HTMLButtonElement>(
-                      ".sidebar-scroll .session-row, .sidebar-scroll .shelf-row",
-                    );
-                    if (!first) return;
-                    event.preventDefault();
-                    if (event.key === "Enter") first.click();
-                    else first.focus();
-                  }
-                }}
-              />
-            </label>
-          ) : null}
-          <IconButton
-            className="sidebar-new-agent"
-            label="New chat"
-            icon="squarePen"
-            shortcut={newAgentShortcut}
+          <button
+            type="button"
+            className="sidebar-nav-item sidebar-new-agent"
+            aria-label="New chat"
+            aria-keyshortcuts={newAgentShortcut ? ariaShortcut(newAgentShortcut) : undefined}
             onClick={() => onNewAgent()}
-          />
-          <IconButton
-            className="sidebar-add-project"
-            label="Add project"
-            tooltip="Add project"
-            icon="folderPlus"
-            onClick={onOpenProject}
-          />
+          >
+            <Icon name="squarePen" size={16} />
+            <span className="sidebar-nav-label">New chat</span>
+            {newAgentShortcut ? <span className="sidebar-nav-key">{shortcutText(newAgentShortcut)}</span> : null}
+          </button>
         </div>
-      </div>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the chat buttons inside. */}
-      <div className="sidebar-scroll" onKeyDown={moveBetweenChats}>
-        {/* The team scrolls with the projects, so a long project list gets the whole height. */}
+        {projects.length > 0 ? (
+          <label className="sidebar-nav-item sidebar-search">
+            <Icon name="search" size={16} />
+            <input
+              ref={searchRef}
+              type="search"
+              placeholder="Search chats"
+              aria-label="Find a chat"
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setQuery("");
+                  return;
+                }
+                if (event.key === "ArrowDown" || event.key === "Enter") {
+                  const first = asideRef.current?.querySelector<HTMLButtonElement>(
+                    ".sidebar-scroll .session-row, .sidebar-scroll .shelf-row",
+                  );
+                  if (!first) return;
+                  event.preventDefault();
+                  if (event.key === "Enter") first.click();
+                  else first.focus();
+                }
+              }}
+            />
+          </label>
+        ) : null}
         {onOpenBuddies ? (
           <SidebarBuddies projection={projection} onOpen={onOpenBuddies} active={activeBuddyId} />
         ) : null}
+        {projects.length > 0 ? (
+          <button
+            type="button"
+            className={`sidebar-nav-item${prOnly ? " is-active" : ""}`}
+            aria-pressed={prOnly}
+            title={prOnly ? "Show every chat again" : "Show only chats with an open pull request"}
+            onClick={() => {
+              setPrOnly((on) => !on);
+              if (sidebarView !== "activity") updateAppSettings((current) => ({ ...current, sidebarView: "activity" }));
+            }}
+          >
+            <Icon name="pullRequest" size={16} />
+            <span className="sidebar-nav-label">Pull requests</span>
+            {openPullRequests > 0 ? <span className="sidebar-nav-count">{openPullRequests}</span> : null}
+          </button>
+        ) : null}
+        <div className="sidebar-primary-row">
+          <button
+            type="button"
+            className="sidebar-nav-item sidebar-add-project"
+            aria-label="Add project"
+            onClick={onOpenProject}
+          >
+            <Icon name="folderPlus" size={16} />
+            <span className="sidebar-nav-label">Add project</span>
+          </button>
+        </div>
+      </nav>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the chat buttons inside. */}
+      <div className="sidebar-scroll" onKeyDown={moveBetweenChats}>
         {projects.length === 0 ? (
           <div className="sidebar-empty">
             <p>No projects yet. Start a chat and pick its folder when you send, or add a project here.</p>

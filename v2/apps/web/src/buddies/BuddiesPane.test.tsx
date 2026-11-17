@@ -372,8 +372,13 @@ describe("SidebarBuddies", () => {
       />,
       accept,
     );
-    await act(async () => buttonNamed("Needs you · 1").click());
+    const team = document.querySelector<HTMLButtonElement>(".sidebar-team");
+    expect(team?.querySelector(".sidebar-nav-badge.is-needs")?.textContent).toBe("1");
+    await act(async () => team?.click());
     expect(onOpen).toHaveBeenLastCalledWith();
+    // The roster starts folded under the Buddies line.
+    expect(document.querySelector(".sidebar-buddy")).toBeNull();
+    await act(async () => buttonNamed("Show the team").click());
     await act(async () => document.querySelector<HTMLButtonElement>(".sidebar-buddy")?.click());
     expect(onOpen).toHaveBeenLastCalledWith("b2");
   });
