@@ -550,3 +550,11 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .sidebar-nav .sidebar-buddy { padding: 5px 10px 5px 34px; border-radius: 10px; }
 .sidebar-nav > * { flex: 0 0 auto; }
 .sidebar-nav .sidebar-search { display: flex; min-height: 34px; flex: 0 0 34px; align-items: center; gap: 10px; }
+
+/* ---------- Project marks ---------- */
+/* The project's app icon when it has one, else a folder; a dot on the corner while an agent works or waits. */
+.project-mark { position: relative; display: inline-grid; flex: 0 0 auto; place-items: center; color: var(--zli-muted); }
+.project-mark-icon { display: block; width: 100%; height: 100%; border-radius: 4px; object-fit: contain; }
+.project-mark-dot { position: absolute; right: -2px; bottom: -2px; width: 7px; height: 7px; border-radius: 50%; background: var(--zli-blue); box-shadow: 0 0 0 2px var(--zli-sidebar); }
+.project-mark.is-waiting .project-mark-dot { background: var(--zli-amber); }
+.project-toggle .project-mark { margin: 0 2px 0 0; }

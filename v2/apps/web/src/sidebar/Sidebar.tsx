@@ -41,6 +41,7 @@ import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
 import { activityGroups } from "./activity.js";
+import { ProjectMark } from "./ProjectMark.js";
 import { SessionDot } from "./SessionDot.js";
 import { SidebarPlanLimits } from "./SidebarUsageStrip.js";
 import { AskLine, LiveStep, ReplyPreview } from "./sessionLines.js";
@@ -1206,7 +1207,7 @@ export function Sidebar({
             <span className="activity-meta">
               {project ? (
                 <span className="activity-project">
-                  <Icon name="folder" size={11} />
+                  <ProjectMark project={project} projection={projection} size={12} />
                   <span>{project.name}</span>
                 </span>
               ) : null}
@@ -1518,7 +1519,11 @@ export function Sidebar({
                         aria-label={`${project.name}${pinned ? ", pinned" : ""}, ${open ? "collapse" : "expand"}`}
                         onClick={() => layout.toggleProject(project.projectId)}
                       >
-                        <ProjectLantern name={project.name} state={waiting ? "waiting" : busy ? "working" : "idle"} />
+                        <ProjectMark
+                          project={project}
+                          projection={projection}
+                          state={waiting ? "waiting" : busy ? "working" : "idle"}
+                        />
                         <span className="project-name">{project.name}</span>
                         {pinned ? <Icon name="pin" size={11} className="project-pin" aria-hidden="true" /> : null}
                         <Icon name="chevronRight" size={11} className="project-chevron" />
@@ -1610,7 +1615,7 @@ export function Sidebar({
                             openContextMenu(event, `${project.name} actions`, () => projectContextItems(project))
                           }
                         >
-                          <Icon name="folder" size={14} />
+                          <ProjectMark project={project} projection={projection} size={14} />
                           <span className="project-name">{project.name}</span>
                           <Icon name="agentNew" size={13} className="sidebar-more-start" />
                         </button>
@@ -1729,16 +1734,6 @@ export function Sidebar({
  * while nothing runs, lit and softly glowing while an agent in it works, amber when something in it needs
  * the person.
  */
-function ProjectLantern({ name, state }: { name: string; state: "idle" | "working" | "waiting" }) {
-  return (
-    <span
-      className={`project-lantern is-${state}`}
-      style={{ "--lantern-hue": lanternHue(name) } as CSSProperties}
-      aria-hidden="true"
-    />
-  );
-}
-
 /** The project's own hue, from its name, shared by its lantern and the tint behind its heading. */
 function lanternHue(name: string): number {
   let hash = 0;
