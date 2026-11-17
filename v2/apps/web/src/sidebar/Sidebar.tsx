@@ -1121,6 +1121,9 @@ export function Sidebar({
   const openPullRequests = sessions.filter(
     (session) => !parents.has(session.sessionId) && hasOpenPullRequest(session),
   ).length;
+  const setView = (view: "activity" | "projects") =>
+    updateAppSettings((current) => (current.sidebarView === view ? current : { ...current, sidebarView: view }));
+  // The list's head: its title in one place for both views, and a switch between them on the right.
   const listHead = (
     <div className="sidebar-list-head">
       {sidebarView === "activity" ? (
@@ -1141,25 +1144,35 @@ export function Sidebar({
           }
         >
           <span className="sidebar-scope-label">{scopeProject?.name ?? "All activity"}</span>
-          <Icon name="chevronRight" size={12} />
+          <Icon name="chevronDown" size={12} />
         </button>
-      ) : onOpenBuddies ? (
-        // Under the team, so the two lists read as two things; alone, the project headings say it already.
-        <h2 className="sidebar-heading sidebar-projects-heading">Projects</h2>
       ) : (
-        <span />
+        <span className="sidebar-scope is-static">
+          <span className="sidebar-scope-label">Projects</span>
+        </span>
       )}
-      <IconButton
-        label={sidebarView === "activity" ? "Group by project" : "Show all activity"}
-        icon="sort"
-        size="xs"
-        onClick={() =>
-          updateAppSettings((current) => ({
-            ...current,
-            sidebarView: current.sidebarView === "activity" ? "projects" : "activity",
-          }))
-        }
-      />
+      <fieldset className="sidebar-view-switch" aria-label="List chats">
+        <button
+          type="button"
+          className="sidebar-view-option"
+          aria-label="Show all activity"
+          aria-pressed={sidebarView === "activity"}
+          data-tooltip="By activity"
+          onClick={() => setView("activity")}
+        >
+          <Icon name="history" size={15} />
+        </button>
+        <button
+          type="button"
+          className="sidebar-view-option"
+          aria-label="Group by project"
+          aria-pressed={sidebarView === "projects"}
+          data-tooltip="By project"
+          onClick={() => setView("projects")}
+        >
+          <Icon name="folder" size={15} />
+        </button>
+      </fieldset>
     </div>
   );
 

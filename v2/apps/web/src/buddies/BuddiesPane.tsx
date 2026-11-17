@@ -427,7 +427,8 @@ function BuddyPage({
   onOpenThread,
   onOpenPullRequest,
 }: BuddiesPaneProps & { buddy: BuddyProjection; run: Run; error: ReactNode }) {
-  const [info, setInfo] = useState(false);
+  // The details sit beside the chat from the start; the name tag folds them away and back.
+  const [info, setInfo] = useState(true);
   const [tab, setTab] = useState<InfoTab>("activity");
   const mood = buddyMood(buddy, projection.tasks ?? []);
   const title =
@@ -448,15 +449,6 @@ function BuddyPage({
             <BuddyAvatar buddy={buddy.color} size={22} mood={mood} />
             <h2 className="buddy-view-name">{buddy.name}</h2>
           </button>
-          {info ? null : (
-            <IconButton
-              className="buddy-view-open"
-              label={`About ${buddy.name}`}
-              tooltip="Show details"
-              icon="panelRight"
-              onClick={() => setInfo(true)}
-            />
-          )}
         </header>
         {error}
         <BuddyChat
@@ -476,8 +468,14 @@ function BuddyPage({
           )}
         />
       </div>
-      {info ? (
-        <aside className="buddy-view-info" aria-label={`About ${buddy.name}`}>
+      {/* Always there, so it can slide: folded, it is out of reach of the mouse, keyboard and screen readers. */}
+      <aside
+        className={`buddy-view-info${info ? " is-open" : ""}`}
+        aria-label={`About ${buddy.name}`}
+        aria-hidden={!info}
+        inert={!info}
+      >
+        <div className="buddy-view-info-inner">
           <div className="buddy-info-close">
             <IconButton label="Hide details" icon="x" onClick={() => setInfo(false)} />
           </div>
@@ -500,8 +498,8 @@ function BuddyPage({
           ) : (
             <SettingsTab buddy={buddy} projection={projection} run={run} onRemoved={() => onSelect(undefined)} />
           )}
-        </aside>
-      ) : null}
+        </div>
+      </aside>
     </div>
   );
 }

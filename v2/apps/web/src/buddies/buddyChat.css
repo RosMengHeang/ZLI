@@ -13,12 +13,14 @@
 .buddy-view-top > * { pointer-events: auto; }
 .buddy-view-tag { color: inherit; cursor: default; font: inherit; transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); display: inline-flex; height: 34px; align-items: center; gap: var(--zli-space-2); padding: 0 14px 0 6px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-pill); background: var(--zli-raised); box-shadow: var(--zli-highlight); }
 .buddy-view-name { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
-.buddy-view-open { position: absolute; right: var(--zli-space-3); }
-/* The details button keeps clear of the floating top bar and the window's buttons. */
-.app-shell:not(.has-panel) .buddy-view-open { right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
 .buddy-view-main .buddy-chat-column { padding-top: 60px; }
 
-.buddy-view-info { display: flex; width: 320px; min-height: 0; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-4); padding: 0 var(--zli-space-3) var(--zli-space-4); overflow-y: auto; border-left: 1px solid var(--zli-border); background: var(--zli-surface); }
+/* The details slide in from the right: the column grows from nothing while its content, a fixed width, fades in. */
+.buddy-view-info { display: flex; width: 0; min-height: 0; flex: 0 0 auto; overflow: hidden; border-left: 1px solid transparent; background: var(--zli-surface); transition: width 240ms cubic-bezier(.2, .8, .2, 1), border-color 240ms ease; }
+.buddy-view-info.is-open { width: 320px; border-left-color: var(--zli-border); }
+.buddy-view-info-inner { display: flex; width: 320px; min-height: 0; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-4); padding: 0 var(--zli-space-3) var(--zli-space-4); overflow-y: auto; opacity: 0; transform: translateX(16px); transition: opacity 180ms ease, transform 240ms cubic-bezier(.2, .8, .2, 1); }
+.buddy-view-info.is-open .buddy-view-info-inner { opacity: 1; transform: none; transition-delay: 40ms; }
+@media (prefers-reduced-motion: reduce) { .buddy-view-info, .buddy-view-info-inner { transition: none; } }
 .buddy-info-close { display: flex; height: 48px; flex: 0 0 auto; align-items: center; justify-content: flex-start; }
 .buddy-info-close .btn { border: 1px solid var(--zli-border); border-radius: 50%; }
 .buddy-info-hero { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-1); margin-top: calc(-1 * var(--zli-space-2)); text-align: center; }

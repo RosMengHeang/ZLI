@@ -567,3 +567,34 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .agent-stack-more { margin-left: 3px; color: var(--zli-dim); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
 .session-row.is-active .agent-stack-item, .session-row:hover .agent-stack-item { background: color-mix(in srgb, var(--zli-text) 8%, var(--zli-sidebar)); box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--zli-text) 8%, var(--zli-sidebar)); }
 .activity-mark:has(.agent-stack) { width: auto; min-width: 16px; }
+
+/* ---------- The list's head and its view switch ---------- */
+/* The title sits in the same spot in both views; the switch shows both views and lights the one in use. */
+.sidebar-list-head { min-height: 30px; padding-right: var(--zli-space-2); }
+.sidebar-scope.is-static { cursor: default; }
+.sidebar-scope.is-static:hover { background: transparent; color: var(--zli-muted); }
+.sidebar-view-switch { display: inline-flex; flex: 0 0 auto; gap: 2px; min-width: 0; margin: 0; padding: 2px; border: 0; border-radius: 9px; background: var(--zli-hover); }
+.sidebar-view-option { display: grid; width: 30px; height: 24px; place-items: center; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--zli-dim); cursor: default; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-view-option:hover { color: var(--zli-text); }
+.sidebar-view-option[aria-pressed="true"] { background: var(--zli-overlay); box-shadow: 0 1px 2px rgba(0, 0, 0, .3); color: var(--zli-text); }
+.sidebar-view-option:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+
+/* An activity row: the project on the left of its second line, the branch on the right. */
+.activity-meta .activity-branch { max-width: 55%; flex: 0 1 auto; margin-left: auto; }
+
+/* ---------- Projects, plainly ---------- */
+/* Each project is a quiet line (its icon, its name, a chevron), with its chats indented under it: no boxes, no
+   washes of color. The project's color still tints its name when that is on in Settings. */
+.sidebar .sidebar-project, .sidebar.chat-tint-card .sidebar-project { padding: 0; border-radius: 0; background: none; }
+.sidebar .sidebar-project + .sidebar-project, .sidebar.chat-tint-card .sidebar-project + .sidebar-project { margin-top: 2px; }
+.sidebar .sidebar-project:not(.is-collapsed) { margin-bottom: var(--zli-space-2); }
+.sidebar .sidebar-project > .project-label, .sidebar.has-project-tint .sidebar-project > .project-label, .sidebar.chat-tint-card .sidebar-project > .project-label { height: 34px; margin: 0; border-radius: 10px; background: transparent; }
+.sidebar .sidebar-project > .project-label:hover, .sidebar.has-project-tint .sidebar-project > .project-label:hover { background: var(--zli-hover); }
+.sidebar .project-toggle { gap: 10px; padding-left: 10px; font-size: var(--zli-text-base); font-weight: 500; }
+.sidebar .project-label .project-name { color: var(--zli-text); }
+.sidebar .project-label .project-chevron, .sidebar.has-project-tint .project-label .project-chevron { color: var(--zli-dim); }
+.sidebar.chat-tint-card .sidebar-project > :not(.project-label) { margin-inline: 0; }
+.sidebar .sidebar-project > .session-list { padding-left: 14px; }
+.sidebar .session-sub .session-name, .sidebar .session-name:not(.is-inline) { padding: 0; background: none; color: var(--zli-muted); }
+.sidebar:is(.chat-tint-card, .chat-tint-selection) .sidebar-project .session-row.is-active,
+.sidebar:is(.chat-tint-card, .chat-tint-selection) .sidebar-project .session-row.is-active:hover { background: var(--zli-active); }
