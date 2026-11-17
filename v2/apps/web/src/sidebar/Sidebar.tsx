@@ -40,6 +40,7 @@ import { Menu, type MenuAction, MenuButton, type MenuItem, type MenuRequest } fr
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
+import { AgentStack, chatAgents } from "./AgentStack.js";
 import { activityGroups } from "./activity.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { SessionDot } from "./SessionDot.js";
@@ -1015,7 +1016,7 @@ export function Sidebar({
             <span className="session-side is-stacked">
               <span className="session-time">{relativeTime(session.updatedAt, now)}</span>
               <span className="session-agent" aria-hidden="true">
-                <ProviderMark provider={session.provider} size={12} />
+                <AgentStack providers={chatAgents(session, subAgentsOf.get(session.sessionId))} size={12} />
               </span>
             </span>
           ) : (
@@ -1193,7 +1194,7 @@ export function Sidebar({
             ) : session.status === "failed" ? (
               <Icon name="alert" size={14} />
             ) : (
-              <ProviderMark provider={session.provider} size={14} />
+              <AgentStack providers={chatAgents(session, subAgents)} size={14} />
             )}
           </span>
           <span className="activity-copy">
