@@ -14,7 +14,8 @@
 .buddy-view-tag { color: inherit; cursor: default; font: inherit; transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); display: inline-flex; height: 34px; align-items: center; gap: var(--zli-space-2); padding: 0 14px 0 6px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-pill); background: var(--zli-raised); box-shadow: var(--zli-highlight); }
 .buddy-view-name { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
 .buddy-view-open { position: absolute; right: var(--zli-space-3); }
-.app-shell.is-columns .buddy-view-open { right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
+/* The details button keeps clear of the floating top bar and the window's buttons. */
+.app-shell:not(.has-panel) .buddy-view-open { right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
 .buddy-view-main .buddy-chat-column { padding-top: 60px; }
 
 .buddy-view-info { display: flex; width: 320px; min-height: 0; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-4); padding: 0 var(--zli-space-3) var(--zli-space-4); overflow-y: auto; border-left: 1px solid var(--zli-border); background: var(--zli-surface); }
@@ -231,14 +232,7 @@
 .buddy-list-empty { margin: var(--zli-space-2) 10px; color: var(--zli-dim); font-size: var(--zli-text-sm); }
 
 /* The chat's head: a bar with who it is with, not a floating tag. */
-.buddies-main.is-split .buddy-view-top { position: static; height: 60px; flex: 0 0 auto; align-items: center; justify-content: flex-start; gap: var(--zli-space-2); padding: 0 var(--zli-space-3) 0 var(--zli-space-4); border-bottom: 1px solid var(--zli-border); background: transparent; pointer-events: auto; }
-.buddies-main.is-split .buddy-view-tag { height: 46px; gap: 11px; padding: 0 12px 0 6px; border: 0; border-radius: 12px; background: transparent; box-shadow: none; text-align: left; }
-.buddies-main.is-split .buddy-view-tag:hover { background: var(--zli-hover); }
-.buddy-view-who { display: flex; min-width: 0; flex-direction: column; }
-.buddies-main.is-split .buddy-view-name { font-size: var(--zli-text-base); font-weight: 600; line-height: 1.25; }
 .buddy-view-meta { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.buddies-main.is-split .buddy-view-open { position: static; }
-.buddies-main.is-split .buddy-view-main .buddy-chat-column { padding-top: var(--zli-space-5); }
 .buddies-main.is-split .buddies-home { max-width: 820px; }
 @media (max-width: 860px) {
   .buddy-list { width: 232px; }
@@ -246,5 +240,6 @@
 /* The sidebar's switch sits in the panel's top-left corner; the list's head leaves room for it. */
 .app-shell:not(.is-sidebar-hidden) .buddy-list-head { padding-left: 52px; }
 /* The floating top bar sits over the detail's top-right corner; the chat's head keeps clear of it. */
-.app-shell:not(.has-panel) .buddies-main.is-split .buddy-view-top,
 .app-shell:not(.has-panel) .buddies-main.is-split .buddies-home-head { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
+/* With the sidebar folded, its switch sits alone in the corner (no New chat on these pages); the heads leave room. */
+.app-shell.is-sidebar-hidden :is(.buddy-list-head, .pr-list-head) { padding-left: calc(max(var(--zli-space-2), env(titlebar-area-x, 0px)) + 40px); }

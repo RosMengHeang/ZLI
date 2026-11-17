@@ -3139,7 +3139,8 @@ function WorkspaceApp() {
               shortcut={shortcuts.toggleSidebar}
               onClick={toggleSidebar}
             />
-            {!sidebarOpen && hasProjects ? (
+            {/* Buddies and Pull requests are pages, not chats: their corner keeps only the switch. */}
+            {!sidebarOpen && hasProjects && !buddyView && !pullView ? (
               <IconButton
                 label="New chat"
                 icon="squarePen"

@@ -227,16 +227,13 @@
    the bar's height, a hairline under it, and the same title size. */
 .buddies-main, .pr-page { overflow: hidden; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); }
 .app-shell.is-columns :is(.buddies-main, .pr-page) { border: 0; border-radius: 0; }
-:is(.buddy-list-head, .pr-list-head, .buddies-main.is-split .buddy-view-top, .buddies-main.is-split .buddies-home-head) {
+:is(.buddy-list-head, .pr-list-head, .buddies-main.is-split .buddies-home-head) {
   height: var(--zli-bar-height); flex: 0 0 auto; border-bottom: 1px solid var(--zli-border);
 }
-:is(.buddy-list-head, .pr-list-head) h2, .buddies-main.is-split .buddies-home-head h2, .buddies-main.is-split .buddy-view-name {
+:is(.buddy-list-head, .pr-list-head) h2, .buddies-main.is-split .buddies-home-head h2 {
   color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600;
 }
 .buddies-main.is-split .buddies-home-head { display: flex; align-items: center; padding: 0 var(--zli-space-4); }
-.buddies-main.is-split .buddy-view-top { padding-left: var(--zli-space-3); }
-.buddies-main.is-split .buddy-view-tag { height: 36px; gap: 9px; padding: 0 10px 0 4px; }
-.buddies-main.is-split .buddy-view-who { line-height: 1.2; }
 .buddy-list-scroll, .pr-list-scroll { padding-top: var(--zli-space-2); }
 .buddies-main.is-split .buddies-home .buddies-body { padding-top: var(--zli-space-4); }
 .buddies-main.is-split .buddies-home { max-width: none; }

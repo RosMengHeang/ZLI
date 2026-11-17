@@ -430,13 +430,12 @@ function BuddyPage({
   const [info, setInfo] = useState(false);
   const [tab, setTab] = useState<InfoTab>("activity");
   const mood = buddyMood(buddy, projection.tasks ?? []);
-  const jobsOpen = (projection.tasks ?? []).filter((task) => isOpenTask(task) && task.buddyId === buddy.buddyId).length;
   const title =
     buddy.role === "primary" ? "Primary buddy" : buddy.title && buddy.title !== buddy.name ? buddy.title : "";
   return (
     <div className="buddy-view">
       <div className="buddy-view-main">
-        {/* Who the chat is with: face, name, role, what runs it and how many jobs it has out. */}
+        {/* The chat runs under a floating name tag, like a message thread. */}
         <header className="buddy-view-top">
           <button
             type="button"
@@ -446,29 +445,18 @@ function BuddyPage({
             title={info ? "Hide details" : "Show details"}
             onClick={() => setInfo((open) => !open)}
           >
-            <BuddyAvatar buddy={buddy.color} size={26} mood={mood} />
-            <span className="buddy-view-who">
-              <h2 className="buddy-view-name">{buddy.name}</h2>
-              <span className="buddy-view-meta">
-                {[
-                  title || undefined,
-                  engineLabel(buddy, projection),
-                  jobsOpen > 0 ? `${jobsOpen} job${jobsOpen === 1 ? "" : "s"} open` : undefined,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </span>
+            <BuddyAvatar buddy={buddy.color} size={22} mood={mood} />
+            <h2 className="buddy-view-name">{buddy.name}</h2>
           </button>
-          <span className="buddy-spacer" />
-          <IconButton
-            className="buddy-view-open"
-            label={info ? "Hide details" : `About ${buddy.name}`}
-            tooltip={info ? "Hide details" : "Show details"}
-            icon="panelRight"
-            pressed={info}
-            onClick={() => setInfo((open) => !open)}
-          />
+          {info ? null : (
+            <IconButton
+              className="buddy-view-open"
+              label={`About ${buddy.name}`}
+              tooltip="Show details"
+              icon="panelRight"
+              onClick={() => setInfo(true)}
+            />
+          )}
         </header>
         {error}
         <BuddyChat
@@ -516,14 +504,6 @@ function BuddyPage({
       ) : null}
     </div>
   );
-}
-
-/** What runs the buddy's jobs, in a few words. */
-function engineLabel(buddy: BuddyProjection, projection: RuntimeProjection): string {
-  const engine = buddy.engine;
-  if (engine.mode === "auto") return "Auto";
-  const name = providerDisplayName(engine.provider, projection.providers);
-  return engine.mode === "locked" && engine.model ? `${name} · ${engine.model}` : name;
 }
 
 const STATUS_LABEL: Record<TaskProjection["status"], string> = {
