@@ -400,6 +400,21 @@ describe("BuddyChatReactor", () => {
     expect(state.buddyMessages?.at(-1)?.text).toContain("usage limit");
   });
 
+  it("starts a few jobs from one reply at most", async () => {
+    const { engine, settle, answer } = await setup();
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-many",
+      text: "Do all of these",
+    } as RuntimeCommand);
+    await settle();
+    const job = (goal: string) => `[[job]]\n${goal}\n[[/job]]`;
+    const state = await answer(["Starting.", ...["One", "Two", "Three", "Four", "Five"].map(job)].join("\n"));
+    expect(state.tasks).toHaveLength(3);
+    expect(state.buddyMessages?.at(-1)?.text).toContain("I started the first 3 jobs. Ask again for the other 2");
+  });
+
   it("tells the teammate who asked when the answer is not coming", async () => {
     const { engine, settle, deliver, answer } = await setup();
     await send(engine, {

@@ -27,6 +27,8 @@ export type BuddyChatReactorOptions = {
   checkEveryMs?: number;
 };
 
+/** The most jobs one reply may start. */
+const MAX_JOBS_PER_REPLY = 3;
 /** A chat reply that takes this long is stuck, not thinking: a big piece of work belongs in a job. */
 const STALL_MS = 10 * 60_000;
 /** An unattended chat waiting on a prompt has nobody to answer it. */
@@ -310,7 +312,12 @@ export class BuddyChatReactor {
     const fromTeammate = answered.some((message) => message.from);
     if (fromTeammate && (parsed.jobs.length > 0 || parsed.remember.length > 0))
       started.push("A teammate asked, so I only answered. Ask me yourself if you want me to start work on it.");
-    const jobs = fromTeammate ? [] : parsed.jobs;
+    // One message starts a few jobs at most, so a confused or misled reply cannot fill the queue.
+    const jobs = fromTeammate ? [] : parsed.jobs.slice(0, MAX_JOBS_PER_REPLY);
+    if (parsed.jobs.length > jobs.length && !fromTeammate)
+      started.push(
+        `I started the first ${MAX_JOBS_PER_REPLY} jobs. Ask again for the other ${parsed.jobs.length - jobs.length} once these are done.`,
+      );
     const remember = fromTeammate ? [] : parsed.remember;
     for (const [index, job] of jobs.entries()) {
       const project = projectNamed(state.projects, job.project);

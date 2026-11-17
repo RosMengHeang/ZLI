@@ -58,6 +58,7 @@ export type DomainErrorCode =
   | "handoff_invalid"
   | "memory_unsafe"
   | "handoff_limit"
+  | "job_limit"
   | "task_missing"
   | "task_closed"
   | "routine_missing"

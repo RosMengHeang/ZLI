@@ -6,6 +6,7 @@ import {
   CommandId,
   type EnvironmentDescriptor,
   EnvironmentId,
+  MAX_OPEN_JOBS,
   type ProviderDiscovery,
   type RuntimeCommand,
   type RuntimeProjection,
@@ -14,7 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
-import { stableId, TaskReactor } from "./TaskReactor.js";
+import { stableId, TaskReactor, type TaskReactorOptions } from "./TaskReactor.js";
 
 const environment: EnvironmentDescriptor = {
   environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000001"),
@@ -50,10 +51,10 @@ async function send(engine: Engine, command: RuntimeCommand) {
   });
 }
 
-async function setup() {
+async function setup(options: Partial<TaskReactorOptions> = {}) {
   const database = new Database({ path: ":memory:" });
   const engine = new Engine({ database, environment });
-  const reactor = new TaskReactor(engine, { providers: async () => providers });
+  const reactor = new TaskReactor(engine, { providers: async () => providers, ...options });
   const folder = mkdtempSync(join(tmpdir(), "zli-buddies-"));
   cleanup.push(
     () => rmSync(folder, { recursive: true, force: true }),
@@ -185,6 +186,50 @@ describe("TaskReactor", () => {
       });
     const state = await settle();
     expect(state.tasks?.map((task) => task.status)).toEqual(["preparing", "preparing", "queued"]);
+  });
+
+  it("stops a job whose agent runs one turn past the limit, and says why", async () => {
+    let clock = Date.now();
+    const { engine, projectId, settle, runtime } = await setup({ now: () => new Date(clock), checkEveryMs: 5 });
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "t1", buddyId: "b1", projectId, kind: "job", goal: "Refactor", origin: { kind: "chat" } },
+    });
+    let state = await runtime();
+    const threadId = state.tasks?.[0]?.threadId as string;
+    await send(engine, { type: "thread.status", threadId, status: "working", turnId: "00000000-0000-4000-8000-0000000000aa" } as RuntimeCommand);
+    state = await settle();
+    expect(state.tasks?.[0]?.status).toBe("working");
+
+    clock += 91 * 60_000;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    state = await settle();
+    expect(state.tasks?.[0]).toMatchObject({
+      status: "failed",
+      needs: { kind: "stuck", text: expect.stringContaining("over 90 minutes") },
+    });
+  });
+
+  it("refuses more jobs than a buddy may hold open", async () => {
+    const { engine, projectId } = await setup();
+    await send(engine, { type: "buddies.pause" } as RuntimeCommand);
+    for (let index = 0; index < MAX_OPEN_JOBS; index += 1)
+      await send(engine, {
+        type: "task.assign",
+        task: {
+          taskId: `t${index}`,
+          buddyId: "b1",
+          projectId,
+          kind: "job",
+          goal: `Job ${index}`,
+          origin: { kind: "chat" },
+        },
+      });
+    const refused = await send(engine, {
+      type: "task.assign",
+      task: { taskId: "t-over", buddyId: "b1", projectId, kind: "job", goal: "One more", origin: { kind: "chat" } },
+    });
+    expect(refused).toMatchObject({ status: "rejected", error: { code: "job_limit" } });
   });
 
   it("starts nothing while buddies are paused", async () => {

@@ -6,6 +6,7 @@ import {
   isOpenTask,
   MAX_BUDDIES,
   MAX_HANDOFF_DEPTH,
+  MAX_OPEN_JOBS,
   type RuntimeProjection,
   screenNote,
   type TaskProjection,
@@ -211,6 +212,12 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
         );
       if (parent && parent.buddyId === buddy.buddyId && command.task.origin.kind === "agent")
         throw new DomainError("handoff_invalid", "Hand this to another buddy, not yourself.");
+      const open = (projection.tasks ?? []).filter((task) => task.buddyId === buddy.buddyId && isOpenTask(task)).length;
+      if (open >= MAX_OPEN_JOBS)
+        throw new DomainError(
+          "job_limit",
+          `${buddy.name} already has ${open} jobs open. Finish or drop some before giving it more.`,
+        );
       return [{ type: "task.assigned", task: { ...command.task, kind: command.task.kind ?? "job" }, handoffDepth }];
     }
     case "task.prepare": {

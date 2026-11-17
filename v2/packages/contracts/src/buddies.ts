@@ -30,6 +30,8 @@ export const MAX_ACTIVE_JOBS_PER_BUDDY = 2;
 export const MAX_ACTIVE_JOBS = 6;
 /** A buddy can hand work on, and that buddy can hand it on again, this many times. */
 export const MAX_HANDOFF_DEPTH = 3;
+/** The most open jobs one buddy may hold, running and waiting, so no loop or misled reply can pile up work. */
+export const MAX_OPEN_JOBS = 12;
 export const DEFAULT_HANDOFF_ROUNDS = 2;
 export const MAX_MEMORY_NOTES = 40;
 export const MAX_PENDING_NOTES = 10;

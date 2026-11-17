@@ -30,7 +30,14 @@ export type TaskReactorOptions = {
   usage?: () => Promise<ReadonlyMap<string, number>>;
   now?: () => Date;
   onError?: (error: unknown) => void;
+  /** How long one turn of a job's agent may run before ZLI stops it, so a stuck agent cannot run up the plan. */
+  turnLimitMs?: number;
+  /** How often running jobs are looked at again, so a turn over the limit is noticed without new events. */
+  checkEveryMs?: number;
 };
+
+/** One turn of a job's agent past this is stuck or looping, not working. */
+const TURN_LIMIT_MS = 90 * 60_000;
 
 /** A stable id from a key, shaped as a UUID, so a restart repeats the same commands instead of new ones. */
 export function stableId(key: string): string {
@@ -75,6 +82,7 @@ export class TaskReactor {
   private dirty = false;
   private reactions: RuntimeEventEnvelope[] = [];
   private readonly now: () => Date;
+  private readonly timer: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly engine: Engine,
@@ -82,11 +90,14 @@ export class TaskReactor {
   ) {
     this.now = options.now ?? (() => new Date());
     this.unsubscribe = engine.subscribe((envelope) => this.observe(envelope));
+    this.timer = setInterval(() => this.schedule(), options.checkEveryMs ?? 60_000);
+    this.timer.unref?.();
     this.schedule();
   }
 
   stop(): void {
     this.unsubscribe();
+    clearInterval(this.timer);
   }
 
   async waitForIdle(): Promise<void> {
@@ -352,6 +363,21 @@ export class TaskReactor {
       return;
     }
     if (task.status === "needs_you") return;
+    if (thread.status === "working") {
+      const turn = (state.turns ?? []).findLast((entry) => entry.threadId === thread.threadId && !entry.completedAt);
+      const limit = this.options.turnLimitMs ?? TURN_LIMIT_MS;
+      if (turn && this.now().getTime() - Date.parse(turn.startedAt) > limit) {
+        await this.dispatch(
+          { type: "thread.stop", threadId: thread.threadId } as RuntimeCommand,
+          `task:${task.taskId}:overtime:${turn.turnId}`,
+        );
+        await this.fail(
+          task,
+          `It worked for over ${Math.round(limit / 60_000)} minutes without finishing, so I stopped it. Try again, or split it into smaller jobs.`,
+        );
+        return;
+      }
+    }
     if (thread.usageLimit) {
       await this.switchAway(state, task, `${task.pick?.model ?? thread.provider} hit its usage limit`);
       return;
