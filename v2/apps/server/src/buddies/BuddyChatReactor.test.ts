@@ -400,6 +400,36 @@ describe("BuddyChatReactor", () => {
     expect(state.buddyMessages?.at(-1)?.text).toContain("usage limit");
   });
 
+  it("says in the asking buddy's chat when it gives a job to a teammate", async () => {
+    const { engine, settle, answer } = await setup();
+    await send(engine, {
+      type: "buddy.create",
+      buddy: {
+        buddyId: "b2",
+        name: "Tester",
+        color: "jade",
+        role: "buddy",
+        engine: { mode: "auto" },
+        permissionMode: "full-access",
+        maxActiveJobs: 1,
+        handoffs: [],
+      },
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-give",
+      text: "Have Tester add tests",
+    } as RuntimeCommand);
+    await settle();
+    const state = await answer('Tester will do it.\n[[job buddy="Tester"]]\nAdd tests for the login page.\n[[/job]]');
+    expect(state.tasks?.map((task) => task.buddyId)).toEqual(["b2"]);
+    expect(state.buddyMessages?.filter((message) => message.buddyId === "b1").at(-1)).toMatchObject({
+      to: "b2",
+      text: "New job: Add tests for the login page.",
+    });
+  });
+
   it("starts a few jobs from one reply at most", async () => {
     const { engine, settle, answer } = await setup();
     await send(engine, {

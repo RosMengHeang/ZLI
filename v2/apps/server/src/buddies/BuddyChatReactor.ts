@@ -319,6 +319,8 @@ export class BuddyChatReactor {
         `I started the first ${MAX_JOBS_PER_REPLY} jobs. Ask again for the other ${parsed.jobs.length - jobs.length} once these are done.`,
       );
     const remember = fromTeammate ? [] : parsed.remember;
+    // Messages to teammates and jobs handed to them, each shown in this chat as its own note addressed to them.
+    const sent: Array<{ to: string; text: string; key: string }> = [];
     for (const [index, job] of jobs.entries()) {
       const project = projectNamed(state.projects, job.project);
       const worker = (job.buddy ? buddyNamed(state, job.buddy) : undefined) ?? buddy;
@@ -342,6 +344,13 @@ export class BuddyChatReactor {
       );
       if (receipt.status === "rejected")
         started.push(`That job did not start: ${receipt.error?.message ?? "it was refused"}.`);
+      // A job given to a teammate runs in their chat; this chat says where it went.
+      else if (!worker.archived && worker.buddyId !== buddy.buddyId)
+        sent.push({
+          to: worker.buddyId,
+          text: `New job: ${job.goal.slice(0, 600)}`,
+          key: `job:${answer.messageId}:${index}`,
+        });
     }
     for (const [index, note] of remember.entries()) {
       const receipt = await this.dispatch(
@@ -355,7 +364,6 @@ export class BuddyChatReactor {
       if (receipt.status === "rejected") started.push(receipt.error?.message ?? "I did not keep that note.");
     }
     // A teammate's message is answered once and not passed on, so two buddies never message each other in a loop.
-    const sent: Array<{ to: string; text: string; key: string }> = [];
     if (!fromTeammate)
       for (const [index, tell] of parsed.tells.entries()) {
         const target = buddyNamed(state, tell.buddy);

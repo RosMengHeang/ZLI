@@ -197,7 +197,12 @@ describe("TaskReactor", () => {
     });
     let state = await runtime();
     const threadId = state.tasks?.[0]?.threadId as string;
-    await send(engine, { type: "thread.status", threadId, status: "working", turnId: "00000000-0000-4000-8000-0000000000aa" } as RuntimeCommand);
+    await send(engine, {
+      type: "thread.status",
+      threadId,
+      status: "working",
+      turnId: "00000000-0000-4000-8000-0000000000aa",
+    } as RuntimeCommand);
     state = await settle();
     expect(state.tasks?.[0]?.status).toBe("working");
 
