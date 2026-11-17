@@ -446,7 +446,7 @@ function BuddyPage({
             title={info ? "Hide details" : "Show details"}
             onClick={() => setInfo((open) => !open)}
           >
-            <BuddyAvatar buddy={buddy.color} size={34} mood={mood} />
+            <BuddyAvatar buddy={buddy.color} size={26} mood={mood} />
             <span className="buddy-view-who">
               <h2 className="buddy-view-name">{buddy.name}</h2>
               <span className="buddy-view-meta">

@@ -121,6 +121,19 @@ export function PullRequestsPage({
         </div>
       </nav>
       <div className="pr-page-detail">
+        {/* The same bar as a chat's head: which pull request, and from which branch into which. */}
+        <header className="pr-page-head">
+          {selected ? (
+            <>
+              <Icon name={selected.pullRequest.state === "MERGED" ? "merge" : "pullRequest"} size={15} />
+              <span className="pr-page-head-title">#{selected.pullRequest.number}</span>
+              <span className="pr-page-head-branch">
+                {selected.pullRequest.headRefName ?? selected.worktree.branch}
+                {selected.pullRequest.baseRefName ? ` → ${selected.pullRequest.baseRefName}` : ""}
+              </span>
+            </>
+          ) : null}
+        </header>
         {selected ? (
           <PullRequestPane
             worktree={selected.worktree}

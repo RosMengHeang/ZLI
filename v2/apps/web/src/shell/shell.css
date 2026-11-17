@@ -221,3 +221,29 @@
 .columns-lead:not(.is-sidebar-hidden) { padding-left: var(--zli-space-2); }
 .app-shell:not(.is-sidebar-hidden) .tile-header { padding-left: 44px; }
 .app-shell.is-columns:not(.is-sidebar-hidden) .columns-lead { left: 0; }
+
+/* ---------- Pages in the main panel ---------- */
+/* Buddies and Pull requests sit in the same rounded panel as a chat, and their heads match a chat's head:
+   the bar's height, a hairline under it, and the same title size. */
+.buddies-main, .pr-page { overflow: hidden; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); }
+.app-shell.is-columns :is(.buddies-main, .pr-page) { border: 0; border-radius: 0; }
+:is(.buddy-list-head, .pr-list-head, .buddies-main.is-split .buddy-view-top, .buddies-main.is-split .buddies-home-head) {
+  height: var(--zli-bar-height); flex: 0 0 auto; border-bottom: 1px solid var(--zli-border);
+}
+:is(.buddy-list-head, .pr-list-head) h2, .buddies-main.is-split .buddies-home-head h2, .buddies-main.is-split .buddy-view-name {
+  color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600;
+}
+.buddies-main.is-split .buddies-home-head { display: flex; align-items: center; padding: 0 var(--zli-space-4); }
+.buddies-main.is-split .buddy-view-top { padding-left: var(--zli-space-3); }
+.buddies-main.is-split .buddy-view-tag { height: 36px; gap: 9px; padding: 0 10px 0 4px; }
+.buddies-main.is-split .buddy-view-who { line-height: 1.2; }
+.buddy-list-scroll, .pr-list-scroll { padding-top: var(--zli-space-2); }
+.buddies-main.is-split .buddies-home .buddies-body { padding-top: var(--zli-space-4); }
+.buddies-main.is-split .buddies-home { max-width: none; }
+.buddies-main.is-split .buddies-home .buddies-body { width: 100%; max-width: 820px; margin: 0 auto; }
+.pr-page-head { display: flex; height: var(--zli-bar-height); flex: 0 0 auto; align-items: center; gap: 8px; padding: 0 var(--zli-space-4); border-bottom: 1px solid var(--zli-border); color: var(--zli-muted); }
+.app-shell:not(.has-panel) .pr-page-head { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
+.pr-page-head-title { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pr-page-head-branch { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.pr-page-detail > .pr-page-head { max-width: none; }
+.pr-page-head { position: sticky; top: 0; z-index: 1; background: var(--zli-surface); }
