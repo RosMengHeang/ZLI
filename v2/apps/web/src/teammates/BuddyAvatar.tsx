@@ -1,8 +1,10 @@
+import type { BuddyLook } from "@zli-v2/contracts";
 import { useEffect, useRef, useState } from "react";
-
 import { useAppSettings } from "../settings/appSettings.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+
 import { type Buddy, buddyHex } from "./buddies.js";
+import { PixelBody } from "./pixelBuddies.js";
 import "./buddy.css";
 
 /**
@@ -16,9 +18,6 @@ const LARGE = 40;
 
 const ACK_MS = 600;
 const DONE_MS = 2_400;
-
-/** Eyes are dark on every buddy color. */
-const EYE = "#16151a";
 
 /** The mood for an agent's status. A task arriving gets a hop, and a turn that just ended looks happy for a moment. */
 export function useAvatarMood(status: string | undefined, stepRunning: boolean): AvatarMood {
@@ -57,6 +56,7 @@ const flagFor: Partial<Record<AvatarMood, string>> = { waiting: "", done: " is-d
 
 export function BuddyAvatar({
   buddy,
+  look = "blob",
   mood = "idle",
   size = 24,
   provider,
@@ -64,6 +64,8 @@ export function BuddyAvatar({
   className,
 }: {
   buddy: Buddy;
+  /** Its pixel body. */
+  look?: BuddyLook | undefined;
   mood?: AvatarMood;
   size?: number;
   /** Draws the agent's own mark in the corner, so the buddy never hides which agent it is. */
@@ -90,7 +92,7 @@ export function BuddyAvatar({
       {...(name ? { role: "img", "aria-label": `${name}, ${moodText[mood]}` } : { "aria-hidden": true })}
       title={name ? `${name}, ${moodText[mood]}` : undefined}
     >
-      <TileArt buddy={buddy} mood={mood} size={size} />
+      <TileArt buddy={buddy} look={look} mood={mood} size={size} />
       {flag !== undefined ? <span className={`buddy-avatar-flag${flag}`} aria-hidden="true" /> : null}
       {provider && size >= 20 ? (
         <span className="buddy-avatar-mark" aria-hidden="true">
@@ -102,10 +104,20 @@ export function BuddyAvatar({
 }
 
 /**
- * The buddy: a rounded square in its color with two dark bar eyes. Plain SVG with its colors inline, so it also
- * draws outside the page (notification icons).
+ * The buddy: its pixel body in its color, with eyes that carry the mood. Plain SVG with its colors inline, so it
+ * also draws outside the page (notification icons).
  */
-export function TileArt({ buddy, mood = "idle", size }: { buddy: Buddy; mood?: AvatarMood; size: number }) {
+export function TileArt({
+  buddy,
+  look = "blob",
+  mood = "idle",
+  size,
+}: {
+  buddy: Buddy;
+  look?: BuddyLook | undefined;
+  mood?: AvatarMood;
+  size: number;
+}) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -116,79 +128,8 @@ export function TileArt({ buddy, mood = "idle", size }: { buddy: Buddy; mood?: A
       aria-hidden="true"
     >
       <g className="buddy-root">
-        <rect x="2" y="2" width="28" height="28" rx="8.4" fill={buddyHex(buddy)} />
-        <g className="buddy-face">
-          <TileEyes mood={mood} />
-        </g>
+        <PixelBody look={look} color={buddyHex(buddy)} mood={mood} />
       </g>
     </svg>
   );
 }
-
-const EYE_WIDTH = 3.6;
-const EYE_XS = [10.4, 18];
-
-/** Two bar eyes. Their height and place carry the mood; a few moods draw a shape instead. */
-function TileEyes({ mood }: { mood: AvatarMood }) {
-  const line = {
-    stroke: EYE,
-    strokeWidth: 1.9,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    fill: "none",
-  };
-  const mid = 15.4;
-  switch (mood) {
-    case "done":
-      return (
-        <>
-          {EYE_XS.map((x) => (
-            <path
-              key={x}
-              d={`M${x - 0.4} ${mid + 1.2} L${x + EYE_WIDTH / 2} ${mid - 1.4} L${x + EYE_WIDTH + 0.4} ${mid + 1.2}`}
-              {...line}
-            />
-          ))}
-        </>
-      );
-    case "failed":
-      return (
-        <>
-          {EYE_XS.map((x) => (
-            <path
-              key={x}
-              d={`M${x} ${mid - 1.8} L${x + EYE_WIDTH} ${mid + 1.8} M${x + EYE_WIDTH} ${mid - 1.8} L${x} ${mid + 1.8}`}
-              {...line}
-            />
-          ))}
-        </>
-      );
-    case "stopped":
-      return (
-        <>
-          {EYE_XS.map((x) => (
-            <path key={x} d={`M${x - 0.4} ${mid + 0.8} H${x + EYE_WIDTH + 0.4}`} {...line} />
-          ))}
-        </>
-      );
-    default: {
-      const { y, height, shift } = BARS[mood] ?? BARS.idle;
-      return (
-        <g className="buddy-eyes">
-          {EYE_XS.map((x) => (
-            <rect key={x} x={x + shift} y={y} width={EYE_WIDTH} height={height} rx="1.2" fill={EYE} />
-          ))}
-        </g>
-      );
-    }
-  }
-}
-
-const BARS: Partial<Record<AvatarMood, { y: number; height: number; shift: number }>> & {
-  idle: { y: number; height: number; shift: number };
-} = {
-  idle: { y: 10.4, height: 10, shift: 0 },
-  working: { y: 10.4, height: 10, shift: 1.3 },
-  thinking: { y: 7.6, height: 7.8, shift: 0.9 },
-  waiting: { y: 8.2, height: 12.9, shift: 0 },
-};

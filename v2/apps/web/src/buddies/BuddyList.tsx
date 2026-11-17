@@ -12,6 +12,7 @@ import { ConfirmDialog } from "../review/ConfirmDialog.js";
 
 import { relativeTime } from "../sessions/sessions.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
+import { lookOf } from "../teammates/pixelBuddies.js";
 import { IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuRequest } from "../ui/Menu.js";
@@ -156,7 +157,7 @@ export function BuddyList({
                   className="buddy-list-row is-needs"
                   onClick={() => onSelect(buddy.buddyId)}
                 >
-                  <BuddyAvatar buddy={buddy.color} size={36} mood="waiting" />
+                  <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={36} mood="waiting" />
                   <span className="buddy-list-text">
                     <span className="buddy-list-name">
                       {buddy.name}
@@ -199,7 +200,7 @@ export function BuddyList({
                     onClick={() => onSelect(buddy.buddyId)}
                     onContextMenu={(event) => openMenu(event, buddy)}
                   >
-                    <BuddyAvatar buddy={buddy.color} size={36} mood={mood} name={buddy.name} />
+                    <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={36} mood={mood} name={buddy.name} />
                     <span className="buddy-list-text">
                       <span className="buddy-list-name buddies-row-name">
                         <span className="buddy-list-person">{buddy.name}</span>

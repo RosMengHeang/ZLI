@@ -290,3 +290,26 @@
 /* In Team settings the model picker spans the dialog, its three choices sharing the width evenly. */
 .team-settings .segmented { display: flex; width: 100%; }
 .team-settings .segmented-item { flex: 1 1 0; justify-content: center; text-align: center; }
+
+/* Picking a body: each one drawn in the buddy's color, its name under it. */
+.buddy-bodies { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; border: 0; }
+.buddy-body-choice { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px 6px; border: 1px solid var(--zli-border); border-radius: 12px; background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-2xs); transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); }
+.buddy-body-choice:hover { background: var(--zli-hover); }
+.buddy-body-choice[aria-pressed="true"] { border-color: var(--zli-accent-line); background: var(--zli-accent-soft); color: var(--zli-text); }
+.buddy-view-info .buddy-bodies { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: var(--zli-space-2); }
+
+/* ---------- The buddy's bubbles ---------- */
+/* Its words sit in a grey bubble on the left, the same grey as yours: two sides of one chat. */
+.buddy-chat-say.is-bubble { align-self: flex-start; max-width: min(85%, 640px); padding: 10px 16px; border-radius: 20px 20px 20px 6px; background: var(--zli-overlay); }
+
+/* ---------- The message box ---------- */
+/* One rounded pill: a round + to attach, the words, and a round send button in the buddy's color. */
+.buddy-chat-dock .buddy-chat-composer, .buddy-chat-composer { padding: 7px; border-radius: 999px; }
+.buddy-chat-composer:has(.buddy-chat-files) { border-radius: 24px; }
+.buddy-chat-row { align-items: center; gap: 8px; }
+.buddy-chat-attach.btn { width: 34px; height: 34px; border-radius: 50%; background: var(--zli-active); color: var(--zli-text); }
+.buddy-chat-attach.btn:hover { background: var(--zli-pressed); }
+.buddy-chat-input { padding: 6px 2px; }
+.buddy-chat-composer .send-button:not(.is-stop) { width: 34px; height: 34px; background: var(--buddy, var(--zli-text)); color: var(--buddy-ink, #fff); }
+.buddy-chat-composer .send-button:not(.is-stop):hover:not(:disabled) { background: color-mix(in srgb, var(--buddy, var(--zli-text)) 85%, #fff); }
+.buddy-chat-composer .send-button:not(.is-stop):disabled { background: color-mix(in srgb, var(--buddy, var(--zli-text)) 35%, var(--zli-overlay)); color: color-mix(in srgb, #fff 60%, transparent); }

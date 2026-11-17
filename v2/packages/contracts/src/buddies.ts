@@ -25,6 +25,11 @@ export const BUDDY_COLORS = [
 export const BuddyColor = z.enum(BUDDY_COLORS);
 export type BuddyColor = z.infer<typeof BuddyColor>;
 
+/** The buddy's body, drawn in pixels: picked when it is made, changeable later. */
+export const BUDDY_LOOKS = ["bot", "blob", "critter", "ghost", "sprout", "jelly"] as const;
+export const BuddyLook = z.enum(BUDDY_LOOKS);
+export type BuddyLook = z.infer<typeof BuddyLook>;
+
 export const MAX_BUDDIES = 24;
 export const MAX_ACTIVE_JOBS_PER_BUDDY = 2;
 export const MAX_ACTIVE_JOBS = 6;
@@ -144,6 +149,8 @@ export const BuddyProjection = z.object({
   buddyId: Id,
   name: BuddyName,
   color: BuddyColor,
+  /** Its body. Buddies from before bodies have none, and one is picked for them from their id. */
+  look: BuddyLook.optional(),
   /** What the buddy is for, such as Tester. */
   title: z.string().trim().min(1).max(40).optional(),
   role: z.enum(["primary", "buddy"]),
@@ -370,6 +377,7 @@ export const BuddyChanges = z
   .object({
     name: BuddyName,
     color: BuddyColor,
+    look: BuddyLook,
     title: z.string().trim().max(40),
     engine: BuddyEngine,
     instructions: z.string().max(4_000),

@@ -1,4 +1,5 @@
 import {
+  type BuddyLook,
   type BuddyProjection,
   firstSentence,
   isActiveTask,
@@ -18,6 +19,7 @@ import { getBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { type AvatarMood, BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { type Buddy, buddyHex } from "../teammates/buddies.js";
+import { lookOf } from "../teammates/pixelBuddies.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { triggerLabel } from "./team.js";
@@ -25,7 +27,7 @@ import "./buddyChat.css";
 
 type Run = (command: Record<string, unknown>) => Promise<boolean>;
 
-type Who = { name: string; color: Buddy };
+type Who = { name: string; color: Buddy; look?: BuddyLook | undefined };
 
 /** One entry in a buddy's chat. Conversation, events and cards share one timeline. */
 export type ChatItem =
@@ -58,7 +60,7 @@ export type ChatItem =
 
 function who(state: RuntimeProjection, buddyId: string): Who | undefined {
   const buddy = state.buddies?.find((entry) => entry.buddyId === buddyId);
-  return buddy ? { name: buddy.name, color: buddy.color } : undefined;
+  return buddy ? { name: buddy.name, color: buddy.color, look: lookOf(buddy) } : undefined;
 }
 
 /** What the buddy says when a job ends, before its card. */
@@ -346,7 +348,7 @@ export function BuddyChat({
         <div className="buddy-chat-column">
           {items.length === 0 ? (
             <div className="buddy-chat-empty">
-              <BuddyAvatar buddy={buddy.color} size={64} name={buddy.name} />
+              <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={64} name={buddy.name} />
               <h3>{buddy.name}</h3>
               <p>
                 {buddy.role === "primary"
@@ -381,6 +383,13 @@ export function BuddyChat({
 
 const TEAMMATE_WAY = { asked: "asked", replied: "replied", sent: "To" } as const;
 
+/** Dark ink on a light buddy color, white on the rest, so the send arrow always reads. */
+function inkOn(hex: string): string {
+  const value = Number.parseInt(hex.slice(1), 16);
+  const light = 0.299 * (value >> 16) + 0.587 * ((value >> 8) & 255) + 0.114 * (value & 255);
+  return light > 170 ? "#16151a" : "#ffffff";
+}
+
 /** How the runtime words a job handed to a teammate in the giver's chat. */
 const JOB_NOTE = "New job: ";
 
@@ -403,7 +412,7 @@ function JobLine({ who, job }: { who: Who; job: { goal: string; status: TaskProj
   const state = job.status ? JOB_STATE[job.status] : { mood: "idle" as const, label: "Sent", tone: "quiet" };
   return (
     <div className="buddy-chat-job" style={{ "--teammate": buddyHex(who.color) } as CSSProperties}>
-      <BuddyAvatar buddy={who.color} mood={state.mood} size={22} />
+      <BuddyAvatar buddy={who.color} look={who.look} mood={state.mood} size={22} />
       <span className="buddy-chat-job-text">
         <strong>{who.name}</strong> <span>{job.goal}</span>
       </span>
@@ -424,7 +433,7 @@ function TeammateNote({ item }: { item: Extract<ChatItem, { kind: "teammate" }> 
       style={{ "--teammate": buddyHex(item.who.color) } as CSSProperties}
     >
       <figcaption className="buddy-chat-teammate-head">
-        <BuddyAvatar buddy={item.who.color} size={16} />
+        <BuddyAvatar buddy={item.who.color} look={item.who.look} size={16} />
         {item.way === "sent" ? (
           <span>
             {TEAMMATE_WAY.sent} <strong>{item.who.name}</strong>
@@ -461,7 +470,8 @@ function ChatEntry({
     case "say":
       return (
         <>
-          <div className="buddy-chat-say">{item.text}</div>
+          {/* The buddy talks in a grey bubble on the left, like the other side of any chat. */}
+          <div className="buddy-chat-say is-bubble">{item.text}</div>
           {item.resend && onResend ? (
             <div className="buddy-chat-resend">
               <Button size="sm" icon="reload" onClick={() => onResend(item.resend as string)}>
@@ -476,7 +486,11 @@ function ChatEntry({
     case "event":
       return (
         <div className="buddy-chat-event">
-          {item.who ? <BuddyAvatar buddy={item.who.color} size={14} /> : <Icon name={item.icon} size={12} />}
+          {item.who ? (
+            <BuddyAvatar buddy={item.who.color} look={item.who.look} size={14} />
+          ) : (
+            <Icon name={item.icon} size={12} />
+          )}
           <span>{item.text}</span>
           {item.threadId ? (
             <button type="button" className="buddy-chat-open" onClick={() => onOpenThread(item.threadId as string)}>
@@ -524,7 +538,7 @@ function LiveRow({
   return (
     <div className="buddy-chat-live" title={preparing ? "Setting up its worktree" : liveStepLabel(steps.at(-1))}>
       <div className="buddy-chat-live-head">
-        <BuddyAvatar buddy={buddy.color} size={18} mood="working" name={buddy.name} />
+        <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} size={18} mood="working" name={buddy.name} />
         <span>{preparing ? "Setting up its worktree…" : "Working…"}</span>
         {task.threadId ? (
           <button type="button" className="buddy-chat-open" onClick={() => onOpenThread(task.threadId as string)}>
@@ -594,6 +608,8 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
   return (
     <form
       className="buddy-chat-composer"
+      // The send button wears the buddy's color.
+      style={{ "--buddy": buddyHex(buddy.color), "--buddy-ink": inkOn(buddyHex(buddy.color)) } as CSSProperties}
       onSubmit={(event) => void send(event)}
       onDragOver={(event) => {
         if (event.dataTransfer.types.includes("Files")) event.preventDefault();
@@ -623,7 +639,7 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
         <IconButton
           label="Attach files"
           tooltip="Attach files. You can also drop them here"
-          icon="paperclip"
+          icon="plus"
           className="buddy-chat-attach"
           onClick={() => picker.current?.click()}
         />

@@ -1,6 +1,7 @@
 import {
   type BuddyColor,
   type BuddyEngine,
+  BuddyLook,
   BuddyName,
   type BuddyProjection,
   type PermissionMode,
@@ -14,6 +15,7 @@ import { z } from "zod";
 export type BuddyTemplate = {
   title: string;
   color: BuddyColor;
+  look: BuddyLook;
   permissionMode: PermissionMode;
   instructions: string;
   /** What the template is for, in the picker. */
@@ -24,6 +26,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   {
     title: "Primary",
     color: "tangerine",
+    look: "bot",
     permissionMode: "supervised",
     blurb: "Plans bigger asks, hands out jobs, and answers what everyone is doing",
     instructions:
@@ -32,6 +35,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   {
     title: "Builder",
     color: "sky",
+    look: "blob",
     permissionMode: "full-access",
     blurb: "Builds features and fixes bugs",
     instructions:
@@ -40,6 +44,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   {
     title: "Tester",
     color: "jade",
+    look: "critter",
     permissionMode: "full-access",
     blurb: "Writes tests and checks other buddies' work",
     instructions:
@@ -48,6 +53,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   {
     title: "Reviewer",
     color: "indigo",
+    look: "ghost",
     permissionMode: "read-only",
     blurb: "Reads changes and leaves clear notes",
     instructions:
@@ -56,6 +62,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   {
     title: "Docs",
     color: "butter",
+    look: "sprout",
     permissionMode: "full-access",
     blurb: "Keeps READMEs, guides and changelogs current",
     instructions:
@@ -64,6 +71,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   {
     title: "Release",
     color: "orchid",
+    look: "jelly",
     permissionMode: "supervised",
     blurb: "Writes release notes and gets versions ready",
     instructions:
@@ -72,6 +80,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   {
     title: "Bug triage",
     color: "tomato",
+    look: "bot",
     permissionMode: "read-only",
     blurb: "Reproduces reports and finds the cause",
     instructions:
@@ -87,6 +96,7 @@ export type NewBuddy = {
   buddyId: string;
   name: string;
   color: BuddyColor;
+  look?: BuddyLook;
   title?: string;
   role: "primary" | "buddy";
   engine: BuddyEngine;
@@ -101,6 +111,7 @@ export function buddyFromTemplate(id: string, name: string, entry: BuddyTemplate
     buddyId: id,
     name,
     color: entry.color,
+    look: entry.look,
     title: entry.title,
     role: entry.title === "Primary" ? "primary" : "buddy",
     engine: { mode: "auto" },
@@ -215,6 +226,7 @@ export const BuddyFile = z.object({
   buddy: z.object({
     name: BuddyName,
     color: z.string(),
+    look: BuddyLook.optional(),
     title: z.string().max(40).optional(),
     instructions: z.string().max(4_000).optional(),
     engine: z.unknown(),
@@ -233,6 +245,7 @@ export function exportBuddy(buddy: BuddyProjection, routines: readonly RoutinePr
     buddy: {
       name: buddy.name,
       color: buddy.color,
+      ...(buddy.look ? { look: buddy.look } : {}),
       ...(buddy.title ? { title: buddy.title } : {}),
       ...(buddy.instructions ? { instructions: buddy.instructions } : {}),
       engine: buddy.engine,

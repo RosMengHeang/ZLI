@@ -63,7 +63,8 @@ describe("BuddyAvatar", () => {
     const page = show(<BuddyAvatar buddy="sky" mood="waiting" size={22} />);
     expect(page.querySelector(".buddy-avatar")?.classList.contains("is-still")).toBe(true);
     expect(page.querySelector(".buddy-avatar-flag")).not.toBeNull();
-    expect(page.querySelector('rect[height="12.9"]')).not.toBeNull();
+    // Waiting eyes are three pixels tall, six in all.
+    expect(page.querySelectorAll(".buddy-eyes rect")).toHaveLength(6);
   });
 
   it("draws for notifications with its colors inline", () => {

@@ -1,9 +1,10 @@
-import type { BuddyColor, PermissionMode, RuntimeProjection } from "@zli-v2/contracts";
+import type { BuddyColor, BuddyLook, PermissionMode, RuntimeProjection } from "@zli-v2/contracts";
 import { type FormEvent, useRef, useState } from "react";
 
 import { makeCommandId } from "../runtime/commandId.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { BUDDY_COLOR_NAMES, buddyHex } from "../teammates/buddies.js";
+import { BODIES, BUDDY_LOOKS, lookOf } from "../teammates/pixelBuddies.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Segmented } from "../ui/Segmented.js";
@@ -17,6 +18,12 @@ const ACCESS: readonly { value: PermissionMode; label: string; tooltip: string }
   { value: "supervised", label: "Ask first", tooltip: "Asks you before it edits files or runs commands" },
   { value: "full-access", label: "Full access", tooltip: "Edits and runs commands in its own worktree" },
 ];
+
+/** The first body nobody on the team has yet, so a new buddy stands apart. */
+function freeLook(projection: RuntimeProjection): BuddyLook {
+  const used = new Set((projection.buddies ?? []).filter((buddy) => !buddy.archived).map((buddy) => lookOf(buddy)));
+  return BUDDY_LOOKS.find((look) => !used.has(look)) ?? "blob";
+}
 
 /** The first color nobody on the team wears yet, so a new buddy stands apart. */
 function freeColor(projection: RuntimeProjection, wanted: BuddyColor): BuddyColor {
@@ -44,6 +51,7 @@ export function NewBuddyDialog({
   const [role, setRole] = useState(first.title);
   const [name, setName] = useState("");
   const [color, setColor] = useState<BuddyColor>(() => freeColor(projection, first.color));
+  const [look, setLook] = useState<BuddyLook>(() => freeLook(projection));
   const [access, setAccess] = useState<PermissionMode>(first.permissionMode);
   const [instructions, setInstructions] = useState(first.instructions);
   const touched = useRef({ color: false, instructions: false });
@@ -65,6 +73,7 @@ export function NewBuddyDialog({
     const buddy = {
       ...buddyFromTemplate(buddyId, freeName(shownName, projection.buddies ?? []), entry),
       color,
+      look,
       permissionMode: access,
       instructions: instructions.trim(),
       role: "buddy" as const,
@@ -77,7 +86,7 @@ export function NewBuddyDialog({
       <form className="new-buddy-form" onSubmit={(event) => void submit(event)}>
         <div className="dialog-body new-buddy">
           <div className="new-buddy-face">
-            <BuddyAvatar buddy={color} size={56} />
+            <BuddyAvatar buddy={color} look={look} size={56} />
             <span className="new-buddy-preview">{shownName}</span>
           </div>
 
@@ -109,6 +118,25 @@ export function NewBuddyDialog({
                     <span className="new-buddy-role-name">{entry.title}</span>
                     <span className="new-buddy-role-blurb">{entry.blurb}</span>
                   </span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="new-buddy-field">
+            <legend className="new-buddy-label">Body</legend>
+            <div className="buddy-bodies">
+              {BUDDY_LOOKS.map((entry) => (
+                <button
+                  key={entry}
+                  type="button"
+                  className="buddy-body-choice"
+                  aria-label={BODIES[entry].label}
+                  aria-pressed={look === entry}
+                  onClick={() => setLook(entry)}
+                >
+                  <BuddyAvatar buddy={color} look={entry} size={32} />
+                  <span>{BODIES[entry].label}</span>
                 </button>
               ))}
             </div>
