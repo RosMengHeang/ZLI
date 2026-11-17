@@ -1024,7 +1024,8 @@ describe("ChatView", () => {
         "provider-mark provider-mark-claude-code",
         "provider-mark provider-mark-openai",
         "provider-mark provider-mark-zai",
-        "generic",
+        // A model whose name does not say who made it wears the agent's own logo.
+        "provider-mark provider-mark-droid",
       ],
     );
     await act(async () => {

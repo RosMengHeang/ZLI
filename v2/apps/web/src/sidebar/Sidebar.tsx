@@ -1198,8 +1198,8 @@ export function Sidebar({
     const worktree = worktrees.find((entry) => entry.worktreeId === session.worktreeId);
     const project = projectOf(session);
     const owner = buddyOf(session);
-    const title = owner?.chat ? owner.buddy.name : sessionTitle(session, projection?.messages, projection?.providers);
-    const agentName = owner ? undefined : sessionAgentName(session);
+    const title = sessionTitle(session, projection?.messages, projection?.providers);
+    const agentName = owner ? owner.buddy.name : sessionAgentName(session);
     const active = session.sessionId === activeSessionId;
     const isUnread = unread.has(session.sessionId);
     const stoppable = sessionStopCommands(session).length > 0;
@@ -1219,23 +1219,7 @@ export function Sidebar({
           onContextMenu={(event) => openContextMenu(event, "Agent actions", menu)}
         >
           <span className={`activity-mark is-${session.status}`} aria-hidden="true">
-            {owner ? (
-              <BuddyAvatar
-                buddy={owner.buddy.color}
-                look={lookOf(owner.buddy)}
-                image={owner.buddy.image}
-                size={18}
-                mood={
-                  busy
-                    ? "working"
-                    : session.status === "waiting"
-                      ? "waiting"
-                      : session.status === "failed"
-                        ? "failed"
-                        : "idle"
-                }
-              />
-            ) : busy ? (
+            {busy ? (
               <Icon name="loader" size={14} className="activity-spin" />
             ) : session.status === "waiting" ? (
               <span className="activity-dot" />
@@ -1250,7 +1234,20 @@ export function Sidebar({
               {layout.chatPinned(session.sessionId) ? (
                 <Icon name="pin" size={11} className="session-pin" aria-label="Pinned" />
               ) : null}
-              {agentName ? <span className="activity-agent">{agentName}</span> : null}
+              {owner ? (
+                // A buddy's chat or job names the buddy by its face and name, not a "Builder chat" label.
+                <span className="activity-agent is-buddy">
+                  <BuddyAvatar
+                    buddy={owner.buddy.color}
+                    look={lookOf(owner.buddy)}
+                    image={owner.buddy.image}
+                    size={14}
+                  />
+                  {owner.buddy.name}
+                </span>
+              ) : agentName ? (
+                <span className="activity-agent">{agentName}</span>
+              ) : null}
               <span className="session-title">{title}</span>
             </span>
             <span className="activity-meta">

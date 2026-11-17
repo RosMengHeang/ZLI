@@ -11,8 +11,8 @@ export const DEFAULT_MODEL = "";
 export { modelMaker };
 
 /**
- * The maker's logo for a model. The default model shows the agent's own mark when it is given, since that
- * agent picks it; an unknown model, or a default with no agent, shows a neutral chip glyph.
+ * The maker's logo for a model. The default model, and a model whose name does not say who made it, show the
+ * agent's own mark when it is given; with no agent either, a neutral chip glyph.
  */
 export function ModelMark({
   id,
@@ -26,7 +26,8 @@ export function ModelMark({
   agent?: string | undefined;
   size?: number;
 }) {
-  const maker = id ? modelMaker(id, label) : agent;
+  // A model whose maker its name does not give (OpenCode's own, Kimi's) wears the logo of the agent that lists it.
+  const maker = (id ? modelMaker(id, label) : undefined) ?? agent;
   return maker ? (
     <ProviderMark provider={maker} size={size} />
   ) : (
@@ -54,12 +55,12 @@ export function modelOptions(
     },
   ];
   if (current && !listed.some((option) => option.id === current))
-    options.push({ value: current, label: current, icon: <ModelMark id={current} size={15} /> });
+    options.push({ value: current, label: current, icon: <ModelMark id={current} agent={agent} size={15} /> });
   for (const option of listed)
     options.push({
       value: option.id,
       label: option.label,
-      icon: <ModelMark id={option.id} label={option.label} size={15} />,
+      icon: <ModelMark id={option.id} label={option.label} agent={agent} size={15} />,
     });
   return options;
 }

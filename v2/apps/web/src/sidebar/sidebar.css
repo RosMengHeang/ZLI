@@ -609,3 +609,4 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 /* While the menu button shows, the title stops short of it instead of running under it. */
 .session-entry:is(:has(> .session-row:hover), :has(> .row-more:hover), :has(> .row-more :focus-visible), :has(> .row-more [aria-expanded="true"])) > .session-row.is-activity .activity-title { padding-right: 24px; }
 .session-row.is-one-line .session-copy { padding-top: 0; }
+.activity-agent.is-buddy { display: inline-flex; align-items: center; gap: 4px; }
