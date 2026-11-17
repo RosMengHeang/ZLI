@@ -167,6 +167,9 @@ type Props = {
   projectAgentActions?: ((projectId: string) => ProjectAgentActions) | undefined;
   /** Opens the Buddies panel, on one buddy when given. Without it the sidebar lists no buddies. */
   onOpenBuddies?: ((buddyId?: string) => void) | undefined;
+  /** Opens the pull requests page: every pull request on the left, the chosen one on the right. */
+  onOpenPullRequests?: (() => void) | undefined;
+  pullRequestsOpen?: boolean | undefined;
   /** The buddy whose chat is open, or "team" for the buddies' home. */
   activeBuddyId?: string | undefined;
 };
@@ -216,6 +219,8 @@ export function Sidebar({
   projectAgentActions,
   onOpenBuddies,
   activeBuddyId,
+  onOpenPullRequests,
+  pullRequestsOpen = false,
 }: Props) {
   const newAgentShortcut = useShortcut("newAgent");
   const settingsShortcut = useShortcut("settings");
@@ -319,10 +324,7 @@ export function Sidebar({
       return "all";
     }
   });
-  // Pull requests in the menu narrows the list to chats with an open one; picking a scope clears it.
-  const [prOnly, setPrOnly] = useState(false);
   const pickScope = (next: string) => {
-    setPrOnly(false);
     setScope(next);
     try {
       window.localStorage.setItem(SCOPE_KEY, next);
@@ -1138,9 +1140,7 @@ export function Sidebar({
             ])
           }
         >
-          <span className="sidebar-scope-label">
-            {prOnly ? "Open pull requests" : (scopeProject?.name ?? "All activity")}
-          </span>
+          <span className="sidebar-scope-label">{scopeProject?.name ?? "All activity"}</span>
           <Icon name="chevronRight" size={12} />
         </button>
       ) : onOpenBuddies ? (
@@ -1232,19 +1232,13 @@ export function Sidebar({
   const renderActivity = () => {
     const chats = sessions.filter(
       (session) =>
-        !parents.has(session.sessionId) &&
-        (!scopeProject || projectOf(session)?.projectId === scopeProject.projectId) &&
-        (!prOnly || hasOpenPullRequest(session)),
+        !parents.has(session.sessionId) && (!scopeProject || projectOf(session)?.projectId === scopeProject.projectId),
     );
     const groups = activityGroups(chats, new Date(now), (sessionId) => layout.chatPinned(sessionId));
     if (groups.length === 0)
       return (
         <p className="sidebar-results-empty">
-          {prOnly
-            ? "No chats with an open pull request."
-            : scopeProject
-              ? `No chats in ${scopeProject.name} yet.`
-              : "No chats yet. Start one from New chat."}
+          {scopeProject ? `No chats in ${scopeProject.name} yet.` : "No chats yet. Start one from New chat."}
         </p>
       );
     return groups.map((group) => (
@@ -1393,16 +1387,12 @@ export function Sidebar({
         {onOpenBuddies ? (
           <SidebarBuddies projection={projection} onOpen={onOpenBuddies} active={activeBuddyId} />
         ) : null}
-        {projects.length > 0 ? (
+        {projects.length > 0 && onOpenPullRequests ? (
           <button
             type="button"
-            className={`sidebar-nav-item${prOnly ? " is-active" : ""}`}
-            aria-pressed={prOnly}
-            title={prOnly ? "Show every chat again" : "Show only chats with an open pull request"}
-            onClick={() => {
-              setPrOnly((on) => !on);
-              if (sidebarView !== "activity") updateAppSettings((current) => ({ ...current, sidebarView: "activity" }));
-            }}
+            className={`sidebar-nav-item${pullRequestsOpen ? " is-active" : ""}`}
+            aria-current={pullRequestsOpen ? "page" : undefined}
+            onClick={onOpenPullRequests}
           >
             <Icon name="pullRequest" size={16} />
             <span className="sidebar-nav-label">Pull requests</span>

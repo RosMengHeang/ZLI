@@ -262,3 +262,40 @@ span.review-file-check { cursor: default; }
 .review-file-check { opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
 .review-file-row:hover .review-file-check, .review-file-check:checked, .review-file-check:indeterminate, .review-file-check:focus-visible,
 .review-file-list:has(.review-file-check:checked) .review-file-check { opacity: 1; }
+
+/* ---------- Pull requests page ---------- */
+/* Every pull request down the left like an inbox, the chosen one on the right. */
+.pr-page { display: flex; min-width: 0; height: 100%; min-height: 0; flex: 1; background: var(--zli-surface); }
+.pr-list { display: flex; width: 320px; min-height: 0; flex: 0 0 auto; flex-direction: column; border-right: 1px solid var(--zli-border); }
+.pr-list-head { display: flex; height: 52px; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); padding: 0 var(--zli-space-4) 0 18px; }
+.app-shell:not(.is-sidebar-hidden) .pr-list-head { padding-left: 52px; }
+.pr-list-head h2 { min-width: 0; flex: 1; margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.pr-list-count { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.pr-list-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 0 var(--zli-space-2) var(--zli-space-3); scrollbar-width: thin; }
+.pr-list-section ul { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.pr-list-heading { margin: var(--zli-space-3) 0 2px; padding: 0 10px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
+.pr-list-row { display: flex; width: 100%; min-width: 0; align-items: flex-start; gap: 10px; padding: 9px 10px; border: 0; border-radius: 12px; background: transparent; color: inherit; cursor: default; font: inherit; text-align: left; }
+.pr-list-row:hover { background: var(--zli-hover); }
+.pr-list-row.is-active { background: var(--zli-active); }
+.pr-list-icon { flex: 0 0 auto; margin-top: 1px; color: var(--zli-green); }
+.pr-list-row.is-merged .pr-list-icon { color: #b48cf0; }
+.pr-list-row.is-closed .pr-list-icon, .pr-list-row.is-draft .pr-list-icon { color: var(--zli-dim); }
+.pr-list-row.is-failed .pr-list-icon { color: var(--zli-red); }
+.pr-list-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.pr-list-title { display: flex; min-width: 0; align-items: baseline; gap: 8px; }
+.pr-list-name { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.pr-list-time { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
+.pr-list-meta { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
+.pr-list-number { font-variant-numeric: tabular-nums; }
+.pr-list-project { display: inline-flex; min-width: 0; align-items: center; gap: 4px; overflow: hidden; }
+.pr-list-project > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.pr-list-state { margin-left: auto; flex: 0 0 auto; }
+.pr-list-state.is-open { color: var(--zli-green); }
+.pr-list-state.is-failed { color: var(--zli-red); }
+.pr-list-state.is-pending { color: var(--zli-amber); }
+.pr-list-state.is-merged { color: #b48cf0; }
+.pr-list-empty { margin: var(--zli-space-3) 10px; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.pr-page-detail { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; }
+.pr-page-detail > * { width: 100%; max-width: 860px; margin: 0 auto; }
+.pr-page-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); }
+@media (max-width: 860px) { .pr-list { width: 240px; } }

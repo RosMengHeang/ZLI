@@ -60,6 +60,7 @@ import {
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import { PullRequestPane } from "../review/PullRequestPane.js";
+import { PullRequestsPage } from "../review/PullRequestsPage.js";
 import { usePullRequestEntries, usePullRequestPolling } from "../review/pullRequestStore.js";
 import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
@@ -224,6 +225,8 @@ function WorkspaceApp() {
   const [huddleId, setHuddleId] = useState<string>();
   /** What the main area shows instead of the chats: the buddies' home ("team") or one buddy's chat. */
   const [buddyView, setBuddyView] = useState<string>();
+  /** The pull requests page, open on one worktree's pull request ("all" picks the newest). */
+  const [pullView, setPullView] = useState<string>();
   // One width for the right panel: switching tabs keeps it where it was dragged to.
   const [panelWidth, setPanelWidth] = usePanelWidth("panel");
   const [sidebarWidth, setSidebarWidth] = useSidebarWidth();
@@ -415,6 +418,7 @@ function WorkspaceApp() {
   const focusSession = useCallback(
     (session: AgentSession) => {
       setBuddyView(undefined);
+      setPullView(undefined);
       // Focus coming back to the tile that already had it, as when a dialog closes, keeps the added project.
       if (session.sessionId !== activeSessionIdRef.current) setSelectedProjectId(undefined);
       setSelectedWorktreeId(session.worktreeId);
@@ -646,7 +650,13 @@ function WorkspaceApp() {
     setHuddleId(next);
     setSidePane("huddle");
   }, []);
+  const openPullRequests = useCallback(() => {
+    setPullView("all");
+    setBuddyView(undefined);
+    setSidePane(undefined);
+  }, []);
   const openBuddies = useCallback((next?: string) => {
+    setPullView(undefined);
     setBuddyView(next ?? "team");
     // A buddy's chat has its own details column, so the workspace panel steps aside.
     setSidePane(undefined);
@@ -2744,12 +2754,12 @@ function WorkspaceApp() {
     <Topbar
       sidebarOpen={sidebarOpen}
       sidebarButton={false}
-      project={contextWorktree && !buddyView ? contextProject : undefined}
-      worktree={buddyView ? undefined : contextWorktree}
+      project={contextWorktree && !buddyView && !pullView ? contextProject : undefined}
+      worktree={buddyView || pullView ? undefined : contextWorktree}
       hasProjects={hasProjects}
       drawerOpen={workbench.drawerOpen}
       showTerminal={!chatOnly}
-      showPanels={!buddyView}
+      showPanels={!buddyView && !pullView}
       sidePane={sidePane}
       onShowSidebar={toggleSidebar}
       onNewAgent={() => openNewAgent()}
@@ -2826,6 +2836,8 @@ function WorkspaceApp() {
             projectAgentActions={projectAgentActions}
             onOpenBuddies={openBuddies}
             activeBuddyId={buddyView}
+            onOpenPullRequests={openPullRequests}
+            pullRequestsOpen={pullView !== undefined}
           />
         ) : null}
         {sidebarOpen ? <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} /> : null}
@@ -2858,7 +2870,19 @@ function WorkspaceApp() {
             <div className="workspace-body" ref={workspaceBodyRef}>
               <div className="workbench-column">
                 <section className="agent-grid-region" aria-label="Agents" ref={gridRegionRef}>
-                  {buddyView ? (
+                  {pullView ? (
+                    <PullRequestsPage
+                      projection={projection}
+                      selectedId={pullView === "all" ? undefined : pullView}
+                      onSelect={setPullView}
+                      onShowAgent={showAgent}
+                      onOpenChanges={(worktreeId) => {
+                        const session = sessions.find((entry) => entry.worktreeId === worktreeId);
+                        if (session) showAgent(session.sessionId);
+                        setSidePane("review");
+                      }}
+                    />
+                  ) : buddyView ? (
                     <BuddiesPane
                       projection={projection}
                       selectedId={buddyView === "team" ? undefined : buddyView}
