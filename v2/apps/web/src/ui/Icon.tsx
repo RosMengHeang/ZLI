@@ -52,6 +52,7 @@ import {
   GridFour,
   type IconProps,
   Image,
+  Kanban,
   Keyboard,
   Lightning,
   Lock,
@@ -202,6 +203,7 @@ const icons = {
   scratch: { icon: Scribble },
   split: { icon: SquareSplitHorizontal },
   sort: { icon: ArrowsDownUp },
+  board: { icon: Kanban },
 } satisfies Record<string, { icon: PhosphorIcon; weight?: "fill" | "bold"; mirrored?: boolean }>;
 
 export type IconName = Extract<keyof typeof icons, string>;

@@ -131,7 +131,7 @@ export function BuddyList({
           onClick={() => onSelect(undefined)}
         >
           <span className="buddy-list-board" aria-hidden="true">
-            <Icon name="grid" size={18} />
+            <Icon name="board" size={18} />
           </span>
           <span className="buddy-list-text">
             <span className="buddy-list-name">Team board</span>

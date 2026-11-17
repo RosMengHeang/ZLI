@@ -287,3 +287,6 @@
 .team-settings .buddies-section { margin: 0; }
 .team-settings-row { display: flex; align-items: center; gap: var(--zli-space-3); }
 .team-settings-row .buddies-hint { flex: 1; margin: 0; }
+/* In Team settings the model picker spans the dialog, its three choices sharing the width evenly. */
+.team-settings .segmented { display: flex; width: 100%; }
+.team-settings .segmented-item { flex: 1 1 0; justify-content: center; text-align: center; }

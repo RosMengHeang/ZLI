@@ -407,7 +407,7 @@ export function TeamSettingsDialog({
             </p>
             <Button
               size="sm"
-              variant={paused ? "primary" : "secondary"}
+              variant={paused ? "primary" : "danger"}
               icon={paused ? "play" : "pause"}
               onClick={() => void run({ type: paused ? "buddies.resume" : "buddies.pause" })}
             >
@@ -539,7 +539,7 @@ function ImportBuddy({ run, projection }: { run: Run; projection: RuntimeProject
   };
   return (
     <div className="buddies-import">
-      <label className="btn btn-ghost btn-sm">
+      <label className="btn btn-secondary btn-sm">
         <Icon name="upload" size={13} />
         Import a buddy
         <input
