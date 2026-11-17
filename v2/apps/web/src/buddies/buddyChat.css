@@ -182,3 +182,4 @@
 .buddy-chat-dock { position: absolute; right: 0; bottom: 0; left: 0; z-index: 3; display: flex; flex-direction: column; padding-top: var(--zli-space-2); background: linear-gradient(to top, var(--zli-surface) 0, var(--zli-surface) 14px, color-mix(in srgb, var(--zli-surface) 0%, transparent) 40px); pointer-events: none; }
 .buddy-chat-dock > * { pointer-events: auto; }
 .buddy-chat-dock .buddy-chat-composer { background: color-mix(in srgb, var(--zli-raised) 80%, transparent); -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2); }
+.buddy-chat-resend { display: flex; margin-top: var(--zli-space-2); }

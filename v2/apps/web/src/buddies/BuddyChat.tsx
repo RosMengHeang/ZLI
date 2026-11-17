@@ -17,7 +17,7 @@ import { getBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { type Buddy, buddyHex } from "../teammates/buddies.js";
-import { IconButton } from "../ui/Button.js";
+import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { triggerLabel } from "./team.js";
 import "./buddyChat.css";
@@ -29,7 +29,8 @@ type Who = { name: string; color: Buddy };
 /** One entry in a buddy's chat. Conversation, events and cards share one timeline. */
 export type ChatItem =
   | { kind: "you"; key: string; at: string; text: string }
-  | { kind: "say"; key: string; at: string; text: string }
+  /** resend: the person's message the buddy could not answer, offered to send again. */
+  | { kind: "say"; key: string; at: string; text: string; resend?: string | undefined }
   /** A message between this buddy and a teammate: one it got, an answer brought back, or one it sent. */
   | { kind: "teammate"; key: string; at: string; text: string; who: Who; way: "asked" | "replied" | "sent" }
   | {
@@ -65,7 +66,9 @@ export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection
   const items: ChatItem[] = [];
   const tasks = state.tasks ?? [];
   const messages = (state.buddyMessages ?? []).filter((message) => message.buddyId === buddy.buddyId);
+  let lastAsked: string | undefined;
   for (const message of messages) {
+    if (message.role === "you" && !message.from) lastAsked = message.text;
     // A message between teammates is shown as theirs, named, since you did not write it.
     const teammateId = message.from ?? message.to;
     const teammate = teammateId ? (who(state, teammateId) ?? { name: "A teammate", color: "slate" }) : undefined;
@@ -80,11 +83,16 @@ export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection
       });
       continue;
     }
+    if (message.role === "you") {
+      items.push({ kind: "you", key: message.messageId, at: message.at, text: message.text });
+      continue;
+    }
     items.push({
-      kind: message.role === "you" ? "you" : "say",
+      kind: "say",
       key: message.messageId,
       at: message.at,
       text: message.text,
+      ...(message.unanswered && lastAsked ? { resend: lastAsked } : {}),
     });
   }
   for (const routine of state.routines ?? [])
@@ -302,6 +310,11 @@ export function BuddyChat({
     const element = log.current;
     if (element && stick.current) element.scrollTop = element.scrollHeight;
   });
+  // A note that the buddy could not answer offers the person's message again, as a new message.
+  const resend = (text: string) => {
+    stick.current = true;
+    void run({ type: "buddy.chat.send", buddyId: buddy.buddyId, messageId: makeCommandId(), text });
+  };
   return (
     <div className="buddy-chat" ref={view}>
       <div
@@ -335,6 +348,8 @@ export function BuddyChat({
                 projection={projection}
                 onOpenThread={onOpenThread}
                 renderReply={renderReply}
+                // Only the newest note offers to send again: an older one was already followed by something.
+                {...(index === items.length - 1 ? { onResend: resend } : {})}
               />
             </div>
           ))}
@@ -380,18 +395,31 @@ function ChatEntry({
   projection,
   onOpenThread,
   renderReply,
+  onResend,
 }: {
   item: ChatItem;
   buddy: BuddyProjection;
   projection: RuntimeProjection;
   onOpenThread(threadId: string): void;
   renderReply(task: TaskProjection): ReactNode;
+  onResend?: (text: string) => void;
 }) {
   switch (item.kind) {
     case "you":
       return <YouMessage text={item.text} />;
     case "say":
-      return <div className="buddy-chat-say">{item.text}</div>;
+      return (
+        <>
+          <div className="buddy-chat-say">{item.text}</div>
+          {item.resend && onResend ? (
+            <div className="buddy-chat-resend">
+              <Button size="sm" icon="reload" onClick={() => onResend(item.resend as string)}>
+                Send again
+              </Button>
+            </div>
+          ) : null}
+        </>
+      );
     case "teammate":
       return <TeammateNote item={item} />;
     case "event":

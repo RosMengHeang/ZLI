@@ -163,6 +163,28 @@ describe("BuddiesPane", () => {
     ]);
   });
 
+  it("offers to send a message again when the buddy could not answer it", async () => {
+    const state = projection({
+      buddies: [{ ...buddy("b2", "Builder", 0), chatThreadId: "chat-1" }],
+      buddyMessages: [
+        { messageId: "m1", buddyId: "b2", role: "you", text: "explain the build", at },
+        {
+          messageId: "m2",
+          buddyId: "b2",
+          role: "buddy",
+          text: "Something went wrong: it crashed.",
+          at,
+          unanswered: true,
+        },
+      ],
+    });
+    const items = buddyTranscript(state.buddies?.[0] as BuddyProjection, state);
+    expect(items.at(-1)).toMatchObject({ kind: "say", resend: "explain the build" });
+    const { commands } = await render(state, "b2");
+    await act(async () => buttonNamed("Send again").click());
+    expect(commands.at(-1)).toMatchObject({ type: "buddy.chat.send", buddyId: "b2", text: "explain the build" });
+  });
+
   it("stops a reply: drops what is queued, interrupts the agent, and says so", async () => {
     const state = projection({
       buddies: [{ ...buddy("b2", "Builder", 0), chatThreadId: "chat-1" }],

@@ -395,7 +395,7 @@ export class BuddyChatReactor {
     key: string,
     text: string,
   ): Promise<void> {
-    await this.reply(buddy, key, text);
+    await this.reply(buddy, key, text, { unanswered: true });
     for (const senderId of new Set(answered.flatMap((message) => (message.from ? [message.from] : [])))) {
       const sender = state.buddies?.find((entry) => entry.buddyId === senderId && !entry.archived);
       if (sender)
@@ -409,7 +409,7 @@ export class BuddyChatReactor {
     buddy: BuddyProjection,
     key: string,
     text: string,
-    teammate: { from?: string; to?: string } = {},
+    teammate: { from?: string; to?: string; unanswered?: true } = {},
   ): Promise<CommandReceipt> {
     return this.dispatch(
       {

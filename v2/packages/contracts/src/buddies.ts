@@ -185,6 +185,8 @@ export const BuddyMessage = z.object({
   from: Id.optional(),
   /** On a "buddy" message: the teammate this buddy sent it to. */
   to: Id.optional(),
+  /** On a "buddy" message: it says the buddy could not answer, so the person may send their message again. */
+  unanswered: z.literal(true).optional(),
 });
 export type BuddyMessage = z.infer<typeof BuddyMessage>;
 
@@ -439,6 +441,8 @@ export const BuddyCommand = z.discriminatedUnion("type", [
     from: Id.optional(),
     /** A message this buddy sent to a teammate. */
     to: Id.optional(),
+    /** The buddy could not answer: what went wrong, with a way to send the message again. */
+    unanswered: z.literal(true).optional(),
   }),
   z.object({ type: z.literal("buddy.chat.thread"), buddyId: Id, threadId: Id }),
   z.object({ type: z.literal("buddies.pause") }),
@@ -549,6 +553,7 @@ export const BuddyEvent = z.discriminatedUnion("type", [
     text: z.string().min(1).max(MAX_CHAT_TEXT),
     from: Id.optional(),
     to: Id.optional(),
+    unanswered: z.literal(true).optional(),
   }),
   z.object({ type: z.literal("buddy.chat.thread.set"), buddyId: Id, threadId: Id }),
   z.object({ type: z.literal("buddies.paused") }),
@@ -742,11 +747,21 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
     text: string,
     from?: string,
     to?: string,
+    unanswered?: boolean,
   ) => {
     if (buddyMessages.some((message) => message.messageId === messageId)) return;
     const next = [
       ...buddyMessages,
-      { messageId, buddyId, role, text, at, ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      {
+        messageId,
+        buddyId,
+        role,
+        text,
+        at,
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
+        ...(unanswered ? { unanswered: true as const } : {}),
+      },
     ];
     const own = next.filter((message) => message.buddyId === buddyId);
     const drop = new Set(own.slice(0, Math.max(0, own.length - MAX_CHAT_KEPT)).map((message) => message.messageId));
@@ -1054,7 +1069,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       say(event.buddyId, event.messageId, "you", event.text, event.from);
       break;
     case "buddy.chat.replied":
-      say(event.buddyId, event.messageId, "buddy", event.text, event.from, event.to);
+      say(event.buddyId, event.messageId, "buddy", event.text, event.from, event.to, event.unanswered);
       // The sidebar line is what the buddy itself said, not a teammate's answer or a note it passed on.
       if (!event.from && !event.to)
         updateBuddy(event.buddyId, (buddy) => ({ ...buddy, lastLine: { text: firstSentence(event.text, 100), at } }));

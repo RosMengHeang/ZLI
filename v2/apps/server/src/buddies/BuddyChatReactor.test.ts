@@ -432,7 +432,7 @@ describe("BuddyChatReactor", () => {
     } as RuntimeCommand);
     const state = await settle();
     const last = (buddyId: string) => state.buddyMessages?.findLast((message) => message.buddyId === buddyId);
-    expect(last("b2")?.text).toBe("Something went wrong: The agent crashed.");
+    expect(last("b2")).toMatchObject({ text: "Something went wrong: The agent crashed.", unanswered: true });
     expect(last("b1")).toMatchObject({
       from: "b2",
       text: "I could not answer this time. Something went wrong: The agent crashed.",
