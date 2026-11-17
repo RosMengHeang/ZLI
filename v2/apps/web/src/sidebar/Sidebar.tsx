@@ -944,7 +944,6 @@ export function Sidebar({
                   {layout.chatPinned(session.sessionId) ? (
                     <Icon name="pin" size={11} className="session-pin" aria-label="Pinned" />
                   ) : null}
-                  {agentName && !twoLine ? <span className="session-name is-inline">{agentName}</span> : null}
                   <span className="session-title">{title}</span>
                   {guests.length > 0 ? (
                     <span
