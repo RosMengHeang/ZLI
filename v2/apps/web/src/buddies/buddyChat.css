@@ -389,7 +389,7 @@ button.goal-card-lead:hover { color: var(--zli-text); }
 
 /* ---------- The buddy's screen ---------- */
 /* A small live picture of its browser beside the chat; a click opens it full size to take over. */
-.buddy-screen { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 var(--zli-space-4); }
+.buddy-screen { display: flex; flex-direction: column; gap: 6px; }
 .buddy-screen-frame { position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; padding: 6px; overflow: hidden; border: 1px solid var(--zli-border); border-radius: 14px; background: var(--zli-raised); color: var(--zli-dim); cursor: default; font: inherit; transition: border-color var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
 .buddy-screen-frame:not(:disabled):hover { border-color: var(--zli-border-hover); }
 .buddy-screen-frame:not(:disabled):active { transform: scale(0.99); }

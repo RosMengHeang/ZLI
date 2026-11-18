@@ -661,7 +661,6 @@ function BuddyPage({
             <BuddyNameEdit buddy={buddy} run={run} />
             {title ? <span>{title}</span> : null}
           </div>
-          <BuddyScreen buddy={buddy} projection={projection} />
           <Segmented<InfoTab>
             className="buddy-tabs"
             label="Details"
@@ -1023,6 +1022,11 @@ function ActivityTab({ buddy, projection, run }: { buddy: BuddyProjection; proje
           <RoutineRow key={routine.routineId} routine={routine} run={run} />
         ))}
         {projection.projects.length > 0 ? <AddRoutine buddy={buddy} projection={projection} run={run} /> : null}
+      </section>
+
+      <section className="buddies-section" aria-label="Browser">
+        <h3 className="buddies-heading">Browser</h3>
+        <BuddyScreen buddy={buddy} projection={projection} />
       </section>
 
       <section className="buddies-section" aria-label="Track record">
