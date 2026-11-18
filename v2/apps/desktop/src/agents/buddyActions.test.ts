@@ -117,6 +117,33 @@ describe("buddy actions", () => {
     ]);
   });
 
+  it("keeps what the person told a buddy in its own chat at once", async () => {
+    const homeState = {
+      ...state,
+      buddies: state.buddies?.map((entry) =>
+        entry.buddyId === "b2" ? { ...entry, home: { worktreeId: "home-b2", path: "/homes/tess" } } : entry,
+      ),
+    } as RuntimeProjection;
+    const sent: Record<string, unknown>[] = [];
+    const actions = createBuddyActions({
+      projection: () => homeState,
+      caller: () => ({ worktreeId: "home-b2", project: state.projects[0] as RuntimeProjection["projects"][number] }),
+      run: async (command) => {
+        sent.push(command);
+        return {};
+      },
+      newId: () => "id-1",
+    });
+    await actions.buddyremember({ note: "Likes short answers." });
+    expect(sent).toEqual([
+      {
+        type: "buddy.memory.add",
+        buddyId: "b2",
+        note: { noteId: "id-1", text: "Likes short answers.", source: "told" },
+      },
+    ]);
+  });
+
   it("hands work on from the caller's branch and links it to the caller's job", async () => {
     const { actions, sent } = host();
     const result = (await actions.buddyhandoff({ goal: "Write tests for the login page" })) as { handedTo: string };

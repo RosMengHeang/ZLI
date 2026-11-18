@@ -71,6 +71,8 @@ export const MAX_HANDOFF_DEPTH = 3;
 export const MAX_OPEN_JOBS = 12;
 export const DEFAULT_HANDOFF_ROUNDS = 2;
 export const MAX_MEMORY_NOTES = 40;
+/** Facts about the person that every buddy reads. */
+export const MAX_ABOUT_NOTES = 40;
 export const MAX_PENDING_NOTES = 10;
 /** Playbooks a buddy keeps, across all its projects. */
 export const MAX_PLAYBOOKS = 24;
@@ -284,6 +286,8 @@ export const BuddyMessage = z.object({
   to: Id.optional(),
   /** On a "buddy" message: it says the buddy could not answer, so the person may send their message again. */
   unanswered: z.literal(true).optional(),
+  /** On a "buddy" message: a line it sent while still working. The answer is still to come. */
+  progress: z.literal(true).optional(),
 });
 export type BuddyMessage = z.infer<typeof BuddyMessage>;
 
@@ -491,11 +495,23 @@ export type GoalProjection = z.infer<typeof GoalProjection>;
 export const BuddyQuality = z.enum(["save", "balanced", "best"]);
 export type BuddyQuality = z.infer<typeof BuddyQuality>;
 
+/** A lasting fact about the person, from their own words, that every buddy reads. */
+export const AboutNote = z.object({
+  noteId: Id,
+  text: z.string().trim().min(1).max(300),
+  /** The buddy that learned it. None when the person wrote it themselves. */
+  by: Id.optional(),
+  at: Time,
+});
+export type AboutNote = z.infer<typeof AboutNote>;
+
 export const BuddySettings = z.object({
   /** Pause all: no job starts and no routine fires. Running jobs keep going. */
   paused: z.boolean(),
   /** How Auto trades cost against quality. */
   quality: BuddyQuality,
+  /** About the person: what every buddy knows about them. */
+  aboutMe: z.array(AboutNote).max(MAX_ABOUT_NOTES).optional(),
 });
 export type BuddySettings = z.infer<typeof BuddySettings>;
 export const DEFAULT_BUDDY_SETTINGS: BuddySettings = { paused: false, quality: "balanced" };
@@ -603,11 +619,15 @@ export const BuddyCommand = z.discriminatedUnion("type", [
     to: Id.optional(),
     /** The buddy could not answer: what went wrong, with a way to send the message again. */
     unanswered: z.literal(true).optional(),
+    /** A line sent while the buddy is still working; its answer is still to come. */
+    progress: z.literal(true).optional(),
   }),
   z.object({ type: z.literal("buddy.chat.thread"), buddyId: Id, threadId: Id }),
   z.object({ type: z.literal("buddies.pause") }),
   z.object({ type: z.literal("buddies.resume") }),
   z.object({ type: z.literal("buddies.quality"), quality: BuddyQuality }),
+  z.object({ type: z.literal("buddies.about.add"), note: AboutNote.omit({ at: true }) }),
+  z.object({ type: z.literal("buddies.about.remove"), noteId: Id }),
   z.object({ type: z.literal("task.assign"), task: NewTask }),
   /** Internal: the job's chat started. */
   z.object({
@@ -730,11 +750,14 @@ export const BuddyEvent = z.discriminatedUnion("type", [
     from: Id.optional(),
     to: Id.optional(),
     unanswered: z.literal(true).optional(),
+    progress: z.literal(true).optional(),
   }),
   z.object({ type: z.literal("buddy.chat.thread.set"), buddyId: Id, threadId: Id }),
   z.object({ type: z.literal("buddies.paused") }),
   z.object({ type: z.literal("buddies.resumed") }),
   z.object({ type: z.literal("buddies.quality.changed"), quality: BuddyQuality }),
+  z.object({ type: z.literal("buddies.about.added"), note: AboutNote.omit({ at: true }) }),
+  z.object({ type: z.literal("buddies.about.removed"), noteId: Id }),
   z.object({
     type: z.literal("task.assigned"),
     task: NewTask.extend({ kind: z.enum(["job", "review"]) }),
@@ -968,6 +991,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
     from?: string,
     to?: string,
     unanswered?: boolean,
+    progress?: boolean,
   ) => {
     if (buddyMessages.some((message) => message.messageId === messageId)) return;
     const next = [
@@ -981,6 +1005,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
         ...(from ? { from } : {}),
         ...(to ? { to } : {}),
         ...(unanswered ? { unanswered: true as const } : {}),
+        ...(progress ? { progress: true as const } : {}),
       },
     ];
     const own = next.filter((message) => message.buddyId === buddyId);
@@ -1128,6 +1153,17 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       break;
     case "buddies.quality.changed":
       buddySettings = { ...buddySettings, quality: event.quality };
+      break;
+    case "buddies.about.added": {
+      const kept = (buddySettings.aboutMe ?? []).filter((note) => note.noteId !== event.note.noteId);
+      buddySettings = { ...buddySettings, aboutMe: [...kept, { ...event.note, at }].slice(-MAX_ABOUT_NOTES) };
+      break;
+    }
+    case "buddies.about.removed":
+      buddySettings = {
+        ...buddySettings,
+        aboutMe: (buddySettings.aboutMe ?? []).filter((note) => note.noteId !== event.noteId),
+      };
       break;
     case "task.assigned": {
       const { quiet, override, ...rest } = event.task;
@@ -1297,7 +1333,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       say(event.buddyId, event.messageId, "you", event.text, event.from);
       break;
     case "buddy.chat.replied":
-      say(event.buddyId, event.messageId, "buddy", event.text, event.from, event.to, event.unanswered);
+      say(event.buddyId, event.messageId, "buddy", event.text, event.from, event.to, event.unanswered, event.progress);
       // The sidebar line is what the buddy itself said, not a teammate's answer or a note it passed on.
       if (!event.from && !event.to)
         updateBuddy(event.buddyId, (buddy) => ({ ...buddy, lastLine: { text: firstSentence(event.text, 100), at } }));

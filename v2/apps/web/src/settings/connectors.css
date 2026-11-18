@@ -183,3 +183,104 @@
 }
 .mcp-projects-popover .mcp-project-list { padding-left: 0; }
 .mcp-projects-note { margin: var(--zli-space-1) 0 0; color: var(--zli-dim); font-size: var(--zli-text-2xs); line-height: var(--zli-leading-normal); }
+
+/* Connected apps (Composio) */
+.connected-apps,
+.connected-apps-key {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.connected-apps-lead {
+  margin: 0;
+  color: var(--zli-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.connected-apps-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--zli-dim);
+}
+.connected-apps-accounts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--zli-border);
+  border-radius: 10px;
+}
+.connected-apps-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+.connected-apps-account + .connected-apps-account {
+  border-top: 1px solid var(--zli-border);
+}
+.connected-apps-account-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+}
+.connected-apps-account-name span {
+  color: var(--zli-dim);
+  font-size: 12px;
+}
+.connected-apps-status {
+  font-size: 12px;
+  color: var(--zli-dim);
+}
+.connected-apps-status.is-live {
+  color: var(--zli-green);
+}
+.connected-apps-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.connected-apps-tile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--zli-border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.connected-apps-tile span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connected-apps-tile:hover:not(:disabled) {
+  background: var(--zli-raised);
+}
+.connected-apps-tile:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.connected-apps-other {
+  display: flex;
+  gap: 8px;
+}
+.connected-apps-other .input {
+  flex: 1;
+}

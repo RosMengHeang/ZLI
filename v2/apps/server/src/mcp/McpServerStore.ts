@@ -2,6 +2,7 @@ import { readdir, readFile, rm } from "node:fs/promises";
 import { dirname, join, posix, win32 } from "node:path";
 
 import {
+  type ConnectedAppsStatus,
   AgentToolAccess,
   AgentToolScope,
   DEFAULT_AGENT_TOOL_ACCESS,
@@ -19,6 +20,7 @@ import {
 } from "@zli-v2/contracts";
 
 import { isPlainObject, type McpServerSpec, writeFileAtomic, writeFileIfChanged } from "../browser-tool/browserTool.js";
+import type { ConnectedApps } from "./ConnectedApps.js";
 import { type ImportEnvironment, scanImportableServers } from "./importServers.js";
 import { type McpProbe, type McpProbeOptions, type McpProbeOutcome, probeMcpServer } from "./McpProbe.js";
 import type { McpSignIns } from "./signIn/McpSignIns.js";
@@ -190,6 +192,8 @@ export class McpServerStore {
       probe?: McpProbe;
       /** Where to look for other apps' MCP settings. */
       importFrom?: ImportEnvironment;
+      /** Apps connected through Composio, whose server every agent gets. */
+      apps?: ConnectedApps;
       now?: () => number;
     },
   ) {}
@@ -318,6 +322,30 @@ export class McpServerStore {
     await this.requireSignIns().signOut(this.signInServer(name).url);
     await this.refresh();
     return this.list();
+  }
+
+  appsStatus(): Promise<ConnectedAppsStatus> {
+    return this.requireApps().status();
+  }
+
+  /** Saves or clears the Composio key; agents started from then on get the apps' server, or lose it. */
+  async appsKey(key: string): Promise<ConnectedAppsStatus> {
+    const status = await this.requireApps().setKey(key);
+    await this.refresh();
+    return status;
+  }
+
+  appsConnect(app: string): Promise<{ url: string }> {
+    return this.requireApps().connect(app);
+  }
+
+  appsDisconnect(accountId: string): Promise<ConnectedAppsStatus> {
+    return this.requireApps().disconnect(accountId);
+  }
+
+  private requireApps(): ConnectedApps {
+    if (!this.options.apps) throw new McpRequestError("Connected apps are not available here.");
+    return this.options.apps;
   }
 
   /** Connects to one server, the person's or a plugin's, and lists its tools. */
@@ -489,17 +517,20 @@ export class McpServerStore {
   }
 
   private extraServers(): McpServerConfig[] {
+    const taken = new Set(this.servers.map((server) => server.name.toLowerCase()));
+    const apps = this.options.apps?.server();
+    const own = apps && !taken.has(apps.name) ? [apps] : [];
     const extra = this.options.extraServers;
-    if (!extra) return [];
+    if (!extra) return own;
     try {
       // Plugin servers go to every project.
-      return extra(new Set(this.servers.map((server) => server.name.toLowerCase()))).map((server) => {
+      return [...own, ...extra(taken)].map((server) => {
         if (!server.projects) return server;
         const { projects: _projects, ...rest } = server;
         return rest as McpServerConfig;
       });
     } catch {
-      return [];
+      return own;
     }
   }
 

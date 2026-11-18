@@ -190,6 +190,16 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
     return { state, project, job };
   };
 
+  /** The buddy whose chat called, when the call came from a buddy's home with no job of its own working there. */
+  const chatBuddy = (raw: unknown): BuddyProjection | undefined => {
+    const state = host.projection();
+    const { worktreeId } = host.caller((raw ?? {}) as Record<string, unknown>, state);
+    const buddy = (state.buddies ?? []).find((candidate) => candidate.home?.worktreeId === worktreeId);
+    if (!buddy) return undefined;
+    const working = (state.tasks ?? []).some((task) => task.worktreeId === worktreeId && task.status === "working");
+    return working ? undefined : buddy;
+  };
+
   return {
     buddydone: async (raw) => {
       const input = parse("buddydone", raw);
@@ -236,6 +246,16 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
     },
     buddyremember: async (raw) => {
       const input = parse("buddyremember", raw);
+      // A buddy's own chat runs in its home with no job: what the person told it there is kept at once.
+      const chat = chatBuddy(raw);
+      if (chat) {
+        await host.run({
+          type: "buddy.memory.add",
+          buddyId: chat.buddyId,
+          note: { noteId: host.newId(), text: input.note, source: "told" },
+        });
+        return { kept: true, note: "Kept. It is in your next chats and jobs." };
+      }
       const { task } = callerJob(raw);
       // What a job learns about its project is offered to the person, who keeps it for the buddy's next jobs
       // there. A job reads files and pages anyone could write, so nothing it learns is used before they say so.

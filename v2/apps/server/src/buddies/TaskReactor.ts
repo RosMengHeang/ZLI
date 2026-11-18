@@ -300,6 +300,7 @@ export class TaskReactor {
       parent,
       primary: buddy.role === "primary" && !isBuddyHome(project),
       homePath: isBuddyHome(project) ? worktree.path : undefined,
+      about: state.buddySettings?.aboutMe,
     });
   }
 

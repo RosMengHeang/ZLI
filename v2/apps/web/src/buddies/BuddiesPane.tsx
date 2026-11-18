@@ -458,12 +458,71 @@ export function TeamSettingsDialog({
             their limits. It learns from how each job went.
           </p>
         </section>
+        <section className="buddies-section" aria-label="About you">
+          <h3 className="buddies-heading">About you</h3>
+          <AboutYou projection={projection} run={run} />
+        </section>
         <section className="buddies-section" aria-label="Import">
           <h3 className="buddies-heading">Import</h3>
           <ImportBuddy run={run} projection={projection} />
         </section>
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * What every buddy knows about the person. Buddies add to it when the person tells them something lasting; the
+ * person can add their own lines and remove any.
+ */
+export function AboutYou({ projection, run }: { projection: RuntimeProjection; run: Run }) {
+  const notes = projection.buddySettings?.aboutMe ?? [];
+  const [draft, setDraft] = useState("");
+  const nameOf = (buddyId: string | undefined) => projection.buddies?.find((buddy) => buddy.buddyId === buddyId)?.name;
+  return (
+    <>
+      <p className="buddies-hint">
+        Every buddy reads this. They add what you tell them about yourself; add or remove anything here.
+      </p>
+      {notes.length > 0 ? (
+        <ul className="about-you-list">
+          {notes.map((note) => (
+            <li key={note.noteId} className="about-you-note">
+              <span className="about-you-text">
+                {note.text}
+                {nameOf(note.by) ? <span className="about-you-by">learned by {nameOf(note.by)}</span> : null}
+              </span>
+              <IconButton
+                icon="x"
+                label={`Remove: ${note.text}`}
+                onClick={() => void run({ type: "buddies.about.remove", noteId: note.noteId })}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <form
+        className="about-you-add"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const text = draft.trim();
+          if (!text) return;
+          void run({ type: "buddies.about.add", note: { noteId: crypto.randomUUID(), text } }).then(() => setDraft(""));
+        }}
+      >
+        <input
+          className="input input-sm"
+          maxLength={300}
+          placeholder="Such as: I'm in Phnom Penh, reply short"
+          aria-label="Add something about you"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <Button size="sm" type="submit" disabled={!draft.trim()}>
+          Add
+        </Button>
+      </form>
+    </>
   );
 }
 

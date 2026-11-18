@@ -152,6 +152,13 @@ export const McpCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("mcp.test"), name: AnyServerName }),
   /** Looks for MCP servers set up in other apps on this computer; replies with McpImportResult. */
   z.object({ type: z.literal("mcp.import.scan") }),
+  /** Connected apps through Composio. Each replies with ConnectedAppsStatus, except connect. */
+  z.object({ type: z.literal("mcp.apps.status") }),
+  /** Saves a Composio project key after checking it, or clears it with "". */
+  z.object({ type: z.literal("mcp.apps.key"), key: z.string().max(500) }),
+  /** Replies with { url }: where the person signs in to the app. */
+  z.object({ type: z.literal("mcp.apps.connect"), app: z.string().trim().min(1).max(60) }),
+  z.object({ type: z.literal("mcp.apps.disconnect"), accountId: z.string().trim().min(1).max(200) }),
 ]);
 export type McpCommand = z.infer<typeof McpCommand>;
 export const MCP_COMMAND_TYPES = [
@@ -165,7 +172,31 @@ export const MCP_COMMAND_TYPES = [
   "mcp.signOut",
   "mcp.test",
   "mcp.import.scan",
+  "mcp.apps.status",
+  "mcp.apps.key",
+  "mcp.apps.connect",
+  "mcp.apps.disconnect",
 ] as const;
+
+/** One account connected through Composio, such as a Gmail inbox. */
+export const ConnectedAppAccount = z.object({
+  accountId: z.string(),
+  /** Composio's id for the app, such as gmail or slack. */
+  app: z.string(),
+  /** active, initiated, expired, failed... as Composio says it. */
+  status: z.string(),
+  label: z.string().optional(),
+});
+export type ConnectedAppAccount = z.infer<typeof ConnectedAppAccount>;
+
+export const ConnectedAppsStatus = z.object({
+  /** A Composio project key is saved. */
+  configured: z.boolean(),
+  accounts: z.array(ConnectedAppAccount),
+  /** Why the accounts could not be listed. */
+  problem: z.string().optional(),
+});
+export type ConnectedAppsStatus = z.infer<typeof ConnectedAppsStatus>;
 
 /** How a sign-in server is signed in, for every server with `oauth` on, the person's and plugins'. */
 export const McpSignInState = z.object({

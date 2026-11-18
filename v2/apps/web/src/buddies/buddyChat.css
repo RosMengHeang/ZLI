@@ -471,3 +471,9 @@ button.goal-card-lead:hover { color: var(--zli-text); }
 .chrome-sites-forget { margin-top: 8px; padding: 0; border: 0; background: transparent; color: var(--zli-red); cursor: default; font: inherit; font-size: var(--zli-text-xs); font-weight: 500; }
 @media (prefers-reduced-motion: reduce) { .chrome-spinner, .chrome-load { animation: none; } }
 .chrome-favicon { width: 16px; height: 16px; flex: 0 0 auto; border-radius: 3px; object-fit: contain; }
+.about-you-list { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.about-you-note { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border: 1px solid var(--zli-border); border-radius: 8px; }
+.about-you-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.about-you-by { color: var(--zli-dim); font-size: 11px; }
+.about-you-add { display: flex; gap: 8px; margin-top: 8px; }
+.about-you-add .input { flex: 1; }

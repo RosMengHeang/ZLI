@@ -2,6 +2,7 @@ import {
   agentNameTaken,
   type BuddyMessage,
   type BuddyProjection,
+  type PermissionMode,
   buddyNamed,
   CommandId,
   guessProject,
@@ -16,7 +17,7 @@ import {
 
 import type { CommandReceipt, Engine } from "../orchestration/Engine.js";
 import { candidatesFor, pickEngine, trackRecords } from "./autopick.js";
-import { chatBrief, parseChatReply, placeNamed, senderName } from "./chat.js";
+import { chatBrief, noteMentions, parseChatReply, placeNamed, senderName } from "./chat.js";
 import type { BuddyHomes } from "./homes.js";
 import { stableId } from "./stableId.js";
 
@@ -34,21 +35,30 @@ export type BuddyChatReactorOptions = {
 
 /** The most jobs one reply may start. */
 const MAX_JOBS_PER_REPLY = 3;
-/** A chat reply that takes this long is stuck, not thinking: a big piece of work belongs in a job. */
-const STALL_MS = 10 * 60_000;
+/** A chat turn that takes this long is stuck. The chat does real work (its browser, its apps), so it gets time. */
+const STALL_MS = 30 * 60_000;
 /** An unattended chat waiting on a prompt has nobody to answer it. */
 const STUCK_MS = 60_000;
 /** A chat that went quiet with no answer is given this long for the answer to land before ZLI says so. */
 const SETTLE_MS = 30_000;
 
+/** How a chat is picked: it browses, reads and writes in its home, so like a web job. */
+const CHAT_PROFILE = { kind: "web", size: "m", risk: "low", needsBrowser: true } as const;
+
+/** The chat works with the buddy's own permission, as its jobs do. */
+export function chatPermission(buddy: BuddyProjection): PermissionMode {
+  return buddy.permissionMode;
+}
+
 /** Messages a fresh chat gets from before, so a restarted chat still knows the conversation. */
 const HISTORY = 16;
 
 /**
- * Runs each buddy's chat with the person. The chat is a hidden, read-only agent chat in a project
- * checkout: the person's messages go to it with a brief, and its finished replies come back as the
- * buddy's messages. A reply can start jobs and keep notes about the person, through markers that ZLI
- * reads out before the person sees the reply.
+ * Runs each buddy's chat with the person. The chat is a hidden agent chat in the buddy's home, with the buddy's
+ * own permission and every tool it has (its browser, ZLI's buddy tools, connected apps), so it does the work
+ * itself. The person's messages go to it with a brief; what it says while working and its finished reply come
+ * back as the buddy's messages. A reply can also start code jobs, goals and messages to teammates, and keep
+ * notes, through markers that ZLI reads out before the person sees the reply.
  *
  * Every command it sends has an id made from the message it answers, so a restart never repeats one.
  */
@@ -112,7 +122,8 @@ export class BuddyChatReactor {
     // Every buddy gets its home up front, so its browser is there to sign in to before its first web job.
     if (this.options.homes && !buddy.home) await this.options.homes.home(state, buddy);
     const messages = (state.buddyMessages ?? []).filter((message) => message.buddyId === buddy.buddyId);
-    const lastReply = messages.findLastIndex((message) => message.role === "buddy");
+    // A line sent while working is not the answer: the messages before it are still waiting on one.
+    const lastReply = messages.findLastIndex((message) => message.role === "buddy" && !message.progress);
     const waiting = messages.slice(lastReply + 1).filter((message) => message.role === "you");
     const thread = state.threads.find((candidate) => candidate.threadId === buddy.chatThreadId);
     if (thread && waiting.length > 0) await this.collect(state, buddy, thread.threadId, waiting);
@@ -120,14 +131,25 @@ export class BuddyChatReactor {
     // A chat from before buddies had homes runs in a project: the next message starts it again at home.
     const homeless =
       this.options.homes !== undefined && thread !== undefined && thread.worktreeId !== buddy.home?.worktreeId;
+    // A chat from when chats could only read starts again with the buddy's own permission. Not while it works.
+    const outdated =
+      thread !== undefined &&
+      thread.status !== "working" &&
+      (thread.permissionMode ?? "full-access") !== chatPermission(buddy);
     const usable =
       thread?.unattended &&
       !homeless &&
+      !outdated &&
       thread.status !== "failed" &&
       thread.status !== "stopped" &&
       state.worktrees.some((worktree) => worktree.worktreeId === thread.worktreeId && worktree.status === "ready");
     // A chat started before chats ran unattended can be stuck waiting on a prompt nobody sees: end it.
-    if (thread && (!thread.unattended || homeless) && thread.status !== "failed" && thread.status !== "stopped")
+    if (
+      thread &&
+      (!thread.unattended || homeless || outdated) &&
+      thread.status !== "failed" &&
+      thread.status !== "stopped"
+    )
       await this.dispatch(
         { type: "thread.stop", threadId: thread.threadId } as RuntimeCommand,
         `buddy-chat-retire:${thread.threadId}`,
@@ -187,7 +209,8 @@ export class BuddyChatReactor {
     const state = await this.engine.projection();
     const pick = pickEngine({
       buddy,
-      profile: { kind: "question", size: "s", risk: "low", needsBrowser: false },
+      // The chat does the work itself, browser included: it is picked like a web job, not a quick question.
+      profile: CHAT_PROFILE,
       candidates: candidatesFor(await this.options.providers().catch(() => []), buddy, undefined),
       records: trackRecords(state.tasks ?? []),
       quality: state.buddySettings?.quality ?? "balanced",
@@ -210,7 +233,7 @@ export class BuddyChatReactor {
         worktreeId: checkout.worktreeId,
         provider: pick.provider,
         cwd: checkout.path,
-        permissionMode: "read-only",
+        permissionMode: chatPermission(buddy),
         unattended: true,
         ...(pick.model ? { model: pick.model } : {}),
         ...(pick.accountId ? { accountId: pick.accountId } : {}),
@@ -270,6 +293,7 @@ export class BuddyChatReactor {
     const waited = now - Date.parse(answered[0]?.at ?? new Date(now).toISOString());
     const asking = answered.at(-1)?.messageId ?? "";
     if (thread.status === "working" || thread.status === "starting" || thread.status === "waiting") {
+      await this.progress(state, buddy, threadId, answered);
       // Nobody answers a hidden chat's prompts, and a chat answer is never hours of work: stop it and say so.
       const stuck = thread.status === "waiting";
       const limit = stuck ? STUCK_MS : (this.options.stallMs ?? STALL_MS);
@@ -337,7 +361,14 @@ export class BuddyChatReactor {
     // answered in words: anything it talked the buddy into is left undone, so text a teammate read in a file
     // or on a page cannot spread through the team.
     const fromTeammate = answered.some((message) => message.from);
-    if (fromTeammate && (parsed.jobs.length > 0 || parsed.remember.length > 0 || parsed.goals.length > 0))
+    if (
+      fromTeammate &&
+      (parsed.jobs.length > 0 ||
+        parsed.remember.length > 0 ||
+        parsed.about.length > 0 ||
+        parsed.forget.length > 0 ||
+        parsed.goals.length > 0)
+    )
       started.push("A teammate asked, so I only answered. Ask me yourself if you want me to start work on it.");
     // One message starts a few jobs at most, so a confused or misled reply cannot fill the queue.
     const jobs = fromTeammate ? [] : parsed.jobs.slice(0, MAX_JOBS_PER_REPLY);
@@ -422,6 +453,20 @@ export class BuddyChatReactor {
       );
       if (receipt.status === "rejected") started.push(receipt.error?.message ?? "I did not keep that note.");
     }
+    if (!fromTeammate) {
+      for (const [index, note] of parsed.about.entries()) {
+        const receipt = await this.dispatch(
+          {
+            type: "buddies.about.add",
+            note: { noteId: stableId(`buddy-chat-about:${answer.messageId}:${index}`), text: note, by: buddy.buddyId },
+          } as RuntimeCommand,
+          `buddy-chat-about:${answer.messageId}:${index}`,
+        );
+        if (receipt.status === "rejected") started.push(receipt.error?.message ?? "I did not keep that.");
+      }
+      for (const [index, words] of parsed.forget.entries())
+        await this.forget(state, buddy, words, `${answer.messageId}:${index}`);
+    }
     // A teammate's message is answered once and not passed on, so two buddies never message each other in a loop.
     if (!fromTeammate)
       for (const [index, tell] of parsed.tells.entries()) {
@@ -459,6 +504,47 @@ export class BuddyChatReactor {
   }
 
   /**
+   * What the chat said while still working, sent on as it lands: a line before slow work, a step along the way.
+   * Only messages something came after are sent, since the newest may still be written; the answer comes last.
+   */
+  private async progress(
+    state: RuntimeProjection,
+    buddy: BuddyProjection,
+    threadId: string,
+    answered: readonly BuddyMessage[],
+  ): Promise<void> {
+    // A teammate waits for one answer, not for the steps.
+    if (answered.some((message) => message.from)) return;
+    const log = (state.messages ?? []).filter((message) => message.threadId === threadId);
+    const lastAsk = log.findLastIndex((message) => message.role === "user");
+    if (lastAsk === -1) return;
+    const asked = log[lastAsk]?.text ?? "";
+    if (!answered.some((message) => asked.includes(message.text.trim()))) return;
+    const after = log.slice(lastAsk + 1);
+    for (const [index, message] of after.entries()) {
+      if (index === after.length - 1 || message.role !== "assistant") continue;
+      const text = parseChatReply(message.text).text;
+      if (text) await this.reply(buddy, `progress:${message.messageId}`, text, { progress: true });
+    }
+  }
+
+  /** Forgets every note of this buddy's, and every fact about the person, that the words name. */
+  private async forget(state: RuntimeProjection, buddy: BuddyProjection, words: string, key: string): Promise<void> {
+    for (const note of buddy.memory)
+      if (noteMentions(note.text, words))
+        await this.dispatch(
+          { type: "buddy.memory.remove", buddyId: buddy.buddyId, noteId: note.noteId } as RuntimeCommand,
+          `buddy-chat-forget:${key}:${note.noteId}`,
+        );
+    for (const note of state.buddySettings?.aboutMe ?? [])
+      if (noteMentions(note.text, words))
+        await this.dispatch(
+          { type: "buddies.about.remove", noteId: note.noteId } as RuntimeCommand,
+          `buddy-chat-forget-about:${key}:${note.noteId}`,
+        );
+  }
+
+  /**
    * Ends the wait with what went wrong. A teammate who asked hears it too, so they never wait on an answer that
    * is not coming.
    */
@@ -483,7 +569,7 @@ export class BuddyChatReactor {
     buddy: BuddyProjection,
     key: string,
     text: string,
-    teammate: { from?: string; to?: string; unanswered?: true } = {},
+    teammate: { from?: string; to?: string; unanswered?: true; progress?: true } = {},
   ): Promise<CommandReceipt> {
     return this.dispatch(
       {

@@ -84,6 +84,7 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
           ...(command.from ? { from: command.from } : {}),
           ...(command.to ? { to: command.to } : {}),
           ...(command.unanswered ? { unanswered: true } : {}),
+          ...(command.progress ? { progress: true } : {}),
         },
       ];
     }
@@ -196,6 +197,18 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
       return projection.buddySettings?.paused ? [{ type: "buddies.resumed" }] : [];
     case "buddies.quality":
       return [{ type: "buddies.quality.changed", quality: command.quality }];
+    case "buddies.about.add": {
+      const known = projection.buddySettings?.aboutMe ?? [];
+      const same = (text: string) => text.trim().toLowerCase();
+      // A fact already known, in the same words, is not kept twice.
+      if (known.some((note) => note.noteId === command.note.noteId || same(note.text) === same(command.note.text)))
+        return [];
+      if (command.note.by !== undefined) requireBuddy(projection, command.note.by);
+      return [{ type: "buddies.about.added", note: command.note }];
+    }
+    case "buddies.about.remove":
+      if (!(projection.buddySettings?.aboutMe ?? []).some((note) => note.noteId === command.noteId)) return [];
+      return [{ type: "buddies.about.removed", noteId: command.noteId }];
     case "task.assign": {
       const buddy = requireBuddy(projection, command.task.buddyId);
       if (buddy.archived) throw new DomainError("buddy_missing", `${buddy.name} was removed from the team.`);

@@ -43,6 +43,7 @@ import { GitLabIssues } from "./issues/GitLabIssues.js";
 import { LinearIssues } from "./issues/LinearIssues.js";
 import { type LimitTarget, mockLimitRead, PlanLimits } from "./limits/PlanLimits.js";
 import { planLimitReader } from "./limits/readers.js";
+import { ConnectedApps } from "./mcp/ConnectedApps.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
 import { GITHUB_OAUTH_CLIENT_ID } from "./mcp/signIn/github.js";
 import { McpSignIns } from "./mcp/signIn/McpSignIns.js";
@@ -173,8 +174,11 @@ export async function startRuntime(options: {
     githubClientId: process.env.ZLI_GITHUB_CLIENT_ID?.trim() || GITHUB_OAUTH_CLIENT_ID,
   });
   await signIns.load();
+  const connectedApps = new ConnectedApps({ path: join(dirname(databasePath), "connected-apps.json") });
+  await connectedApps.load();
   const mcpServers: McpServerStore = new McpServerStore({
     path: join(dirname(databasePath), "mcp-servers.json"),
+    apps: connectedApps,
     extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
     signIns,
     importFrom: { home: userHome },

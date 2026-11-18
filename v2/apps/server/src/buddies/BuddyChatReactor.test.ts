@@ -18,7 +18,7 @@ import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
 import { BuddyChatReactor, type BuddyChatReactorOptions } from "./BuddyChatReactor.js";
 import { jobBrief } from "./brief.js";
-import { chatBrief, parseChatReply } from "./chat.js";
+import { chatBrief, noteMentions, parseChatReply } from "./chat.js";
 import { stableId } from "./TaskReactor.js";
 
 const environment: EnvironmentDescriptor = {
@@ -117,8 +117,22 @@ describe("parseChatReply", () => {
       text: "Sure, I'll fix it.",
       jobs: [{ project: "shop-web", goal: "Fix the cart total when a coupon is applied twice." }],
       remember: ["Prefers small PRs."],
+      about: [],
+      forget: [],
       tells: [],
       goals: [],
+    });
+  });
+
+  it("reads facts for every buddy and words to forget", () => {
+    const reply = parseChatReply(
+      "Got it.\n[[remember everyone]]Lives in Phnom Penh.[[/remember]][[forget]]old address[[/forget]]",
+    );
+    expect(reply).toMatchObject({
+      text: "Got it.",
+      about: ["Lives in Phnom Penh."],
+      remember: [],
+      forget: ["old address"],
     });
   });
 
@@ -127,9 +141,19 @@ describe("parseChatReply", () => {
       text: "",
       jobs: [],
       remember: [],
+      about: [],
+      forget: [],
       tells: [],
       goals: [],
     });
+  });
+});
+
+describe("noteMentions", () => {
+  it("matches whole words only", () => {
+    expect(noteMentions("Works in IST hours", "ist")).toBe(true);
+    expect(noteMentions("Sees the dentist on Fridays", "ist")).toBe(false);
+    expect(noteMentions("Lives in Phnom Penh", "phnom penh")).toBe(true);
   });
 });
 
@@ -170,12 +194,12 @@ describe("chatBrief", () => {
 });
 
 describe("BuddyChatReactor", () => {
-  it("answers a greeting in a hidden read-only chat and starts no job", async () => {
+  it("answers a greeting in a hidden chat with the buddy's own permission and starts no job", async () => {
     const { engine, settle, answer } = await setup();
     await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "msg-1", text: "hello" } as RuntimeCommand);
     const started = await settle();
     const thread = started.threads.find((candidate) => candidate.threadId === started.buddies?.[0]?.chatThreadId);
-    expect(thread?.permissionMode).toBe("read-only");
+    expect(thread?.permissionMode).toBe("full-access");
     expect(thread?.unattended).toBe(true);
     expect(started.queuedMessages?.[0]?.text).toBe("hello");
 
@@ -352,12 +376,12 @@ describe("BuddyChatReactor", () => {
     state = await settle();
     expect(state.buddyMessages?.at(-1)?.role).toBe("you");
 
-    clock += 11 * 60_000;
+    clock += 31 * 60_000;
     await new Promise((resolve) => setTimeout(resolve, 30));
     state = await settle();
     expect(state.buddyMessages?.at(-1)).toMatchObject({
       role: "buddy",
-      text: expect.stringContaining("10 minutes without an answer"),
+      text: expect.stringContaining("30 minutes without an answer"),
     });
     expect((state.queuedMessages ?? []).filter((queued) => queued.threadId === threadId)).toEqual([]);
   });
@@ -638,5 +662,76 @@ describe("recall and playbooks in briefs", () => {
       branch: "builder/invoices",
     });
     expect(brief).toContain("### Add an API route\n1. Add src/api/x.ts\n2. Run pnpm test:api");
+  });
+});
+
+describe("BuddyChatReactor memory and progress", () => {
+  it("keeps a fact about the person for every buddy", async () => {
+    const { engine, settle, answer } = await setup();
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-where",
+      text: "I live in Phnom Penh",
+    } as RuntimeCommand);
+    await settle();
+    const state = await answer("Noted.\n[[remember everyone]]Lives in Phnom Penh.[[/remember]]");
+    expect(state.buddySettings?.aboutMe).toMatchObject([{ text: "Lives in Phnom Penh.", by: "b1" }]);
+    expect(chatBrief({ buddy: state.buddies?.[0] as BuddyProjection, state, guess: undefined })).toContain(
+      "Lives in Phnom Penh.",
+    );
+  });
+
+  it("forgets what the person asks it to, from its notes and from what every buddy knows", async () => {
+    const { engine, settle, answer } = await setup();
+    await send(engine, {
+      type: "buddies.about.add",
+      note: { noteId: "about-1", text: "Lives in Phnom Penh." },
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.memory.add",
+      buddyId: "b1",
+      note: { noteId: "note-1", text: "Their office is in Phnom Penh.", source: "told" },
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-forget",
+      text: "Forget where I live",
+    } as RuntimeCommand);
+    await settle();
+    const state = await answer("Forgotten.\n[[forget]]phnom penh[[/forget]]");
+    expect(state.buddySettings?.aboutMe ?? []).toEqual([]);
+    expect(state.buddies?.[0]?.memory ?? []).toEqual([]);
+  });
+
+  it("sends what it says while working, then the answer, and keeps waiting until the answer", async () => {
+    const { engine, settle, deliver } = await setup();
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-open",
+      text: "Open zli.taxz.dev",
+    } as RuntimeCommand);
+    const threadId = await deliver();
+    await send(engine, { type: "thread.status", threadId, status: "working" } as RuntimeCommand);
+    await send(engine, {
+      type: "thread.message",
+      message: { messageId: "p-1", threadId, role: "assistant", text: "Opening it in my browser now." },
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "thread.message",
+      message: { messageId: "p-2", threadId, role: "assistant", text: "It's open: the ZLI home page." },
+    } as RuntimeCommand);
+    let state = await settle();
+    const mine = () => (state.buddyMessages ?? []).filter((message) => message.role === "buddy");
+    expect(mine()).toMatchObject([{ text: "Opening it in my browser now.", progress: true }]);
+
+    await send(engine, { type: "thread.status", threadId, status: "idle" } as RuntimeCommand);
+    state = await settle();
+    expect(mine().map((message) => [message.text, message.progress ?? false])).toEqual([
+      ["Opening it in my browser now.", true],
+      ["It's open: the ZLI home page.", false],
+    ]);
   });
 });

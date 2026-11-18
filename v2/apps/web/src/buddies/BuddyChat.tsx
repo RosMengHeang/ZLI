@@ -249,9 +249,11 @@ export function buddyTranscript(buddy: BuddyProjection, state: RuntimeProjection
     items.push({ kind: "reply", key: `${task.taskId}-reply`, at: task.updatedAt, task });
   }
   // Your message is waiting on its answer.
+  // Lines the buddy sent while working do not answer it: it keeps working after them.
   const last = messages.at(-1);
-  if (last?.role === "you")
-    items.push({ kind: "thinking", key: `${last.messageId}-thinking`, at: last.at, threadId: buddy.chatThreadId });
+  const asked = messages.findLast((message) => !(message.role === "buddy" && message.progress));
+  if (asked?.role === "you" && last)
+    items.push({ kind: "thinking", key: `${asked.messageId}-thinking`, at: last.at, threadId: buddy.chatThreadId });
   // Stable by time, so entries recorded at the same moment keep the order they were added in.
   return items
     .map((item, index) => ({ item, index }))

@@ -1,6 +1,7 @@
 import { MCP_CATALOG } from "@zli-v2/contracts";
 import { type KeyboardEvent, useId, useRef, useState } from "react";
 
+import { ConnectedAppsSection } from "./ConnectedAppsSection.js";
 import { ConnectorsSection } from "./ConnectorsSection.js";
 import { McpServersSection } from "./McpServersSection.js";
 import { PluginsSection } from "./PluginsSection.js";
@@ -119,6 +120,15 @@ export function IntegrationsSection({
                 </button>
               ))}
             </div>
+            {kind === "plugins" || query.trim() ? null : (
+              <SettingsGroup
+                title="Connected apps"
+                description="Gmail, Slack, GitHub, Notion, Linear and hundreds more, over Composio. Sign in once; every buddy can use them."
+                bare
+              >
+                <ConnectedAppsSection />
+              </SettingsGroup>
+            )}
             {kind === "plugins" ? null : (
               <SettingsGroup
                 title="Connectors"

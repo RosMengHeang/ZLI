@@ -36,6 +36,7 @@ import {
   type ListedProviderKind,
   MCP_COMMAND_TYPES,
   type McpCommand,
+  type ConnectedAppsStatus,
   type McpImportResult,
   type McpListResult,
   type McpServerConfig,
@@ -1118,6 +1119,10 @@ export type McpServerCommands = {
   reloadSignIns?(): Promise<void>;
   test?(name: string): Promise<McpTestResult>;
   scanImports?(): Promise<McpImportResult>;
+  appsStatus?(): Promise<ConnectedAppsStatus>;
+  appsKey?(key: string): Promise<ConnectedAppsStatus>;
+  appsConnect?(app: string): Promise<{ url: string }>;
+  appsDisconnect?(accountId: string): Promise<ConnectedAppsStatus>;
 };
 
 function mcpFailurePrefix(command: McpCommand): string {
@@ -1125,13 +1130,14 @@ function mcpFailurePrefix(command: McpCommand): string {
   if (command.type === "mcp.test") return "The test did not run.";
   if (command.type === "mcp.import.scan") return "ZLI could not look for servers in other apps.";
   if (command.type === "mcp.list") return "MCP servers could not be listed.";
+  if (command.type.startsWith("mcp.apps")) return "Connected apps did not answer.";
   return "MCP servers were not saved.";
 }
 
 function runMcpCommand(
   store: McpServerCommands,
   command: McpCommand,
-): Promise<McpListResult | McpSignInStart | McpTestResult | McpImportResult> {
+): Promise<McpListResult | McpSignInStart | McpTestResult | McpImportResult | ConnectedAppsStatus | { url: string }> {
   const missing = () => Promise.reject(new SignInError("Signing in is not available here."));
   const unavailable = (what: string) => Promise.reject(new McpRequestError(`${what} is not available here.`));
   switch (command.type) {
@@ -1160,6 +1166,14 @@ function runMcpCommand(
       return store.test ? store.test(command.name) : unavailable("Testing servers");
     case "mcp.import.scan":
       return store.scanImports ? store.scanImports() : unavailable("Importing servers");
+    case "mcp.apps.status":
+      return store.appsStatus ? store.appsStatus() : unavailable("Connected apps");
+    case "mcp.apps.key":
+      return store.appsKey ? store.appsKey(command.key) : unavailable("Connected apps");
+    case "mcp.apps.connect":
+      return store.appsConnect ? store.appsConnect(command.app) : unavailable("Connected apps");
+    case "mcp.apps.disconnect":
+      return store.appsDisconnect ? store.appsDisconnect(command.accountId) : unavailable("Connected apps");
   }
 }
 
