@@ -31,7 +31,7 @@
 .buddy-tabs .segmented-item[aria-pressed="true"] { background: var(--zli-raised); color: var(--zli-text); }
 .buddy-view-info .buddy-profile { gap: var(--zli-space-4); }
 .buddy-view-info .buddies-heading { padding: 0 2px; }
-@media (max-width: 1100px) { .buddy-view-info { width: 280px; } }
+@media (max-width: 1100px) { .buddy-view-info.is-open { width: 280px; } .buddy-view-info-inner { width: 280px; } }
 
 /* A rounded card, like the rows of a settings sheet. */
 .buddy-card { margin: 0; padding: 10px 12px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
@@ -477,3 +477,16 @@ button.goal-card-lead:hover { color: var(--zli-text); }
 .about-you-by { color: var(--zli-dim); font-size: 11px; }
 .about-you-add { display: flex; gap: 8px; margin-top: 8px; }
 .about-you-add .input { flex: 1; }
+.buddy-chat-ask { max-width: 560px; }
+
+/* Narrow: the chat keeps the whole width and the details slide over it, instead of squeezing it to nothing. */
+.buddy-view { position: relative; container-type: inline-size; container-name: buddy-view; }
+@container buddy-view (max-width: 700px) {
+  .buddy-view-info { position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; box-shadow: none; }
+  .buddy-view-info.is-open { width: min(320px, 100%); box-shadow: -12px 0 32px rgb(0 0 0 / 0.35); }
+  .buddy-view-info-inner { width: min(320px, 100cqw); }
+}
+@container buddy-view (max-width: 420px) {
+  .buddy-view-info.is-open { width: 100%; border-left: 0; }
+  .buddy-view-info-inner { width: 100%; }
+}

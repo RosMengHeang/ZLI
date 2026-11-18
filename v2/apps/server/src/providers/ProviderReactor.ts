@@ -14,6 +14,8 @@ import {
 
 import type { TurnCheckpoints, TurnStart } from "../checkpoints/TurnCheckpoints.js";
 import type { Engine } from "../orchestration/Engine.js";
+import { AGENT_MCP_SERVER, BROWSER_MCP_SERVER, MOBILE_MCP_SERVER } from "../browser-tool/browserTool.js";
+import { CONNECTED_APPS_SERVER } from "../mcp/ConnectedApps.js";
 import { trustedProject } from "../terminal/agentTrust.js";
 import type {
   ProviderAccount,
@@ -714,16 +716,19 @@ export class ProviderReactor {
   }
 
   /**
-   * An approval the agent asks for. Nobody watches an unattended thread (a buddy's chat or job), so ZLI answers
-   * for it at once, as the person set it up: full access allows the tool for the rest of the chat, anything less
-   * declines, so the agent carries on without it instead of waiting forever. Other threads ask the person.
+   * An approval the agent asks for. In an unattended thread (a buddy's chat or job) ZLI's own tools are the
+   * buddy's own, its browser, its team and its connected apps, so they never ask, at any permission; with full
+   * access nothing asks. Anything else waits for the person, who answers it on a card where they talk to the
+   * buddy, as in any chat.
    */
   private async approval(threadId: string, requestId: string, payload: Record<string, unknown>): Promise<void> {
     await this.request(threadId, "approval", requestId, payload);
     const thread = (await this.engine.projection()).threads.find((candidate) => candidate.threadId === threadId);
-    if (thread?.unattended) {
-      const allowed = (thread.permissionMode ?? "full-access") === "full-access";
-      await this.respond(threadId, requestId, allowed ? { approved: true, scope: "session" } : { approved: false });
+    if (
+      thread?.unattended &&
+      ((thread.permissionMode ?? "full-access") === "full-access" || OWN_TOOL_SERVERS.has(requestServer(payload) ?? ""))
+    ) {
+      await this.respond(threadId, requestId, { approved: true, scope: "session" });
       return;
     }
     await this.status(threadId, "waiting");
@@ -920,4 +925,24 @@ function scopedActivityId(threadId: string, activityId: string): string {
 
 function safeTurnId(value: string): TurnId {
   return TurnId.safeParse(value).success ? TurnId.parse(value) : TurnId.parse(randomUUID());
+}
+
+/** The tool servers ZLI itself gives every agent: the browser, ZLI's own tools, the phone, connected apps. */
+const OWN_TOOL_SERVERS = new Set<string>([
+  BROWSER_MCP_SERVER,
+  AGENT_MCP_SERVER,
+  MOBILE_MCP_SERVER,
+  CONNECTED_APPS_SERVER,
+]);
+
+/**
+ * The tool server an approval is about: Codex names it, Claude and ACP agents name the tool as
+ * mcp__<server>__<tool>.
+ */
+export function requestServer(payload: Record<string, unknown>): string | undefined {
+  if (typeof payload.serverName === "string") return payload.serverName;
+  const tool = [payload.toolName, payload.tool_name, (payload.toolCall as { title?: unknown } | undefined)?.title].find(
+    (value): value is string => typeof value === "string",
+  );
+  return tool ? /^mcp__(.+?)__/u.exec(tool)?.[1] : undefined;
 }

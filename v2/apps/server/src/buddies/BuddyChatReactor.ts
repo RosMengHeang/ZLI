@@ -295,7 +295,12 @@ export class BuddyChatReactor {
     if (thread.status === "working" || thread.status === "starting" || thread.status === "waiting") {
       await this.progress(state, buddy, threadId, answered);
       // Nobody answers a hidden chat's prompts, and a chat answer is never hours of work: stop it and say so.
-      const stuck = thread.status === "waiting";
+      // A permission card waits for the person, who sees it where they talk to the buddy. Anything else it waits
+      // on (a question for nobody) is stuck.
+      const carded = (state.requests ?? []).some(
+        (request) => request.threadId === threadId && request.kind === "approval",
+      );
+      const stuck = thread.status === "waiting" && !carded;
       const limit = stuck ? STUCK_MS : (this.options.stallMs ?? STALL_MS);
       if (waited < limit) return;
       await this.dispatch(

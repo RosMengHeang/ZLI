@@ -239,8 +239,12 @@ describe("ProviderReactor", () => {
     service.dispose();
   });
 
-  it("answers an unattended thread's approvals at once, as its permission allows", async () => {
-    const run = async (permissionMode: "full-access" | "supervised" | undefined, unattended: boolean) => {
+  it("lets a buddy use its own tools without asking, and asks the person for anything else", async () => {
+    const run = async (
+      permissionMode: "full-access" | "supervised" | undefined,
+      unattended: boolean,
+      payload: Record<string, unknown> = { serverName: "zli-browser" },
+    ) => {
       const database = new Database({ path: ":memory:" });
       databases.push(database);
       const engine = new Engine({ database, environment });
@@ -288,7 +292,7 @@ describe("ProviderReactor", () => {
         type: "approval.requested",
         threadId,
         requestId: "ask-1",
-        payload: { serverName: "zli-browser" },
+        payload,
       });
       await reactor.waitForIdle();
       const state = await engine.projection();
@@ -303,8 +307,16 @@ describe("ProviderReactor", () => {
       decisions: [{ approved: true, scope: "session" }],
       requests: [],
     });
-    // A buddy with less: declined at once, so it carries on without the tool instead of hanging.
-    expect(await run("supervised", true)).toMatchObject({ decisions: [{ approved: false }], requests: [] });
+    // A supervised buddy: its own browser never asks, whichever agent names it.
+    expect(await run("supervised", true)).toMatchObject({ decisions: [{ approved: true }], requests: [] });
+    expect(await run("supervised", true, { toolName: "mcp__composio__COMPOSIO_SEARCH_TOOLS" })).toMatchObject({
+      decisions: [{ approved: true }],
+    });
+    // Anything else waits for the person, who answers it on a card in the buddy's chat.
+    const command = await run("supervised", true, { command: "rm -rf build" });
+    expect(command.decisions).toEqual([]);
+    expect(command.requests).toEqual([expect.objectContaining({ requestId: "ask-1" })]);
+    expect(command.status).toBe("waiting");
     // The person's own chat: they answer it.
     const own = await run("full-access", false);
     expect(own.decisions).toEqual([]);

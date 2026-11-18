@@ -195,13 +195,19 @@ export function BuddyScreen({
   const worktree = projection.worktrees.find((entry) => entry.worktreeId === buddy.home?.worktreeId);
   const tabs = (projection.browserTabs ?? []).filter((entry) => entry.worktreeId === worktree?.worktreeId);
   const tab = tabs.find((entry) => entry.active) ?? tabs.at(-1);
-  const working = (projection.tasks ?? []).some(
-    (task) =>
-      task.buddyId === buddy.buddyId &&
-      task.status === "working" &&
-      task.worktreeId !== undefined &&
-      task.worktreeId === worktree?.worktreeId,
+  // Its chat browses too, in the same browser: the screen is live while either works.
+  const chatting = projection.threads.some(
+    (thread) => thread.threadId === buddy.chatThreadId && (thread.status === "working" || thread.status === "starting"),
   );
+  const working =
+    chatting ||
+    (projection.tasks ?? []).some(
+      (task) =>
+        task.buddyId === buddy.buddyId &&
+        task.status === "working" &&
+        task.worktreeId !== undefined &&
+        task.worktreeId === worktree?.worktreeId,
+    );
   const tabId = tab?.browserTabId;
   // The card only catches up while it is on screen and the app is in front.
   const frameRef = useRef<HTMLButtonElement>(null);

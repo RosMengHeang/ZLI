@@ -14,7 +14,7 @@ import {
   type TaskProjection,
   taskLine,
 } from "@zli-v2/contracts";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -413,6 +413,9 @@ function TeamPage({
   );
 }
 
+/** Below this width a buddy's details slide over its chat; matches buddyChat.css. */
+const NARROW_VIEW = 700;
+
 /** The team's settings, behind the gear on the Buddies list: pausing, how Auto picks models, and importing. */
 export function TeamSettingsDialog({
   projection,
@@ -663,14 +666,32 @@ function BuddyPage({
   onOpenThread,
   onOpenPullRequest,
 }: BuddiesPaneProps & { buddy: BuddyProjection; run: Run; error: ReactNode }) {
-  // The details sit beside the chat from the start; the name tag folds them away and back.
+  // The details sit beside the chat from the start when there is room; the name tag folds them away and back.
+  // Narrow, they would cover the chat, so they start folded and fold away when the space shrinks.
   const [info, setInfo] = useState(true);
+  const viewRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const view = viewRef.current;
+    if (!view) return undefined;
+    // A width of 0 means it has not been laid out (or cannot be measured): not narrow.
+    const isNarrow = () => view.clientWidth > 0 && view.clientWidth < NARROW_VIEW;
+    let narrow = isNarrow();
+    if (narrow) setInfo(false);
+    if (typeof ResizeObserver !== "function") return undefined;
+    const observer = new ResizeObserver(() => {
+      const now = isNarrow();
+      if (now && !narrow) setInfo(false);
+      narrow = now;
+    });
+    observer.observe(view);
+    return () => observer.disconnect();
+  }, []);
   const [tab, setTab] = useState<InfoTab>("activity");
   const mood = buddyMood(buddy, projection.tasks ?? []);
   const title =
     buddy.role === "primary" ? "Primary buddy" : buddy.title && buddy.title !== buddy.name ? buddy.title : "";
   return (
-    <div className="buddy-view">
+    <div className="buddy-view" ref={viewRef}>
       <div className="buddy-view-main">
         {/* The chat runs under a floating name tag, like a message thread. */}
         <header className="buddy-view-top">

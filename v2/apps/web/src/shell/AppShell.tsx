@@ -542,6 +542,8 @@ function WorkspaceApp() {
     if (!bridge) return;
     let key = 0;
     return bridge.browser.onReveal(({ browserTabId, worktreeId }) => {
+      // A buddy's browser is its own: it shows on the buddy's screen, never in this panel.
+      if (projectionRef.current?.buddies?.some((buddy) => buddy.home?.worktreeId === worktreeId)) return;
       key += 1;
       setBrowserReveal({ browserTabId, worktreeId, key });
       setSidePane("browser");

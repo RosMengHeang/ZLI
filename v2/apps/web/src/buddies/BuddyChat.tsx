@@ -13,6 +13,7 @@ import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo,
 import { providerDisplayName } from "../agent/providers.js";
 import { fileName, splitAttachedFiles, withAttachedFiles } from "../chat/attachedFiles.js";
 import { readDraft, writeDraft } from "../chat/drafts.js";
+import { RequestPager } from "../chat/RequestCard.js";
 import { friendlySteps } from "./stepLabel.js";
 import { useDockHeight } from "../chat/useDockHeight.js";
 import { getBridge } from "../runtime/bridge.js";
@@ -365,6 +366,7 @@ export function BuddyChat({
                 projection={projection}
                 onOpenThread={onOpenThread}
                 renderReply={renderReply}
+                run={run}
                 // Only the newest note offers to send again: an older one was already followed by something.
                 {...(index === items.length - 1 ? { onResend: resend } : {})}
               />
@@ -455,6 +457,7 @@ function ChatEntry({
   onOpenThread,
   renderReply,
   onResend,
+  run,
 }: {
   item: ChatItem;
   buddy: BuddyProjection;
@@ -462,6 +465,7 @@ function ChatEntry({
   onOpenThread(threadId: string): void;
   renderReply(task: TaskProjection): ReactNode;
   onResend?: (text: string) => void;
+  run: Run;
 }) {
   switch (item.kind) {
     case "you":
@@ -506,6 +510,27 @@ function ChatEntry({
       return <div className="buddy-chat-card">{renderReply(item.task)}</div>;
     case "thinking": {
       const steps = recentSteps(projection, item.threadId, 12);
+      // Something only the person can allow: asked right here, like any chat, and the buddy carries on after.
+      const thread = projection.threads.find((entry) => entry.threadId === item.threadId);
+      const asks = (projection.requests ?? [])
+        .filter((request) => request.threadId === item.threadId)
+        .map((request) => ({
+          request,
+          provider: thread?.provider ?? "",
+          displayName: buddy.name,
+          onRespond: async (decision: unknown) => {
+            await run({ type: "thread.respond", threadId: request.threadId, requestId: request.requestId, decision });
+          },
+          onAnswer: async (answers: Record<string, string>) => {
+            await run({ type: "thread.user-input", threadId: request.threadId, requestId: request.requestId, answers });
+          },
+        }));
+      if (asks.length > 0)
+        return (
+          <div className="buddy-chat-ask">
+            <RequestPager requests={asks} />
+          </div>
+        );
       return (
         <div className="buddy-chat-live is-thinking" role="status" aria-label={`${buddy.name} is thinking`}>
           <div className="buddy-chat-live-head">
