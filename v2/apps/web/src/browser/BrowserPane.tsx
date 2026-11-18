@@ -116,9 +116,14 @@ export function BrowserPane({
   useEffect(() => {
     obscuredRef.current = obscured;
   }, [obscured]);
+  // A tab just closed stays in the projection until the runtime hears of it; it must not come back meanwhile.
+  const [closedIds, setClosedIds] = useState<ReadonlySet<string>>(() => new Set());
   const worktreeTabs = useMemo(
-    () => browserTabs?.filter((candidate) => candidate.worktreeId === worktreeId) ?? [],
-    [browserTabs, worktreeId],
+    () =>
+      browserTabs?.filter(
+        (candidate) => candidate.worktreeId === worktreeId && !closedIds.has(candidate.browserTabId),
+      ) ?? [],
+    [browserTabs, worktreeId, closedIds],
   );
   const restoredTab = worktreeTabs.find((candidate) => candidate.active) ?? worktreeTabs[0];
   const [handledRevealKey, setHandledRevealKey] = useState<number>();
@@ -241,10 +246,16 @@ export function BrowserPane({
     }
   };
 
+  // Tabs the projection has listed. A tab just opened here is not listed yet, and must not be dropped meanwhile.
+  const listedRef = useRef(new Set<string>());
+  useEffect(() => {
+    for (const candidate of browserTabs ?? []) listedRef.current.add(candidate.browserTabId);
+  }, [browserTabs]);
   useEffect(() => {
     if (!tab) return;
     const next = browserTabs?.find((candidate) => candidate.browserTabId === tab.browserTabId);
     if (!next) {
+      if (!listedRef.current.has(tab.browserTabId)) return;
       setTab(undefined);
       showUrl("");
       return;
@@ -371,9 +382,12 @@ export function BrowserPane({
     setBusy(true);
     setError(undefined);
     try {
-      if (candidate.browserTabId !== tab?.browserTabId) await selectTab(candidate);
+      const closingShown = candidate.browserTabId === tab?.browserTabId;
+      setClosedIds((current) => new Set([...current, candidate.browserTabId]));
+      // The page steps aside first, so nothing moves or shows a tab that is going away.
+      if (closingShown) setTab(undefined);
       await bridge.browser.close(candidate.browserTabId);
-      if (candidate.browserTabId === tab?.browserTabId) {
+      if (closingShown) {
         const next = worktreeTabs.find((tabCandidate) => tabCandidate.browserTabId !== candidate.browserTabId);
         if (next) await selectTab(next);
         else {

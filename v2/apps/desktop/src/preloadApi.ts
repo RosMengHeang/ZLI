@@ -360,7 +360,7 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
         ipc.invoke("zli:browser:press", BrowserPressInput.parse(input)),
       waitForNetworkIdle: (input: { browserTabId: string; idleMs?: number; timeoutMs?: number }) =>
         ipc.invoke("zli:browser:wait-network-idle", BrowserWaitForNetworkIdleInput.parse(input)),
-      screenshot: (input: { browserTabId: string; format?: "png" | "jpeg" }) =>
+      screenshot: (input: { browserTabId: string; format?: "png" | "jpeg"; thumbnail?: boolean }) =>
         ipc.invoke("zli:browser:screenshot", BrowserScreenshotInput.parse(input)),
       inspectElement: (input: { browserTabId: string; selector: string }) =>
         ipc.invoke("zli:browser:inspect", BrowserSelectorInput.parse(input)),

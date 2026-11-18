@@ -36,9 +36,26 @@ export function hostOf(url: string): string {
 
 const TILE_COLORS = ["#3157f5", "#0b8f6a", "#e01e5a", "#c56ff0", "#ff8a3d", "#24292f", "#2fbf8f", "#d4a017"];
 
-/** A small square with the site's first letter, in a color that stays the same for the site. */
-function SiteTile({ url }: { url: string }) {
+/**
+ * The site's own icon, as the page names it. Until it does, or when it cannot be loaded, a small square with the
+ * site's first letter, in a color that stays the same for the site.
+ */
+function SiteTile({ url, favicon }: { url: string; favicon?: string | undefined }) {
+  const [broken, setBroken] = useState<string>();
   const host = hostOf(url);
+  if (favicon && broken !== favicon)
+    return (
+      <img
+        className="chrome-favicon"
+        src={favicon}
+        alt=""
+        width={16}
+        height={16}
+        draggable={false}
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(favicon)}
+      />
+    );
   if (!host) return <Icon name="globe" size={13} />;
   let hash = 0;
   for (const character of host) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
@@ -150,10 +167,10 @@ export function BrowserChromeHeader({
                 title={tab.url}
                 onClick={() => onSelectTab(tab)}
               >
-                {tab.status === "loading" ? (
+                {tab.status === "loading" && !tab.favicon ? (
                   <span className="chrome-spinner" aria-hidden="true" />
                 ) : (
-                  <SiteTile url={tab.url} />
+                  <SiteTile url={tab.url} favicon={tab.favicon} />
                 )}
                 <span className="chrome-tab-title">{title}</span>
               </button>

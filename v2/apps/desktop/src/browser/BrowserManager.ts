@@ -95,6 +95,8 @@ type ManagedTab = {
   automation?: BrowserAutomation | undefined;
   designMode?: DesignMode | undefined;
   recoveryAttempted?: boolean;
+  /** The site the tab's icon came from, so a page on another site never shows it. */
+  faviconOrigin?: string | undefined;
 };
 
 const DEFAULT_BOUNDS: BrowserBoundsValue = { x: 0, y: 0, width: 1024, height: 720 };
@@ -420,8 +422,20 @@ export class BrowserManager {
     contents.on("page-title-updated", (_event, title) => {
       if (typeof title === "string") this.#replace(browserTabId, { title });
     });
+    contents.on("page-favicon-updated", (_event, favicons) => {
+      const favicon = Array.isArray(favicons)
+        ? favicons.find((entry): entry is string => typeof entry === "string" && /^https?:\/\//iu.test(entry))
+        : undefined;
+      if (!favicon || favicon.length > 2_000) return;
+      tab.faviconOrigin = originOf(safeCurrentUrl(contents, tab.projection.url));
+      if (favicon !== tab.projection.favicon) this.#replace(browserTabId, { favicon });
+    });
     contents.on("did-navigate", (_event, url) => {
-      if (typeof url === "string" && isAllowedBrowserNavigation(url)) this.#replace(browserTabId, { url });
+      if (typeof url !== "string" || !isAllowedBrowserNavigation(url)) return;
+      // Another site brings its own icon; until it names one, the tab shows none.
+      const sameSite = tab.faviconOrigin !== undefined && originOf(url) === tab.faviconOrigin;
+      if (!sameSite) tab.faviconOrigin = undefined;
+      this.#replace(browserTabId, { url, ...(sameSite ? {} : { favicon: undefined }) });
     });
     contents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
       if (isMainFrame !== true || code === ABORTED_ERROR_CODE) return;
@@ -662,4 +676,12 @@ function isRecordWithPreventDefault(value: unknown): value is { preventDefault()
     "preventDefault" in value &&
     typeof value.preventDefault === "function"
   );
+}
+
+function originOf(url: string): string | undefined {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
 }

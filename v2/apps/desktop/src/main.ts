@@ -741,10 +741,10 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   });
   ipcMain.handle("zli:browser:screenshot", (_event, input: unknown) => {
     const parsed = BrowserScreenshotInput.parse(input);
-    return browserManager?.screenshot(
-      parsed.browserTabId,
-      parsed.format === undefined ? {} : { format: parsed.format },
-    );
+    return browserManager?.screenshot(parsed.browserTabId, {
+      ...(parsed.format === undefined ? {} : { format: parsed.format }),
+      ...(parsed.thumbnail ? { thumbnail: true } : {}),
+    });
   });
   ipcMain.handle("zli:browser:inspect", (_event, input: unknown) => {
     const parsed = BrowserSelectorInput.parse(input);

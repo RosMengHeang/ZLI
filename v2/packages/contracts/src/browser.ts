@@ -53,7 +53,11 @@ export const BrowserWaitForNetworkIdleInput = BrowserTabIdInput.extend({
 });
 export type BrowserWaitForNetworkIdleInput = z.infer<typeof BrowserWaitForNetworkIdleInput>;
 
-export const BrowserScreenshotInput = BrowserTabIdInput.extend({ format: z.enum(["png", "jpeg"]).optional() });
+export const BrowserScreenshotInput = BrowserTabIdInput.extend({
+  format: z.enum(["png", "jpeg"]).optional(),
+  /** A small, light picture of what is on screen, for a preview card: the viewport, scaled down. */
+  thumbnail: z.boolean().optional(),
+});
 export type BrowserScreenshotInput = z.infer<typeof BrowserScreenshotInput>;
 
 export const BrowserReloadInput = BrowserTabIdInput.extend({ hard: z.boolean().default(false) });
@@ -190,6 +194,8 @@ export const BrowserTabProjection = z.object({
   status: z.enum(["idle", "loading", "crashed"]),
   loadError: z.string().max(512).optional(),
   viewport: BrowserViewport.optional(),
+  /** The icon the page names for itself, shown on its tab. */
+  favicon: z.string().max(2_000).optional(),
 });
 export type BrowserTabProjection = z.infer<typeof BrowserTabProjection>;
 

@@ -7,7 +7,7 @@ import {
   rulesOf,
   spentThisWeek,
 } from "@zli-v2/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { BrowserPane } from "../browser/BrowserPane.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -203,13 +203,23 @@ export function BuddyScreen({
       task.worktreeId === worktree?.worktreeId,
   );
   const tabId = tab?.browserTabId;
+  // The card only catches up while it is on screen and the app is in front.
+  const frameRef = useRef<HTMLButtonElement>(null);
+  const [onScreen, setOnScreen] = useState(true);
   useEffect(() => {
-    if (!bridge || !tabId || open) return undefined;
+    const frame = frameRef.current;
+    if (!frame || typeof IntersectionObserver !== "function") return undefined;
+    const observer = new IntersectionObserver((entries) => setOnScreen(entries.some((entry) => entry.isIntersecting)));
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!bridge || !tabId || open || !onScreen) return undefined;
     let alive = true;
     const grab = async () => {
       if (document.hidden) return;
       try {
-        const result = (await bridge.browser.screenshot({ browserTabId: tabId, format: "jpeg" })) as
+        const result = (await bridge.browser.screenshot({ browserTabId: tabId, format: "jpeg", thumbnail: true })) as
           | { data?: string; mimeType?: string }
           | undefined;
         if (alive && result?.data) setShot(`data:${result.mimeType ?? "image/jpeg"};base64,${result.data}`);
@@ -223,11 +233,12 @@ export function BuddyScreen({
       alive = false;
       clearInterval(timer);
     };
-  }, [bridge, tabId, open, working]);
+  }, [bridge, tabId, open, working, onScreen]);
 
   return (
     <section className="buddy-screen" aria-label={`${buddy.name}'s screen`}>
       <button
+        ref={frameRef}
         type="button"
         className="buddy-screen-frame"
         disabled={!worktree}

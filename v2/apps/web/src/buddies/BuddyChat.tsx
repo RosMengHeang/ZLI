@@ -356,8 +356,8 @@ export function BuddyChat({
               <h3>{buddy.name}</h3>
               <p>
                 {buddy.role === "primary"
-                  ? "Ask me anything. When you need something built, I'll plan it and hand the parts to the team."
-                  : `Ask me anything. When you need work done, I'll take it as a job on my own branch and show you the result.`}
+                  ? "Ask me anything, or give me a goal. I'll plan it and hand the parts to the team, in code or on the web."
+                  : `Ask me anything, or have me do it: code in your projects, or anything on the web in my own browser.`}
               </p>
             </div>
           ) : null}

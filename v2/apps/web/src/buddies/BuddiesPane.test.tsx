@@ -121,7 +121,7 @@ describe("BuddiesPane", () => {
   it("sends a message to the buddy's chat, which decides whether it is a job", async () => {
     const state = projection({ buddies: [buddy("b2", "Builder", 0)] });
     const { commands } = await render(state, "b2");
-    expect(document.body.textContent).toContain("Ask me anything.");
+    expect(document.body.textContent).toContain("Ask me anything, or have me do it");
     const box = document.querySelector<HTMLTextAreaElement>('[aria-label="Message Builder"]');
     if (!box) throw new Error("No message box");
     await typeInto(box, "hello");
