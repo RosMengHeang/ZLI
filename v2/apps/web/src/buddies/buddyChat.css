@@ -387,10 +387,22 @@ button.goal-card-lead:hover { color: var(--zli-text); }
 .budget-unit { color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .budget-over { margin: 6px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--zli-amber-soft); color: var(--zli-amber-ink); font-size: var(--zli-text-xs); }
 
-/* ---------- The buddy's own browser ---------- */
-.buddy-view-switch { position: absolute; top: 12px; right: var(--zli-space-3); }
-.buddy-browser { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 8px; padding: 58px var(--zli-space-3) var(--zli-space-3); }
-.buddy-browser.is-empty { align-items: center; justify-content: center; text-align: center; }
-.buddy-browser-note { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
-.buddy-browser-pane { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; border: 1px solid var(--zli-border); border-radius: 14px; }
-.buddy-browser-pane > * { min-height: 0; flex: 1; }
+/* ---------- The buddy's screen ---------- */
+/* A small live picture of its browser beside the chat; a click opens it full size to take over. */
+.buddy-screen { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 var(--zli-space-4); }
+.buddy-screen-frame { position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; padding: 6px; overflow: hidden; border: 1px solid var(--zli-border); border-radius: 14px; background: var(--zli-raised); color: var(--zli-dim); cursor: default; font: inherit; transition: border-color var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
+.buddy-screen-frame:not(:disabled):hover { border-color: var(--zli-border-hover); }
+.buddy-screen-frame:not(:disabled):active { transform: scale(0.99); }
+.buddy-screen-frame img { display: block; width: 100%; height: 100%; border-radius: 9px; object-fit: cover; object-position: top center; }
+.buddy-screen-empty { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; background: var(--zli-surface); font-size: var(--zli-text-xs); text-align: center; }
+.buddy-screen-live { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 7px; border-radius: var(--zli-radius-pill); background: rgba(0, 0, 0, 0.62); color: #fff; font-size: 11px; font-weight: 600; }
+.buddy-screen-live::before { width: 6px; height: 6px; border-radius: 50%; background: #ff5a5a; content: ""; animation: buddy-screen-pulse 1.6s ease-in-out infinite; }
+@keyframes buddy-screen-pulse { 50% { opacity: 0.35; } }
+.buddy-screen-expand { position: absolute; right: 12px; bottom: 12px; display: grid; width: 26px; height: 26px; place-items: center; border-radius: 8px; background: rgba(0, 0, 0, 0.55); color: #fff; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.buddy-screen-frame:hover .buddy-screen-expand, .buddy-screen-frame:focus-visible .buddy-screen-expand { opacity: 1; }
+.buddy-screen-caption { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); text-align: center; }
+.dialog.buddy-screen-dialog { display: flex; width: min(1280px, 94vw); max-width: none; height: min(800px, calc(100vh - 120px)); max-height: none; flex-direction: column; }
+.buddy-screen-full { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 0 var(--zli-space-3) var(--zli-space-3); }
+.buddy-screen-full > * { min-height: 0; flex: 1; overflow: hidden; border: 1px solid var(--zli-border); border-radius: 12px; }
+@media (prefers-reduced-motion: reduce) { .buddy-screen-live::before { animation: none; } }
+.buddy-screen-full .pane-detail { display: none; }

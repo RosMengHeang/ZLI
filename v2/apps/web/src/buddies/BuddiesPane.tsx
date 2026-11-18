@@ -28,7 +28,7 @@ import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
-import { BuddyBrowser, BudgetField, RulesEditor } from "./BuddyAutonomy.js";
+import { BuddyScreen, BudgetField, RulesEditor } from "./BuddyAutonomy.js";
 import { BuddyChat } from "./BuddyChat.js";
 import { BuddyList } from "./BuddyList.js";
 import { BuddyLookEditor } from "./BuddyLookEditor.js";
@@ -606,7 +606,6 @@ function BuddyPage({
 }: BuddiesPaneProps & { buddy: BuddyProjection; run: Run; error: ReactNode }) {
   // The details sit beside the chat from the start; the name tag folds them away and back.
   const [info, setInfo] = useState(true);
-  const [view, setView] = useState<"chat" | "browser">("chat");
   const [tab, setTab] = useState<InfoTab>("activity");
   const mood = buddyMood(buddy, projection.tasks ?? []);
   const title =
@@ -627,38 +626,24 @@ function BuddyPage({
             <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} image={buddy.image} size={22} mood={mood} />
             <h2 className="buddy-view-name">{buddy.name}</h2>
           </button>
-          <Segmented<"chat" | "browser">
-            className="buddy-view-switch"
-            label="Show"
-            value={view}
-            options={[
-              { value: "chat", label: "Chat" },
-              { value: "browser", label: "Browser" },
-            ]}
-            onChange={setView}
-          />
         </header>
         {error}
-        {view === "browser" ? (
-          <BuddyBrowser buddy={buddy} projection={projection} />
-        ) : (
-          <BuddyChat
-            buddy={buddy}
-            projection={projection}
-            run={run}
-            onOpenThread={onOpenThread}
-            renderReply={(task) => (
-              <JobCard
-                task={task}
-                projection={projection}
-                run={run}
-                inline
-                onOpenThread={onOpenThread}
-                onOpenPullRequest={onOpenPullRequest}
-              />
-            )}
-          />
-        )}
+        <BuddyChat
+          buddy={buddy}
+          projection={projection}
+          run={run}
+          onOpenThread={onOpenThread}
+          renderReply={(task) => (
+            <JobCard
+              task={task}
+              projection={projection}
+              run={run}
+              inline
+              onOpenThread={onOpenThread}
+              onOpenPullRequest={onOpenPullRequest}
+            />
+          )}
+        />
       </div>
       {/* Always there, so it can slide: folded, it is out of reach of the mouse, keyboard and screen readers. */}
       <aside
@@ -676,6 +661,7 @@ function BuddyPage({
             <BuddyNameEdit buddy={buddy} run={run} />
             {title ? <span>{title}</span> : null}
           </div>
+          <BuddyScreen buddy={buddy} projection={projection} />
           <Segmented<InfoTab>
             className="buddy-tabs"
             label="Details"

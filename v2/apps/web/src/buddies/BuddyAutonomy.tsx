@@ -6,10 +6,13 @@ import {
   rulesOf,
   spentThisWeek,
 } from "@zli-v2/contracts";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { BrowserPane } from "../browser/BrowserPane.js";
+import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { IconButton } from "../ui/Button.js";
+import { Dialog } from "../ui/Dialog.js";
+import { Icon } from "../ui/Icon.js";
 import { money } from "./team.js";
 import type { Run } from "./useRun.js";
 
@@ -158,29 +161,102 @@ export function BudgetField({
   );
 }
 
+/** How often the screen card catches up: often while the buddy works on the web, rarely while it rests. */
+const LIVE_MS = 3_000;
+const RESTING_MS = 15_000;
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
+
 /**
- * The buddy's own browser, where its web jobs work. It keeps its sign-ins apart from yours and the other
- * buddies', so this is where the person signs it in to a site, or watches it work and takes over.
+ * The buddy's screen: a small live picture of its own browser, beside its chat. A click opens it full size,
+ * where the person can take over: click, type, or sign it in to a site. Its sign-ins stay its own.
  */
-export function BuddyBrowser({ buddy, projection }: { buddy: BuddyProjection; projection: RuntimeProjection }) {
+export function BuddyScreen({ buddy, projection }: { buddy: BuddyProjection; projection: RuntimeProjection }) {
+  const { bridge } = useRuntime();
+  const [open, setOpen] = useState(false);
+  const [shot, setShot] = useState<string>();
   const worktree = projection.worktrees.find((entry) => entry.worktreeId === buddy.home?.worktreeId);
-  if (!worktree)
-    return (
-      <div className="buddy-browser is-empty">
-        <p className="buddies-hint">
-          {buddy.name}'s browser opens once it has a home: say hi in its chat, or give it a web job.
-        </p>
-      </div>
-    );
+  const tabs = (projection.browserTabs ?? []).filter((entry) => entry.worktreeId === worktree?.worktreeId);
+  const tab = tabs.find((entry) => entry.active) ?? tabs.at(-1);
+  const working = (projection.tasks ?? []).some(
+    (task) =>
+      task.buddyId === buddy.buddyId &&
+      task.status === "working" &&
+      task.worktreeId !== undefined &&
+      task.worktreeId === worktree?.worktreeId,
+  );
+  const tabId = tab?.browserTabId;
+  useEffect(() => {
+    if (!bridge || !tabId || open) return undefined;
+    let alive = true;
+    const grab = async () => {
+      if (document.hidden) return;
+      try {
+        const result = (await bridge.browser.screenshot({ browserTabId: tabId, format: "jpeg" })) as
+          | { data?: string; mimeType?: string }
+          | undefined;
+        if (alive && result?.data) setShot(`data:${result.mimeType ?? "image/jpeg"};base64,${result.data}`);
+      } catch {
+        // A tab still loading or just closed has no picture yet; the card keeps the last one.
+      }
+    };
+    void grab();
+    const timer = setInterval(() => void grab(), working ? LIVE_MS : RESTING_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [bridge, tabId, open, working]);
+
   return (
-    <div className="buddy-browser">
-      <p className="buddy-browser-note">
-        {buddy.name}'s own browser. Sign it in to sites here and it stays signed in for its web jobs; your sign-ins and
-        other buddies' stay apart.
+    <section className="buddy-screen" aria-label={`${buddy.name}'s screen`}>
+      <button
+        type="button"
+        className="buddy-screen-frame"
+        disabled={!worktree}
+        aria-label={`Open ${buddy.name}'s screen`}
+        title={worktree ? "Open full size to watch or take over" : undefined}
+        onClick={() => setOpen(true)}
+      >
+        {shot && tab ? (
+          <img src={shot} alt="" />
+        ) : (
+          <span className="buddy-screen-empty">
+            <Icon name="globe" size={18} />
+            {!worktree ? "Getting its browser ready" : tab ? tab.title || hostOf(tab.url) : "Nothing open yet"}
+          </span>
+        )}
+        {working ? <span className="buddy-screen-live">Live</span> : null}
+        {worktree ? (
+          <span className="buddy-screen-expand" aria-hidden="true">
+            <Icon name="maximize" size={13} />
+          </span>
+        ) : null}
+      </button>
+      <p className="buddy-screen-caption">
+        {buddy.name}'s screen{tab?.url && tab.url !== "about:blank" ? ` · ${hostOf(tab.url)}` : ""}
       </p>
-      <div className="buddy-browser-pane">
-        <BrowserPane worktree={worktree} />
-      </div>
-    </div>
+      {open && worktree ? (
+        <Dialog
+          label={`${buddy.name}'s screen`}
+          title={`${buddy.name}'s screen`}
+          subtitle="Its own browser. Click, type or sign it in here; it keeps its sign-ins apart from yours."
+          size="lg"
+          className="buddy-screen-dialog"
+          stacked
+          onClose={() => setOpen(false)}
+        >
+          <div className="buddy-screen-full">
+            <BrowserPane worktree={worktree} />
+          </div>
+        </Dialog>
+      ) : null}
+    </section>
   );
 }
