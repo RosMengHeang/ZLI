@@ -66,6 +66,15 @@ export type ProjectAgentActions = {
   close?: (() => void) | undefined;
 };
 
+/**
+ * A buddy's chat or job: its threads run unattended, or, for chats from before that, carry the "<name> chat" name
+ * ZLI gives them.
+ */
+export function isBuddySession(session: AgentSession, buddyChatNames: ReadonlySet<string>): boolean {
+  const threads = session.threads?.length ? session.threads : session.thread ? [session.thread] : [];
+  return threads.some((thread) => thread.unattended || (thread.name !== undefined && buddyChatNames.has(thread.name)));
+}
+
 const inProgress = new Set<WorktreeProjection["status"]>(["queued", "fetching", "creating", "bootstrapping"]);
 
 /** A worktree's open or merged pull request, with a CI dot when the branch has checks. */
@@ -246,9 +255,15 @@ export function Sidebar({
   // Archived chats leave their project's list for the Archived section at the bottom.
   const archivedIds = useArchivedChats();
   const [archiveOpen, setArchiveOpen] = useState(false);
+  // Buddies' chats and jobs live on the Buddies page, never in this list.
+  const buddyChatNames = useMemo(
+    () => new Set((projection?.buddies ?? []).map((buddy) => `${buddy.name} chat`)),
+    [projection?.buddies],
+  );
   const sessions = useMemo(
-    () => allSessions.filter((session) => !archivedIds.has(session.sessionId)),
-    [allSessions, archivedIds],
+    () =>
+      allSessions.filter((session) => !archivedIds.has(session.sessionId) && !isBuddySession(session, buddyChatNames)),
+    [allSessions, archivedIds, buddyChatNames],
   );
   const archivedChats = useMemo(
     () => allSessions.filter((session) => archivedIds.has(session.sessionId)),

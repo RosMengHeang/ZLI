@@ -354,11 +354,12 @@ export class BuddyChatReactor {
         .join(", ")}, or the web`;
     for (const [index, job] of jobs.entries()) {
       const project = placeNamed(state.projects, job.project);
-      const worker = (job.buddy ? buddyNamed(state, job.buddy) : undefined) ?? buddy;
       if (!project) {
         started.push(`I need to know where: ${where()}?`);
         continue;
       }
+      // The web runs in this buddy's own browser, so a web job is never handed to a teammate.
+      const worker = (job.buddy && !isBuddyHome(project) ? buddyNamed(state, job.buddy) : undefined) ?? buddy;
       const receipt = await this.dispatch(
         {
           type: "task.assign",

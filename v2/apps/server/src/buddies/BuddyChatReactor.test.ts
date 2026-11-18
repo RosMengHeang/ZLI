@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  BUDDY_HOMES_FOLDER,
   type BuddyProjection,
   CommandId,
   type EnvironmentDescriptor,
@@ -430,6 +431,38 @@ describe("BuddyChatReactor", () => {
       to: "b2",
       text: "New job: Add tests for the login page.",
     });
+  });
+
+  it("keeps a web job for itself even when the reply names a teammate", async () => {
+    const { engine, settle, answer } = await setup();
+    const homes = join(mkdtempSync(join(tmpdir(), "zli-buddy-chat-web-")), BUDDY_HOMES_FOLDER);
+    mkdirSync(homes);
+    cleanup.push(() => rmSync(homes, { recursive: true, force: true }));
+    await send(engine, { type: "project.register", path: homes } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.create",
+      buddy: {
+        buddyId: "b2",
+        name: "Tester",
+        color: "jade",
+        role: "buddy",
+        engine: { mode: "auto" },
+        permissionMode: "full-access",
+        maxActiveJobs: 1,
+        handoffs: [],
+      },
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "msg-web",
+      text: "Open zli.taxz.dev",
+    } as RuntimeCommand);
+    await settle();
+    const state = await answer(
+      'Opening it now.\n[[job buddy="Tester" project="web"]]\nOpen https://zli.taxz.dev.\n[[/job]]',
+    );
+    expect(state.tasks?.map((task) => task.buddyId)).toEqual(["b1"]);
   });
 
   it("starts a few jobs from one reply at most", async () => {

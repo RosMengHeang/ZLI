@@ -9,7 +9,7 @@ import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import type { AgentSession } from "../sessions/sessions.js";
 import { updateAppSettings } from "../settings/appSettings.js";
-import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "./Sidebar.js";
+import { isBuddySession, type ProjectAgentActions, Sidebar, type WorktreeAction } from "./Sidebar.js";
 import { parseSidebarCollapsed } from "./sidebarLayout.js";
 
 const bridge = {
@@ -931,5 +931,24 @@ describe("Sidebar footer", () => {
     expect(footer?.querySelector(".sidebar-waiting")?.textContent).toBe("Waiting for runtime");
     expect(footer?.querySelector('[role="status"]')?.textContent).toBe("");
     expect(has(footer as ParentNode, "Settings")).toBe(true);
+  });
+});
+
+describe("Sidebar buddy chats", () => {
+  const session = (thread: Partial<NonNullable<AgentSession["thread"]>>) =>
+    ({
+      sessionId: "s1",
+      worktreeId: "w1",
+      provider: "claude",
+      status: "idle",
+      mode: "chat",
+      thread,
+    }) as unknown as AgentSession;
+
+  it("leaves out a buddy's chats and jobs, which live on the Buddies page", () => {
+    const names = new Set(["Primary chat"]);
+    expect(isBuddySession(session({ unattended: true }), names)).toBe(true);
+    expect(isBuddySession(session({ name: "Primary chat" }), names)).toBe(true);
+    expect(isBuddySession(session({ name: "Fix login" }), names)).toBe(false);
   });
 });
