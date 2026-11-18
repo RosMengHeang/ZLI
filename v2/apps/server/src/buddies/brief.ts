@@ -44,7 +44,7 @@ export function jobBrief(options: {
     lines.push(
       "",
       "How web jobs work:",
-      "- Use the zli-browser tools (browser_navigate, browser_snapshot, browser_click, browser_type, browser_screenshot). Read pages with browser_snapshot first; take a screenshot only when you need to see the page or show it.",
+      "- Use the zli-browser tools (browser_open, browser_navigate, browser_snapshot, browser_click, browser_fill, browser_press, browser_screenshot). Read pages with browser_snapshot first; take a screenshot only when you need to see the page or show it.",
       "- Your browser keeps your sign-ins between jobs. If a site needs a sign-in you do not have, call ask_person: the person signs you in from your page in ZLI. Never type a password yourself.",
       "- Put what you make for the person (reports, tables, drafts, downloads) in files/ in your home, and name the files in your task_done summary.",
       "- Keep what you learn about sites and how to get things done in notes.md, so your next web job starts from it.",

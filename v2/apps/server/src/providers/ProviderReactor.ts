@@ -484,16 +484,14 @@ export class ProviderReactor {
       this.track(this.status(event.threadId, "idle", { turnId: event.turnId }));
       return;
     }
-    if (event.type === "approval.requested" || event.type === "user-input.requested") {
+    if (event.type === "approval.requested") {
       this.flushThreadDeltas(event.threadId);
-      this.track(
-        this.request(
-          event.threadId,
-          event.type === "approval.requested" ? "approval" : "user-input",
-          event.requestId,
-          event.payload,
-        ),
-      );
+      this.track(this.approval(event.threadId, event.requestId, event.payload));
+      return;
+    }
+    if (event.type === "user-input.requested") {
+      this.flushThreadDeltas(event.threadId);
+      this.track(this.request(event.threadId, "user-input", event.requestId, event.payload));
       this.track(this.status(event.threadId, "waiting"));
       return;
     }
@@ -713,6 +711,22 @@ export class ProviderReactor {
         },
       })
       .then(() => undefined);
+  }
+
+  /**
+   * An approval the agent asks for. Nobody watches an unattended thread (a buddy's chat or job), so ZLI answers
+   * for it at once, as the person set it up: full access allows the tool for the rest of the chat, anything less
+   * declines, so the agent carries on without it instead of waiting forever. Other threads ask the person.
+   */
+  private async approval(threadId: string, requestId: string, payload: Record<string, unknown>): Promise<void> {
+    await this.request(threadId, "approval", requestId, payload);
+    const thread = (await this.engine.projection()).threads.find((candidate) => candidate.threadId === threadId);
+    if (thread?.unattended) {
+      const allowed = (thread.permissionMode ?? "full-access") === "full-access";
+      await this.respond(threadId, requestId, allowed ? { approved: true, scope: "session" } : { approved: false });
+      return;
+    }
+    await this.status(threadId, "waiting");
   }
 
   private async respond(threadId: string, requestId: string, decision: unknown): Promise<void> {

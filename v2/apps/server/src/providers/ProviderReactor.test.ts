@@ -50,8 +50,10 @@ class FakeAdapter implements ProviderAdapter {
     return { turnId: "provider-turn" };
   }
   async interruptTurn(): Promise<void> {}
-  async respondToRequest(): Promise<void> {
+  readonly decisions: unknown[] = [];
+  async respondToRequest(input: { decision: unknown }): Promise<void> {
     this.responded = true;
+    this.decisions.push(input.decision);
   }
   async respondToUserInput(): Promise<void> {}
   async stopSession(): Promise<void> {
@@ -235,6 +237,79 @@ describe("ProviderReactor", () => {
     reactor.stop();
     await service.stopAll();
     service.dispose();
+  });
+
+  it("answers an unattended thread's approvals at once, as its permission allows", async () => {
+    const run = async (permissionMode: "full-access" | "supervised" | undefined, unattended: boolean) => {
+      const database = new Database({ path: ":memory:" });
+      databases.push(database);
+      const engine = new Engine({ database, environment });
+      const adapter = new FakeAdapter();
+      const service = new ProviderService(new ProviderRegistry([adapter]));
+      const reactor = new ProviderReactor(engine, service);
+      let n = 0;
+      const id = () => {
+        n += 1;
+        return CommandId.parse(`10000000-0000-4000-8000-0000000007${String(n).padStart(2, "0")}`);
+      };
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: id(),
+        command: { type: "project.register", path: "/workspace/auto" },
+      });
+      const projectId = ProjectId.parse((await engine.projection()).projects[0]?.projectId);
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: id(),
+        command: {
+          type: "worktree.create",
+          worktreeId,
+          projectId,
+          path: "/workspace/auto-tree",
+          workspaceRoot: "/workspace",
+          branch: "feature/auto",
+        },
+      });
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: id(),
+        command: {
+          type: "thread.start",
+          threadId,
+          worktreeId,
+          provider: "codex",
+          cwd: "/workspace/auto-tree",
+          ...(permissionMode ? { permissionMode } : {}),
+          ...(unattended ? { unattended: true } : {}),
+        },
+      });
+      await reactor.waitForIdle();
+      adapter.emit({
+        type: "approval.requested",
+        threadId,
+        requestId: "ask-1",
+        payload: { serverName: "zli-browser" },
+      });
+      await reactor.waitForIdle();
+      const state = await engine.projection();
+      reactor.stop();
+      await service.stopAll();
+      service.dispose();
+      return { decisions: adapter.decisions, requests: state.requests ?? [], status: state.threads[0]?.status };
+    };
+
+    // A buddy with full access: the tool is allowed for the rest of the chat, and nothing waits.
+    expect(await run("full-access", true)).toMatchObject({
+      decisions: [{ approved: true, scope: "session" }],
+      requests: [],
+    });
+    // A buddy with less: declined at once, so it carries on without the tool instead of hanging.
+    expect(await run("supervised", true)).toMatchObject({ decisions: [{ approved: false }], requests: [] });
+    // The person's own chat: they answer it.
+    const own = await run("full-access", false);
+    expect(own.decisions).toEqual([]);
+    expect(own.requests).toEqual([expect.objectContaining({ requestId: "ask-1" })]);
+    expect(own.status).toBe("waiting");
   });
 
   it("turns durable thread intents into provider sessions and projected messages", async () => {

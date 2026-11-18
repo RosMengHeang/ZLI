@@ -715,13 +715,33 @@ describe("BuddyChatReactor memory and progress", () => {
     } as RuntimeCommand);
     const threadId = await deliver();
     await send(engine, { type: "thread.status", threadId, status: "working" } as RuntimeCommand);
+    // Agents stream a turn's words as one message; the step in between is what separates them.
+    const first = "Opening it in my browser now.";
     await send(engine, {
       type: "thread.message",
-      message: { messageId: "p-1", threadId, role: "assistant", text: "Opening it in my browser now." },
+      message: { messageId: "p-1", threadId, turnId: "turn-1", role: "assistant", text: first },
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "thread.activity",
+      activity: {
+        activityId: "step-1",
+        threadId,
+        turnId: "turn-1",
+        kind: "tool",
+        title: "mcp__zli-browser__browser_open",
+        status: "running",
+        textOffset: first.length,
+      },
     } as RuntimeCommand);
     await send(engine, {
       type: "thread.message",
-      message: { messageId: "p-2", threadId, role: "assistant", text: "It's open: the ZLI home page." },
+      message: {
+        messageId: "p-2",
+        threadId,
+        turnId: "turn-1",
+        role: "assistant",
+        text: "It's open: the ZLI home page.",
+      },
     } as RuntimeCommand);
     let state = await settle();
     const mine = () => (state.buddyMessages ?? []).filter((message) => message.role === "buddy");

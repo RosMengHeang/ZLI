@@ -631,6 +631,8 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
       "Edit",
       "Write",
       "NotebookEdit",
+      "--setting-sources",
+      "project",
     ]);
     const full = claudeSessionArgs({ permissionMode: "full-access", unattended: true, model: "sonnet" });
     expect(full).toContain("bypassPermissions");
@@ -639,7 +641,14 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
       "AskUserQuestion",
       "EnterPlanMode",
       "ExitPlanMode",
+      "--setting-sources",
+      "project",
     ]);
+  });
+
+  it("keeps the person's own plugins and hooks out of a buddy's session, and in their own chats", () => {
+    expect(claudeSessionArgs({ permissionMode: "full-access", unattended: true })).toContain("--setting-sources");
+    expect(claudeSessionArgs({ permissionMode: "full-access" })).not.toContain("--setting-sources");
   });
 
   it("starts supervised sessions accepting edits with stdio prompts and the chosen model", async () => {

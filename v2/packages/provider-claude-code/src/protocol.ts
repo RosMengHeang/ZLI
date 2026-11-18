@@ -70,6 +70,8 @@ export function claudeSessionArgs(
           ]
         : [...CLAUDE_SESSION_ARGS];
   if (input.unattended && input.permissionMode !== "read-only") args.push("--disallowedTools", ...UNATTENDED_OFF);
+  // A buddy works on its own brief: only the project's settings load, not the person's own plugins and hooks.
+  if (input.unattended) args.push("--setting-sources", "project");
   if (input.model) args.push("--model", input.model);
   if (input.resumeSessionId) args.push("--resume", input.resumeSessionId);
   else if (input.sessionId) args.push("--session-id", input.sessionId);

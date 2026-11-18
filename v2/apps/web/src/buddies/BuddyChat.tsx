@@ -13,7 +13,7 @@ import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo,
 import { providerDisplayName } from "../agent/providers.js";
 import { fileName, splitAttachedFiles, withAttachedFiles } from "../chat/attachedFiles.js";
 import { readDraft, writeDraft } from "../chat/drafts.js";
-import { liveStepLabel } from "../chat/liveStatus.js";
+import { friendlySteps } from "./stepLabel.js";
 import { useDockHeight } from "../chat/useDockHeight.js";
 import { getBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -288,21 +288,14 @@ export function recentSteps(
   return (state.activities ?? []).filter((activity) => activity.threadId === threadId).slice(-count);
 }
 
-/** The steps a buddy took, newest last, older ones fading out. */
-export function StepTicker({ steps }: { steps: readonly ThreadActivityProjection[] }) {
+/** The steps a buddy took, newest last, older ones fading out, in plain words. */
+export function StepTicker({ steps, max = 3 }: { steps: readonly ThreadActivityProjection[]; max?: number }) {
+  const shown = friendlySteps(steps).slice(-max);
   return (
     <ul className="buddy-steps">
-      {steps.map((step, index) => (
-        <li key={step.activityId} style={{ opacity: Math.max(0.3, 1 - (steps.length - 1 - index) * 0.22) }}>
-          <span className="buddy-step-title">{liveStepLabel(step)}</span>
-          {step.lines ? (
-            <span className="buddy-step-lines">
-              <span className="is-added">+{step.lines.added}</span>{" "}
-              <span className="is-removed">−{step.lines.removed}</span>
-            </span>
-          ) : step.command ? (
-            <span className="buddy-step-detail">{step.command}</span>
-          ) : null}
+      {shown.map((step, index) => (
+        <li key={step.id} style={{ opacity: Math.max(0.3, 1 - (shown.length - 1 - index) * 0.22) }}>
+          <span className="buddy-step-title">{step.label}</span>
         </li>
       ))}
     </ul>
@@ -512,7 +505,7 @@ function ChatEntry({
     case "reply":
       return <div className="buddy-chat-card">{renderReply(item.task)}</div>;
     case "thinking": {
-      const steps = recentSteps(projection, item.threadId, 3);
+      const steps = recentSteps(projection, item.threadId, 12);
       return (
         <div className="buddy-chat-live is-thinking" role="status" aria-label={`${buddy.name} is thinking`}>
           <div className="buddy-chat-live-head">
@@ -522,7 +515,7 @@ function ChatEntry({
               <span />
             </span>
           </div>
-          {steps.length > 0 ? <StepTicker steps={steps} /> : null}
+          {steps.length > 0 ? <StepTicker steps={steps} max={1} /> : null}
         </div>
       );
     }
@@ -541,10 +534,13 @@ function LiveRow({
   projection: RuntimeProjection;
   onOpenThread(threadId: string): void;
 }) {
-  const steps = recentSteps(projection, task.threadId, 4);
+  const steps = recentSteps(projection, task.threadId, 12);
   const preparing = task.status === "preparing";
   return (
-    <div className="buddy-chat-live" title={preparing ? "Setting up its worktree" : liveStepLabel(steps.at(-1))}>
+    <div
+      className="buddy-chat-live"
+      title={preparing ? "Setting up its worktree" : steps.length > 0 ? friendlySteps(steps).at(-1)?.label : "Working"}
+    >
       <div className="buddy-chat-live-head">
         <BuddyAvatar
           buddy={buddy.color}
@@ -606,7 +602,7 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
   };
   // Replying: your last message has no answer yet. Stop ends the reply and drops what is queued behind it.
   const messages = (projection.buddyMessages ?? []).filter((message) => message.buddyId === buddy.buddyId);
-  const replying = messages.at(-1)?.role === "you";
+  const replying = messages.findLast((message) => !(message.role === "buddy" && message.progress))?.role === "you";
   const stop = async () => {
     const threadId = buddy.chatThreadId;
     if (threadId) {

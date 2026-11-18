@@ -251,7 +251,10 @@ export function createProviderRegistry(
         }),
       threadConfig: async (input) => {
         await trustFolder("codex", input);
-        return browserTool || options.mcpServers ? codexThreadOverrides(input.worktreeId) : undefined;
+        const servers = browserTool || options.mcpServers ? await codexThreadOverrides(input.worktreeId) : undefined;
+        if (!input.unattended) return servers;
+        // A buddy works on its own brief: the person's plugins, and the skills that come with them, stay out.
+        return { ...(servers ?? {}), "features.plugins": false };
       },
     }),
     new ClaudeCodeProviderAdapter({

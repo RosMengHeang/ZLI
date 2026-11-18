@@ -489,7 +489,15 @@ export class BuddyChatReactor {
           started.push(`I could not message ${target.name}: ${receipt.error?.message ?? "it was refused"}.`);
         else sent.push({ to: target.buddyId, text: tell.text, key: `tell:${answer.messageId}:${index}` });
       }
-    const words = parsed.text || (jobs.length > 0 || goals.length > 0 ? "On it." : "");
+    // What it already said while working was sent as it came; the answer is the rest.
+    const said = new Set((state.buddyMessages ?? []).map((message) => message.messageId));
+    const pieces = replyPieces(answer.text, stepOffsets(state, threadId, answer.turnId));
+    const unsent = pieces.filter(
+      (piece) => !said.has(stableId(`buddy-chat-reply:progress:${answer.messageId}:${piece.start}`)),
+    );
+    const rest = parseChatReply(unsent.map((piece) => piece.text).join("\n\n")).text;
+    const words =
+      rest || (jobs.length > 0 || goals.length > 0 ? "On it." : unsent.length < pieces.length ? "Done." : "");
     const text = [words, ...started].filter(Boolean).join("\n\n");
     if (text) await this.reply(buddy, `answer:${answer.messageId}`, text);
     // Each message to a teammate shows in this chat as its own note, addressed to them.
@@ -520,12 +528,14 @@ export class BuddyChatReactor {
     if (lastAsk === -1) return;
     const asked = log[lastAsk]?.text ?? "";
     if (!answered.some((message) => asked.includes(message.text.trim()))) return;
-    const after = log.slice(lastAsk + 1);
-    for (const [index, message] of after.entries()) {
-      if (index === after.length - 1 || message.role !== "assistant") continue;
-      const text = parseChatReply(message.text).text;
-      if (text) await this.reply(buddy, `progress:${message.messageId}`, text, { progress: true });
-    }
+    const answer = log.slice(lastAsk + 1).findLast((message) => message.role === "assistant");
+    if (!answer) return;
+    // A piece is done once a step started after it; the last piece may still be being written.
+    for (const piece of replyPieces(answer.text, stepOffsets(state, threadId, answer.turnId)))
+      if (!piece.last) {
+        const text = parseChatReply(piece.text).text;
+        if (text) await this.reply(buddy, `progress:${answer.messageId}:${piece.start}`, text, { progress: true });
+      }
   }
 
   /** Forgets every note of this buddy's, and every fact about the person, that the words name. */
@@ -611,4 +621,34 @@ export function usageLimitText(resetsAt: string | undefined): string {
       ? ` It resets at ${when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`
       : "";
   return `My agent hit its plan's usage limit, so I could not answer.${reset} Send your message again then, or pick another agent for me in my Settings tab.`;
+}
+
+/** Where in a turn's reply each of its steps started, so the reply can be cut there. */
+function stepOffsets(state: RuntimeProjection, threadId: string, turnId: string | undefined): number[] {
+  if (!turnId) return [];
+  return (state.activities ?? []).flatMap((activity) =>
+    activity.threadId === threadId && activity.turnId === turnId && activity.textOffset !== undefined
+      ? [activity.textOffset]
+      : [],
+  );
+}
+
+/**
+ * A turn's reply cut where the agent stopped talking to do something: "Opening it now." [opens the page]
+ * "It's up." Agents stream one turn's words as one message, so these cuts are what separate them.
+ */
+export function replyPieces(
+  text: string,
+  offsets: readonly number[],
+): Array<{ start: number; text: string; last: boolean }> {
+  const cuts = [...new Set(offsets.filter((offset) => offset > 0 && offset < text.length))].sort((a, b) => a - b);
+  const bounds = [0, ...cuts, text.length];
+  return bounds
+    .slice(0, -1)
+    .map((start, index) => ({
+      start,
+      text: text.slice(start, bounds[index + 1]).trim(),
+      last: index === bounds.length - 2,
+    }))
+    .filter((piece) => piece.text.length > 0);
 }
