@@ -17,6 +17,7 @@ import { Button, cx, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, PaneHeader } from "../ui/Pane.js";
 import { Picker } from "../ui/Picker.js";
+import { BrowserChromeHeader, type BrowserChromeOptions, SignedInSites } from "./BrowserChrome.js";
 import { DesignPanel } from "./DesignPanel.js";
 import {
   type DesignAnnotateMode,
@@ -59,6 +60,8 @@ type Props = {
   projects?: readonly ProjectProjection[] | undefined;
   /** Opens the project's own folder as its checkout so the browser has somewhere to keep tabs. */
   onOpenProject?: ((projectId: string) => Promise<void>) | undefined;
+  /** Draws it as a browser window of its own: tabs on top, an address bar and a ⋯ menu. */
+  chrome?: BrowserChromeOptions | undefined;
 };
 
 const selectBrowserTabs = (projection: RuntimeProjection | undefined) => projection?.browserTabs;
@@ -73,6 +76,7 @@ export function BrowserPane({
   onNotice,
   projects = [],
   onOpenProject,
+  chrome,
 }: Props) {
   const { bridge } = useRuntime();
   const browserTabs = useRuntimeSelector(selectBrowserTabs);
@@ -96,8 +100,13 @@ export function BrowserPane({
   annotationsRef.current = annotations;
   const tabUrlRef = useRef<string | undefined>(undefined);
   const canDesign = typeof bridge?.browser.designPick === "function";
+  // The window's ⋯ menu and its sites panel sit over the page. The page is a native view drawn over the DOM, so
+  // it steps aside for them and a still picture of it holds its place.
+  const [covered, setCovered] = useState(false);
+  const [frozen, setFrozen] = useState<string>();
+  const [sitesOpen, setSitesOpen] = useState(false);
   // The native view draws over the DOM, so it is hidden while the send menu or dialog is open.
-  const obscured = obscuredByApp || sendingDesign;
+  const obscured = obscuredByApp || sendingDesign || covered || sitesOpen;
   const worktreeId = worktree?.worktreeId;
   const showUrl = useCallback((value: string) => {
     urlEditedRef.current = false;
@@ -553,176 +562,285 @@ export function BrowserPane({
   );
   const annotationCount = `${annotations.length} annotation${annotations.length === 1 ? "" : "s"}`;
 
+  /** Holds a still picture of the page in its place, then lets the menu or panel cover it. */
+  const cover = async (on: boolean) => {
+    if (!on) {
+      setCovered(false);
+      return;
+    }
+    if (bridge && tab) {
+      try {
+        const shot = (await bridge.browser.screenshot({ browserTabId: tab.browserTabId, format: "jpeg" })) as
+          | { data?: string; mimeType?: string }
+          | undefined;
+        setFrozen(shot?.data ? `data:${shot.mimeType ?? "image/jpeg"};base64,${shot.data}` : undefined);
+      } catch {
+        setFrozen(undefined);
+      }
+    }
+    setCovered(true);
+  };
+  const profileId = tab?.profileId ?? DEFAULT_PROFILE_ID;
+  const canListSites = typeof bridge?.browser.sites === "function" && typeof bridge.browser.forgetSite === "function";
+  const chromeMenu = [
+    { label: "New tab", hint: "Ctrl T", onSelect: () => void newTab(), disabled: !worktree || busy },
+    ...(canListSites
+      ? [
+          {
+            label: "Signed-in sites",
+            onSelect: () => {
+              void cover(true).then(() => setSitesOpen(true));
+            },
+          },
+        ]
+      : []),
+    ...(canDesign
+      ? [
+          {
+            label: annotating ? "Stop annotating" : "Annotate",
+            divided: true,
+            pressed: annotating,
+            disabled: !tab,
+            onSelect: () => (annotating ? stopAnnotating() : void startAnnotating()),
+          },
+        ]
+      : []),
+    {
+      label: tab?.viewport ? "Full size" : "Device size",
+      divided: !canDesign,
+      disabled: !tab,
+      onSelect: toggleDevice,
+    },
+    {
+      label: "Dev tools",
+      hint: "F12",
+      disabled: !tab,
+      onSelect: () => void run((activeBridge, activeTab) => activeBridge.browser.openDevTools(activeTab.browserTabId)),
+    },
+    {
+      label: "Copy address",
+      divided: true,
+      disabled: !tab?.url,
+      onSelect: () => void navigator.clipboard?.writeText(tab?.url ?? "").catch(() => undefined),
+    },
+  ];
+
   return (
-    <div className="tool-pane browser-pane">
-      <PaneHeader icon="globe" title={tab?.title || "Browser"} detail={worktree?.branch}>
-        {tab && worktreeTabs.length === 1 ? (
-          <IconButton
-            icon="x"
-            size="sm"
-            iconSize={14}
-            onClick={() => void closeTab(tab)}
-            disabled={busy}
-            label={`Close ${tab.title || tab.url}`}
-            tooltip="Close tab"
-          />
-        ) : null}
-        {worktree ? (
-          <IconButton
-            icon="plus"
-            size="sm"
-            iconSize={15}
-            onClick={() => void newTab()}
-            disabled={busy}
-            label="New browser tab"
-            tooltip="New tab"
-          />
-        ) : null}
-      </PaneHeader>
-      {worktree && worktreeTabs.length > 1 && (
-        <div className="browser-tabs" role="tablist" aria-label="Worktree browser tabs">
-          {worktreeTabs.map((candidate) => (
-            <div
-              className={`browser-tab${candidate.browserTabId === tab?.browserTabId ? " is-active" : ""}`}
-              key={candidate.browserTabId}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={candidate.browserTabId === tab?.browserTabId}
-                onClick={() => void selectTab(candidate)}
-                title={candidate.url}
-              >
-                <Icon name="globe" size={12} />
-                <span>{candidate.title || candidate.url || "New tab"}</span>
-              </button>
+    <div className={cx("tool-pane browser-pane", chrome && "is-chrome")}>
+      {chrome ? (
+        <BrowserChromeHeader
+          options={chrome}
+          tabs={worktreeTabs}
+          activeTab={tab}
+          url={url}
+          busy={busy}
+          inputRef={urlInputRef}
+          onUrlChange={(value) => {
+            urlEditedRef.current = true;
+            setUrlState(value);
+          }}
+          onSubmit={(event) => void openUrl(event)}
+          onSelectTab={(candidate) => void selectTab(candidate)}
+          onCloseTab={(candidate) => void closeTab(candidate)}
+          onNewTab={() => void newTab()}
+          onBack={() => void run((activeBridge, activeTab) => activeBridge.browser.back(activeTab.browserTabId))}
+          onForward={() => void run((activeBridge, activeTab) => activeBridge.browser.forward(activeTab.browserTabId))}
+          onReload={() => void run((activeBridge, activeTab) => activeBridge.browser.reload(activeTab.browserTabId))}
+          menu={chromeMenu}
+          onMenuOpenChange={(open) => void cover(open)}
+          overlay={
+            sitesOpen && worktree && bridge?.browser.sites && bridge.browser.forgetSite ? (
+              <SignedInSites
+                owner={chrome.ownerName ?? "It"}
+                load={() => bridge.browser.sites?.(worktree.worktreeId, profileId) ?? Promise.resolve([])}
+                forget={(site) =>
+                  bridge.browser.forgetSite?.(worktree.worktreeId, profileId, site) ?? Promise.resolve()
+                }
+                onClose={() => {
+                  setSitesOpen(false);
+                  void cover(false);
+                }}
+              />
+            ) : null
+          }
+        />
+      ) : null}
+      {chrome ? null : (
+        <>
+          <PaneHeader icon="globe" title={tab?.title || "Browser"} detail={worktree?.branch}>
+            {tab && worktreeTabs.length === 1 ? (
               <IconButton
-                className="browser-tab-close"
                 icon="x"
-                size="xs"
-                iconSize={11}
-                onClick={() => void closeTab(candidate)}
-                label={`Close ${candidate.title || candidate.url}`}
+                size="sm"
+                iconSize={14}
+                onClick={() => void closeTab(tab)}
+                disabled={busy}
+                label={`Close ${tab.title || tab.url}`}
                 tooltip="Close tab"
               />
+            ) : null}
+            {worktree ? (
+              <IconButton
+                icon="plus"
+                size="sm"
+                iconSize={15}
+                onClick={() => void newTab()}
+                disabled={busy}
+                label="New browser tab"
+                tooltip="New tab"
+              />
+            ) : null}
+          </PaneHeader>
+          {worktree && worktreeTabs.length > 1 && (
+            <div className="browser-tabs" role="tablist" aria-label="Worktree browser tabs">
+              {worktreeTabs.map((candidate) => (
+                <div
+                  className={`browser-tab${candidate.browserTabId === tab?.browserTabId ? " is-active" : ""}`}
+                  key={candidate.browserTabId}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={candidate.browserTabId === tab?.browserTabId}
+                    onClick={() => void selectTab(candidate)}
+                    title={candidate.url}
+                  >
+                    <Icon name="globe" size={12} />
+                    <span>{candidate.title || candidate.url || "New tab"}</span>
+                  </button>
+                  <IconButton
+                    className="browser-tab-close"
+                    icon="x"
+                    size="xs"
+                    iconSize={11}
+                    onClick={() => void closeTab(candidate)}
+                    label={`Close ${candidate.title || candidate.url}`}
+                    tooltip="Close tab"
+                  />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
-      <div className="browser-toolbar">
-        <nav className="browser-controls" aria-label="Browser controls">
-          <IconButton
-            icon="arrowLeft"
-            size="sm"
-            iconSize={15}
-            disabled={!tab}
-            onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.back(activeTab.browserTabId))}
-            label="Back"
-            tooltip="Back"
-          />
-          <IconButton
-            icon="arrowRight"
-            size="sm"
-            iconSize={15}
-            disabled={!tab}
-            onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.forward(activeTab.browserTabId))}
-            label="Forward"
-            tooltip="Forward"
-          />
-          <IconButton
-            icon="reload"
-            size="sm"
-            iconSize={14}
-            disabled={!tab}
-            onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.reload(activeTab.browserTabId))}
-            label="Reload"
-            tooltip="Reload"
-          />
-        </nav>
-        {annotating ? (
-          <AnnotateHint mode={annotateMode} />
-        ) : (
-          <form className="browser-address" onSubmit={(event) => void openUrl(event)}>
-            <span className="browser-address-icon">
-              <Icon name="globe" size={13} />
-            </span>
-            <input
-              ref={urlInputRef}
-              aria-label="Browser URL"
-              placeholder="localhost:3000 or https://…"
-              value={url}
-              onChange={(event) => {
-                urlEditedRef.current = true;
-                setUrlState(event.target.value);
-              }}
+          )}
+          <div className="browser-toolbar">
+            <nav className="browser-controls" aria-label="Browser controls">
+              <IconButton
+                icon="arrowLeft"
+                size="sm"
+                iconSize={15}
+                disabled={!tab}
+                onClick={() => void run((activeBridge, activeTab) => activeBridge.browser.back(activeTab.browserTabId))}
+                label="Back"
+                tooltip="Back"
+              />
+              <IconButton
+                icon="arrowRight"
+                size="sm"
+                iconSize={15}
+                disabled={!tab}
+                onClick={() =>
+                  void run((activeBridge, activeTab) => activeBridge.browser.forward(activeTab.browserTabId))
+                }
+                label="Forward"
+                tooltip="Forward"
+              />
+              <IconButton
+                icon="reload"
+                size="sm"
+                iconSize={14}
+                disabled={!tab}
+                onClick={() =>
+                  void run((activeBridge, activeTab) => activeBridge.browser.reload(activeTab.browserTabId))
+                }
+                label="Reload"
+                tooltip="Reload"
+              />
+            </nav>
+            {annotating ? (
+              <AnnotateHint mode={annotateMode} />
+            ) : (
+              <form className="browser-address" onSubmit={(event) => void openUrl(event)}>
+                <span className="browser-address-icon">
+                  <Icon name="globe" size={13} />
+                </span>
+                <input
+                  ref={urlInputRef}
+                  aria-label="Browser URL"
+                  placeholder="localhost:3000 or https://…"
+                  value={url}
+                  onChange={(event) => {
+                    urlEditedRef.current = true;
+                    setUrlState(event.target.value);
+                  }}
+                />
+                <Button variant="primary" size="sm" type="submit" disabled={!worktree || !url.trim() || busy}>
+                  {busy ? "Opening" : tab ? "Go" : "Open"}
+                </Button>
+              </form>
+            )}
+            {worktree && annotations.length > 0 ? (
+              <SendToAgentButton
+                className="browser-annotate-send"
+                worktree={worktree}
+                label={`Send ${annotationCount}`}
+                dialogLabel="Send annotations"
+                dialogTitle={`Send ${annotationCount}`}
+                message={designMessage}
+                attachments={designFiles}
+                noAgentMessage={`No agent is running in ${worktree.branch}. Start one with New agent, then send the annotations. They stay here until then.`}
+                otherWorktrees={designElsewhere}
+                disabled={!designReady}
+                disabledTooltip="Add a note to send"
+                onSent={() => {
+                  setAnnotations([]);
+                  stopAnnotating();
+                }}
+                onNotice={onNotice}
+                onOpenChange={setSendingDesign}
+                onShowAgent={onShowAgent}
+                submit
+              >
+                <span className="browser-annotate-count">{annotations.length}</span>
+                Send
+              </SendToAgentButton>
+            ) : null}
+            {canDesign ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon="annotate"
+                className={cx("browser-annotate-toggle", annotating && "is-on")}
+                disabled={!tab}
+                aria-pressed={annotating}
+                onClick={() => (annotating ? stopAnnotating() : void startAnnotating())}
+                tooltip={annotating ? "Stop annotating" : "Point at the page and leave notes for an agent"}
+              >
+                Annotate
+              </Button>
+            ) : null}
+            <IconButton
+              icon="smartphone"
+              size="sm"
+              iconSize={14}
+              disabled={!tab}
+              onClick={toggleDevice}
+              pressed={Boolean(tab?.viewport)}
+              label="Device size"
+              tooltip={tab?.viewport ? "Back to full panel size" : "Preview at a device size"}
             />
-            <Button variant="primary" size="sm" type="submit" disabled={!worktree || !url.trim() || busy}>
-              {busy ? "Opening" : tab ? "Go" : "Open"}
-            </Button>
-          </form>
-        )}
-        {worktree && annotations.length > 0 ? (
-          <SendToAgentButton
-            className="browser-annotate-send"
-            worktree={worktree}
-            label={`Send ${annotationCount}`}
-            dialogLabel="Send annotations"
-            dialogTitle={`Send ${annotationCount}`}
-            message={designMessage}
-            attachments={designFiles}
-            noAgentMessage={`No agent is running in ${worktree.branch}. Start one with New agent, then send the annotations. They stay here until then.`}
-            otherWorktrees={designElsewhere}
-            disabled={!designReady}
-            disabledTooltip="Add a note to send"
-            onSent={() => {
-              setAnnotations([]);
-              stopAnnotating();
-            }}
-            onNotice={onNotice}
-            onOpenChange={setSendingDesign}
-            onShowAgent={onShowAgent}
-            submit
-          >
-            <span className="browser-annotate-count">{annotations.length}</span>
-            Send
-          </SendToAgentButton>
-        ) : null}
-        {canDesign ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            icon="annotate"
-            className={cx("browser-annotate-toggle", annotating && "is-on")}
-            disabled={!tab}
-            aria-pressed={annotating}
-            onClick={() => (annotating ? stopAnnotating() : void startAnnotating())}
-            tooltip={annotating ? "Stop annotating" : "Point at the page and leave notes for an agent"}
-          >
-            Annotate
-          </Button>
-        ) : null}
-        <IconButton
-          icon="smartphone"
-          size="sm"
-          iconSize={14}
-          disabled={!tab}
-          onClick={toggleDevice}
-          pressed={Boolean(tab?.viewport)}
-          label="Device size"
-          tooltip={tab?.viewport ? "Back to full panel size" : "Preview at a device size"}
-        />
-        <IconButton
-          icon="code"
-          size="sm"
-          iconSize={14}
-          disabled={!tab}
-          onClick={() =>
-            void run((activeBridge, activeTab) => activeBridge.browser.openDevTools(activeTab.browserTabId))
-          }
-          label="Open browser developer tools"
-          tooltip="Open DevTools in a window"
-        />
-      </div>
+            <IconButton
+              icon="code"
+              size="sm"
+              iconSize={14}
+              disabled={!tab}
+              onClick={() =>
+                void run((activeBridge, activeTab) => activeBridge.browser.openDevTools(activeTab.browserTabId))
+              }
+              label="Open browser developer tools"
+              tooltip="Open DevTools in a window"
+            />
+          </div>
+        </>
+      )}
       {tab?.viewport ? (
         <div className="browser-device-bar">
           <Picker<string>
@@ -777,6 +895,9 @@ export function BrowserPane({
         </div>
       )}
       <div className={`browser-surface${tab ? " has-tab" : ""}`} ref={surfaceRef}>
+        {chrome && (covered || sitesOpen) && frozen && tab ? (
+          <img className="browser-frozen" src={frozen} alt="" />
+        ) : null}
         {!worktree && onOpenProject && projects.length > 0 ? (
           <EmptyState
             className="browser-empty"
@@ -829,6 +950,13 @@ export function BrowserPane({
               ))}
             </div>
           </EmptyState>
+        ) : !tab && chrome ? (
+          <EmptyState
+            className="browser-empty"
+            icon="globe"
+            title="Nothing open yet"
+            detail="Type an address above. Sign-ins made here stay in this browser."
+          />
         ) : !tab ? (
           <EmptyState
             className="browser-empty"

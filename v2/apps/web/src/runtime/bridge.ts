@@ -63,6 +63,10 @@ export type ZliBridge = {
     reload(browserTabId: string, hard?: boolean): Promise<void>;
     stop(browserTabId: string): Promise<void>;
     openDevTools(browserTabId: string): Promise<void>;
+    /** The sites that keep sign-ins in a worktree's browser profile. Missing on older shells. */
+    sites?(worktreeId: string, profileId: string): Promise<readonly { site: string; cookies: number }[]>;
+    /** Signs that profile out of one site, or every site when none is named. */
+    forgetSite?(worktreeId: string, profileId: string, site?: string): Promise<void>;
     setViewport(browserTabId: string, viewport: BrowserViewport | null): Promise<BrowserTabProjection>;
     onReveal(listener: (event: { browserTabId: string; worktreeId: string }) => void): () => void;
     snapshot(browserTabId: string): Promise<unknown>;

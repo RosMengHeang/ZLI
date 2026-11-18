@@ -24,6 +24,7 @@ import type { CommandReceipt, Engine } from "../orchestration/Engine.js";
 import { candidatesFor, modelTier, pickEngine, profileJob, trackRecords } from "./autopick.js";
 import {
   answerText,
+  handbackText,
   handoffGoal,
   jobBrief,
   leadBrief,
@@ -78,6 +79,8 @@ const REACTIONS = new Set([
   "task.review.attached",
   "task.cancelled",
   "task.closed",
+  "task.takeover.started",
+  "task.takeover.ended",
 ]);
 
 /**
@@ -661,6 +664,22 @@ export class TaskReactor {
         return;
       case "task.review.attached":
         await this.afterReview(state, task, event.review);
+        return;
+      // The person drives the buddy's browser: its turn stops so the two never click at once.
+      case "task.takeover.started":
+        if (task.threadId)
+          await this.dispatch(
+            { type: "thread.interrupt", threadId: task.threadId } as RuntimeCommand,
+            `task:${task.taskId}:takeover:${envelope.sequence}`,
+          );
+        return;
+      case "task.takeover.ended":
+        if (task.threadId)
+          await this.queue(
+            task.threadId,
+            handbackText(event.note),
+            `buddy:${task.taskId}:handback:${envelope.sequence}`,
+          );
         return;
       case "task.cancelled":
         if (task.threadId)

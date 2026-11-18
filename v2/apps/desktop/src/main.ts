@@ -8,8 +8,10 @@ import {
   BrowserDesignCaptureInput,
   BrowserDesignMarkInput,
   BrowserFillInput,
+  BrowserForgetSiteInput,
   BrowserNavigateInput,
   BrowserPressInput,
+  BrowserProfileInput,
   BrowserReloadInput,
   BrowserScreenshotInput,
   BrowserSelectorInput,
@@ -699,6 +701,14 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:browser:stop", (_event, input: unknown) =>
     browserManager?.stop(BrowserTabIdInput.parse(input).browserTabId),
   );
+  ipcMain.handle("zli:browser:sites", async (_event, input: unknown) => {
+    const parsed = BrowserProfileInput.parse(input);
+    return browserManager ? browserManager.sites(parsed.worktreeId, parsed.profileId) : [];
+  });
+  ipcMain.handle("zli:browser:forget-site", async (_event, input: unknown) => {
+    const parsed = BrowserForgetSiteInput.parse(input);
+    await browserManager?.forgetSite(parsed.worktreeId, parsed.profileId, parsed.site);
+  });
   ipcMain.handle("zli:browser:devtools", (_event, input: unknown) =>
     browserManager?.openDevTools(BrowserTabIdInput.parse(input).browserTabId),
   );

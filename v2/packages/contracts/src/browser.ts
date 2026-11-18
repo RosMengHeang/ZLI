@@ -20,6 +20,16 @@ export const BrowserTabCreateInput = z.object({
 export type BrowserTabCreateInput = z.infer<typeof BrowserTabCreateInput>;
 
 export const BrowserTabIdInput = z.object({ browserTabId: BrowserTabId });
+
+/** A worktree's browser profile, for reading or clearing what its sites keep. */
+export const BrowserProfileInput = z.object({ worktreeId: WorktreeId, profileId: BrowserProfileId });
+export type BrowserProfileInput = z.infer<typeof BrowserProfileInput>;
+/** One site, or every site when left out. */
+export const BrowserForgetSiteInput = BrowserProfileInput.extend({ site: z.string().min(1).max(253).optional() });
+export type BrowserForgetSiteInput = z.infer<typeof BrowserForgetSiteInput>;
+/** A site that keeps cookies in a profile: where a buddy is, or may be, signed in. */
+export const BrowserSite = z.object({ site: z.string().min(1).max(253), cookies: z.number().int().nonnegative() });
+export type BrowserSite = z.infer<typeof BrowserSite>;
 export type BrowserTabIdInput = z.infer<typeof BrowserTabIdInput>;
 
 export const BrowserNavigateInput = BrowserTabIdInput.extend({ url: z.string().url() });

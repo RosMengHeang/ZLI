@@ -1026,7 +1026,7 @@ function ActivityTab({ buddy, projection, run }: { buddy: BuddyProjection; proje
 
       <section className="buddies-section" aria-label="Browser">
         <h3 className="buddies-heading">Browser</h3>
-        <BuddyScreen buddy={buddy} projection={projection} />
+        <BuddyScreen buddy={buddy} projection={projection} run={run} />
       </section>
 
       <section className="buddies-section" aria-label="Track record">

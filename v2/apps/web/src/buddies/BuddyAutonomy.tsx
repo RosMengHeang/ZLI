@@ -1,6 +1,7 @@
 import {
   type BuddyProjection,
   type BuddyRules,
+  firstSentence,
   overBudget,
   type RuntimeProjection,
   rulesOf,
@@ -10,6 +11,8 @@ import { useEffect, useState } from "react";
 
 import { BrowserPane } from "../browser/BrowserPane.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
+import { lookOf } from "../teammates/pixelBuddies.js";
 import { IconButton } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
@@ -177,7 +180,15 @@ function hostOf(url: string): string {
  * The buddy's screen: a small live picture of its own browser, beside its chat. A click opens it full size,
  * where the person can take over: click, type, or sign it in to a site. Its sign-ins stay its own.
  */
-export function BuddyScreen({ buddy, projection }: { buddy: BuddyProjection; projection: RuntimeProjection }) {
+export function BuddyScreen({
+  buddy,
+  projection,
+  run,
+}: {
+  buddy: BuddyProjection;
+  projection: RuntimeProjection;
+  run: Run;
+}) {
   const { bridge } = useRuntime();
   const [open, setOpen] = useState(false);
   const [shot, setShot] = useState<string>();
@@ -244,19 +255,94 @@ export function BuddyScreen({ buddy, projection }: { buddy: BuddyProjection; pro
       </p>
       {open && worktree ? (
         <Dialog
-          label={`${buddy.name}'s screen`}
-          title={`${buddy.name}'s screen`}
-          subtitle="Its own browser. Click, type or sign it in here; it keeps its sign-ins apart from yours."
+          label={`${buddy.name}'s browser`}
           size="lg"
           className="buddy-screen-dialog"
+          showClose={false}
           stacked
           onClose={() => setOpen(false)}
         >
           <div className="buddy-screen-full">
-            <BrowserPane worktree={worktree} />
+            <BrowserPane
+              worktree={worktree}
+              chrome={{
+                owner: (
+                  <span className="chrome-owner-who">
+                    <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} image={buddy.image} size={18} />
+                    {buddy.name}'s browser
+                  </span>
+                ),
+                ownerName: buddy.name,
+                onClose: () => setOpen(false),
+                banner: <ControlBar buddy={buddy} projection={projection} worktreeId={worktree.worktreeId} run={run} />,
+              }}
+            />
           </div>
         </Dialog>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Who drives the buddy's browser while a web job runs. The buddy works and the person watches, with Take over;
+ * after Take over its job waits and the person drives, with Hand back, which tells the buddy where they left it.
+ */
+function ControlBar({
+  buddy,
+  projection,
+  worktreeId,
+  run,
+}: {
+  buddy: BuddyProjection;
+  projection: RuntimeProjection;
+  worktreeId: string;
+  run: Run;
+}) {
+  const job = (projection.tasks ?? []).find(
+    (task) =>
+      task.buddyId === buddy.buddyId &&
+      task.worktreeId === worktreeId &&
+      (task.status === "working" || task.needs?.kind === "takeover"),
+  );
+  if (!job) return null;
+  if (job.needs?.kind === "takeover") {
+    const tab = (projection.browserTabs ?? []).find((entry) => entry.worktreeId === worktreeId && entry.active);
+    return (
+      <div className="chrome-ctl is-you" role="status">
+        <span className="chrome-ctl-dot" />
+        <b>You're in control</b>
+        <span className="chrome-ctl-step">· {buddy.name}'s job is paused</span>
+        <button
+          type="button"
+          className="chrome-ctl-btn"
+          onClick={() =>
+            void run({
+              type: "task.handback",
+              taskId: job.taskId,
+              ...(tab?.url && tab.url !== "about:blank"
+                ? { note: `The browser is now on ${tab.url}`.slice(0, 500) }
+                : {}),
+            })
+          }
+        >
+          Hand back
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="chrome-ctl is-agent" role="status">
+      <span className="chrome-ctl-dot" />
+      <b>{buddy.name} is using this browser</b>
+      <span className="chrome-ctl-step">· {firstSentence(job.goal, 90)}</span>
+      <button
+        type="button"
+        className="chrome-ctl-btn"
+        onClick={() => void run({ type: "task.takeover", taskId: job.taskId })}
+      >
+        Take over
+      </button>
+    </div>
   );
 }

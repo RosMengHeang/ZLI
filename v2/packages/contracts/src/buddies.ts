@@ -406,7 +406,11 @@ export const TaskProjection = z.object({
   handoffDepth: z.number().int().min(0).max(MAX_HANDOFF_DEPTH),
   status: TaskStatus,
   needs: z
-    .object({ kind: z.enum(["question", "approval", "budget", "stuck", "handoff_limit"]), text: Line.optional() })
+    .object({
+      /** takeover: the person is driving the buddy's browser, and the job waits until they hand it back. */
+      kind: z.enum(["question", "approval", "budget", "stuck", "handoff_limit", "takeover"]),
+      text: Line.optional(),
+    })
     .optional(),
   questions: z.array(TaskQuestion).max(20),
   revisions: z.array(z.object({ note: z.string().min(1).max(2_000), at: Time })).max(20),
@@ -666,6 +670,10 @@ export const BuddyCommand = z.discriminatedUnion("type", [
     taskId: Id,
     goal: z.string().min(1).max(MAX_GOAL).optional(),
   }),
+  /** The person takes over the buddy's browser: its running job waits. */
+  z.object({ type: z.literal("task.takeover"), taskId: Id }),
+  /** The person hands the browser back, with what they did, and the job carries on. */
+  z.object({ type: z.literal("task.handback"), taskId: Id, note: z.string().trim().max(500).optional() }),
   /** Internal: the buddy's home folder is ready. */
   z.object({ type: z.literal("buddy.home"), buddyId: Id, worktreeId: Id, path: z.string().min(1).max(4_000) }),
   z.object({ type: z.literal("goal.create"), goal: NewGoal }),
@@ -779,6 +787,8 @@ export const BuddyEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("routine.removed"), routineId: Id }),
   z.object({ type: z.literal("routine.paused.changed"), routineId: Id, paused: z.boolean() }),
   z.object({ type: z.literal("routine.fired"), routineId: Id, key: z.string().min(1).max(300), taskId: Id }),
+  z.object({ type: z.literal("task.takeover.started"), taskId: Id }),
+  z.object({ type: z.literal("task.takeover.ended"), taskId: Id, note: z.string().max(500).optional() }),
   z.object({
     type: z.literal("buddy.home.set"),
     buddyId: Id,
@@ -1301,6 +1311,20 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
         lastRunAt: at,
         seen: [...routine.seen.filter((key) => key !== event.key), event.key].slice(-200),
       }));
+      break;
+    case "task.takeover.started":
+      updateTask(event.taskId, (task) => ({
+        ...task,
+        status: "needs_you",
+        needs: { kind: "takeover", text: "You took over its browser" },
+      }));
+      break;
+    case "task.takeover.ended":
+      updateTask(event.taskId, (task) => {
+        const next: TaskProjection = { ...task, status: "working" };
+        delete next.needs;
+        return next;
+      });
       break;
     case "buddy.home.set":
       updateBuddy(event.buddyId, (buddy) => ({ ...buddy, home: { worktreeId: event.worktreeId, path: event.path } }));

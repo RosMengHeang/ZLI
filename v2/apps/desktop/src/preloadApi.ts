@@ -6,14 +6,17 @@ import {
   BrowserDesignCaptureInput,
   BrowserDesignMarkInput,
   BrowserFillInput,
+  BrowserForgetSiteInput,
   BrowserNavigateInput,
   BrowserPressInput,
+  BrowserProfileInput,
   BrowserReloadInput,
   BrowserRevealEvent,
   BrowserScreenshotInput,
   BrowserSelectorInput,
   BrowserSetBoundsInput,
   BrowserSetViewportInput,
+  BrowserSite,
   BrowserTabCreateInput,
   BrowserTabIdInput,
   BrowserTabProjection,
@@ -327,6 +330,17 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
       stop: (browserTabId: string) => ipc.invoke("zli:browser:stop", BrowserTabIdInput.parse({ browserTabId })),
       openDevTools: (browserTabId: string) =>
         ipc.invoke("zli:browser:devtools", BrowserTabIdInput.parse({ browserTabId })),
+      /** The sites that keep sign-ins in a worktree's browser profile. */
+      sites: async (worktreeId: string, profileId: string) =>
+        BrowserSite.array().parse(
+          await ipc.invoke("zli:browser:sites", BrowserProfileInput.parse({ worktreeId, profileId })),
+        ),
+      /** Signs that profile out of one site, or every site when none is named. */
+      forgetSite: (worktreeId: string, profileId: string, site?: string) =>
+        ipc.invoke(
+          "zli:browser:forget-site",
+          BrowserForgetSiteInput.parse({ worktreeId, profileId, ...(site ? { site } : {}) }),
+        ),
       setViewport: async (browserTabId: string, viewport: BrowserViewport | null) =>
         BrowserTabProjection.parse(
           await ipc.invoke("zli:browser:set-viewport", BrowserSetViewportInput.parse({ browserTabId, viewport })),

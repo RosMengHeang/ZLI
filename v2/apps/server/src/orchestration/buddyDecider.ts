@@ -363,6 +363,18 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
         },
       ];
     }
+    case "task.takeover": {
+      const task = requireTask(projection, command.taskId);
+      if (task.needs?.kind === "takeover") return [];
+      if (task.status !== "working" || !task.threadId)
+        throw new DomainError("task_closed", "Only a job that is working can be taken over.");
+      return [{ type: "task.takeover.started", taskId: task.taskId }];
+    }
+    case "task.handback": {
+      const task = requireTask(projection, command.taskId);
+      if (task.needs?.kind !== "takeover") return [];
+      return [{ type: "task.takeover.ended", taskId: task.taskId, ...(command.note ? { note: command.note } : {}) }];
+    }
     case "buddy.home": {
       const buddy = requireBuddy(projection, command.buddyId);
       if (buddy.home?.worktreeId === command.worktreeId && buddy.home.path === command.path) return [];

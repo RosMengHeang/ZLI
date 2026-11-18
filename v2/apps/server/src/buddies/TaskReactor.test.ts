@@ -346,3 +346,26 @@ describe("TaskReactor learning and budget", () => {
     expect(state.tasks?.find((task) => task.taskId === "t2")?.status).toBe("working");
   });
 });
+
+describe("TaskReactor take over", () => {
+  it("stops the buddy's turn while the person drives, and tells it where they left off", async () => {
+    const { engine, projectId, runtime, settle } = await setup();
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "t1", buddyId: "b1", projectId, kind: "job", goal: "Compare plans", origin: { kind: "chat" } },
+    });
+    let state = await runtime();
+    const threadId = state.tasks?.find((task) => task.taskId === "t1")?.threadId as string;
+    await send(engine, { type: "task.takeover", taskId: "t1" });
+    state = await runtime();
+    expect(state.tasks?.find((task) => task.taskId === "t1")).toMatchObject({
+      status: "needs_you",
+      needs: { kind: "takeover" },
+    });
+    await send(engine, { type: "task.handback", taskId: "t1", note: "The browser is now on https://example.com/cart" });
+    state = await settle();
+    expect(state.tasks?.find((task) => task.taskId === "t1")?.status).toBe("working");
+    // The note went to its chat as a new turn: the chat was idle while the person drove, and works again.
+    expect(state.threads.find((thread) => thread.threadId === threadId)?.status).toBe("working");
+  });
+});

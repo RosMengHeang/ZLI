@@ -281,6 +281,18 @@ export class BrowserManager {
   stop(browserTabId: string): void {
     this.#require(browserTabId).view.webContents.stop();
   }
+  /** The sites that keep sign-ins in a worktree's browser profile. */
+  async sites(worktreeId: string, profileId: string): Promise<{ site: string; cookies: number }[]> {
+    if (!this.#sessionModule) return [];
+    return this.#sessionManager.sites(this.#sessionModule, worktreeId, profileId);
+  }
+
+  /** Signs a worktree's browser profile out of one site, or every site. */
+  async forgetSite(worktreeId: string, profileId: string, site?: string): Promise<void> {
+    if (!this.#sessionModule) return;
+    await this.#sessionManager.forgetSite(this.#sessionModule, worktreeId, profileId, site);
+  }
+
   /** Opens DevTools in its own window, or brings that window forward when it is already open. */
   openDevTools(browserTabId: string): void {
     const contents = this.#require(browserTabId).view.webContents;

@@ -406,3 +406,67 @@ button.goal-card-lead:hover { color: var(--zli-text); }
 .buddy-screen-full > * { min-height: 0; flex: 1; overflow: hidden; border: 1px solid var(--zli-border); border-radius: 12px; }
 @media (prefers-reduced-motion: reduce) { .buddy-screen-live::before { animation: none; } }
 .buddy-screen-full .pane-detail { display: none; }
+
+/* ---------- The buddy's browser window ---------- */
+/* Like a browser of its own: rounded tabs on top, an address bar under them, and who is in control. */
+.dialog.buddy-screen-dialog { padding: 0; overflow: hidden; }
+.buddy-screen-dialog .buddy-screen-full { padding: 0; }
+.buddy-screen-dialog .buddy-screen-full > * { border: 0; border-radius: 0; }
+.browser-pane.is-chrome { background: var(--zli-surface); }
+.browser-pane.is-chrome .browser-surface { position: relative; }
+.browser-frozen { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.chrome-head { position: relative; flex: 0 0 auto; }
+.chrome-tabs { display: flex; height: 42px; align-items: flex-end; gap: 2px; padding: 0 8px 0 10px; background: var(--zli-canvas); }
+.chrome-tab { position: relative; display: flex; width: 200px; min-width: 72px; height: 34px; flex: 0 1 200px; align-items: center; border-radius: 10px 10px 0 0; color: var(--zli-muted); }
+.chrome-tab:hover:not(.is-on) { background: color-mix(in srgb, var(--zli-surface) 55%, transparent); }
+.chrome-tab.is-on { background: var(--zli-surface); color: var(--zli-text); }
+.chrome-tab.is-on::before, .chrome-tab.is-on::after { position: absolute; bottom: 0; width: 10px; height: 10px; content: ""; }
+.chrome-tab.is-on::before { left: -10px; background: radial-gradient(circle at 0 0, transparent 10px, var(--zli-surface) 10.5px); }
+.chrome-tab.is-on::after { right: -10px; background: radial-gradient(circle at 100% 0, transparent 10px, var(--zli-surface) 10.5px); }
+.chrome-tab-main { display: flex; min-width: 0; height: 100%; flex: 1; align-items: center; gap: 8px; padding: 0 4px 0 12px; border: 0; background: transparent; color: inherit; cursor: default; font: inherit; font-size: var(--zli-text-xs); text-align: left; }
+.chrome-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chrome-tab-x { display: grid; width: 20px; height: 20px; flex: 0 0 auto; margin-right: 6px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--zli-dim); cursor: default; }
+.chrome-tab-x:hover { background: var(--zli-hover); color: var(--zli-text); }
+.chrome-tile { display: grid; width: 16px; height: 16px; flex: 0 0 auto; place-items: center; border-radius: 4px; color: #fff; font-size: 9px; font-weight: 700; }
+.chrome-spinner { width: 14px; height: 14px; flex: 0 0 auto; border: 2px solid var(--zli-border-strong); border-top-color: var(--zli-blue); border-radius: 50%; animation: chrome-spin 0.8s linear infinite; }
+@keyframes chrome-spin { to { transform: rotate(360deg); } }
+.chrome-tabs > .btn-icon, .chrome-tabs > .icon-button { margin: 0 0 3px 2px; }
+.chrome-owner { display: flex; align-items: center; gap: 6px; align-self: center; margin-left: auto; padding-left: 12px; white-space: nowrap; }
+.chrome-owner-who { display: inline-flex; align-items: center; gap: 7px; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.chrome-bar { position: relative; display: flex; height: 46px; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--zli-border); background: var(--zli-surface); }
+.chrome-omni { position: relative; display: flex; min-width: 0; height: 34px; flex: 1; align-items: center; margin: 0 6px; border-radius: var(--zli-radius-pill); background: var(--zli-raised); transition: box-shadow var(--zli-duration-fast) var(--zli-ease); }
+.chrome-omni:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--zli-blue) 55%, transparent); }
+.chrome-omni-icon { display: grid; width: 34px; flex: 0 0 auto; place-items: center; color: var(--zli-muted); }
+.chrome-omni input { min-width: 0; height: 100%; flex: 1; padding: 0 14px 0 0; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); outline: none; }
+.chrome-omni-shown { position: absolute; top: 0; right: 14px; bottom: 0; left: 34px; display: flex; align-items: center; overflow: hidden; font-size: var(--zli-text-sm); pointer-events: none; white-space: nowrap; }
+.chrome-omni-host { color: var(--zli-text); }
+.chrome-omni-rest { overflow: hidden; color: var(--zli-dim); text-overflow: ellipsis; }
+.chrome-load { position: absolute; bottom: -1px; left: 0; height: 2px; width: 40%; border-radius: 0 2px 2px 0; background: var(--zli-blue); animation: chrome-load 1.4s var(--zli-ease) infinite; }
+@keyframes chrome-load { 0% { left: 0; width: 0; } 50% { width: 55%; } 100% { left: 100%; width: 0; } }
+.chrome-menu-wrap { position: relative; }
+.chrome-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 230px; padding: 6px; border: 1px solid var(--zli-border); border-radius: 12px; background: var(--zli-overlay); box-shadow: var(--zli-shadow-overlay, 0 16px 40px rgba(0, 0, 0, 0.5)); }
+.chrome-menu-item { display: flex; width: 100%; height: 32px; align-items: center; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--zli-text); cursor: default; font: inherit; font-size: var(--zli-text-sm); text-align: left; }
+.chrome-menu-item:hover:not(:disabled), .chrome-menu-item.is-on { background: var(--zli-hover); }
+.chrome-menu-item:disabled { color: var(--zli-dim); }
+.chrome-menu-hint { margin-left: auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.chrome-menu-sep { height: 1px; margin: 5px 4px; background: var(--zli-border); }
+.chrome-ctl { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--zli-border); font-size: var(--zli-text-sm); }
+.chrome-ctl.is-agent { background: color-mix(in srgb, var(--zli-blue) 11%, var(--zli-surface)); color: var(--zli-blue); }
+.chrome-ctl.is-you { background: var(--zli-amber-soft); color: var(--zli-amber-ink); }
+.chrome-ctl-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent); }
+.chrome-ctl-step { min-width: 0; overflow: hidden; color: var(--zli-muted); text-overflow: ellipsis; white-space: nowrap; }
+.chrome-ctl-btn { height: 26px; flex: 0 0 auto; margin-left: auto; padding: 0 12px; border: 0; border-radius: 13px; background: var(--zli-text); color: var(--zli-canvas); cursor: default; font: inherit; font-size: var(--zli-text-xs); font-weight: 600; }
+.chrome-ctl.is-you .chrome-ctl-btn { background: var(--zli-amber); color: #1a1408; }
+.chrome-sites { position: absolute; top: calc(100% + 6px); right: 52px; z-index: 5; width: 300px; padding: 12px; border: 1px solid var(--zli-border); border-radius: 12px; background: var(--zli-overlay); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5); }
+.chrome-sites-head { display: flex; align-items: center; justify-content: space-between; }
+.chrome-sites-head h4 { margin: 0; font-size: var(--zli-text-sm); }
+.chrome-sites-note { margin: 4px 0 10px; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 1.4; }
+.chrome-sites-note.is-error { color: var(--zli-red); }
+.chrome-sites-list { max-height: 280px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.chrome-site { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-top: 1px solid var(--zli-border); }
+.chrome-site-name { display: flex; min-width: 0; flex: 1; flex-direction: column; font-size: var(--zli-text-sm); }
+.chrome-site-name > span { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.chrome-site-out { height: 26px; padding: 0 10px; border: 1px solid var(--zli-border); border-radius: 13px; background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-xs); }
+.chrome-site-out:hover { border-color: var(--zli-border-hover); color: var(--zli-text); }
+.chrome-sites-forget { margin-top: 8px; padding: 0; border: 0; background: transparent; color: var(--zli-red); cursor: default; font: inherit; font-size: var(--zli-text-xs); font-weight: 500; }
+@media (prefers-reduced-motion: reduce) { .chrome-spinner, .chrome-load { animation: none; } }

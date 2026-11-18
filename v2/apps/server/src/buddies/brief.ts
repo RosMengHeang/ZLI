@@ -154,6 +154,17 @@ export function leadBrief(options: {
   return lines.join("\n");
 }
 
+/** What a buddy hears when the person hands its browser back after taking over. */
+export function handbackText(note: string | undefined): string {
+  return [
+    "The person took over your browser for a moment and has handed it back.",
+    note ? `They said: ${note}` : "",
+    "The page may have changed: look at it again with browser_snapshot before you go on, then carry on with the job.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function nudgeText(): string {
   return "Are you finished? If so, call task_done with a short summary. If you need something from the person, call ask_person.";
 }
