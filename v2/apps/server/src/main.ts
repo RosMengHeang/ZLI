@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  BUDDY_HOMES_FOLDER,
   EnvironmentId,
   type McpServerConfig,
   PLAN_LIMIT_PROVIDERS,
@@ -21,8 +22,10 @@ import {
   zliMcpServerSpecs,
 } from "./browser-tool/browserTool.js";
 import { removeZliFromUserSettings, syncAccountMcpServers } from "./browser-tool/mcpSettingsFiles.js";
-import { RoutineReactor } from "./buddies/RoutineReactor.js";
 import { BuddyChatReactor } from "./buddies/BuddyChatReactor.js";
+import { GoalReactor } from "./buddies/GoalReactor.js";
+import { BuddyHomes } from "./buddies/homes.js";
+import { RoutineReactor } from "./buddies/RoutineReactor.js";
 import { TaskReactor } from "./buddies/TaskReactor.js";
 import { TurnCheckpoints } from "./checkpoints/TurnCheckpoints.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
@@ -303,7 +306,9 @@ export async function startRuntime(options: {
     },
     read: (target) => (mockLimits ? Promise.resolve(mockLimitRead(target)) : readLimits(target)),
   });
+  const buddyHomes = new BuddyHomes(engine, join(dirname(databasePath), BUDDY_HOMES_FOLDER));
   const taskReactor = new TaskReactor(engine, {
+    homes: buddyHomes,
     providers: () => providerService.discoverProviders(),
     // Auto steers away from logins near their plan limit, from readings ZLI already keeps.
     usage: async () => {
@@ -320,10 +325,22 @@ export async function startRuntime(options: {
       log("warn", "buddies.task", { message: error instanceof Error ? error.message : String(error) }),
   });
   const buddyChatReactor = new BuddyChatReactor(engine, {
+    homes: buddyHomes,
     providers: () => providerService.discoverProviders(),
     onError: (error) =>
       log("warn", "buddies.chat", { message: error instanceof Error ? error.message : String(error) }),
   });
+  const goalReactor = new GoalReactor(engine, {
+    onError: (error) =>
+      log("warn", "buddies.goal", { message: error instanceof Error ? error.message : String(error) }),
+  });
+  // The homes project is there from the start, so a buddy can hand a web job out before any buddy chatted.
+  void engine
+    .projection()
+    .then((state) => ((state.buddies ?? []).length > 0 ? buddyHomes.project(state) : undefined))
+    .catch((error: unknown) =>
+      log("warn", "buddies.home", { message: error instanceof Error ? error.message : String(error) }),
+    );
   const routineReactor = new RoutineReactor(engine, {
     onError: (error) =>
       log("warn", "buddies.routine", { message: error instanceof Error ? error.message : String(error) }),
@@ -422,7 +439,9 @@ export async function startRuntime(options: {
       await legacyImportReactor.waitForIdle();
       await huddleReactor.waitForIdle();
       routineReactor.stop();
+      goalReactor.stop();
       await routineReactor.waitForIdle();
+      await goalReactor.waitForIdle();
       await taskReactor.waitForIdle();
       // After the terminals and chats settle, so no launch writes a file once these are gone.
       await skills.removeCopies().catch(() => undefined);

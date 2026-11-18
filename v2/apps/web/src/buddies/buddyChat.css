@@ -336,3 +336,61 @@
 .buddy-look-upload { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 6px 4px 2px; }
 .buddy-look-preview { width: 72px; height: 72px; border-radius: 28%; object-fit: cover; }
 .buddy-look-hint { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
+
+/* ---------- Goals ---------- */
+/* One box for an outcome: a lead plans it and hands the jobs out, so nobody picks who does what. */
+.goal-composer { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--zli-border); border-radius: 18px; background: var(--zli-raised); box-shadow: var(--zli-highlight); transition: border-color var(--zli-duration-fast) var(--zli-ease); }
+.goal-composer:focus-within { border-color: var(--zli-border-hover); }
+.goal-composer-text { width: 100%; min-height: 40px; resize: none; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); line-height: 1.45; outline: none; }
+.goal-composer-text::placeholder { color: var(--zli-dim); }
+.goal-composer-row { display: flex; align-items: center; gap: 8px; }
+.goal-composer-pick { width: auto; min-width: 0; }
+.goal-composer-pick .field-label { display: none; }
+.goal-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; margin-top: 10px; }
+.goal-card { display: flex; min-width: 0; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--zli-border); border-radius: 14px; background: var(--zli-surface); }
+.goal-card.is-needs_you { border-color: var(--zli-amber-line); }
+.goal-card.is-done, .goal-card.is-stopped { opacity: 0.78; }
+.goal-card-head { display: flex; align-items: center; gap: 8px; }
+.goal-card-lead { display: inline-flex; min-width: 0; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-xs); }
+button.goal-card-lead:hover { color: var(--zli-text); }
+.goal-card-state { margin-left: auto; padding: 1px 8px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.goal-card-state.is-planning, .goal-card-state.is-working { background: color-mix(in srgb, var(--zli-blue) 16%, transparent); color: var(--zli-blue); }
+.goal-card-state.is-needs_you { background: var(--zli-amber-soft); color: var(--zli-amber-ink); }
+.goal-card-state.is-done { background: color-mix(in srgb, var(--zli-green) 16%, transparent); color: var(--zli-green); }
+.goal-card-text { display: -webkit-box; margin: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.goal-card-progress { display: flex; align-items: center; gap: 8px; }
+.goal-card-bar { position: relative; flex: 1; height: 4px; overflow: hidden; border-radius: 2px; background: var(--zli-hover); }
+.goal-card-bar > span { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--zli-green); transition: width var(--zli-duration-base) var(--zli-ease); }
+.goal-card-count { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.goal-card-jobs { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.goal-card-job { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.goal-card-job-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-card-job.is-working .goal-card-job-line, .goal-card-job.is-preparing .goal-card-job-line { color: var(--zli-blue); }
+.goal-card-job.is-needs_you .goal-card-job-line { color: var(--zli-amber); }
+.goal-card-job.is-failed .goal-card-job-line { color: var(--zli-red); }
+.goal-card-hint, .goal-card-summary { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 1.45; }
+.goal-card-summary { color: var(--zli-muted); }
+.goal-card-needs { margin: 0; padding: 6px 8px; border-radius: 8px; background: var(--zli-amber-soft); color: var(--zli-amber-ink); font-size: var(--zli-text-xs); }
+.goal-card-actions { display: flex; gap: 6px; }
+
+/* ---------- Rules and budget ---------- */
+.rule-group { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.rule-group-head { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
+.rule-group.is-ask .rule-group-head { color: var(--zli-amber); }
+.rule-group.is-never .rule-group-head { color: var(--zli-red); }
+.rule-group-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.rule-item { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border-radius: 8px; background: var(--zli-hover); color: var(--zli-text); font-size: var(--zli-text-xs); }
+.rule-item > span { flex: 1; min-width: 0; }
+.rule-add { height: 28px; font-size: var(--zli-text-xs); }
+.budget-field { display: flex; align-items: center; gap: 6px; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.budget-field .input { width: 110px; }
+.budget-unit { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.budget-over { margin: 6px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--zli-amber-soft); color: var(--zli-amber-ink); font-size: var(--zli-text-xs); }
+
+/* ---------- The buddy's own browser ---------- */
+.buddy-view-switch { position: absolute; top: 12px; right: var(--zli-space-3); }
+.buddy-browser { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 8px; padding: 58px var(--zli-space-3) var(--zli-space-3); }
+.buddy-browser.is-empty { align-items: center; justify-content: center; text-align: center; }
+.buddy-browser-note { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
+.buddy-browser-pane { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; border: 1px solid var(--zli-border); border-radius: 14px; }
+.buddy-browser-pane > * { min-height: 0; flex: 1; }

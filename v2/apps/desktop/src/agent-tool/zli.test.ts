@@ -160,6 +160,7 @@ describe("zli MCP server", () => {
       "assign_task",
       "task_status",
       "task_revise",
+      "goal_done",
       "set_routine",
     ]);
     // A buddy can still report on its own job when Settings keep agents to reading.

@@ -3,6 +3,7 @@ import {
   type BuddyProjection,
   buddyNamed,
   findBuddy,
+  isBuddyHome,
   isOpenTask,
   MAX_BUDDIES,
   MAX_HANDOFF_DEPTH,
@@ -362,7 +363,92 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
         },
       ];
     }
+    case "buddy.home": {
+      const buddy = requireBuddy(projection, command.buddyId);
+      if (buddy.home?.worktreeId === command.worktreeId && buddy.home.path === command.path) return [];
+      if (!projection.worktrees.some((worktree) => worktree.worktreeId === command.worktreeId))
+        throw new DomainError("worktree_missing", "That home folder is not in the workspace.");
+      return [{ type: "buddy.home.set", buddyId: buddy.buddyId, worktreeId: command.worktreeId, path: command.path }];
+    }
+    case "goal.create": {
+      const lead = requireBuddy(projection, command.goal.buddyId);
+      if (lead.archived) throw new DomainError("buddy_missing", `${lead.name} was removed from the team.`);
+      if (findGoal(projection, command.goal.goalId)) return [];
+      const projectId =
+        command.goal.projectId ?? projection.projects.find((project) => isBuddyHome(project))?.projectId;
+      if (!projectId || !projection.projects.some((project) => project.projectId === projectId))
+        throw new DomainError("project_missing", "That project is not in ZLI.");
+      const live = (projection.goals ?? []).filter((goal) => goal.status === "working" || goal.status === "needs_you");
+      if (live.length >= MAX_LIVE_GOALS)
+        throw new DomainError(
+          "goal_limit",
+          `The team already has ${live.length} goals going. Finish or stop one before adding another.`,
+        );
+      return [{ type: "goal.created", goal: { ...command.goal, projectId } }];
+    }
+    case "goal.stop": {
+      const goal = requireGoal(projection, command.goalId);
+      if (goal.status === "done" || goal.status === "stopped") return [];
+      // Stopping a goal drops its jobs that have not started, and stops the ones running.
+      const events: DomainDecision[] = [];
+      for (const task of projection.tasks ?? [])
+        if (task.origin.goalId === goal.goalId && isOpenTask(task) && task.status !== "ready")
+          events.push({ type: "task.cancelled", taskId: task.taskId });
+      events.push({ type: "goal.stopped", goalId: goal.goalId });
+      return events;
+    }
+    case "goal.resume": {
+      const goal = requireGoal(projection, command.goalId);
+      if (goal.status === "working") return [];
+      return [{ type: "goal.resumed", goalId: goal.goalId }];
+    }
+    case "goal.round": {
+      const goal = requireGoal(projection, command.goalId);
+      if (goal.status !== "working" || findTask(projection, command.taskId)) return [];
+      const lead = findBuddy(projection, goal.buddyId);
+      if (!lead || lead.archived) return [{ type: "goal.needed", goalId: goal.goalId, text: "Its lead left the team" }];
+      return [
+        { type: "goal.round.started", goalId: goal.goalId },
+        {
+          type: "task.assigned",
+          task: {
+            taskId: command.taskId,
+            buddyId: lead.buddyId,
+            projectId: goal.projectId,
+            kind: "job",
+            goal: goal.text,
+            origin: { kind: "goal", goalId: goal.goalId },
+            // A planning turn is the lead's own business: its result never lands in Needs you.
+            quiet: true,
+          },
+          handoffDepth: 0,
+        },
+      ];
+    }
+    case "goal.finish": {
+      const goal = requireGoal(projection, command.goalId);
+      if (goal.status === "done" || goal.status === "stopped") return [];
+      return [{ type: "goal.finished", goalId: goal.goalId, summary: command.summary }];
+    }
+    case "goal.needs": {
+      const goal = requireGoal(projection, command.goalId);
+      if (goal.status !== "working") return [];
+      return [{ type: "goal.needed", goalId: goal.goalId, text: command.text }];
+    }
   }
+}
+
+/** Goals running at once, so a misled chat cannot start a pile of them. */
+const MAX_LIVE_GOALS = 6;
+
+function findGoal(projection: RuntimeProjection, goalId: string) {
+  return (projection.goals ?? []).find((goal) => goal.goalId === goalId);
+}
+
+function requireGoal(projection: RuntimeProjection, goalId: string) {
+  const goal = findGoal(projection, goalId);
+  if (!goal) throw new DomainError("goal_missing", `No goal with id ${goalId}.`);
+  return goal;
 }
 
 function requireBuddy(projection: RuntimeProjection, buddyId: string): BuddyProjection {

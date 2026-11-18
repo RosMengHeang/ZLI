@@ -28,9 +28,11 @@ import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
+import { BuddyBrowser, BudgetField, RulesEditor } from "./BuddyAutonomy.js";
 import { BuddyChat } from "./BuddyChat.js";
 import { BuddyList } from "./BuddyList.js";
 import { BuddyLookEditor } from "./BuddyLookEditor.js";
+import { GoalComposer, GoalList, isPlanTurn, isWebTask } from "./Goals.js";
 import {
   buddyStats,
   duration,
@@ -265,11 +267,19 @@ const DONE_SHOWN = 8;
  * The team board: what needs the person, what each buddy is doing right now, and every job in three lanes
  * (up next, doing, done), each card with the buddy's face. A card opens that buddy's chat.
  */
-function TeamPage({ projection, run, onSelect, onOpenThread, onOpenPullRequest }: BuddiesPaneProps & { run: Run }) {
+function TeamPage({
+  projection,
+  run,
+  onSelect,
+  onOpenThread,
+  onOpenPullRequest,
+  projectId,
+}: BuddiesPaneProps & { run: Run }) {
   const tasks = projection.tasks ?? [];
   const team = buddiesInOrder(projection);
   const byId = new Map(team.map((buddy) => [buddy.buddyId, buddy]));
-  const ours = tasks.filter((task) => byId.has(task.buddyId) && !task.undone);
+  // A lead's planning turns show on its goal's card, not as jobs of their own.
+  const ours = tasks.filter((task) => byId.has(task.buddyId) && !task.undone && !isPlanTurn(task, projection.goals));
   const waiting = needsYou(projection);
   const latest = (task: TaskProjection) => task.endedAt ?? task.updatedAt;
   const lanes: { key: string; label: string; tasks: TaskProjection[] }[] = [
@@ -291,6 +301,11 @@ function TeamPage({ projection, run, onSelect, onOpenThread, onOpenPullRequest }
   const anyJobs = lanes.some((lane) => lane.tasks.length > 0);
   return (
     <>
+      <section className="buddies-section" aria-label="Goals">
+        <GoalComposer projection={projection} run={run} projectId={projectId} />
+        <GoalList projection={projection} run={run} onSelect={onSelect} />
+      </section>
+
       {waiting.length > 0 ? (
         <section className="buddies-section" aria-label="Needs you">
           <h3 className="buddies-heading">
@@ -316,9 +331,10 @@ function TeamPage({ projection, run, onSelect, onOpenThread, onOpenPullRequest }
         <h3 className="buddies-heading">Right now</h3>
         <ul className="board-crew">
           {team.map((buddy) => {
-            const working = ours.find(
+            const working = tasks.find(
               (task) => task.buddyId === buddy.buddyId && (task.status === "working" || task.status === "preparing"),
             );
+            const planning = working ? isPlanTurn(working, projection.goals) : false;
             const mood = buddyMood(buddy, tasks);
             return (
               <li key={buddy.buddyId}>
@@ -327,7 +343,11 @@ function TeamPage({ projection, run, onSelect, onOpenThread, onOpenPullRequest }
                   <span className="board-crew-text">
                     <span className="board-crew-name">{buddy.name}</span>
                     <span className="board-crew-line">
-                      {working ? working.goal : mood === "waiting" ? "Needs you" : "Free"}
+                      {working
+                        ? `${planning ? "Planning: " : ""}${working.goal}`
+                        : mood === "waiting"
+                          ? "Needs you"
+                          : "Free"}
                     </span>
                   </span>
                 </button>
@@ -351,7 +371,9 @@ function TeamPage({ projection, run, onSelect, onOpenThread, onOpenPullRequest }
                 {lane.tasks.map((task) => {
                   const buddy = byId.get(task.buddyId);
                   if (!buddy) return null;
-                  const project = projection.projects.find((entry) => entry.projectId === task.projectId);
+                  const project = isWebTask(task, projection)
+                    ? { name: "Web" }
+                    : projection.projects.find((entry) => entry.projectId === task.projectId);
                   return (
                     <button
                       key={task.taskId}
@@ -383,7 +405,7 @@ function TeamPage({ projection, run, onSelect, onOpenThread, onOpenPullRequest }
           </div>
         ) : (
           <p className="board-empty">
-            No jobs yet. Ask any buddy for something in its chat, and the job shows up here.
+            No jobs yet. Give the team a goal above, or ask any buddy in its chat, and the jobs show up here.
           </p>
         )}
       </section>
@@ -584,6 +606,7 @@ function BuddyPage({
 }: BuddiesPaneProps & { buddy: BuddyProjection; run: Run; error: ReactNode }) {
   // The details sit beside the chat from the start; the name tag folds them away and back.
   const [info, setInfo] = useState(true);
+  const [view, setView] = useState<"chat" | "browser">("chat");
   const [tab, setTab] = useState<InfoTab>("activity");
   const mood = buddyMood(buddy, projection.tasks ?? []);
   const title =
@@ -604,24 +627,38 @@ function BuddyPage({
             <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} image={buddy.image} size={22} mood={mood} />
             <h2 className="buddy-view-name">{buddy.name}</h2>
           </button>
+          <Segmented<"chat" | "browser">
+            className="buddy-view-switch"
+            label="Show"
+            value={view}
+            options={[
+              { value: "chat", label: "Chat" },
+              { value: "browser", label: "Browser" },
+            ]}
+            onChange={setView}
+          />
         </header>
         {error}
-        <BuddyChat
-          buddy={buddy}
-          projection={projection}
-          run={run}
-          onOpenThread={onOpenThread}
-          renderReply={(task) => (
-            <JobCard
-              task={task}
-              projection={projection}
-              run={run}
-              inline
-              onOpenThread={onOpenThread}
-              onOpenPullRequest={onOpenPullRequest}
-            />
-          )}
-        />
+        {view === "browser" ? (
+          <BuddyBrowser buddy={buddy} projection={projection} />
+        ) : (
+          <BuddyChat
+            buddy={buddy}
+            projection={projection}
+            run={run}
+            onOpenThread={onOpenThread}
+            renderReply={(task) => (
+              <JobCard
+                task={task}
+                projection={projection}
+                run={run}
+                inline
+                onOpenThread={onOpenThread}
+                onOpenPullRequest={onOpenPullRequest}
+              />
+            )}
+          />
+        )}
       </div>
       {/* Always there, so it can slide: folded, it is out of reach of the mouse, keyboard and screen readers. */}
       <aside
@@ -697,6 +734,7 @@ export function JobCard({
   const [note, setNote] = useState("");
   const [confirmUndo, setConfirmUndo] = useState(false);
   const [changing, setChanging] = useState(false);
+  const web = isWebTask(task, projection);
   const project = projection.projects.find((entry) => entry.projectId === task.projectId);
   const parent = task.parentTaskId ? projection.tasks?.find((entry) => entry.taskId === task.parentTaskId) : undefined;
   const parentBuddy = parent ? projection.buddies?.find((entry) => entry.buddyId === parent.buddyId) : undefined;
@@ -739,6 +777,7 @@ export function JobCard({
             ) : null}
             <span className="job-card-status">{STATUS_LABEL[task.status]}</span>
             {task.kind === "review" ? <span className="job-card-tag">Review</span> : null}
+            {web ? <span className="job-card-tag">Web</span> : null}
             {project && projection.projects.length > 1 ? <span className="job-card-tag">{project.name}</span> : null}
             <span className="buddy-spacer" />
             {task.threadId ? (
@@ -934,7 +973,7 @@ export function JobCard({
       <div className="job-card-actions">
         {task.status === "ready" ? (
           <>
-            {task.kind === "job" && task.threadId ? (
+            {task.kind === "job" && task.threadId && !web ? (
               <Button
                 size="sm"
                 variant="primary"
@@ -950,7 +989,7 @@ export function JobCard({
             <Button size="sm" icon="check" onClick={() => void run({ type: "task.close", taskId: task.taskId })}>
               Done
             </Button>
-            {task.kind === "job" && task.branch ? (
+            {task.kind === "job" && task.branch && !web ? (
               <Button size="sm" variant="ghost" icon="undo" onClick={() => setConfirmUndo(true)}>
                 Undo
               </Button>
@@ -1303,6 +1342,10 @@ function SettingsTab({
           onChange={(permissionMode) => void update({ permissionMode })}
         />
       </section>
+
+      <RulesEditor buddy={buddy} run={run} />
+
+      <BudgetField buddy={buddy} projection={projection} run={run} />
 
       <section className="buddies-section" aria-label="Passes work on">
         <h3 className="buddies-heading">Passes work on</h3>

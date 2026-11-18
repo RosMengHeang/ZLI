@@ -220,6 +220,8 @@ const KIND_LABEL: Record<JobKind, string> = {
   review: "review",
   question: "question",
   chore: "chore",
+  web: "web job",
+  plan: "planning turn",
 };
 const SIZE_LABEL = { s: "small", m: "medium", l: "big" } as const;
 
@@ -236,7 +238,8 @@ function effortFor(profile: JobProfile, efforts: readonly string[] | undefined):
 
 /** The permission a job runs with: never above the buddy's, read-only for reviews and questions. */
 export function permissionFor(profile: JobProfile, ceiling: PermissionMode): PermissionMode {
-  if (profile.kind === "review" || profile.kind === "question") return "read-only";
+  // A lead plans and hands out work with ZLI's tools; it never changes files.
+  if (profile.kind === "review" || profile.kind === "question" || profile.kind === "plan") return "read-only";
   return ceiling;
 }
 

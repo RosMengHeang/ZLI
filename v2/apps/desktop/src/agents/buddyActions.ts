@@ -3,6 +3,7 @@ import {
   buddiesInOrder,
   buddyNamed,
   isActiveTask,
+  isBuddyHome,
   isOpenTask,
   type ProjectProjection,
   RoutineTrigger,
@@ -25,6 +26,7 @@ export const BUDDY_ACTIONS = [
   "buddystatus",
   "buddyrevise",
   "buddyroutine",
+  "buddygoaldone",
 ] as const;
 export type BuddyAction = (typeof BUDDY_ACTIONS)[number];
 
@@ -65,6 +67,7 @@ const Inputs = {
     branch: Text(255).optional(),
     label: Text(100).optional(),
   }),
+  buddygoaldone: z.object({ summary: Text(2_000) }),
 } satisfies Record<BuddyAction, z.ZodType>;
 
 function parse<A extends BuddyAction>(action: A, raw: unknown): z.infer<(typeof Inputs)[A]> {
@@ -139,6 +142,18 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
   };
 
   const projectFor = (state: RuntimeProjection, ref: string | undefined, fallback: ProjectProjection) => {
+    // "web": the work runs in the buddy's own home, with its own browser.
+    if (ref && /^(web|browser|home|internet|online)$/iu.test(ref.trim())) {
+      const home = state.projects.find((candidate) => isBuddyHome(candidate));
+      if (!home) throw new BrowserControlError("Web jobs are not set up yet. Try again in a moment.", 409);
+      return home;
+    }
+    // A job from a web job or a goal planned from the web goes to a project only when one is named.
+    if (!ref && isBuddyHome(fallback)) {
+      const projects = state.projects.filter((candidate) => !isBuddyHome(candidate));
+      if (projects.length === 1 && projects[0]) return projects[0];
+      return fallback;
+    }
     if (!ref) return fallback;
     const wanted = ref.toLowerCase();
     const project = state.projects.find(
@@ -160,11 +175,18 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
     return buddy;
   };
 
-  /** The Primary's tools work from its job or from its own chat in the project checkout. */
+  /**
+   * The Primary's tools work from its job or from its own chat. A lead's planning turn comes first: it shares
+   * the checkout with other jobs, and the jobs it gives out belong to its goal.
+   */
   const primaryContext = (raw: unknown) => {
     const state = host.projection();
     const { worktreeId, project } = host.caller((raw ?? {}) as Record<string, unknown>, state);
-    const job = (state.tasks ?? []).find((task) => task.worktreeId === worktreeId && isOpenTask(task));
+    const here = (state.tasks ?? []).filter((task) => task.worktreeId === worktreeId && isOpenTask(task));
+    const job =
+      here.find((task) => task.status === "working" && task.origin.kind === "goal") ??
+      here.find((task) => task.status === "working") ??
+      here[0];
     return { state, project, job };
   };
 
@@ -264,7 +286,7 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
           projectId: projectFor(state, input.project, project).projectId,
           kind: "job",
           goal: input.goal,
-          origin: { kind: "agent" },
+          origin: { kind: "agent", ...(task.origin.goalId ? { goalId: task.origin.goalId } : {}) },
           parentTaskId: task.taskId,
           ...(task.branch ? { baseRef: task.branch } : {}),
         },
@@ -304,7 +326,8 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
           projectId: projectFor(state, input.project, project).projectId,
           kind: "job",
           goal: input.goal,
-          origin: { kind: "primary" },
+          // A job a lead gives out belongs to its goal, so the lead hears how it went on its next turn.
+          origin: { kind: "primary", ...(job?.origin.goalId ? { goalId: job.origin.goalId } : {}) },
           ...(job ? { parentTaskId: job.taskId } : {}),
           ...(input.baseRef ? { baseRef: input.baseRef } : {}),
         },
@@ -370,6 +393,27 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
         routineId,
         note: "The person sees it under the buddy's routines and can pause or remove it.",
       };
+    },
+    buddygoaldone: async (raw) => {
+      const input = parse("buddygoaldone", raw);
+      const { task } = callerJob(raw);
+      const goalId = task.origin.goalId;
+      if (task.origin.kind !== "goal" || !goalId)
+        throw new BrowserControlError("goal_done is for a lead's planning turn on a goal.", 409);
+      const state = host.projection();
+      const running = (state.tasks ?? []).filter(
+        (other) =>
+          other.origin.goalId === goalId &&
+          other.taskId !== task.taskId &&
+          (other.status === "queued" || other.status === "preparing" || other.status === "working"),
+      );
+      if (running.length > 0)
+        throw new BrowserControlError(
+          `${running.length} job${running.length === 1 ? " is" : "s are"} still running on this goal. End your turn with task_done; you are woken when they finish.`,
+          409,
+        );
+      await host.run({ type: "goal.finish", goalId, summary: input.summary });
+      return { done: true, note: "The goal is marked done. Call task_done with one line, then end your turn." };
     },
   };
 }

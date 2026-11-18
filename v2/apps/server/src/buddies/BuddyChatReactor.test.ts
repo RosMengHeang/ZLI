@@ -117,6 +117,7 @@ describe("parseChatReply", () => {
       jobs: [{ project: "shop-web", goal: "Fix the cart total when a coupon is applied twice." }],
       remember: ["Prefers small PRs."],
       tells: [],
+      goals: [],
     });
   });
 
@@ -126,6 +127,7 @@ describe("parseChatReply", () => {
       jobs: [],
       remember: [],
       tells: [],
+      goals: [],
     });
   });
 });

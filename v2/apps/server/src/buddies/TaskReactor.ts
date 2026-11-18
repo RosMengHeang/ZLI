@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import {
   agentNameTaken,
   type BuddyProjection,
@@ -7,8 +5,11 @@ import {
   findBuddy,
   firstSentence,
   isActiveTask,
+  isBuddyHome,
   isOpenTask,
   MAX_ACTIVE_JOBS,
+  MAX_GOAL_ROUNDS,
+  overBudget,
   type ProjectProjection,
   type ProviderDiscovery,
   type RuntimeCommand,
@@ -21,7 +22,19 @@ import {
 
 import type { CommandReceipt, Engine } from "../orchestration/Engine.js";
 import { candidatesFor, modelTier, pickEngine, profileJob, trackRecords } from "./autopick.js";
-import { answerText, handoffGoal, jobBrief, nudgeText, reviewNotesText, reviseText, stepUpText } from "./brief.js";
+import {
+  answerText,
+  handoffGoal,
+  jobBrief,
+  leadBrief,
+  nudgeText,
+  reviewNotesText,
+  reviseText,
+  stepUpText,
+} from "./brief.js";
+import type { BuddyHomes } from "./homes.js";
+import { lessonFromAnswer, lessonFromRevision } from "./lessons.js";
+import { stableId } from "./stableId.js";
 
 export type TaskReactorOptions = {
   /** The agents ZLI found. The engine's projection does not carry them. */
@@ -34,6 +47,8 @@ export type TaskReactorOptions = {
   turnLimitMs?: number;
   /** How often running jobs are looked at again, so a turn over the limit is noticed without new events. */
   checkEveryMs?: number;
+  /** Where web jobs run: each buddy's home. Without it, web jobs fail. */
+  homes?: BuddyHomes;
 };
 
 /** How long a finished job waits for its last turn's snapshot before recording its result without it. */
@@ -41,11 +56,7 @@ const SNAPSHOT_GRACE_MS = 15_000;
 /** One turn of a job's agent past this is stuck or looping, not working. */
 const TURN_LIMIT_MS = 90 * 60_000;
 
-/** A stable id from a key, shaped as a UUID, so a restart repeats the same commands instead of new ones. */
-export function stableId(key: string): string {
-  const hex = createHash("sha256").update(key).digest("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${((Number.parseInt(hex[16] ?? "0", 16) & 3) | 8).toString(16)}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
+export { stableId };
 
 function slug(text: string, max = 32): string {
   return (
@@ -169,6 +180,8 @@ export class TaskReactor {
       }
       const active = perBuddy.get(task.buddyId) ?? 0;
       if (active >= buddy.maxActiveJobs) continue;
+      // Past its weekly budget, a buddy's new jobs wait until the person raises it or the week moves on.
+      if (overBudget(state, buddy, this.now())) continue;
       perBuddy.set(task.buddyId, active + 1);
       total += 1;
       await this.dispatch(
@@ -200,6 +213,16 @@ export class TaskReactor {
     const project = state.projects.find((candidate) => candidate.projectId === task.projectId);
     if (!buddy || !project) {
       await this.fail(task, "Its buddy or project is gone.");
+      return;
+    }
+    // A web job runs in the buddy's own home, with its own browser.
+    if (isBuddyHome(project)) {
+      const home = this.options.homes ? await this.options.homes.home(state, buddy) : undefined;
+      if (!home) {
+        await this.fail(task, "Its home folder could not be made.");
+        return;
+      }
+      await this.begin(await this.engine.projection(), task, buddy, project, home, true);
       return;
     }
     const place = this.placement(state, task, buddy);
@@ -236,25 +259,71 @@ export class TaskReactor {
       return;
     }
     if (worktree.status !== "ready") return;
-    const profile =
-      task.profile ?? profileJob({ goal: task.goal, skill: task.skill, kind: task.kind, origin: task.origin.kind });
+    await this.begin(state, task, buddy, project, worktree, place.shared);
+  }
+
+  /** What kind of job this is: a lead's planning turn, a web job, or read from its goal. */
+  private profileOf(state: RuntimeProjection, task: TaskProjection, project: ProjectProjection) {
+    if (task.profile) return task.profile;
+    if (this.goalOf(state, task)) return { kind: "plan", size: "m", risk: "low", needsBrowser: false } as const;
+    const read = profileJob({ goal: task.goal, skill: task.skill, kind: task.kind, origin: task.origin.kind });
+    return isBuddyHome(project) ? { ...read, kind: "web" as const, needsBrowser: true } : read;
+  }
+
+  /** The goal a job plans, when it is the lead's planning turn on it. */
+  private goalOf(state: RuntimeProjection, task: TaskProjection) {
+    if (task.origin.kind !== "goal" || !task.origin.goalId) return undefined;
+    return (state.goals ?? []).find((goal) => goal.goalId === task.origin.goalId && goal.buddyId === task.buddyId);
+  }
+
+  /** The job's first message: a lead's plan brief, or the usual job brief. */
+  private briefFor(
+    state: RuntimeProjection,
+    task: TaskProjection,
+    buddy: BuddyProjection,
+    project: ProjectProjection,
+    worktree: WorktreeProjection,
+  ): string {
+    const goal = this.goalOf(state, task);
+    if (goal) return leadBrief({ buddy, goal, state, maxRounds: MAX_GOAL_ROUNDS * (goal.resumes + 1) });
+    const parent = task.parentTaskId
+      ? state.tasks?.find((candidate) => candidate.taskId === task.parentTaskId)
+      : undefined;
+    return jobBrief({
+      buddy,
+      task,
+      project,
+      branch: worktree.branch,
+      parent,
+      primary: buddy.role === "primary" && !isBuddyHome(project),
+      homePath: isBuddyHome(project) ? worktree.path : undefined,
+    });
+  }
+
+  /** Picks the agent, starts the job's chat with its brief, and marks the job started. */
+  private async begin(
+    state: RuntimeProjection,
+    task: TaskProjection,
+    buddy: BuddyProjection,
+    project: ProjectProjection,
+    worktree: WorktreeProjection,
+    shared: boolean,
+  ): Promise<void> {
+    const profile = this.profileOf(state, task, project);
     const pick = await this.pick(state, task, buddy, profile);
     if (!pick) {
       await this.fail(task, "No agent can run this job. Install or sign in to one in Settings.");
       return;
     }
     const threadId = stableId(`buddy-thread:${task.taskId}:0:${task.updatedAt}`);
-    const started = await this.startThread(state, task, buddy, project, worktree, threadId, pick, place.shared);
+    const started = await this.startThread(state, task, buddy, project, worktree, threadId, pick, shared);
     if (!started) return;
-    const parent = task.parentTaskId
-      ? state.tasks?.find((candidate) => candidate.taskId === task.parentTaskId)
-      : undefined;
     // The chat shows the job; the brief goes with it as context, so the chat is named after the job.
     await this.queue(
       threadId,
       task.goal,
       `buddy:${task.taskId}:brief`,
-      jobBrief({ buddy, task, project, branch: worktree.branch, parent, primary: buddy.role === "primary" }),
+      this.briefFor(state, task, buddy, project, worktree),
     );
     await this.dispatch(
       {
@@ -551,7 +620,7 @@ export class TaskReactor {
       threadId,
       task.goal,
       `buddy:${task.taskId}:brief:${threadId}`,
-      `${jobBrief({ buddy, task, project, branch: worktree.branch })}\n\n${stepUpText(task)}`,
+      `${this.briefFor(state, task, buddy, project, worktree)}\n\n${stepUpText(task)}`,
     );
     await this.dispatch(
       { type: "task.engine", taskId: task.taskId, pick, threadId },
@@ -576,11 +645,16 @@ export class TaskReactor {
             answerText(question.text, event.answer),
             `buddy:${task.taskId}:answer:${event.questionId}`,
           );
+        // The person's own answer is kept, so the buddy does not ask the same thing on its next job.
+        if (question) await this.learn(task, lessonFromAnswer(task, question.text, event.answer), event.questionId);
         return;
       }
       case "task.revised":
         if (task.threadId)
           await this.queue(task.threadId, reviseText(event.note), `buddy:${task.taskId}:revise:${envelope.sequence}`);
+        // A change the person asked for is kept at once. A reviewer's notes wait for the daily look-back.
+        if (!isReviewNote(event.note))
+          await this.learn(task, lessonFromRevision(task, event.note), `revise:${envelope.sequence}`);
         return;
       case "task.result.recorded":
         await this.afterResult(state, task, envelope.sequence);
@@ -611,19 +685,44 @@ export class TaskReactor {
     }
   }
 
+  /** Keeps a lesson that came from the person's own words: it needs no review, they said it. */
+  private async learn(
+    task: TaskProjection,
+    lesson: { text: string; projectId?: string | undefined; taskId?: string | undefined },
+    key: string,
+  ): Promise<void> {
+    await this.dispatch(
+      {
+        type: "buddy.memory.add",
+        buddyId: task.buddyId,
+        note: {
+          noteId: stableId(`buddy-lesson:${task.taskId}:${key}`),
+          text: lesson.text,
+          source: "you",
+          ...(lesson.projectId ? { projectId: lesson.projectId } : {}),
+          ...(lesson.taskId ? { taskId: lesson.taskId } : {}),
+        },
+      } as RuntimeCommand,
+      `task:${task.taskId}:learn:${key}`,
+    );
+  }
+
   private async afterResult(state: RuntimeProjection, task: TaskProjection, sequence: number): Promise<void> {
     const buddy = findBuddy(state, task.buddyId);
     const parent = task.parentTaskId
       ? state.tasks?.find((candidate) => candidate.taskId === task.parentTaskId)
       : undefined;
-    // A job handed on by another buddy reports back into that buddy's job.
-    if (parent?.threadId && isOpenTask(parent) && task.kind === "job" && task.result)
+    // A job handed on by another buddy reports back into that buddy's job. A goal's jobs report to its lead's
+    // next planning turn instead, all together, once they have all ended.
+    if (parent?.threadId && isOpenTask(parent) && task.kind === "job" && task.result && !task.origin.goalId)
       await this.queue(
         parent.threadId,
         `${buddy?.name ?? "A buddy"} finished the job you handed on (${firstSentence(task.goal, 80)}): ${task.result.summary}`,
         `buddy:${parent.taskId}:report:${task.taskId}:${sequence}`,
       );
     if (!buddy || task.kind === "review") return;
+    // Handoff rules are for code: a planning turn or a web job is not handed on.
+    if (task.profile?.kind === "plan" || task.profile?.kind === "web") return;
     for (const rule of buddy.handoffs) {
       if (!rule.enabled || rule.when !== "finished") continue;
       const to = findBuddy(state, rule.to);
@@ -707,4 +806,9 @@ export class TaskReactor {
   private dispatch(command: RuntimeCommand, key: string): Promise<CommandReceipt> {
     return this.engine.dispatchPromise({ protocolVersion: 1, commandId: CommandId.parse(stableId(key)), command });
   }
+}
+
+/** Whether a change request came from a reviewer buddy, not the person. */
+function isReviewNote(note: string): boolean {
+  return note.includes(" checked your work and has notes:\n");
 }

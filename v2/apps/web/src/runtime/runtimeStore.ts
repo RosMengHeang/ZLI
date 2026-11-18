@@ -1,4 +1,4 @@
-import type { RuntimeProjection } from "@zli-v2/contracts";
+import { isBuddyHome, type RuntimeProjection } from "@zli-v2/contracts";
 
 import type { ZliBridge } from "./bridge.js";
 
@@ -15,7 +15,8 @@ export type RuntimeStore = {
 export function createRuntimeStore(bridge: ZliBridge | undefined): RuntimeStore & { start(): () => void } {
   let projection: RuntimeProjection | undefined;
   const listeners = new Set<() => void>();
-  const publish = (incoming: RuntimeProjection) => {
+  const publish = (raw: RuntimeProjection) => {
+    const incoming = withoutBuddyHomes(raw);
     const next = projection ? shareUnchanged(projection, incoming) : incoming;
     if (next === projection) return;
     projection = next;
@@ -47,6 +48,16 @@ export function createRuntimeStore(bridge: ZliBridge | undefined): RuntimeStore 
       };
     },
   };
+}
+
+/**
+ * The projection without the buddies' homes project, so no project list, picker or sidebar shows it. Its
+ * worktrees and chats stay: a buddy's page shows its home's browser, and its web jobs open like any job.
+ */
+export function withoutBuddyHomes(projection: RuntimeProjection): RuntimeProjection {
+  // Partial projections (tests, older runtimes) may come without a project list.
+  if (!projection.projects?.some((project) => isBuddyHome(project))) return projection;
+  return { ...projection, projects: projection.projects.filter((project) => !isBuddyHome(project)) };
 }
 
 /**

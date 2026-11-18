@@ -18,6 +18,15 @@ export function lessonFromRevision(task: TaskProjection, note: string): Lesson {
   };
 }
 
+/** The person's answer to a question a job asked: next time the buddy knows it without asking. */
+export function lessonFromAnswer(task: TaskProjection, question: string, answer: string): Lesson {
+  return {
+    text: `Asked "${firstSentence(question, 140)}", the person said: ${firstSentence(answer, 200)}`.slice(0, 400),
+    taskId: task.taskId,
+    projectId: task.projectId,
+  };
+}
+
 /**
  * The daily look-back: reads the buddy's jobs since `since` and proposes up to three lessons, from the
  * changes people asked for, review notes, and kinds of jobs that keep failing.

@@ -287,3 +287,62 @@ describe("TaskReactor", () => {
     expect((await settle()).tasks?.[0]?.status).toBe("queued");
   });
 });
+
+describe("TaskReactor learning and budget", () => {
+  it("keeps the person's answers and change requests as lessons, at once", async () => {
+    const { engine, projectId, runtime } = await setup();
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "t1", buddyId: "b1", projectId, kind: "job", goal: "Add a dark mode", origin: { kind: "chat" } },
+    });
+    await runtime();
+    await send(engine, { type: "task.question.ask", taskId: "t1", questionId: "q1", text: "Which color for dark?" });
+    await send(engine, { type: "task.question.answer", taskId: "t1", questionId: "q1", answer: "Charcoal, not black" });
+    await runtime({ taskId: "t1", summary: "Added it." });
+    await send(engine, { type: "task.revise", taskId: "t1", note: "Use our tokens instead of raw hex colors" });
+    const state = await runtime();
+    const memory = state.buddies?.find((buddy) => buddy.buddyId === "b1")?.memory ?? [];
+    expect(memory.map((note) => note.text)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Charcoal, not black"),
+        expect.stringContaining("Use our tokens instead of raw hex colors"),
+      ]),
+    );
+    expect(memory.every((note) => note.source === "you" && note.projectId === projectId)).toBe(true);
+  });
+
+  it("holds a buddy's new jobs once its week's spending passes its budget", async () => {
+    const { engine, projectId, runtime } = await setup();
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "t1", buddyId: "b1", projectId, kind: "job", goal: "First job", origin: { kind: "chat" } },
+    });
+    await runtime();
+    await send(engine, {
+      type: "task.result",
+      taskId: "t1",
+      result: {
+        summary: "Done.",
+        files: 1,
+        insertions: 1,
+        deletions: 0,
+        screenshots: [],
+        costUsd: 6,
+        durationMs: 1,
+        overlaps: [],
+      },
+    });
+    await send(engine, { type: "buddy.update", buddyId: "b1", changes: { budgetUsd: 5 } });
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "t2", buddyId: "b1", projectId, kind: "job", goal: "Second job", origin: { kind: "chat" } },
+    });
+    let state = await runtime();
+    expect(state.tasks?.find((task) => task.taskId === "t2")?.status).toBe("queued");
+    // Raising the limit lets it start.
+    await send(engine, { type: "buddy.update", buddyId: "b1", changes: { budgetUsd: 0 } });
+    state = await runtime();
+    expect(state.buddies?.find((buddy) => buddy.buddyId === "b1")?.budgetUsd).toBeUndefined();
+    expect(state.tasks?.find((task) => task.taskId === "t2")?.status).toBe("working");
+  });
+});

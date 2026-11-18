@@ -506,3 +506,64 @@ describe("buddyTranscript", () => {
     ]);
   });
 });
+
+describe("Goals on the team board", () => {
+  it("gives the team a goal led by the Primary, with no one picking who does what", async () => {
+    const { commands } = await render(
+      projection({ buddies: [buddy("b1", "Ava", 0, "primary"), buddy("b2", "Builder", 1)] }),
+    );
+    const box = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Goal"]');
+    if (!box) throw new Error("no goal box");
+    await typeInto(box, "Add a dark mode to Settings, with tests");
+    await act(async () => buttonNamed("Start").click());
+    const goal = commands.find((entry) => entry.type === "goal.create") as
+      | { goal: { buddyId: string; text: string; projectId?: string } }
+      | undefined;
+    expect(goal?.goal).toMatchObject({
+      buddyId: "b1",
+      text: "Add a dark mode to Settings, with tests",
+      projectId: "p1",
+    });
+  });
+
+  it("shows a goal's lead, its jobs and how far they got, and keeps planning turns off the lanes", async () => {
+    const state = projection({
+      buddies: [buddy("b1", "Ava", 0, "primary"), buddy("b2", "Builder", 1)],
+      goals: [
+        {
+          goalId: "g1",
+          buddyId: "b1",
+          text: "Ship dark mode",
+          projectId: "p1",
+          status: "needs_you",
+          needs: "Planned 8 times without finishing",
+          rounds: 8,
+          resumes: 0,
+          createdAt: at,
+          updatedAt: at,
+        },
+      ],
+      tasks: [
+        task({
+          taskId: "plan",
+          buddyId: "b1",
+          goal: "Ship dark mode",
+          origin: { kind: "goal", goalId: "g1" },
+          status: "closed",
+        }),
+        task({ taskId: "j1", goal: "Add the toggle", origin: { kind: "primary", goalId: "g1" }, status: "ready" }),
+        task({ taskId: "j2", goal: "Write the tests", origin: { kind: "primary", goalId: "g1" }, status: "working" }),
+      ],
+    });
+    const { commands } = await render(state);
+    const card = document.querySelector('[aria-label="Goal: Ship dark mode"]');
+    expect(card?.textContent).toContain("Led by Ava");
+    expect(card?.textContent).toContain("1 of 2 done");
+    expect(card?.textContent).toContain("Planned 8 times");
+    // The planning turn is not a job on the lanes.
+    const lanes = document.querySelector('[aria-label="Jobs"]')?.textContent ?? "";
+    expect(lanes).not.toContain("Ship dark mode");
+    await act(async () => buttonNamed("Keep going", card ?? document).click());
+    expect(sent(commands)).toContain("goal.resume");
+  });
+});

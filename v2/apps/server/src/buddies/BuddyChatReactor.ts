@@ -5,20 +5,25 @@ import {
   buddyNamed,
   CommandId,
   guessProject,
+  isBuddyHome,
   type ProjectProjection,
   type ProviderDiscovery,
   type RuntimeCommand,
   type RuntimeEventEnvelope,
   type RuntimeProjection,
+  workProjects,
 } from "@zli-v2/contracts";
 
 import type { CommandReceipt, Engine } from "../orchestration/Engine.js";
 import { candidatesFor, pickEngine, trackRecords } from "./autopick.js";
-import { chatBrief, parseChatReply, projectNamed, senderName } from "./chat.js";
-import { stableId } from "./TaskReactor.js";
+import { chatBrief, parseChatReply, placeNamed, senderName } from "./chat.js";
+import type { BuddyHomes } from "./homes.js";
+import { stableId } from "./stableId.js";
 
 export type BuddyChatReactorOptions = {
   providers: () => Promise<readonly ProviderDiscovery[]>;
+  /** Each buddy's own folder, where its chat runs. Without it, a chat runs in a project's checkout. */
+  homes?: BuddyHomes;
   now?: () => Date;
   onError?: (error: unknown) => void;
   /** How long a chat may take over one answer before ZLI stops it and says so. */
@@ -74,7 +79,13 @@ export class BuddyChatReactor {
 
   private observe(envelope: RuntimeEventEnvelope): void {
     const type = envelope.event.type;
-    if (type.startsWith("buddy.chat.") || type.startsWith("thread.") || type === "runtime.ready") this.schedule();
+    if (
+      type.startsWith("buddy.chat.") ||
+      type.startsWith("thread.") ||
+      type === "buddy.created" ||
+      type === "runtime.ready"
+    )
+      this.schedule();
   }
 
   private schedule(): void {
@@ -98,19 +109,25 @@ export class BuddyChatReactor {
   }
 
   private async tend(state: RuntimeProjection, buddy: BuddyProjection): Promise<void> {
+    // Every buddy gets its home up front, so its browser is there to sign in to before its first web job.
+    if (this.options.homes && !buddy.home) await this.options.homes.home(state, buddy);
     const messages = (state.buddyMessages ?? []).filter((message) => message.buddyId === buddy.buddyId);
     const lastReply = messages.findLastIndex((message) => message.role === "buddy");
     const waiting = messages.slice(lastReply + 1).filter((message) => message.role === "you");
     const thread = state.threads.find((candidate) => candidate.threadId === buddy.chatThreadId);
     if (thread && waiting.length > 0) await this.collect(state, buddy, thread.threadId, waiting);
     if (waiting.length === 0) return;
+    // A chat from before buddies had homes runs in a project: the next message starts it again at home.
+    const homeless =
+      this.options.homes !== undefined && thread !== undefined && thread.worktreeId !== buddy.home?.worktreeId;
     const usable =
       thread?.unattended &&
+      !homeless &&
       thread.status !== "failed" &&
       thread.status !== "stopped" &&
       state.worktrees.some((worktree) => worktree.worktreeId === thread.worktreeId && worktree.status === "ready");
     // A chat started before chats ran unattended can be stuck waiting on a prompt nobody sees: end it.
-    if (thread && !thread.unattended && thread.status !== "failed" && thread.status !== "stopped")
+    if (thread && (!thread.unattended || homeless) && thread.status !== "failed" && thread.status !== "stopped")
       await this.dispatch(
         { type: "thread.stop", threadId: thread.threadId } as RuntimeCommand,
         `buddy-chat-retire:${thread.threadId}`,
@@ -141,12 +158,13 @@ export class BuddyChatReactor {
     }
   }
 
-  /** Starts a chat for the buddy in a project checkout: where it last worked, or the first project. */
-  private async open(
-    state: RuntimeProjection,
-    buddy: BuddyProjection,
-    first: BuddyMessage,
-  ): Promise<string | undefined> {
+  /** The folder the buddy's chat runs in: its own home, or, without homes, a project checkout. */
+  private async place(state: RuntimeProjection, buddy: BuddyProjection, first: BuddyMessage) {
+    if (this.options.homes) {
+      const home = await this.options.homes.home(state, buddy);
+      if (!home) await this.reply(buddy, `no-home:${first.messageId}`, "I could not open my home folder.");
+      return home;
+    }
     const last = (state.tasks ?? []).findLast((task) => task.buddyId === buddy.buddyId);
     const project = state.projects.find((entry) => entry.projectId === last?.projectId) ?? state.projects[0];
     if (!project) {
@@ -154,10 +172,19 @@ export class BuddyChatReactor {
       return undefined;
     }
     const checkout = await this.checkout(state, project);
-    if (!checkout) {
-      await this.reply(buddy, `no-checkout:${first.messageId}`, `I could not open ${project.name}.`);
-      return undefined;
-    }
+    if (!checkout) await this.reply(buddy, `no-checkout:${first.messageId}`, `I could not open ${project.name}.`);
+    return checkout;
+  }
+
+  /** Starts a chat for the buddy in its home. */
+  private async open(
+    before: RuntimeProjection,
+    buddy: BuddyProjection,
+    first: BuddyMessage,
+  ): Promise<string | undefined> {
+    const checkout = await this.place(before, buddy, first);
+    if (!checkout) return undefined;
+    const state = await this.engine.projection();
     const pick = pickEngine({
       buddy,
       profile: { kind: "question", size: "s", risk: "low", needsBrowser: false },
@@ -310,7 +337,7 @@ export class BuddyChatReactor {
     // answered in words: anything it talked the buddy into is left undone, so text a teammate read in a file
     // or on a page cannot spread through the team.
     const fromTeammate = answered.some((message) => message.from);
-    if (fromTeammate && (parsed.jobs.length > 0 || parsed.remember.length > 0))
+    if (fromTeammate && (parsed.jobs.length > 0 || parsed.remember.length > 0 || parsed.goals.length > 0))
       started.push("A teammate asked, so I only answered. Ask me yourself if you want me to start work on it.");
     // One message starts a few jobs at most, so a confused or misled reply cannot fill the queue.
     const jobs = fromTeammate ? [] : parsed.jobs.slice(0, MAX_JOBS_PER_REPLY);
@@ -321,11 +348,15 @@ export class BuddyChatReactor {
     const remember = fromTeammate ? [] : parsed.remember;
     // Messages to teammates and jobs handed to them, each shown in this chat as its own note addressed to them.
     const sent: Array<{ to: string; text: string; key: string }> = [];
+    const where = () =>
+      `${workProjects(state.projects)
+        .map((entry) => entry.name)
+        .join(", ")}, or the web`;
     for (const [index, job] of jobs.entries()) {
-      const project = projectNamed(state.projects, job.project);
+      const project = placeNamed(state.projects, job.project);
       const worker = (job.buddy ? buddyNamed(state, job.buddy) : undefined) ?? buddy;
       if (!project) {
-        started.push(`I need to know which project: ${state.projects.map((entry) => entry.name).join(", ")}?`);
+        started.push(`I need to know where: ${where()}?`);
         continue;
       }
       const receipt = await this.dispatch(
@@ -351,6 +382,33 @@ export class BuddyChatReactor {
           text: `New job: ${job.goal.slice(0, 600)}`,
           key: `job:${answer.messageId}:${index}`,
         });
+    }
+    // A goal the buddy takes on: it leads it. Only the person can set one, like a job.
+    const goals = fromTeammate ? [] : parsed.goals.slice(0, 1);
+    for (const [index, goal] of goals.entries()) {
+      const guessed = guessProject(goal.text, state.projects, state.tasks ?? [], buddy.buddyId, undefined);
+      const project =
+        placeNamed(state.projects, goal.project) ??
+        state.projects.find((entry) => entry.projectId === guessed?.projectId) ??
+        state.projects.find((entry) => isBuddyHome(entry));
+      if (!project) {
+        started.push(`I need to know where: ${where()}?`);
+        continue;
+      }
+      const receipt = await this.dispatch(
+        {
+          type: "goal.create",
+          goal: {
+            goalId: stableId(`buddy-chat-goal:${answer.messageId}:${index}`),
+            buddyId: buddy.buddyId,
+            text: goal.text.slice(0, 4_000),
+            projectId: project.projectId,
+          },
+        } as RuntimeCommand,
+        `buddy-chat-goal:${answer.messageId}:${index}`,
+      );
+      if (receipt.status === "rejected")
+        started.push(`That goal did not start: ${receipt.error?.message ?? "it was refused"}.`);
     }
     for (const [index, note] of remember.entries()) {
       const receipt = await this.dispatch(
@@ -385,7 +443,7 @@ export class BuddyChatReactor {
           started.push(`I could not message ${target.name}: ${receipt.error?.message ?? "it was refused"}.`);
         else sent.push({ to: target.buddyId, text: tell.text, key: `tell:${answer.messageId}:${index}` });
       }
-    const words = parsed.text || (jobs.length > 0 ? "On it." : "");
+    const words = parsed.text || (jobs.length > 0 || goals.length > 0 ? "On it." : "");
     const text = [words, ...started].filter(Boolean).join("\n\n");
     if (text) await this.reply(buddy, `answer:${answer.messageId}`, text);
     // Each message to a teammate shows in this chat as its own note, addressed to them.

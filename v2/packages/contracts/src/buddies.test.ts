@@ -3,14 +3,23 @@ import { describe, expect, it } from "vitest";
 import {
   applyBuddyEvent,
   type BuddyEvent,
+  type BuddyProjection,
   type BuddyState,
   buddiesInOrder,
   firstSentence,
+  guessProject,
+  isBuddyHome,
   isBuddyToolCall,
   needsYou,
+  overBudget,
   playbooksFor,
   RuntimeCommand,
   RuntimeEvent,
+  rulesOf,
+  rulesText,
+  spentThisWeek,
+  type TaskProjection,
+  workProjects,
 } from "./index.js";
 
 const at = "2026-11-15T09:00:00.000Z";
@@ -176,5 +185,37 @@ describe("isBuddyToolCall", () => {
       "task_done (zli-mobile MCP Server)",
     ])
       expect(isBuddyToolCall(name), name).toBe(false);
+  });
+});
+
+describe("buddy homes, rules and budgets", () => {
+  it("knows the homes folder and keeps it out of project guesses", () => {
+    const projects = [
+      { projectId: "p1", name: "Shop", path: "D:/code/shop" },
+      { projectId: "home", name: "zli-buddy-homes", path: "C:/data/zli-buddy-homes/" },
+    ];
+    expect(isBuddyHome(projects[1])).toBe(true);
+    expect(isBuddyHome(projects[0])).toBe(false);
+    expect(workProjects(projects).map((project) => project.projectId)).toEqual(["p1"]);
+    // With the homes left out, one real project is the only answer.
+    expect(guessProject("fix the cart", projects, [], "b1", undefined)).toEqual({ projectId: "p1", why: "named" });
+  });
+
+  it("counts a week of a buddy's spending against its budget", () => {
+    const now = new Date("2026-11-18T12:00:00Z");
+    const task = (taskId: string, endedAt: string, costUsd: number) =>
+      ({
+        taskId,
+        buddyId: "b1",
+        endedAt,
+        updatedAt: endedAt,
+        result: { costUsd },
+      }) as unknown as TaskProjection;
+    const tasks = [task("old", "2026-11-01T00:00:00Z", 50), task("new", "2026-11-17T00:00:00Z", 3)];
+    expect(spentThisWeek({ tasks }, "b1", now)).toBe(3);
+    const spender = { buddyId: "b1", budgetUsd: 2 } as BuddyProjection;
+    expect(overBudget({ tasks }, spender, now)).toBe(true);
+    expect(overBudget({ tasks }, { ...spender, budgetUsd: 5 }, now)).toBe(false);
+    expect(rulesText(rulesOf({})).join("\n")).toContain("Pay or buy anything");
   });
 });

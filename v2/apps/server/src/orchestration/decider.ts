@@ -62,6 +62,8 @@ export type DomainErrorCode =
   | "task_missing"
   | "task_closed"
   | "routine_missing"
+  | "goal_missing"
+  | "goal_limit"
   | "unsupported_command";
 
 export class DomainError extends Error {

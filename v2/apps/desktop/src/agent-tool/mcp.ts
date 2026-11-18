@@ -126,7 +126,11 @@ const BUDDY_TOOLS: readonly McpTool[] = [
     properties: {
       buddy: { type: "string", description: "The buddy's name, from list_buddies." },
       goal: { type: "string", description: "The job, clear enough to work from alone." },
-      project: { type: "string", description: "A project name, when it is not this one." },
+      project: {
+        type: "string",
+        description:
+          'A project name, when it is not this one. "web" for work in a buddy\'s own browser: research, forms, accounts, reports.',
+      },
       baseRef: { type: "string", description: "The branch to start from. Default: the project's current branch." },
     },
     required: ["buddy", "goal"],
@@ -149,6 +153,15 @@ const BUDDY_TOOLS: readonly McpTool[] = [
       note: { type: "string", description: "What to change." },
     },
     required: ["taskId", "note"],
+  },
+  {
+    name: "goal_done",
+    title: "Finish a goal",
+    action: "buddygoaldone",
+    description:
+      "For a lead's planning turn on a goal: say the whole goal is done, with a short summary for the person of what the team did and where to find it. Only once every job on it has ended and the result is checked. Then call task_done and end your turn.",
+    properties: { summary: { type: "string", description: "What the team did, 2–4 sentences." } },
+    required: ["summary"],
   },
   {
     name: "set_routine",
