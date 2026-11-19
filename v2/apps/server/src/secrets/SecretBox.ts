@@ -1,8 +1,13 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { readFileSync, rmSync } from "node:fs";
 
 /** The environment variable the desktop app hands its sealing key over in. Read once, then removed. */
 export const SECRETS_KEY_ENV = "ZLI_SECRETS_KEY";
 export const SECRETS_KEYCHAIN_SLOW_ENV = "ZLI_SECRETS_KEYCHAIN_SLOW";
+/** The file the desktop app writes the key to. Read once, then deleted. */
+export const SECRETS_KEY_FILE_ENV = "ZLI_SECRETS_KEY_FILE";
+/** Set when the computer has no real keychain, so the Composio key is saved unencrypted. */
+export const SECRETS_NO_KEYCHAIN_ENV = "ZLI_SECRETS_NO_KEYCHAIN";
 const PREFIX = "sealed:v1:";
 
 /**
@@ -16,8 +21,20 @@ export class SecretBox {
 
   /** The box for the key the desktop app passed, or undefined (tests, or no OS keychain): files then stay as before. */
   static fromEnvironment(env: NodeJS.ProcessEnv = process.env): SecretBox | undefined {
-    const value = env[SECRETS_KEY_ENV];
+    // The desktop app hands the key over in a file, read once and deleted. A key in the environment itself still
+    // works (older launches, tests), but on Linux and macOS deleting it here does not clear the starting environment.
+    const file = env[SECRETS_KEY_FILE_ENV];
+    delete env[SECRETS_KEY_FILE_ENV];
+    let value = env[SECRETS_KEY_ENV];
     delete env[SECRETS_KEY_ENV];
+    if (file) {
+      try {
+        value = readFileSync(file, "utf8").trim();
+      } catch {
+        value = undefined;
+      }
+      rmSync(file, { force: true });
+    }
     if (!value) return undefined;
     const key = Buffer.from(value, "base64");
     return key.length === 32 ? new SecretBox(key) : undefined;
@@ -31,6 +48,13 @@ export class SecretBox {
     const slow = env[SECRETS_KEYCHAIN_SLOW_ENV] === "1";
     delete env[SECRETS_KEYCHAIN_SLOW_ENV];
     return slow;
+  }
+
+  /** Whether the desktop app found no real keychain, taken out of the environment like the key. */
+  static noKeychain(env: NodeJS.ProcessEnv = process.env): boolean {
+    const none = env[SECRETS_NO_KEYCHAIN_ENV] === "1";
+    delete env[SECRETS_NO_KEYCHAIN_ENV];
+    return none;
   }
 
   static withKey(key: Buffer): SecretBox {

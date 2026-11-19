@@ -122,6 +122,8 @@ export class ConnectedApps {
       box?: SecretBox;
       /** The keychain was there but did not answer at start: no key is saved until a restart, never unsealed. */
       keychainSlow?: boolean;
+      /** The computer has no real keychain: the key is saved unencrypted, and the person is told so. */
+      noKeychain?: boolean;
     },
   ) {}
 
@@ -225,6 +227,11 @@ export class ConnectedApps {
 
   /** Whether a key is saved, and the accounts connected under it. */
   async status(): Promise<ConnectedAppsStatus> {
+    const status = await this.readStatus();
+    return this.options.noKeychain && !this.options.box ? { ...status, warning: NO_KEYCHAIN } : status;
+  }
+
+  private async readStatus(): Promise<ConnectedAppsStatus> {
     const saved = this.saved;
     if (!saved)
       return this.unreadable || (this.options.keychainSlow && !this.options.box)
@@ -448,6 +455,9 @@ function problemIn(text: string): string | undefined {
 /** A sign-in page ZLI may open: https, on Composio's own domain, so a bad answer cannot send the person elsewhere. */
 const KEYCHAIN_SLOW =
   "Your system keychain didn't answer, or wouldn't store a new key, when ZLI started, so ZLI won't save or open the Composio key unprotected. Restart ZLI to use your apps.";
+
+export const NO_KEYCHAIN =
+  "ZLI can't find a system keychain on this computer, so your Composio key is saved unencrypted, in a file only your user account can open.";
 
 export function isComposioPage(link: string): boolean {
   try {

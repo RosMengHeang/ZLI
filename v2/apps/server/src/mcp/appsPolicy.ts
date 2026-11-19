@@ -65,7 +65,18 @@ export function appsCallReads(tool: string, params: Record<string, unknown> | un
       })
     );
   }
-  if (name === "COMPOSIO_PROXY_EXECUTE") return String(args.method ?? "GET").toUpperCase() === "GET";
+  if (name === "COMPOSIO_PROXY_EXECUTE") {
+    // A GET by a path on the app's own API (/users/me) only reads. A full URL can point at any host, and its
+    // query string can carry data out, so the person decides.
+    const endpoint = args.endpoint;
+    const relative =
+      typeof endpoint === "string" &&
+      endpoint.trim().length > 0 &&
+      !/^\s*[a-z][a-z0-9+.-]*:/iu.test(endpoint) &&
+      !/^\s*[\\/]{2}/u.test(endpoint) &&
+      !endpoint.includes("\\");
+    return relative && String(args.method ?? "GET").toUpperCase() === "GET";
+  }
   // Running code in Composio's sandbox, managing skills, and anything unknown: the person decides.
   return false;
 }

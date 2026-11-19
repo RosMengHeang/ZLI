@@ -119,10 +119,12 @@ export async function startRuntime(options: {
   /** The key that seals secrets on disk, already taken out of the environment by `takeLaunchOptions`. */
   secrets?: SecretBox;
   keychainSlow?: boolean;
+  noKeychain?: boolean;
 }): Promise<RuntimeProcess> {
   // Taken before anything else runs, so no process started below (the terminal daemon, agents) inherits the key.
   const secrets = options.secrets ?? SecretBox.fromEnvironment();
   const keychainSlow = options.keychainSlow ?? SecretBox.keychainSlow();
+  const noKeychain = options.noKeychain ?? SecretBox.noKeychain();
   const databasePath = resolve(options.databasePath);
   await mkdir(dirname(databasePath), { recursive: true });
   const token = options.token ?? randomBytes(32).toString("hex");
@@ -196,6 +198,7 @@ export async function startRuntime(options: {
     proxy: appsProxy,
     ...(secrets ? { box: secrets } : {}),
     ...(keychainSlow ? { keychainSlow: true } : {}),
+    ...(noKeychain ? { noKeychain: true } : {}),
   });
   await connectedApps.load();
   const mcpServers: McpServerStore = new McpServerStore({
@@ -516,12 +519,14 @@ export function takeLaunchOptions(env: NodeJS.ProcessEnv): Parameters<typeof sta
   // The sealing key goes the same way: only this process holds it, for the connected-apps relay.
   const secrets = SecretBox.fromEnvironment(env);
   const keychainSlow = SecretBox.keychainSlow(env);
+  const noKeychain = SecretBox.noKeychain(env);
   const browserTool = browserToolConfigFromEnv(env);
   return {
     databasePath: env.ZLI_DATABASE_PATH ?? "./.zli/runtime.sqlite",
     ...(token ? { token } : {}),
     ...(secrets ? { secrets } : {}),
     ...(keychainSlow ? { keychainSlow } : {}),
+    ...(noKeychain ? { noKeychain } : {}),
     ...(browserTool ? { browserTool } : {}),
     cleanUpUserSettings: env.ZLI_BROWSER_USER_SETTINGS !== "0",
   };
