@@ -104,3 +104,10 @@ export function installPlatform(userAgent: string): InstallPlatform {
 export function selectedFolders(folders: readonly HistoryFolder[], selected: ReadonlySet<string>): HistoryFolder[] {
   return folders.filter((folder) => selected.has(folder.path));
 }
+
+/** Names the folders that could not be added, so the person knows which ones to retry or untick. */
+export function failedFoldersMessage(names: readonly string[]): string {
+  const shown = names.slice(0, 3).join(", ");
+  const rest = names.length > 3 ? ` and ${names.length - 3} more` : "";
+  return `Could not add ${shown}${rest}. Try again, or untick ${names.length === 1 ? "it" : "them"}.`;
+}

@@ -462,6 +462,26 @@ describe("BuddyList", () => {
     expect(commands.at(-1)).toEqual({ type: "buddy.reorder", buddyIds: ["b1", "b3", "b2"] });
   });
 
+  it("moves a buddy down from its menu, without dragging", async () => {
+    const { commands } = await render(
+      projection({ buddies: [buddy("b1", "Primary", 0, "primary"), buddy("b2", "Builder", 1), buddy("b3", "Tester", 2)] }),
+    );
+    const row = [...document.querySelectorAll<HTMLElement>(".buddy-list-row")].find((entry) =>
+      entry.textContent?.includes("Builder"),
+    );
+    await act(async () => {
+      row?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 20, clientY: 40 }));
+    });
+    await act(async () => buttonNamed("Move down").click());
+    expect(commands.at(-1)).toEqual({ type: "buddy.reorder", buddyIds: ["b1", "b3", "b2"] });
+  });
+
+  it("labels the apps button for what it opens", async () => {
+    await render(projection({ buddies: [buddy("b2", "Builder", 0)] }));
+    expect(document.querySelector(".buddy-list")?.textContent).toContain("Connected apps");
+    expect(document.querySelector(".buddy-list")?.textContent).not.toContain("Extensions");
+  });
+
   it("removes a buddy from its right-click menu after asking", async () => {
     const { commands, onSelect } = await render(
       projection({ buddies: [buddy("b2", "Builder", 0), buddy("b3", "Tester", 1)] }),

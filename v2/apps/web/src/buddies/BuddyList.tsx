@@ -19,6 +19,7 @@ import { Menu, type MenuRequest } from "../ui/Menu.js";
 import { buddyMood, TeamSettingsDialog } from "./BuddiesPane.js";
 import { ConnectedAppsDialog } from "./ConnectedAppsDialog.js";
 import { NewBuddyDialog } from "./NewBuddyDialog.js";
+import { moveBuddy } from "./team.js";
 import type { Run } from "./useRun.js";
 
 /** What a buddy that needs the person is asking, in one line. */
@@ -56,12 +57,33 @@ export function BuddyList({
     event.preventDefault();
     const row = event.currentTarget.getBoundingClientRect();
     const fromKeyboard = event.clientX === 0 && event.clientY === 0;
+    // The same reorder as dragging, for keyboard and screen reader use.
+    const up = moveBuddy(team, buddy.buddyId, -1);
+    const down = moveBuddy(team, buddy.buddyId, 1);
     setMenu({
       x: fromKeyboard ? row.left : event.clientX,
       y: fromKeyboard ? row.bottom : event.clientY,
       label: `${buddy.name} actions`,
       items: [
         { label: "Open chat", icon: "message", run: () => onSelect(buddy.buddyId) },
+        ...(buddy.role === "primary"
+          ? []
+          : [
+              {
+                label: "Move up",
+                disabled: !up,
+                run: () => {
+                  if (up) void run({ type: "buddy.reorder", buddyIds: up });
+                },
+              },
+              {
+                label: "Move down",
+                disabled: !down,
+                run: () => {
+                  if (down) void run({ type: "buddy.reorder", buddyIds: down });
+                },
+              },
+            ]),
         { separator: true },
         { label: `Remove ${buddy.name}`, icon: "trash", tone: "danger", run: () => setRemoving(buddy) },
       ],
@@ -242,7 +264,7 @@ export function BuddyList({
           <span className="buddy-list-foot-icon" aria-hidden="true">
             <Icon name="extensions" size={15} />
           </span>
-          <span>Extensions</span>
+          <span>Connected apps</span>
         </button>
       </footer>
       {settingsOpen ? (
