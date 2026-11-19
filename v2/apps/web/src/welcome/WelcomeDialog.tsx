@@ -85,7 +85,7 @@ export function WelcomeDialog({
   const primary = useRef<HTMLButtonElement>(null);
   const stage = useRef<HTMLElement>(null);
   const picking = useRef(false);
-  // Folders finish added before something failed, so a retry does not add them again.
+  // Folders that were added before a later one failed, so a retry does not add them twice.
   const registered = useRef<ProjectProjection[]>([]);
 
   // Discovery can land after setup opened; the list follows it until the person checks again by hand.
