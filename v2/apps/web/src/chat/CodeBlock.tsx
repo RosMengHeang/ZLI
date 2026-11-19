@@ -36,30 +36,13 @@ export function opensAsPreview(kind: PreviewKind, text: string): boolean {
   return /^\s*(<!doctype html|<html[\s>])/iu.test(text);
 }
 
-export type PreviewColors = { background: string; text: string };
-
-/**
- * The theme's surface and text colors. The preview frame is a separate document, so it cannot read the
- * app's tokens itself; the CSS system colors stand in when no theme is applied (tests, first paint).
- */
-export function themePreviewColors(): PreviewColors {
-  const style = typeof document === "undefined" ? undefined : getComputedStyle(document.documentElement);
-  const read = (name: string, fallback: string) => style?.getPropertyValue(name).trim() || fallback;
-  return { background: read("--zli-surface", "Canvas"), text: read("--zli-text", "CanvasText") };
-}
-
-export function previewDocument(
-  kind: PreviewKind,
-  text: string,
-  colors: PreviewColors = { background: "Canvas", text: "CanvasText" },
-): string {
+export function previewDocument(kind: PreviewKind, text: string): string {
   const head = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${PREVIEW_POLICY}">`;
-  const page = `background:${colors.background};color:${colors.text}`;
   if (kind === "svg") {
-    return `<!doctype html><html><head>${head}<style>html,body{height:100%;margin:0;${page}}body{display:grid;place-items:center}svg{max-width:100%;max-height:100%}</style></head><body>${text}</body></html>`;
+    return `<!doctype html><html><head>${head}<style>html,body{height:100%;margin:0;background:#fff}body{display:grid;place-items:center}svg{max-width:100%;max-height:100%}</style></head><body>${text}</body></html>`;
   }
   // The policy goes first so it applies before any markup in the reply is parsed.
-  return `${head}<style>html{${page}}</style>${text}`;
+  return `${head}<style>html{background:#fff;color:#111}</style>${text}`;
 }
 
 type Colored = { text: string; nodes: ReactNode[] };
@@ -148,7 +131,7 @@ export function CodeBlock({ lang, text }: { lang: string; text: string }) {
             title={kind === "svg" ? "SVG preview" : "HTML preview"}
             sandbox=""
             referrerPolicy="no-referrer"
-            srcDoc={previewDocument(kind, text, themePreviewColors())}
+            srcDoc={previewDocument(kind, text)}
           />
           <p className="md-preview-note">Scripts and network requests are off in this preview.</p>
         </>

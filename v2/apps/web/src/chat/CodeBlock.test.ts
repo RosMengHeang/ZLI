@@ -28,10 +28,4 @@ describe("code block previews", () => {
     const svg = previewDocument("svg", "<svg></svg>");
     expect(svg.indexOf("Content-Security-Policy")).toBeLessThan(svg.indexOf("<svg>"));
   });
-
-  it("paints the preview in the colors it is given, not a fixed white", () => {
-    const html = previewDocument("html", "<p>hi</p>", { background: "#212121", text: "#ececec" });
-    expect(html).toContain("background:#212121;color:#ececec");
-    expect(previewDocument("svg", "<svg></svg>")).not.toContain("#fff");
-  });
 });
