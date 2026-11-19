@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
 import { hostname } from "node:os";
 
-import { type ProviderUsage, spawnCli } from "@zli-v2/shared";
+import { type ProviderUsage, spawnCli, touchesPrivateFile } from "@zli-v2/shared";
 
 import {
   type DroidPermissionMode,
@@ -96,6 +96,8 @@ export type DroidSpawnOptions = {
 export type DroidClientOptions = {
   /** Tools that run without asking the person, by the name the agent gives them: ZLI's own trusted tools. */
   approveTool?: (name: string) => boolean;
+  /** ZLI's data folder: a permission request that reads or writes ZLI's own files there is refused. */
+  privateDir?: string;
   cwd: string;
   command?: string;
   env?: NodeJS.ProcessEnv;
@@ -197,10 +199,12 @@ export class DroidClient {
       options.resumeSessionId?.trim() || undefined,
     );
     if (options.approveTool) client.approveTool = options.approveTool;
+    if (options.privateDir) client.privateDir = options.privateDir;
     return client;
   }
 
   private approveTool?: (name: string) => boolean;
+  private privateDir?: string;
 
   subscribe(listener: (event: DroidProviderEvent) => void): () => void {
     this.listeners.add(listener);
@@ -497,6 +501,13 @@ export class DroidClient {
   private onPermissionRequest(id: string, params: Record<string, unknown>): void {
     const request = parsePermissionRequest(params);
     const toolNames = request.toolUses.map((tool) => tool.name);
+    // ZLI's own files are refused at every permission. At high autonomy Droid asks about only some tools, so a
+    // read it does not ask about is not stopped here.
+    const inputs = request.toolUses.map((tool) => tool.input);
+    if (this.privateDir && touchesPrivateFile(this.privateDir, inputs, this.cwd)) {
+      this.respond(id, { selectedOption: "cancel" });
+      return;
+    }
     const allowed =
       this.permissionMode === "full-access" ||
       (toolNames.length > 0 &&

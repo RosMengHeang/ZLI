@@ -139,6 +139,7 @@ async function harness(
     permissionMode?: "read-only" | "supervised" | "full-access";
     model?: string;
     approveTool?: (name: string) => boolean;
+    privateDir?: string;
   } = {},
   setup?: (child: FakeProcess) => void,
 ): Promise<{
@@ -551,6 +552,20 @@ describe("DroidClient permissions", () => {
     { label: "Yes, and always allow medium impact commands", value: "proceed_always" },
     { label: "No, cancel", value: "cancel" },
   ];
+
+  it("refuses a request that touches ZLI's own files, even with full access", async () => {
+    const { client, children, events } = await harness({ privateDir: "C:\\Users\\me\\ZLI" });
+    await client.sendTurn({ text: "Read it" });
+    const droid = child(children);
+    droid.ask("perm-1", "droid.request_permission", {
+      toolUses: [
+        { toolUse: { type: "tool_use", id: "t1", name: "Read", input: { file_path: "C:/Users/me/ZLI/settings.json" } } },
+      ],
+      options,
+    });
+    expect(events.some((event) => event.type === "approval.requested")).toBe(false);
+    expect(droid.responses()).toMatchObject([{ id: "perm-1", result: { selectedOption: "cancel" } }]);
+  });
 
   it("runs the tools it is told to trust without asking", async () => {
     const { client, children, events } = await harness({

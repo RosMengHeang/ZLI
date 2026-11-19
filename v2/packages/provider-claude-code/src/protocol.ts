@@ -1,4 +1,6 @@
-export type ClaudePermissionMode = "read-only" | "supervised" | "full-access";
+import { PRIVATE_FILE_PATTERNS } from "@zli-v2/shared";
+
+export type ClaudePermissionMode ="read-only" | "supervised" | "full-access";
 
 const BASE_ARGS = [
   "-p",
@@ -33,23 +35,9 @@ export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPe
  * pattern under that folder. Deny rules for Read and Edit (Edit covers every writing tool) refuse Claude Code's own
  * file tools there. This is a guard rail, not a wall: Claude Code also refused a plain `cat` of these files in a real
  * run, but a script that builds the path itself still reads them, since the buddy runs as the person. Only running
- * buddies as another OS user would close that. The buddy's home sits in a subfolder these patterns do not reach.
+ * buddies as another OS user would close that. The list is shared with the ACP and Droid guards.
  */
-const PRIVATE_PATTERNS = [
-  // The key that opens the connected-apps key, and the sealed key itself. Named so that narrowing the wider
-  // patterns below cannot leave them out.
-  "secrets-key.bin",
-  "connected-apps.json",
-  "*.json",
-  // A settings file mid-save, before it is renamed into place.
-  "*.json.*.tmp",
-  "*.bin",
-  "runtime.sqlite*",
-  "Local State",
-  "mcp/**",
-  "mcp-headers/**",
-  "*.user-data/**",
-] as const;
+const PRIVATE_PATTERNS = PRIVATE_FILE_PATTERNS;
 
 /**
  * A folder as a Claude Code permission path: `//c/Users/...` on Windows, `//Users/...` elsewhere. A network folder
