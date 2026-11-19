@@ -96,7 +96,7 @@ kbd {
   position: fixed; z-index: calc(var(--zli-z-dialog) + 1); display: flex; flex-direction: column;
   min-width: 232px; max-width: min(340px, calc(100vw - 16px)); padding: 5px;
   border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-lg);
-  background: var(--zli-popup, #0a0a0a); -webkit-backdrop-filter: none;
+  background: var(--zli-overlay); -webkit-backdrop-filter: none;
   backdrop-filter: none; box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent), var(--zli-shadow-pop);
   color: var(--zli-text); transform-origin: bottom left;
   animation: picker-in var(--zli-duration-base) var(--zli-ease) both;
@@ -141,7 +141,7 @@ kbd {
 .menu-item[aria-disabled="true"] > svg { color: var(--zli-disabled); }
 .menu-separator { height: 1px; flex: 0 0 auto; margin: 5px -5px; border: 0; background: color-mix(in srgb, var(--zli-border) 70%, transparent); }
 /* A right-click or Changes menu. The phone menu keeps .picker-menu and must not become a fixed popup. */
-.menu:not(.picker-menu) { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); max-width: 320px; padding: 5px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-lg); background: var(--zli-popup, #0a0a0a); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent), var(--zli-shadow-pop); }
+.menu:not(.picker-menu) { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); max-width: 320px; padding: 5px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-lg); background: var(--zli-overlay); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent), var(--zli-shadow-pop); }
 .menu:not(.picker-menu) .menu-item { height: 28px; }
 .menu:not(.picker-menu) .menu-item:hover { background: var(--zli-hover); }
 .menu-item-icon { display: grid; width: 14px; flex: 0 0 auto; place-items: center; color: var(--zli-dim); }

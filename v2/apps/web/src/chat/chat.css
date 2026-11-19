@@ -390,7 +390,7 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
    thinking; the blue fill ends under the knob, and the knob carries the same rising bars as the chip in the
    message box, so the two read as one control. Each level's name sits under its stop and can be clicked. */
 /* Effort: a black popup with the effort track (ReasoningTrack) under a one-line header. */
-.effort-popup { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); width: 280px; padding: 12px 12px 14px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-xl); background: var(--zli-popup, #0a0a0a); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); color: var(--zli-text); transform-origin: bottom right; animation: picker-in var(--zli-duration-base) var(--zli-ease) both; user-select: none; }
+.effort-popup { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); width: 280px; padding: 12px 12px 14px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-xl); background: var(--zli-overlay); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); color: var(--zli-text); transform-origin: bottom right; animation: picker-in var(--zli-duration-base) var(--zli-ease) both; user-select: none; }
 .effort-popup[data-side="bottom"] { transform-origin: top right; }
 .effort-head { display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 2px; }
 .effort-noun { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
@@ -447,7 +447,7 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
 .turn-rail-line { width: calc(10px + var(--near) * 14px); height: 1.5px; border-radius: 1px; background: color-mix(in srgb, var(--zli-text) calc(22% + var(--near) * 45%), transparent); transition: width var(--zli-duration-base) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
 .turn-rail-tick.is-active .turn-rail-line { width: calc(18px + var(--near) * 6px); background: var(--zli-text); }
 .turn-rail-tick.is-shown .turn-rail-line { width: 26px; background: var(--zli-text); }
-.turn-rail-card { position: absolute; left: 44px; display: flex; width: 280px; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-lg); background: var(--zli-popup, #0a0a0a); box-shadow: var(--zli-shadow-pop); pointer-events: none; transform: translateY(-50%); animation: turn-card-in var(--zli-duration-base) var(--zli-ease) both; }
+.turn-rail-card { position: absolute; left: 44px; display: flex; width: 280px; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-lg); background: var(--zli-overlay); box-shadow: var(--zli-shadow-pop); pointer-events: none; transform: translateY(-50%); animation: turn-card-in var(--zli-duration-base) var(--zli-ease) both; }
 @keyframes turn-card-in { from { opacity: 0; transform: translate(-6px, -50%); } }
 .turn-rail-card-title { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .turn-rail-card-reply { display: -webkit-box; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
@@ -844,7 +844,7 @@ span.room-person-chip { color: var(--zli-muted); }
 .step-output { position: relative; }
 .step-more { display: block; margin: 1px 0; padding: 0; border: 0; background: none; color: var(--zli-dim); cursor: default; font: inherit; }
 .step-more:hover, .step-more:focus-visible { color: var(--zli-text); }
-.step-copy { position: absolute; top: 8px; right: 6px; background: var(--zli-popup, #0a0a0a); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.step-copy { position: absolute; top: 8px; right: 6px; background: var(--zli-overlay); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
 .step-output:hover .step-copy, .step-copy:focus-visible, .trace:hover .trace-copy, .trace-copy:focus-visible { opacity: 1; }
 .step-detail.is-trace { white-space: normal; }
 
@@ -872,7 +872,7 @@ span.room-person-chip { color: var(--zli-muted); }
 .context-ring-track, .context-ring-fill { fill: none; stroke-width: 1.75; }
 .context-ring-track { stroke: var(--zli-border-strong); }
 .context-ring-fill { stroke: currentColor; stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; transition: stroke-dashoffset var(--zli-duration-base) var(--zli-ease); }
-.context-popup { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); min-width: 168px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-md); background: var(--zli-popup, #0a0a0a); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); color: var(--zli-text); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; pointer-events: none; animation: picker-in var(--zli-duration-fast) var(--zli-ease) both; }
+.context-popup { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); min-width: 168px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-md); background: var(--zli-overlay); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); color: var(--zli-text); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; pointer-events: none; animation: picker-in var(--zli-duration-fast) var(--zli-ease) both; }
 .context-popup-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--zli-space-3); }
 .context-popup-title { color: var(--zli-muted); }
 .context-popup-percent { font-size: var(--zli-text-sm); }
@@ -950,7 +950,7 @@ button.thought-row:hover .thought-label { color: var(--zli-muted); }
 /* A citation in a reply: a small number just after the words it backs, naming its page on hover. */
 .md-cite { display: inline-grid; min-width: 15px; height: 15px; place-items: center; margin: 0 1px 0 3px; padding: 0 3px; border: 0; border-radius: var(--zli-radius-xs); background: var(--zli-active); color: var(--zli-muted); cursor: default; font-family: var(--zli-mono); font-size: 9.5px; line-height: 1; vertical-align: 2px; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
 .md-cite:hover, .md-cite:focus-visible { background: var(--zli-text); color: var(--zli-canvas); }
-.cite-card { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); max-width: 280px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-md); background: var(--zli-popup, #0a0a0a); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); pointer-events: none; animation: picker-in var(--zli-duration-fast) var(--zli-ease) both; }
+.cite-card { position: fixed; z-index: calc(var(--zli-z-dialog) + 1); max-width: 280px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--zli-border-strong) 70%, transparent); border-radius: var(--zli-radius-md); background: var(--zli-overlay); box-shadow: var(--zli-highlight), var(--zli-shadow-pop); pointer-events: none; animation: picker-in var(--zli-duration-fast) var(--zli-ease) both; }
 .cite-card-title { display: -webkit-box; margin: 0 0 3px; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .cite-card-host { display: flex; align-items: center; gap: 5px; margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
 @media (prefers-reduced-motion: reduce) { .cite-card { animation: none; } .thought-chevron, .sources-chevron, .site-icon, .source-chip, .md-cite { transition: none; } }
