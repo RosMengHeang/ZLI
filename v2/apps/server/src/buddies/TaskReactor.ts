@@ -861,11 +861,17 @@ function isReviewNote(note: string): boolean {
 
 /**
  * The folder a job shares with others of its kind, or undefined for a job with its own worktree: a buddy's home
- * for its web jobs, a project's checkout for the Primary's jobs there. A review reads its parent's worktree and
- * is told apart from it by kind, so it shares nothing here.
+ * for its web jobs, a project's checkout for the Primary's jobs there. A review reads its parent's worktree, so
+ * when that is a shared folder the review holds it too: otherwise the buddy's next job could start there, change
+ * the files under review, and pick up the reviewer's questions as its own.
  */
 function sharedPlace(state: RuntimeProjection, task: TaskProjection): string | undefined {
-  if (task.kind === "review") return undefined;
+  if (task.kind === "review") {
+    const parent = task.parentTaskId
+      ? state.tasks?.find((candidate) => candidate.taskId === task.parentTaskId)
+      : undefined;
+    return parent && parent.kind !== "review" ? sharedPlace(state, parent) : undefined;
+  }
   const project = state.projects.find((candidate) => candidate.projectId === task.projectId);
   if (!project) return undefined;
   if (isBuddyHome(project)) return `home:${task.buddyId}`;

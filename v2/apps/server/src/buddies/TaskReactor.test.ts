@@ -214,6 +214,39 @@ describe("TaskReactor", () => {
     ]);
   });
 
+  it("keeps a new Primary job out of the checkout while a review of the last one reads it", async () => {
+    const { engine, projectId, runtime, settle } = await setup();
+    const project = (await engine.projection()).projects.find((entry) => entry.projectId === projectId);
+    await send(engine, {
+      type: "worktree.import",
+      worktreeId: stableId("checkout"),
+      projectId,
+      path: project?.path ?? "",
+      branch: "main",
+      kind: "checkout",
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.handoff.set",
+      buddyId: "b1",
+      rule: { ruleId: "r1", when: "finished", to: "b2", action: "check", maxRounds: 2, enabled: true },
+    });
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "p1", buddyId: "b1", projectId, kind: "job", goal: "Job p1", origin: { kind: "chat" } },
+    });
+    await runtime();
+    await runtime({ taskId: "p1", summary: "Done p1." });
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "p2", buddyId: "b1", projectId, kind: "job", goal: "Job p2", origin: { kind: "chat" } },
+    });
+    const state = await settle();
+    const review = state.tasks?.find((task) => task.parentTaskId === "p1");
+    expect(review?.worktreeId).toBe(stableId("checkout"));
+    expect(["preparing", "working", "needs_you"]).toContain(review?.status);
+    expect(state.tasks?.find((task) => task.taskId === "p2")?.status).toBe("queued");
+  });
+
   it("makes a failed worktree again once, and again on Try again, instead of failing the job at once", async () => {
     const { engine, projectId, settle } = await setup();
     await send(engine, {
