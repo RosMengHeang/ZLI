@@ -67,13 +67,15 @@ jobs:
       release_version: ${{ needs.version.outputs.skip != 'true' && needs.version.outputs.version || '' }}
 
   # The only job with write access. It runs no project code: it checks the gate's files, tags the commit, and
-  # publishes the release with them.
+  # publishes the release with them. Every step can run again for a tag that already exists, so re-running the
+  # failed jobs of a release run finishes a publish that broke halfway.
   publish:
     needs: [version, gate]
     if: needs.version.outputs.skip != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.version.outputs.tag }}
@@ -98,14 +100,73 @@ jobs:
             fi
           done
           exit "$missing"
-      - name: Tag the release commit
-        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$SHA"
-      - name: Create the draft release with notes and the installers
+      # GitHub's API sometimes answers 500 for a moment (v0.1.16 was lost to one), so each call gets four tries.
+      - name: Write the retry helper
         run: |
-          args=(-f "tag_name=$TAG" -f "target_commitish=$SHA")
-          if [ -n "$PREVIOUS_TAG" ]; then args+=(-f "previous_tag_name=$PREVIOUS_TAG"); fi
-          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${args[@]}" --jq .body > "$RUNNER_TEMP/notes.md"
-          gh release create "$TAG" installers/* --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
-            --title "ZLI $TAG" --notes-file "$RUNNER_TEMP/notes.md"
-      - name: Publish the release
-        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          cat > "$RUNNER_TEMP/retry.sh" <<'EOF'
+          retry() {
+            for attempt in 1 2 3 4; do
+              "$@" && return 0
+              if [ "$attempt" -lt 4 ]; then
+                echo "::warning::Attempt $attempt of $* failed, trying again in $((attempt * 15))s"
+                sleep "$((attempt * 15))"
+              fi
+            done
+            return 1
+          }
+          EOF
+      - name: Tag the release commit
+        run: |
+          source "$RUNNER_TEMP/retry.sh"
+          tagged="$(retry gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" \
+            --jq 'map(select(.ref == "refs/tags/" + env.TAG))[0].object.sha // ""')"
+          if [ -z "$tagged" ]; then
+            retry gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$SHA"
+          elif [ "$tagged" != "$SHA" ]; then
+            echo "::error::$TAG already points at $tagged, not $SHA"
+            exit 1
+          else
+            echo "$TAG already points at $SHA"
+          fi
+      - name: Create or reuse the draft release, then publish it
+        run: |
+          source "$RUNNER_TEMP/retry.sh"
+          # Prints missing, draft, or published. A failed lookup fails the call instead of reading as missing,
+          # so a flaky request never leads to a second draft for the same tag.
+          release_state() {
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq \
+              'map(select(.tag_name == env.TAG))[0] | if . == null then "missing" elif .draft then "draft" else "published" end'
+          }
+          state="$(retry release_state)"
+          if [ "$state" = published ]; then
+            echo "$TAG is already published"
+            exit 0
+          fi
+          if [ "$state" = missing ]; then
+            args=(-f "tag_name=$TAG" -f "target_commitish=$SHA")
+            if [ -n "$PREVIOUS_TAG" ]; then args+=(-f "previous_tag_name=$PREVIOUS_TAG"); fi
+            retry gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${args[@]}" --jq .body > "$RUNNER_TEMP/notes.md"
+            # A create that failed after GitHub saved the draft must not make a second draft on the next try.
+            create_draft() {
+              [ "$(release_state)" = draft ] || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+                --title "ZLI $TAG" --notes-file "$RUNNER_TEMP/notes.md"
+            }
+            retry create_draft
+          fi
+          # Uploading separately from the create lets a retry replace a file that was only half uploaded.
+          retry gh release upload "$TAG" installers/* --repo "$GITHUB_REPOSITORY" --clobber
+          retry gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+      - name: Open an issue about the failed release
+        if: failure()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Release $TAG failed"
+          body="Publishing $TAG ($SHA) failed: $RUN_URL. Re-run the failed jobs of that run to finish the release."
+          issue="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" \
+            --json number,title --jq 'map(select(.title == "Release " + env.TAG + " failed"))[0].number // ""')"
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi
