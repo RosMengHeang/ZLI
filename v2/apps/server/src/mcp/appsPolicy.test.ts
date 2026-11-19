@@ -23,6 +23,11 @@ describe("appsPolicy", () => {
       "STRIPE_CREATE_REFUND",
       // Reads and writes in one name: it changes something.
       "GMAIL_FETCH_AND_DELETE",
+      // A read word next to a change verb that is easy to miss: still held.
+      "GMAIL_FETCH_AND_RESEND",
+      "GOOGLESHEETS_FIND_AND_UPSERT_ROWS",
+      "JIRA_SEARCH_AND_RESOLVE_ISSUES",
+      "GOOGLEDRIVE_FIND_AND_RESTORE_FILE",
       // Neither: unknown, so it asks.
       "NOTION_DO_THING",
     ])
