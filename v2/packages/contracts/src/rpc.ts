@@ -52,7 +52,13 @@ import {
 import { PullRequestCommand } from "./pullRequest.js";
 import { ReviewProjection } from "./review.js";
 import { SkillCommand } from "./skills.js";
-import { TerminalAgentLaunch, TerminalAttachSnapshot, TerminalProjection, TerminalStreamMessage } from "./terminal.js";
+import {
+  TerminalActivity,
+  TerminalAgentLaunch,
+  TerminalAttachSnapshot,
+  TerminalProjection,
+  TerminalStreamMessage,
+} from "./terminal.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -304,6 +310,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("legacy.rollbackImport"), batchId: z.string().min(1) }),
   z.object({ type: z.literal("legacy.rollback.completed"), batchId: z.string().min(1) }),
   z.object({ type: z.literal("legacy.operation.failed"), batchId: z.string().min(1), message: z.string().min(1) }),
+  /** An agent CLI in a terminal started or stopped working, as read from its output. */
+  z.object({ type: z.literal("terminal.activity"), terminalId: TerminalId, activity: TerminalActivity }),
   /** A shell printed a local server address. The runtime records it for the terminal's worktree. */
   z.object({ type: z.literal("devserver.detected"), terminalId: TerminalId, url: z.string().min(1).max(2_000) }),
   z.object({ type: z.literal("devserver.stopped"), terminalId: TerminalId, port: DevServerProjection.shape.port }),

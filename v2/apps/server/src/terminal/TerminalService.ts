@@ -190,6 +190,7 @@ export class TerminalService {
     (terminalId: TerminalId, event: { code: number; signal: number | null }) => void
   >();
   private readonly outputListeners = new Set<(terminalId: TerminalId, data: string) => void>();
+  private readonly inputListeners = new Set<(terminalId: TerminalId) => void>();
   private readonly maxChunks: number;
   private readonly maxBytes: number;
   private readonly maxLines: number;
@@ -281,6 +282,15 @@ export class TerminalService {
     return () => this.outputListeners.delete(listener);
   }
 
+  /**
+   * Keystrokes and resizes as they reach a running terminal. Both make a program redraw, so watchers that read
+   * its output can tell that redraw from output the program made on its own.
+   */
+  subscribeInput(listener: (terminalId: TerminalId) => void): () => void {
+    this.inputListeners.add(listener);
+    return () => this.inputListeners.delete(listener);
+  }
+
   get(terminalId: TerminalId): TerminalProjection {
     return { ...this.session(terminalId).projection };
   }
@@ -295,6 +305,7 @@ export class TerminalService {
     }
     const session = this.session(terminalId);
     if (session.projection.status !== "running") return;
+    for (const listener of this.inputListeners) listener(terminalId);
     session.pty.write(data);
   }
 
@@ -302,6 +313,7 @@ export class TerminalService {
     validateSize(cols, rows);
     const session = this.session(terminalId);
     if (session.projection.status !== "running") return;
+    for (const listener of this.inputListeners) listener(terminalId);
     session.pty.resize(cols, rows);
   }
 
