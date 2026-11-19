@@ -32,7 +32,7 @@ import { ariaShortcut } from "../ui/shortcuts.js";
 import type { ContextUsage } from "../usage/usage.js";
 import { AgentModelPicker } from "./AgentModelPicker.js";
 import type { AgentChoice } from "./agentModels.js";
-import { fileName, parentName, withAttachedFiles } from "./attachedFiles.js";
+import { fileName, parentName, type SkippedFile, skippedFilesMessage, withAttachedFiles } from "./attachedFiles.js";
 import { type BestOfAgentOption, BestOfPopover } from "./BestOfPopover.js";
 import { ImageViewer } from "./ChatImage.js";
 import { ContextMeter } from "./ContextMeter.js";
@@ -327,12 +327,13 @@ export function Composer({
     let uploads = current.filter(isUpload).length;
     let picked = current.length - uploads;
     const added: Draft[] = [];
-    let problem: string | undefined;
+    const skipped: SkippedFile[] = [];
     for (const file of files) {
       const id = `${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`;
+      const name = file.name || "a file";
       if (isImageType(file.type) && file.size <= MAX_IMAGE_BYTES) {
         if (uploads >= MAX_ATTACHMENTS) {
-          problem = `Attach up to ${MAX_ATTACHMENTS} images per message.`;
+          skipped.push({ name, reason: `only ${MAX_ATTACHMENTS} images per message` });
           continue;
         }
         uploads += 1;
@@ -348,20 +349,19 @@ export function Composer({
       // Agents read other files from disk, so the message carries the path instead of the bytes.
       const path = getBridge()?.pathForFile?.(file);
       if (!path) {
-        problem = isImageType(file.type)
-          ? `${file.name} is larger than 10 MB.`
-          : "Only PNG, JPEG, GIF, and WebP images can be attached.";
+        skipped.push({ name, reason: isImageType(file.type) ? "larger than 10 MB" : "unsupported type" });
         continue;
       }
       if (known.has(path)) continue;
       if (picked >= MAX_FILES) {
-        problem = `Attach up to ${MAX_FILES} files per message.`;
+        skipped.push({ name, reason: `only ${MAX_FILES} files per message` });
         continue;
       }
       known.add(path);
       picked += 1;
       added.push({ kind: "file", id, name: file.name || fileName(path), path, size: file.size });
     }
+    const problem = skippedFilesMessage(skipped);
     if (problem) setError(problem);
     if (added.length > 0) setImages((existing) => [...existing, ...added]);
   };
