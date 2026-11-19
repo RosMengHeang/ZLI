@@ -9,6 +9,7 @@ import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import { ChatView } from "./ChatView.js";
 import { addCodeReference } from "./codeReferences.js";
+import { readDraft } from "./drafts.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -498,6 +499,47 @@ describe("ChatView", () => {
       requestId: "r1",
       decision: { approved: true },
     });
+  });
+
+  it("moves the unsent text to the chat's session id when it arrives, leaving nothing under the thread id", async () => {
+    const idle = { ...thread, status: "idle" } as ThreadProjection;
+    const projection = projectionWith({ threads: [idle] });
+    const bridge = {
+      runtime: {
+        dispatch: async () => ({ commandId: CommandId.parse("00000000-0000-4000-8000-000000000099"), accepted: true }),
+        getProjection: async () => projection,
+        onProjection: () => () => undefined,
+        attachTerminal: async () => ({ accepted: true }),
+        onTerminal: () => () => undefined,
+      },
+    } as unknown as ZliBridge;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    onTestFinished(() => act(() => root.unmount()));
+    const view = (current: ThreadProjection) => (
+      <RuntimeProvider bridge={bridge}>
+        <ChatView
+          projection={projection}
+          thread={current}
+          worktree={projection.worktrees[0]}
+          onOpenDiff={vi.fn()}
+          onRestart={() => undefined}
+        />
+      </RuntimeProvider>
+    );
+    await act(async () => root.render(view(idle)));
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, "still typing");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(readDraft(threadId)).toBe("still typing");
+    await act(async () => root.render(view({ ...idle, sessionId: "session-arrived" } as ThreadProjection)));
+    expect(readDraft(threadId)).toBe("");
+    expect(readDraft("session-arrived")).toBe("still typing");
+    expect(container.querySelector("textarea")?.value).toBe("still typing");
   });
 
   it("sends composer text and shows the session's permission mode", async () => {
