@@ -86,4 +86,4 @@ export function isAppDraft(requestId: string): boolean {
 }
 
 /** The parts of an email the person can change on its card before it goes out. */
-export type AppDraftEmail = { to: string; cc: string; subject: string; body: string };
+export type AppDraftEmail = { to: string; cc: string; bcc: string; subject: string; body: string };

@@ -168,6 +168,19 @@ describe("AppsProxy", () => {
     expect(apps.upstream()?.headers).toEqual({ "x-consumer-api-key": "ck_secret_key" });
   });
 
+  it("gives agents no connected apps, never the key, when the relay could not start", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "zli-proxy-"));
+    folders.push(folder);
+    const path = join(folder, "connected-apps.json");
+    writeFileSync(path, JSON.stringify({ via: "connect", apiKey: "ck_secret_key" }));
+    // Never started: no port, so no local address to hand out.
+    const proxy = new AppsProxy({ upstream: () => undefined });
+    const apps = new ConnectedApps({ path, proxy });
+    await apps.load();
+    expect(apps.server("wt-1")).toBeUndefined();
+    expect(apps.server()).toBeUndefined();
+  });
+
   it("answers a held call at once without reaching Composio, then runs it for the person with the key", async () => {
     const { proxy, seen } = await startProxy(async () => ({ held: true, reason: "On a card for the person." }));
     const endpoint = proxy.endpoint("wt-1");

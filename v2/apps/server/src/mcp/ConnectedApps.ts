@@ -167,7 +167,11 @@ export class ConnectedApps {
   server(worktreeId?: string): McpServerConfig | undefined {
     const upstream = this.upstream();
     if (!upstream) return undefined;
-    const local = this.options.proxy?.endpoint(worktreeId);
+    const proxy = this.options.proxy;
+    const local = proxy?.endpoint(worktreeId);
+    // With a relay set up but not running (its port could not be opened), agents get no connected apps at all,
+    // never the real address and key.
+    if (proxy && !local) return undefined;
     const reach = local ?? upstream;
     return {
       name: CONNECTED_APPS_SERVER,

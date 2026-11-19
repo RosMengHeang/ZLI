@@ -101,6 +101,7 @@ describe("email drafts", () => {
     expect(appsCallEmail("COMPOSIO_MULTI_EXECUTE_TOOL", call)).toEqual({
       to: "a@b.co",
       cc: "",
+      bcc: "",
       subject: "Hi",
       body: "Yo",
     });
@@ -127,5 +128,42 @@ describe("email drafts", () => {
     });
     expect(withEmailEdits("COMPOSIO_MULTI_EXECUTE_TOOL", call, { to: "not an address", body: "x" })).toBeUndefined();
     expect(withEmailEdits("COMPOSIO_MULTI_EXECUTE_TOOL", call, { to: "a@b.co, c@d.co", body: "x" })).toBeUndefined();
+  });
+});
+
+describe("email drafts never hide a recipient", () => {
+  const send = (args: Record<string, unknown>) => ({ tools: [{ tool_slug: "GMAIL_SEND_EMAIL", arguments: args }] });
+
+  it("shows a Bcc on the card, and keeps only the Bcc the person saw", () => {
+    const call = send({ recipient_email: "a@b.co", bcc: ["hidden@evil.co"], subject: "Hi", body: "Yo" });
+    expect(appsCallEmail("COMPOSIO_MULTI_EXECUTE_TOOL", call)).toMatchObject({ bcc: "hidden@evil.co" });
+    // The person cleared it: it is gone from what runs, not kept from the agent's call.
+    const cleared = withEmailEdits("COMPOSIO_MULTI_EXECUTE_TOOL", call, {
+      to: "a@b.co",
+      cc: "",
+      bcc: "",
+      subject: "Hi",
+      body: "Yo",
+    }) as { tools: { arguments: Record<string, unknown> }[] };
+    expect(cleared.tools[0]?.arguments).not.toHaveProperty("bcc");
+    // An edit that leaves out the Bcc line entirely removes it too.
+    const omitted = withEmailEdits("COMPOSIO_MULTI_EXECUTE_TOOL", call, { to: "a@b.co", body: "Yo" }) as {
+      tools: { arguments: Record<string, unknown> }[];
+    };
+    expect(omitted.tools[0]?.arguments).not.toHaveProperty("bcc");
+  });
+
+  it("gives an email with anything else that could add a recipient or a file the plain card instead", () => {
+    for (const extra of [{ extra_recipients: ["x@y.co"] }, { attachment: { name: "a.pdf" } }, { from_email: "x@y.co" }])
+      expect(
+        appsCallEmail("COMPOSIO_MULTI_EXECUTE_TOOL", send({ recipient_email: "a@b.co", body: "Yo", ...extra })),
+      ).toBeUndefined();
+    // Settings that change neither who gets it nor what it says keep the email card.
+    expect(
+      appsCallEmail(
+        "COMPOSIO_MULTI_EXECUTE_TOOL",
+        send({ recipient_email: "a@b.co", body: "Yo", user_id: "me", include_signature: false, cc: [] }),
+      ),
+    ).toMatchObject({ to: "a@b.co" });
   });
 });

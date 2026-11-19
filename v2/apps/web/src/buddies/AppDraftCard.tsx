@@ -66,9 +66,12 @@ function EmailDraft({
   const [draft, setDraft] = useState<AppDraftEmail>({
     to: email.to ?? "",
     cc: email.cc ?? "",
+    bcc: email.bcc ?? "",
     subject: email.subject ?? "",
     body: email.body ?? "",
   });
+  // A hidden copy is shown whenever the buddy added one, so nobody gets the email without the person seeing it.
+  const [showBcc] = useState(Boolean(email.bcc));
   const set = (key: keyof AppDraftEmail) => (event: { currentTarget: { value: string } }) =>
     setDraft((current) => ({ ...current, [key]: event.currentTarget.value }));
   const sendable = /\S+@\S+\.\S+/u.test(draft.to) && draft.body.trim().length > 0;
@@ -96,6 +99,12 @@ function EmailDraft({
         <span>Cc</span>
         <input id={`${id}-cc`} placeholder="name@example.com" value={draft.cc} onChange={set("cc")} disabled={busy} />
       </label>
+      {showBcc ? (
+        <label className="app-draft-line" htmlFor={`${id}-bcc`}>
+          <span>Bcc</span>
+          <input id={`${id}-bcc`} value={draft.bcc} onChange={set("bcc")} disabled={busy} />
+        </label>
+      ) : null}
       <textarea
         className="app-draft-body"
         aria-label="Message"

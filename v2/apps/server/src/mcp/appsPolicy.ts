@@ -122,11 +122,34 @@ export function describeAppsCall(
 }
 
 /** Where each email action keeps the parts the person can change on its card. */
-const EMAIL_ACTIONS: Record<string, { to: string; cc?: string; subject?: string; body: string }> = {
-  GMAIL_SEND_EMAIL: { to: "recipient_email", cc: "cc", subject: "subject", body: "body" },
-  GMAIL_CREATE_EMAIL_DRAFT: { to: "recipient_email", cc: "cc", subject: "subject", body: "body" },
-  GMAIL_REPLY_TO_THREAD: { to: "recipient_email", cc: "cc", body: "message_body" },
+const EMAIL_ACTIONS: Record<string, { to: string; cc: string; bcc: string; subject?: string; body: string }> = {
+  GMAIL_SEND_EMAIL: { to: "recipient_email", cc: "cc", bcc: "bcc", subject: "subject", body: "body" },
+  GMAIL_CREATE_EMAIL_DRAFT: { to: "recipient_email", cc: "cc", bcc: "bcc", subject: "subject", body: "body" },
+  GMAIL_REPLY_TO_THREAD: { to: "recipient_email", cc: "cc", bcc: "bcc", body: "message_body" },
 };
+
+/**
+ * Arguments that change neither who gets an email nor what it says. Any other argument with a value (more
+ * recipients, attachments, a sender) means the email card could hide something, so the call gets the plain card
+ * that shows every argument instead.
+ */
+const QUIET_EMAIL_ARGS = new Set(["user_id", "is_html", "include_signature", "thread_id"]);
+
+function onlyShownArgs(slug: string, args: Record<string, unknown>): boolean {
+  const at = EMAIL_ACTIONS[slug];
+  if (!at) return false;
+  const shown = new Set([at.to, at.cc, at.bcc, at.subject, at.body].filter(Boolean));
+  return Object.entries(args).every(
+    ([key, value]) =>
+      shown.has(key) ||
+      QUIET_EMAIL_ARGS.has(key) ||
+      value === null ||
+      value === undefined ||
+      value === "" ||
+      value === false ||
+      (Array.isArray(value) && value.length === 0),
+  );
+}
 
 /** The one email action a call makes, if that is all it does: where it sits in the call, and its arguments. */
 function emailStep(
@@ -145,9 +168,10 @@ function emailStep(
     const inner = only?.entry.arguments;
     if (!only || !EMAIL_ACTIONS[slug] || typeof inner !== "object" || inner === null || Array.isArray(inner))
       return undefined;
-    return { slug, args: inner as Record<string, unknown>, index: only.index };
+    const innerArgs = inner as Record<string, unknown>;
+    return onlyShownArgs(slug, innerArgs) ? { slug, args: innerArgs, index: only.index } : undefined;
   }
-  return EMAIL_ACTIONS[name] ? { slug: name, args, index: undefined } : undefined;
+  return onlyShownArgs(name, args) ? { slug: name, args, index: undefined } : undefined;
 }
 
 const listText = (value: unknown): string =>
@@ -164,7 +188,8 @@ export function appsCallEmail(tool: string, params: Record<string, unknown> | un
   if (!step || !at) return undefined;
   return {
     to: listText(step.args[at.to]),
-    cc: at.cc ? listText(step.args[at.cc]) : "",
+    cc: listText(step.args[at.cc]),
+    bcc: listText(step.args[at.bcc]),
     subject: at.subject ? listText(step.args[at.subject]) : "",
     body: listText(step.args[at.body]),
   };
@@ -179,7 +204,7 @@ const addresses = (value: string): string[] =>
 
 /**
  * The call with the person's changes to its email, or undefined when the changes are not a sendable email.
- * Only the address lines, subject and body can change; everything else stays as the agent asked.
+ * Only the address lines (To, Cc, Bcc), subject and body can change; everything else stays as the agent asked.
  */
 export function withEmailEdits(
   tool: string,
@@ -196,16 +221,23 @@ export function withEmailEdits(
   };
   const to = field("to", 2_000);
   const cc = field("cc", 2_000) ?? "";
+  const bcc = field("bcc", 2_000) ?? "";
   const subject = field("subject", 1_000) ?? "";
   const body = field("body", 200_000);
   if (to === undefined || body === undefined) return undefined;
   const toList = addresses(to);
   const ccList = addresses(cc);
-  if (toList.length !== 1 || ![...toList, ...ccList].every((address) => ADDRESS.test(address))) return undefined;
+  const bccList = addresses(bcc);
+  if (toList.length !== 1 || ![...toList, ...ccList, ...bccList].every((address) => ADDRESS.test(address)))
+    return undefined;
   const args: Record<string, unknown> = { ...step.args, [at.to]: toList[0], [at.body]: body };
-  if (at.cc) {
-    if (ccList.length > 0) args[at.cc] = ccList;
-    else delete args[at.cc];
+  // Exactly the copies the person saw on the card: a list they cleared is removed, never kept from the agent's call.
+  for (const [key, list] of [
+    [at.cc, ccList],
+    [at.bcc, bccList],
+  ] as const) {
+    if (list.length > 0) args[key] = list;
+    else delete args[key];
   }
   if (at.subject) args[at.subject] = subject;
   if (step.index === undefined) return args;
