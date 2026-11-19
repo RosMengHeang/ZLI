@@ -161,6 +161,7 @@ import {
   KeepRunDialog,
   RenameAgentDialog,
 } from "./AgentDialogs.js";
+import { stepAfterAddingProject } from "./addedProject.js";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
@@ -1006,8 +1007,8 @@ function WorkspaceApp() {
   }, [runStates, updateWorkbench, workbench.groups]);
 
   /**
-   * Adds a folder and points the person at their first agent there. From Settings the project is only
-   * selected, so New agent does not open on top of the Settings dialog.
+   * Adds a folder and opens a new chat there, also when the folder was already added. From Settings the
+   * project is only selected, so nothing opens on top of the Settings dialog.
    */
   const openProject = async ({ startAgent = true }: { startAgent?: boolean } = {}) => {
     if (!bridge) {
@@ -1055,16 +1056,20 @@ function WorkspaceApp() {
     { startAgent, existing }: { startAgent: boolean; existing: boolean },
   ) => {
     setSelectedProjectId(project.projectId);
-    const worktrees = projectionRef.current?.worktrees ?? [];
-    const hasAgents = sessionsRef.current.some((session) =>
-      worktrees.some(
-        (worktree) => worktree.worktreeId === session.worktreeId && worktree.projectId === project.projectId,
-      ),
-    );
     if (existing) setNotice({ message: `${project.name} is already in ZLI.`, tone: "info" });
-    if (!startAgent || hasAgents) return;
-    setPaletteOpen(false);
-    setNewAgentProject(project);
+    const defaults = resolveLaunchDefaults(readAppSettings(), project.projectId);
+    const step = stepAfterAddingProject({
+      startAgent,
+      mode: defaults.mode,
+      hasAgent: defaultAgent(projectionRef.current?.providers ?? [], defaults.provider) !== undefined,
+    });
+    if (step === "select") return;
+    if (step === "dialog") {
+      setPaletteOpen(false);
+      setNewAgentProject(project);
+      return;
+    }
+    openNewAgent(project);
   };
 
   /** Polls the projection, which catches up with a command a moment after it is accepted. */
@@ -1339,7 +1344,11 @@ function WorkspaceApp() {
 
   /** Opens a new chat; with `typed`, the text from the empty screen goes out as its first message. */
   const openNewAgent = (project?: ProjectProjection, typed?: string) => {
+    // A project added a moment ago may not be in this render's projection yet.
+    const projection = projectionRef.current;
     if (!projection) return;
+    const hasProjects = projection.projects.length > 0;
+    const selectedProject = projection.projects.find((candidate) => candidate.projectId === selectedProjectId);
     // A new chat is where the person goes next, so the Buddies or Pull requests page steps aside for it.
     setBuddyView(undefined);
     setPullView(undefined);
