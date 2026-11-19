@@ -159,20 +159,20 @@ describe("ProviderService", () => {
         provider: "codex",
         displayName: "Codex",
         status: "missing",
-        reason: "Codex CLI was not found on PATH or in known install locations.",
+        reason: expect.stringContaining("Codex CLI was not found on PATH or in known install locations."),
       },
       { provider: "claude-code", displayName: "Claude Code", status: "found", path: "/tools/claude" },
       {
         provider: "cursor-agent",
         displayName: "Cursor",
         status: "missing",
-        reason: "Cursor CLI was not found on PATH or in known install locations.",
+        reason: expect.stringContaining("Cursor CLI was not found on PATH or in known install locations."),
       },
       {
         provider: "droid",
         displayName: "Droid",
         status: "missing",
-        reason: "Droid CLI was not found on PATH or in known install locations.",
+        reason: expect.stringContaining("Droid CLI was not found on PATH or in known install locations."),
       },
     ]);
     expect(adapter.calls).toEqual([]);

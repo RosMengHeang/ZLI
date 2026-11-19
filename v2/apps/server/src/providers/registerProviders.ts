@@ -28,7 +28,7 @@ import { ClaudeCodeProviderAdapter } from "./ClaudeCodeProviderAdapter.js";
 import { CodexProviderAdapter } from "./CodexProviderAdapter.js";
 import { CursorAgentProviderAdapter } from "./CursorAgentProviderAdapter.js";
 import { DroidProviderAdapter } from "./DroidProviderAdapter.js";
-import { type CliProbe, createDefaultCliProbe, discoverCliProviders } from "./discoverCliProviders.js";
+import { type CliProbe, createDefaultCliProbe, discoverCliProviders, missingReason } from "./discoverCliProviders.js";
 import { MockProviderAdapter } from "./MockProviderAdapter.js";
 import { type ProviderAccount, ProviderRegistry } from "./ProviderService.js";
 import { writeZliInstructions } from "./zliInstructions.js";
@@ -39,9 +39,7 @@ export async function resolveClaudeCommand(probe: CliProbe = createDefaultCliPro
   if (claude?.status === "found") return claude.path;
   throw new ClaudeProviderError(
     "cli_missing",
-    claude?.status === "missing"
-      ? claude.reason
-      : "Claude Code CLI was not found on PATH or in known install locations.",
+    claude?.status === "missing" ? claude.reason : missingReason("claude-code", "Claude Code", probe.platform),
   );
 }
 
@@ -51,7 +49,7 @@ export async function resolveCodexCommand(probe: CliProbe = createDefaultCliProb
   if (codex?.status === "found") return codex.path;
   throw new CodexProviderError(
     "cli_missing",
-    codex?.status === "missing" ? codex.reason : "Codex CLI was not found on PATH or in known install locations.",
+    codex?.status === "missing" ? codex.reason : missingReason("codex", "Codex", probe.platform),
   );
 }
 
@@ -61,7 +59,7 @@ export async function resolveCursorCommand(probe: CliProbe = createDefaultCliPro
   if (cursor?.status === "found") return cursor.path;
   throw new CursorProviderError(
     "cli_missing",
-    cursor?.status === "missing" ? cursor.reason : "Cursor CLI was not found on PATH or in known install locations.",
+    cursor?.status === "missing" ? cursor.reason : missingReason("cursor-agent", "Cursor", probe.platform),
   );
 }
 
@@ -71,7 +69,7 @@ export async function resolveDroidCommand(probe: CliProbe = createDefaultCliProb
   if (droid?.status === "found") return droid.path;
   throw new DroidProviderError(
     "cli_missing",
-    droid?.status === "missing" ? droid.reason : "Droid CLI was not found on PATH or in known install locations.",
+    droid?.status === "missing" ? droid.reason : missingReason("droid", "Droid", probe.platform),
   );
 }
 
@@ -133,7 +131,7 @@ export async function resolveAcpCommand(
   if (entry?.status === "found") return entry.path;
   throw new AcpProviderError(
     "cli_missing",
-    entry?.status === "missing" ? entry.reason : `${provider} CLI was not found on PATH or in known install locations.`,
+    entry?.status === "missing" ? entry.reason : missingReason(provider, provider, probe.platform),
   );
 }
 

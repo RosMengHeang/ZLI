@@ -9,7 +9,7 @@ import type {
   TurnUsage,
 } from "@zli-v2/contracts";
 
-import { RunProblems } from "../accounts/runProblems.js";
+import { RunProblems, withSignInHint } from "../accounts/runProblems.js";
 import { type CliProbe, createDefaultCliProbe, discoverCliProviders } from "./discoverCliProviders.js";
 import type { ProviderActivity } from "./toolActivity.js";
 
@@ -213,7 +213,10 @@ export class ProviderService {
       this.recordProblem(input.provider, input.threadId, error instanceof Error ? error.message : undefined);
       const missing = missingCliError(error);
       if (missing) throw new ProviderServiceError("cli_missing", missing.message, { cause: error });
-      const detail = error instanceof Error && error.message.trim() ? ` ${error.message.trim()}` : "";
+      const detail =
+        error instanceof Error && error.message.trim()
+          ? ` ${withSignInHint(input.provider, error.message.trim())}`
+          : "";
       throw new ProviderServiceError("request_failed", `Provider session failed to start.${detail}`, { cause: error });
     }
   }
@@ -325,12 +328,20 @@ export class ProviderService {
       // A turn that went through shows the login works, whatever an earlier run said.
       this.runProblems.clear(adapter.provider as ListedProviderKind);
     }
-    this.emit(event);
+    this.emit(withSignInStep(adapter.provider, event));
   }
 
   private emit(event: ProviderEvent): void {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+/** A signed-out error in the chat ends with how to sign in again. */
+function withSignInStep(provider: ProviderKind, event: ProviderEvent): ProviderEvent {
+  if (event.type === "provider.error") return { ...event, message: withSignInHint(provider, event.message) };
+  if (event.type === "turn.completed" && event.errorMessage)
+    return { ...event, errorMessage: withSignInHint(provider, event.errorMessage) };
+  return event;
 }
 
 function missingCliError(error: unknown): Error | undefined {

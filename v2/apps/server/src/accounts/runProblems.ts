@@ -42,6 +42,24 @@ export function classifyRunError(message: string | undefined): Kind | undefined 
   return undefined;
 }
 
+/**
+ * How to sign in again, for the agents that report a lost login as plain text. ACP agents carry their own
+ * hint, so they are not listed here.
+ */
+const SIGN_IN_HINTS: Partial<Record<ListedProviderKind, string>> = {
+  "claude-code": "Sign in to Claude Code in a terminal (run `claude`, then `/login`), then try again.",
+  codex: "Sign in to Codex in a terminal (run `codex login`), then try again.",
+  "cursor-agent": "Sign in to Cursor in a terminal (run `cursor-agent login`), then try again.",
+  droid: "Sign in to Droid in a terminal (run `droid` and follow the login prompt), then try again.",
+};
+
+/** The error with a sign-in step added when it says the agent is signed out. Other errors are unchanged. */
+export function withSignInHint(provider: ListedProviderKind, message: string): string {
+  const hint = SIGN_IN_HINTS[provider];
+  if (!hint || classifyRunError(message) !== "signed-out" || message.includes(hint)) return message;
+  return `${message.trim()} ${hint}`;
+}
+
 /** The agent's message, one line, short, and without anything shaped like a key or token. */
 export function cleanRunMessage(message: string): string {
   const oneLine = message

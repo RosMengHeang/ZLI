@@ -9,6 +9,7 @@ import {
   createDefaultCliProbe,
   discoverCliProviders,
   fileLooksExecutable,
+  missingReason,
   modelsForPlan,
   parseClaudeCodeModels,
   parseCodexModels,
@@ -35,7 +36,7 @@ const acpMissing = ACP_CLIS.map(([provider, displayName]) => ({
   provider,
   displayName,
   status: "missing",
-  reason: `${displayName} CLI was not found on PATH or in known install locations.`,
+  reason: expect.stringContaining(`${displayName} CLI was not found on PATH or in known install locations.`),
 }));
 
 function probe(overrides: Partial<CliProbe> & Pick<CliProbe, "fileExists">): CliProbe {
@@ -78,13 +79,13 @@ describe("discoverCliProviders", () => {
         provider: "cursor-agent",
         displayName: "Cursor",
         status: "missing",
-        reason: "Cursor CLI was not found on PATH or in known install locations.",
+        reason: expect.stringContaining("Cursor CLI was not found on PATH or in known install locations."),
       },
       {
         provider: "droid",
         displayName: "Droid",
         status: "missing",
-        reason: "Droid CLI was not found on PATH or in known install locations.",
+        reason: expect.stringContaining("Droid CLI was not found on PATH or in known install locations."),
       },
       ...acpMissing,
     ]);
@@ -107,10 +108,10 @@ describe("discoverCliProviders", () => {
 
     expect(discovery.map((entry) => entry.status)).toEqual(Array(11).fill("missing"));
     expect(discovery.map((entry) => ("reason" in entry ? entry.reason : ""))).toEqual([
-      "Codex CLI was not found on PATH or in known install locations.",
-      "Claude Code CLI was not found on PATH or in known install locations.",
-      "Cursor CLI was not found on PATH or in known install locations.",
-      "Droid CLI was not found on PATH or in known install locations.",
+      expect.stringContaining("Codex CLI was not found on PATH or in known install locations."),
+      expect.stringContaining("Claude Code CLI was not found on PATH or in known install locations."),
+      expect.stringContaining("Cursor CLI was not found on PATH or in known install locations."),
+      expect.stringContaining("Droid CLI was not found on PATH or in known install locations."),
       ...acpMissing.map((entry) => entry.reason),
     ]);
     expect(versionCalls).toEqual([]);
@@ -291,19 +292,19 @@ describe("CLI probe helpers", () => {
         provider: "claude-code",
         displayName: "Claude Code",
         status: "missing",
-        reason: "Claude Code CLI was not found on PATH or in known install locations.",
+        reason: expect.stringContaining("Claude Code CLI was not found on PATH or in known install locations."),
       },
       {
         provider: "cursor-agent",
         displayName: "Cursor",
         status: "missing",
-        reason: "Cursor CLI was not found on PATH or in known install locations.",
+        reason: expect.stringContaining("Cursor CLI was not found on PATH or in known install locations."),
       },
       {
         provider: "droid",
         displayName: "Droid",
         status: "missing",
-        reason: "Droid CLI was not found on PATH or in known install locations.",
+        reason: expect.stringContaining("Droid CLI was not found on PATH or in known install locations."),
       },
     ]);
 
@@ -584,5 +585,34 @@ describe("modelsForPlan", () => {
     expect(modelsForPlan(claude, "Free").map((model) => model.id)).toEqual(["opus", "sonnet"]);
     expect(modelsForPlan(claude, "max")).toBe(claude);
     expect(modelsForPlan(claude, undefined)).toBe(claude);
+  });
+});
+
+describe("missingReason", () => {
+  it("ends with the install command for the platform", () => {
+    expect(missingReason("cursor-agent", "Cursor", "linux")).toBe(
+      "Cursor CLI was not found on PATH or in known install locations. Install it with `curl https://cursor.com/install -fsS | bash`, then try again.",
+    );
+    expect(missingReason("droid", "Droid", "win32")).toContain("irm https://app.factory.ai/cli/windows | iex");
+    expect(missingReason("claude-code", "Claude Code", "win32")).toContain("irm https://claude.ai/install.ps1 | iex");
+    expect(missingReason("codex", "Codex", "darwin")).toContain("npm install -g @openai/codex");
+    expect(missingReason("grok", "Grok", "linux")).toContain("curl -fsSL https://x.ai/cli/install.sh | bash");
+  });
+
+  it("links the install page when there is no single command", () => {
+    expect(missingReason("goose", "Goose", "linux")).toBe(
+      "Goose CLI was not found on PATH or in known install locations. Install it from https://github.com/aaif-goose/goose, then try again.",
+    );
+  });
+
+  it("puts the hint in the discovery reason", async () => {
+    const discovered = await discoverCliProviders(
+      { pathEntries: [], platform: "linux", fileExists: () => false },
+      { models: false },
+    );
+    const droid = discovered.find((entry) => entry.provider === "droid");
+    expect(droid?.status === "missing" ? droid.reason : undefined).toContain(
+      "curl -fsSL https://app.factory.ai/cli | sh",
+    );
   });
 });

@@ -5,6 +5,7 @@ import { posix, win32 } from "node:path";
 
 import {
   type AgentLogin,
+  installHint,
   type ListedProviderKind,
   type ProviderDiscovery,
   type ProviderModelOption,
@@ -614,6 +615,12 @@ export function sanitizeVersion(value: string | undefined): string | undefined {
   return compact.length > 0 ? compact : undefined;
 }
 
+export function missingReason(provider: ListedProviderKind, displayName: string, platform: NodeJS.Platform): string {
+  const notFound = `${displayName} CLI was not found on PATH or in known install locations.`;
+  const hint = installHint(provider, platform === "win32" ? "windows" : "posix");
+  return hint ? `${notFound} ${hint}` : notFound;
+}
+
 async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boolean): Promise<ProviderDiscovery> {
   const path = firstExisting(spec, probe);
   if (!path) {
@@ -621,7 +628,7 @@ async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boo
       provider: spec.provider,
       displayName: spec.displayName,
       status: "missing",
-      reason: `${spec.displayName} CLI was not found on PATH or in known install locations.`,
+      reason: missingReason(spec.provider, spec.displayName, probe.platform),
     };
   }
   const [version, models, login] = await Promise.all([

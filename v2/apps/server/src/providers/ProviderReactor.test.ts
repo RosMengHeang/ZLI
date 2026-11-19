@@ -625,7 +625,8 @@ describe("ProviderReactor", () => {
     await reactor.waitForIdle();
     expect((await engine.projection()).threads[0]).toMatchObject({
       status: "failed",
-      errorMessage: "Cursor CLI exited (1): not logged in",
+      errorMessage:
+        "Cursor CLI exited (1): not logged in Sign in to Codex in a terminal (run `codex login`), then try again.",
     });
 
     await engine.dispatchPromise({
