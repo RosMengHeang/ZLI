@@ -181,6 +181,7 @@ export async function startRuntime(options: {
   // The desktop app's keychain-held key seals secrets on disk; taken out of the environment so no agent inherits it.
   const secrets = SecretBox.fromEnvironment();
   const keychainSlow = SecretBox.keychainSlow();
+  const noKeychain = SecretBox.noKeychain();
   // Agents reach Composio through a local stand-in that adds the key, so no agent ever holds the key.
   const appsProxy: AppsProxy = new AppsProxy({
     upstream: () => connectedApps.upstream(),
@@ -193,6 +194,7 @@ export async function startRuntime(options: {
     proxy: appsProxy,
     ...(secrets ? { box: secrets } : {}),
     ...(keychainSlow ? { keychainSlow: true } : {}),
+    ...(noKeychain ? { noKeychain: true } : {}),
   });
   await connectedApps.load();
   const mcpServers: McpServerStore = new McpServerStore({

@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type KeychainCodec, secretsKey } from "./secretsKey.js";
+import { handOffKey, type KeychainCodec, secretsKey } from "./secretsKey.js";
 
 const folders: string[] = [];
 afterEach(() => {
@@ -32,7 +32,7 @@ describe("secretsKey", () => {
   it("gives no key without a keychain, so nothing is sealed with a key kept in the clear", async () => {
     const dir = mkdtempSync(join(tmpdir(), "zli-key-"));
     folders.push(dir);
-    expect(await secretsKey(join(dir, "secrets-key.bin"), keychain(false))).toEqual({});
+    expect(await secretsKey(join(dir, "secrets-key.bin"), keychain(false))).toEqual({ noKeychain: true });
   });
 
   it("says the keychain was slow when it never answers, so the app opens and the runtime stays careful", async () => {
@@ -59,5 +59,22 @@ describe("secretsKey", () => {
       },
     };
     expect(await secretsKey(join(dir, "secrets-key.bin"), refusing)).toEqual({ slow: true });
+  });
+
+  it("treats Linux's basic_text store as no keychain, since its password is built into Chromium", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "zli-key-"));
+    folders.push(dir);
+    const path = join(dir, "secrets-key.bin");
+    expect(await secretsKey(path, { ...keychain(), weak: () => true })).toEqual({ noKeychain: true });
+    expect(() => readFileSync(path)).toThrow();
+  });
+
+  it("hands the key over in a new file each start, never in the environment", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "zli-key-"));
+    folders.push(dir);
+    const first = await handOffKey(dir, "k1");
+    const second = await handOffKey(dir, "k2");
+    expect(first).not.toBe(second);
+    expect(readFileSync(first, "utf8")).toBe("k1");
   });
 });

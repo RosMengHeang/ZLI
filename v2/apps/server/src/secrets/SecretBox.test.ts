@@ -6,7 +6,51 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ConnectedApps } from "../mcp/ConnectedApps.js";
-import { SECRETS_KEY_ENV, SECRETS_KEYCHAIN_SLOW_ENV, SecretBox } from "./SecretBox.js";
+import {
+  SECRETS_KEY_ENV,
+  SECRETS_KEY_FILE_ENV,
+  SECRETS_KEYCHAIN_SLOW_ENV,
+  SECRETS_NO_KEYCHAIN_ENV,
+  SecretBox,
+} from "./SecretBox.js";
+
+describe("SecretBox key handover", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  const scratch = () => {
+    const dir = mkdtempSync(join(tmpdir(), "zli-handoff-"));
+    dirs.push(dir);
+    return dir;
+  };
+
+  it("reads the key from the file the desktop app wrote, then deletes the file", () => {
+    const key = randomBytes(32);
+    const file = join(scratch(), "secrets-key.handoff");
+    writeFileSync(file, key.toString("base64"));
+    const env: NodeJS.ProcessEnv = { [SECRETS_KEY_FILE_ENV]: file, OTHER: "1" };
+    const box = SecretBox.fromEnvironment(env);
+    expect(SecretBox.withKey(key).open(box?.seal("ck_x") ?? "")).toBe("ck_x");
+    expect(env).toEqual({ OTHER: "1" });
+    expect(() => readFileSync(file, "utf8")).toThrow();
+    expect(SecretBox.fromEnvironment({ [SECRETS_KEY_FILE_ENV]: join(scratch(), "missing") })).toBeUndefined();
+  });
+
+  it("tells the person the key is saved unencrypted when there is no real keychain", async () => {
+    const env: NodeJS.ProcessEnv = { [SECRETS_NO_KEYCHAIN_ENV]: "1" };
+    expect(SecretBox.noKeychain(env)).toBe(true);
+    expect(env).toEqual({});
+    const apps = new ConnectedApps({ path: join(scratch(), "apps.json"), noKeychain: true });
+    expect((await apps.status()).warning).toContain("unencrypted");
+    const sealed = new ConnectedApps({
+      path: join(scratch(), "apps.json"),
+      noKeychain: true,
+      box: SecretBox.withKey(randomBytes(32)),
+    });
+    expect((await sealed.status()).warning).toBeUndefined();
+  });
+});
 
 const folders: string[] = [];
 afterEach(() => {

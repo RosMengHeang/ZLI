@@ -190,6 +190,11 @@ export function ConnectedAppsDialog({ onClose }: { onClose(): void }) {
         <Icon name="alert" size={13} />
         {problem ?? state?.problem}
       </p>
+    ) : state?.warning ? (
+      <p className="inline-error">
+        <Icon name="alert" size={13} />
+        {state.warning}
+      </p>
     ) : null;
 
   return (

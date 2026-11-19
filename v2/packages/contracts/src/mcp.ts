@@ -200,6 +200,8 @@ export const ConnectedAppsStatus = z.object({
   accounts: z.array(ConnectedAppAccount),
   /** Why the accounts could not be listed. */
   problem: z.string().optional(),
+  /** Something the person should know that does not stop the apps working (the key is saved unencrypted). */
+  warning: z.string().optional(),
 });
 export type ConnectedAppsStatus = z.infer<typeof ConnectedAppsStatus>;
 
