@@ -129,7 +129,8 @@ export class GiteaDriver implements ForgeDriver {
   }
 
   async comment(cwd: string, number: number, body: string): Promise<void> {
-    const commented = await this.cli.run(cwd, ["comment", String(number), body]);
+    // The body is positional; "--" keeps one that starts with a dash, like a Markdown list, from reading as a flag.
+    const commented = await this.cli.run(cwd, ["comment", "--", String(number), body]);
     if (commented.code !== 0) throw new ForgeError(this.cli.failure(`could not comment on #${number}`, commented));
   }
 }

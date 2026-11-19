@@ -170,7 +170,7 @@ describe("GiteaDriver", () => {
     const driver = new GiteaDriver(runner, async () => ["git.example.org"]);
     await driver.create("/repo", { branch: "feature", title: "Add login", body: "Body", base: "main", draft: true });
     await driver.merge("/repo", 4, "rebase");
-    await driver.comment("/repo", 4, "Thanks");
+    await driver.comment("/repo", 4, "- Thanks");
     expect(
       calls
         .filter((call) => call[1] !== "pulls" || call[2] !== "list")
@@ -190,7 +190,7 @@ describe("GiteaDriver", () => {
         "Body",
       ],
       ["tea", "pulls", "merge", "4", "--style", "rebase"],
-      ["tea", "comment", "4", "Thanks"],
+      ["tea", "comment", "--", "4", "- Thanks"],
     ]);
   });
 
