@@ -508,3 +508,15 @@ button.goal-card-lead:hover { color: var(--zli-text); }
   .buddy-view-info.is-open { width: 100%; border-left: 0; }
   .buddy-view-info-inner { width: 100%; }
 }
+
+/* ---------- Messages in a row from one sender sit closer, and only the first is named ---------- */
+.buddy-chat-entry.is-grouped { margin-top: calc(var(--zli-space-1) - var(--zli-space-3)); }
+
+/* ---------- Your message before it lands: dimmed, with a quiet word under it ---------- */
+.buddy-chat-you.is-pending { opacity: .6; }
+.buddy-chat-sending { align-self: flex-end; margin-top: var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.buddy-chat-sending.is-failed { color: var(--zli-red-ink); }
+.buddy-chat-sending.is-failed .buddy-chat-open { color: inherit; text-decoration: underline; }
+
+/* ---------- Back to the newest line, above the composer, once you have scrolled up ---------- */
+.buddy-chat-latest { align-self: center; margin-bottom: var(--zli-space-1); border-radius: var(--zli-radius-pill); background: var(--zli-raised); box-shadow: var(--zli-shadow-lift); }
