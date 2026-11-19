@@ -11,6 +11,7 @@ import {
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { accountOptions, defaultAccountId, launchAccountId } from "../accounts/accounts.js";
+import { InstallAgentButton } from "../agent/InstallAgent.js";
 import { listedDiscoveries, preferredProvider } from "../agent/providers.js";
 import { PermissionIcon, permissionOptionsFor, permissionText } from "../chat/permissions.js";
 import { ISSUE_SOURCE_NAMES, type IssueRef, issueBranchName } from "../issues/issueStart.js";
@@ -335,6 +336,16 @@ export function NewAgentDialog({
                   >
                     {showMissing ? "Hide not installed" : `Show ${missing.length} not installed`}
                   </button>
+                ) : null}
+                {missing.length > 0 && (installed.length === 0 || showMissing) ? (
+                  <ul className="new-agent-missing" aria-label="Agents not installed">
+                    {missing.map((entry) => (
+                      <li key={entry.provider}>
+                        <span>{entry.displayName}</span>
+                        <InstallAgentButton provider={entry.provider} name={entry.displayName} size="xs" />
+                      </li>
+                    ))}
+                  </ul>
                 ) : null}
               </>
             )}
