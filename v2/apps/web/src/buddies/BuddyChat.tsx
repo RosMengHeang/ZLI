@@ -3,6 +3,7 @@ import {
   type BuddyProjection,
   firstSentence,
   isActiveTask,
+  isAppDraft,
   openQuestion,
   type RuntimeProjection,
   type TaskProjection,
@@ -13,8 +14,8 @@ import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo,
 import { providerDisplayName } from "../agent/providers.js";
 import { fileName, splitAttachedFiles, withAttachedFiles } from "../chat/attachedFiles.js";
 import { readDraft, writeDraft } from "../chat/drafts.js";
+import { Markdown } from "../chat/Markdown.js";
 import { RequestPager } from "../chat/RequestCard.js";
-import { friendlySteps } from "./stepLabel.js";
 import { useDockHeight } from "../chat/useDockHeight.js";
 import { getBridge } from "../runtime/bridge.js";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -24,6 +25,8 @@ import { lookOf } from "../teammates/pixelBuddies.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon, type IconName } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
+import { AppDraftCard } from "./AppDraftCard.js";
+import { friendlySteps } from "./stepLabel.js";
 import { triggerLabel } from "./team.js";
 import "./buddyChat.css";
 
@@ -318,6 +321,10 @@ export function BuddyChat({
   renderReply(task: TaskProjection): ReactNode;
 }) {
   const items = useMemo(() => buddyTranscript(buddy, projection), [buddy, projection]);
+  // What the buddy wants to do in the person's apps waits here until they send or discard it, after its turn too.
+  const drafts = (projection.requests ?? []).filter(
+    (request) => request.threadId === buddy.chatThreadId && isAppDraft(request.requestId),
+  );
   const view = useRef<HTMLDivElement>(null);
   const log = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLDivElement>(null);
@@ -369,6 +376,16 @@ export function BuddyChat({
                 run={run}
                 // Only the newest note offers to send again: an older one was already followed by something.
                 {...(index === items.length - 1 ? { onResend: resend } : {})}
+              />
+            </div>
+          ))}
+          {drafts.map((request) => (
+            <div key={request.requestId} className="buddy-chat-entry is-draft">
+              <AppDraftCard
+                request={request}
+                onRespond={(decision) =>
+                  run({ type: "thread.respond", threadId: request.threadId, requestId: request.requestId, decision })
+                }
               />
             </div>
           ))}
@@ -474,7 +491,11 @@ function ChatEntry({
       return (
         <>
           {/* The buddy talks in a grey bubble on the left, like the other side of any chat. */}
-          <div className="buddy-chat-say is-bubble">{item.text}</div>
+          <div className="buddy-chat-say is-bubble">
+            {/* Replies are Markdown: lists, bold, and links shown as their words, never as raw addresses. */}
+            <Markdown text={item.text} />
+            <CopyReply text={item.text} />
+          </div>
           {item.resend && onResend ? (
             <div className="buddy-chat-resend">
               <Button size="sm" icon="reload" onClick={() => onResend(item.resend as string)}>
@@ -513,7 +534,7 @@ function ChatEntry({
       // Something only the person can allow: asked right here, like any chat, and the buddy carries on after.
       const thread = projection.threads.find((entry) => entry.threadId === item.threadId);
       const asks = (projection.requests ?? [])
-        .filter((request) => request.threadId === item.threadId)
+        .filter((request) => request.threadId === item.threadId && !isAppDraft(request.requestId))
         .map((request) => ({
           request,
           provider: thread?.provider ?? "",
@@ -748,5 +769,30 @@ function YouMessage({ text }: { text: string }) {
         </ul>
       ) : null}
     </>
+  );
+}
+
+/** Copies a reply as written, shown when the pointer is over it. */
+function CopyReply({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return undefined;
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  return (
+    <span className="buddy-chat-say-tools">
+      <IconButton
+        label={copied ? "Copied" : "Copy"}
+        icon={copied ? "check" : "copy"}
+        size="xs"
+        onClick={() => {
+          void navigator.clipboard
+            ?.writeText(text)
+            .then(() => setCopied(true))
+            .catch(() => undefined);
+        }}
+      />
+    </span>
   );
 }

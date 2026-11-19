@@ -1,0 +1,23 @@
+/* A held app action in the buddy chat: an email draft to edit and send, or an action to allow. */
+.app-draft { align-self: flex-start; width: min(100%, 440px); padding: var(--zli-space-4); border: 1px solid var(--zli-border); border-radius: 20px; background: var(--zli-raised); color: var(--zli-text); }
+.app-draft-head { display: flex; align-items: center; gap: var(--zli-space-2); margin-bottom: var(--zli-space-3); font-size: var(--zli-text-sm); font-weight: 600; }
+
+.app-draft-mail { display: flex; flex-direction: column; }
+.app-draft-mail input, .app-draft-mail textarea { min-width: 0; border: 0; background: transparent; color: var(--zli-text); font: inherit; outline: none; }
+.app-draft-subject { padding: 4px 0 var(--zli-space-2); font-weight: 600; }
+.app-draft-subject::placeholder { color: var(--zli-dim); font-weight: 600; }
+.app-draft-line { display: flex; align-items: center; gap: var(--zli-space-3); padding: 10px 0; border-bottom: 1px solid var(--zli-border); font-size: var(--zli-text-sm); }
+.app-draft-line > span { flex: 0 0 36px; color: var(--zli-muted); }
+.app-draft-line > input { flex: 1; }
+.app-draft-line > input::placeholder { color: var(--zli-dim); }
+.app-draft-line:focus-within { border-bottom-color: var(--zli-border-strong); }
+.app-draft-body { margin-top: var(--zli-space-3); padding: var(--zli-space-3); border-radius: 12px; background: var(--zli-surface) !important; line-height: 1.5; resize: vertical; }
+.app-draft-body:focus-visible { box-shadow: 0 0 0 2px var(--zli-focus); }
+
+.app-draft-action > strong { display: block; font-size: var(--zli-text-sm); }
+.app-draft-action > p { margin: 4px 0 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.app-draft-action > pre { max-height: 220px; margin: var(--zli-space-3) 0 0; padding: var(--zli-space-3); overflow: auto; border-radius: 12px; background: var(--zli-surface); font-size: var(--zli-text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.app-draft-foot { display: flex; align-items: center; justify-content: flex-end; gap: var(--zli-space-2); margin-top: var(--zli-space-4); }
+.app-draft-hint { flex: 1; min-width: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.app-draft-foot .btn-primary { min-width: 72px; border-radius: 999px; }

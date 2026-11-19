@@ -9,11 +9,12 @@
 .buddy-view { display: flex; min-width: 0; min-height: 0; flex: 1; }
 .buddy-view-main { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
 /* A name tag floating over the top of the chat; the messages scroll under it. */
-.buddy-view-top { position: absolute; top: 0; right: 0; left: 0; z-index: 2; display: flex; height: 72px; align-items: flex-start; justify-content: center; padding: 10px var(--zli-space-3) 0; background: linear-gradient(var(--zli-surface) 62%, color-mix(in srgb, var(--zli-surface) 0%, transparent)); pointer-events: none; }
+.buddy-view-top { position: absolute; top: 0; right: 0; left: 0; z-index: 2; display: flex; height: 104px; align-items: flex-start; justify-content: center; padding: 10px var(--zli-space-3) 0; background: linear-gradient(var(--zli-surface) 70%, color-mix(in srgb, var(--zli-surface) 0%, transparent)); pointer-events: none; }
 .buddy-view-top > * { pointer-events: auto; }
-.buddy-view-tag { color: inherit; cursor: default; font: inherit; transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); display: inline-flex; height: 34px; align-items: center; gap: var(--zli-space-2); padding: 0 14px 0 6px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-pill); background: var(--zli-raised); box-shadow: var(--zli-highlight); }
-.buddy-view-name { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
-.buddy-view-main .buddy-chat-column { padding-top: 60px; }
+/* The face on top and the name in a pill just under it, overlapping its foot, like a contact card. */
+.buddy-view-tag { display: inline-flex; flex-direction: column; align-items: center; padding: 0; border: 0; background: none; color: inherit; cursor: default; font: inherit; }
+.buddy-view-name { position: relative; max-width: 220px; margin: -6px 0 0; overflow: hidden; padding: 3px 12px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-pill); background: var(--zli-raised); box-shadow: var(--zli-highlight); color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); }
+.buddy-view-main .buddy-chat-column { padding-top: 96px; }
 
 /* The details slide in from the right: the column grows from nothing while its content, a fixed width, fades in. */
 .buddy-view-info { display: flex; width: 0; min-height: 0; flex: 0 0 auto; overflow: hidden; border-left: 1px solid transparent; background: var(--zli-surface); transition: width 240ms cubic-bezier(.2, .8, .2, 1), border-color 240ms ease; }
@@ -139,8 +140,9 @@
 @media (prefers-reduced-motion: reduce) { .buddy-typing span { animation: none; } }
 
 /* The name tag opens and closes the details column. */
-.buddy-view-tag:hover { border-color: var(--zli-border-hover); background: color-mix(in srgb, var(--zli-text) 6%, var(--zli-raised)); }
-.buddy-view-tag:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.buddy-view-tag:hover .buddy-view-name { border-color: var(--zli-border-hover); background: color-mix(in srgb, var(--zli-text) 6%, var(--zli-raised)); }
+.buddy-view-tag:focus-visible { outline: none; }
+.buddy-view-tag:focus-visible .buddy-view-name { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 
 /* The name under the face renames the buddy: a pencil shows on hover, a click turns it into a box. */
 .buddy-info-rename { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: text; font: inherit; }
@@ -232,13 +234,13 @@
 .buddy-list-row.is-needs .buddy-list-line, .buddy-list-row.is-waiting .buddy-list-line { color: var(--zli-amber); }
 .buddy-list-row.is-failed .buddy-list-line { color: var(--zli-red); }
 .buddy-list-empty { margin: var(--zli-space-2) 10px; color: var(--zli-dim); font-size: var(--zli-text-sm); }
-
-/* The chat's head: a bar with who it is with, not a floating tag. */
 .buddy-list-foot { flex: 0 0 auto; padding: var(--zli-space-2) var(--zli-space-2) var(--zli-space-3); }
 .buddy-list-foot-btn { display: flex; width: 100%; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border: 1px solid var(--zli-border); border-radius: 999px; background: var(--zli-raised); color: var(--zli-text); cursor: default; font: inherit; font-size: var(--zli-text-sm); font-weight: 500; text-align: left; transition: background var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); }
 .buddy-list-foot-btn:hover { border-color: var(--zli-border-hover); background: var(--zli-hover); }
 .buddy-list-foot-btn:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 .buddy-list-foot-icon { display: inline-flex; width: 28px; height: 28px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 999px; background: var(--zli-text); color: var(--zli-surface); }
+
+/* The chat's head: a bar with who it is with, not a floating tag. */
 .buddy-view-meta { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .buddies-main.is-split .buddies-home { max-width: 820px; }
 @media (max-width: 860px) {
@@ -306,6 +308,17 @@
 /* ---------- The buddy's bubbles ---------- */
 /* Its words sit in a grey bubble on the left, the same grey as yours: two sides of one chat. */
 .buddy-chat-say.is-bubble { align-self: flex-start; max-width: min(85%, 640px); padding: 10px 16px; border-radius: 20px 20px 20px 6px; background: var(--zli-overlay); }
+/* A reply is Markdown in the bubble: paragraphs keep their own spacing, so the bubble does not add pre-wrap gaps. */
+.buddy-chat-say.is-bubble { position: relative; white-space: normal; }
+.buddy-chat-say.is-bubble .markdown { font-size: inherit; }
+.buddy-chat-say.is-bubble .markdown ul, .buddy-chat-say.is-bubble .markdown ol { padding-left: 20px; }
+.buddy-chat-say.is-bubble .markdown li::marker { color: var(--zli-muted); }
+.buddy-chat-say.is-bubble .markdown .md-link { overflow-wrap: anywhere; }
+.buddy-chat-say.is-bubble .markdown .md-table-wrap { max-width: 100%; overflow-x: auto; }
+/* Copy sits just outside the bubble's bottom-right corner and shows on hover or keyboard focus. */
+.buddy-chat-say-tools { position: absolute; right: -34px; bottom: 2px; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.buddy-chat-say.is-bubble:hover .buddy-chat-say-tools, .buddy-chat-say-tools:focus-within { opacity: 1; }
+@media (hover: none) { .buddy-chat-say-tools { display: none; } }
 
 /* ---------- The message box ---------- */
 /* One rounded pill: a round + to attach, the words, and a round send button in the buddy's color. */
