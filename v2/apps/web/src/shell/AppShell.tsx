@@ -137,6 +137,7 @@ import { AGENTS_NOT_TRUSTED, useAgentTrust } from "../setup/agentTrust.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
+import { chatAfterDelete } from "../sidebar/nextChat.js";
 import { SidebarResizer, useSidebarWidth } from "../sidebar/SidebarResizer.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { themeChoices } from "../theme/customThemes.js";
@@ -1621,7 +1622,16 @@ function WorkspaceApp() {
       const deleted = await send({ type: "session.delete", sessionId: session.sessionId });
       if (!deleted) return;
     }
+    const wasOpen = activeSessionIdRef.current === session.sessionId;
+    const projectWorktrees = projectionRef.current?.worktrees ?? [];
+    const next = wasOpen ? chatAfterDelete(sessionsRef.current, session.sessionId, projectWorktrees) : undefined;
     updateWorkbench((state) => forgetSession(state, session.sessionId));
+    // Deleting the open chat opens its neighbour in the project, or the project itself when it was the only one.
+    if (next) focusSession(next);
+    else if (wasOpen) {
+      const projectId = projectWorktrees.find((entry) => entry.worktreeId === session.worktreeId)?.projectId;
+      if (projectId) setSelectedProjectId(projectId);
+    }
     if (!worktree) return;
     if (worktree.status !== "ready" && worktree.status !== "failed") {
       await send({ type: "worktree.cancel", worktreeId: worktree.worktreeId });
