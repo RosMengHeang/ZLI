@@ -10,7 +10,6 @@ import {
   MAX_ACTIVE_JOBS,
   MAX_GOAL_ROUNDS,
   overBudget,
-  spentThisWeek,
   type ProjectProjection,
   type ProviderDiscovery,
   type RuntimeCommand,
@@ -896,17 +895,35 @@ function attemptKey(task: TaskProjection): string {
 }
 
 /**
+ * What a job cost: the cost on its result, or for a failed job without one, what its chat reported spending.
+ * Undefined when it reported nothing.
+ */
+function jobCost(state: RuntimeProjection, task: TaskProjection): number | undefined {
+  if (task.result?.costUsd !== undefined) return task.result.costUsd;
+  if (task.status !== "failed" || !task.threadId) return undefined;
+  const cost = (state.usage ?? [])
+    .filter((record) => record.threadId === task.threadId)
+    .reduce((sum, record) => sum + (record.usage.costUsd ?? 0), 0);
+  return cost > 0 ? cost : undefined;
+}
+
+/**
  * Whether the buddy's running jobs, each counted at this week's average job cost, would use up what is left of its
- * budget. With no finished jobs yet there is nothing to average, so it does not hold anything back.
+ * budget. Failed jobs that reported a cost count too. A buddy with no costs of its own this week is counted at the
+ * team's average; with no costs anywhere yet, it runs one job at a time until the first one reports.
  */
 export function budgetReserved(state: RuntimeProjection, buddy: BuddyProjection, active: number, now: Date): boolean {
-  if (buddy.budgetUsd === undefined || active === 0) return false;
+  if (buddy.budgetUsd === undefined) return false;
   const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const costs = (state.tasks ?? [])
-    .filter((task) => task.buddyId === buddy.buddyId && task.result?.costUsd !== undefined)
-    .filter((task) => (task.endedAt ?? task.updatedAt) >= since)
-    .map((task) => task.result?.costUsd ?? 0);
-  if (costs.length === 0) return false;
+  const recent = (state.tasks ?? []).filter((task) => (task.endedAt ?? task.updatedAt) >= since);
+  const costsOf = (tasks: readonly TaskProjection[]) =>
+    tasks.map((task) => jobCost(state, task)).filter((cost): cost is number => cost !== undefined);
+  const own = costsOf(recent.filter((task) => task.buddyId === buddy.buddyId));
+  const spent = own.reduce((sum, cost) => sum + cost, 0);
+  if (spent >= buddy.budgetUsd) return true;
+  if (active === 0) return false;
+  const costs = own.length > 0 ? own : costsOf(recent);
+  if (costs.length === 0) return true;
   const average = costs.reduce((sum, cost) => sum + cost, 0) / costs.length;
-  return spentThisWeek(state, buddy.buddyId, now) + average * active >= buddy.budgetUsd;
+  return spent + average * active >= buddy.budgetUsd;
 }

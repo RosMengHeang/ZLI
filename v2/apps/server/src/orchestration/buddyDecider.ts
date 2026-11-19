@@ -198,13 +198,14 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
     case "buddies.quality":
       return [{ type: "buddies.quality.changed", quality: command.quality }];
     case "buddies.about.add": {
+      // Every buddy reads these, so they get the same check as a buddy's own notes.
+      const clean = safeNote(command.note.text);
       const known = projection.buddySettings?.aboutMe ?? [];
       const same = (text: string) => text.trim().toLowerCase();
       // A fact already known, in the same words, is not kept twice.
-      if (known.some((note) => note.noteId === command.note.noteId || same(note.text) === same(command.note.text)))
-        return [];
+      if (known.some((note) => note.noteId === command.note.noteId || same(note.text) === same(clean))) return [];
       if (command.note.by !== undefined) requireBuddy(projection, command.note.by);
-      return [{ type: "buddies.about.added", note: command.note }];
+      return [{ type: "buddies.about.added", note: { ...command.note, text: clean } }];
     }
     case "buddies.about.remove":
       if (!(projection.buddySettings?.aboutMe ?? []).some((note) => note.noteId === command.noteId)) return [];

@@ -74,10 +74,15 @@ function movesSecret(text: string): boolean {
 
 export type NoteCheck = { ok: true; text: string } | { ok: false; reason: string };
 
+/** The longest note kept, the same limit a buddy's stored notes have. Every brief carries every note. */
+export const MAX_NOTE_TEXT = 400;
+
 /** Cleans a note and says whether a buddy may keep it. */
 export function screenNote(raw: string): NoteCheck {
   const text = raw.replace(INVISIBLE, "").replace(/\s+/gu, " ").trim();
   if (!text) return { ok: false, reason: "The note is empty." };
+  if (text.length > MAX_NOTE_TEXT)
+    return { ok: false, reason: `The note is longer than ${MAX_NOTE_TEXT} characters. Keep it to one short fact.` };
   if (ORDERS.some((pattern) => pattern.test(text)))
     return { ok: false, reason: "It reads like an instruction to the agent, not a fact worth keeping." };
   if (EXFILTRATION.some((pattern) => pattern.test(text)) || movesSecret(text))
