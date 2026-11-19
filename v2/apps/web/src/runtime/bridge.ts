@@ -124,6 +124,12 @@ export type ZliBridge = {
     /** Only with ZLI_TEST_MOBILE=fake: drives the fake mobile service, such as op "propose". */
     mobile?(op: string, input?: unknown): Promise<unknown>;
   };
+  /** Present in the desktop app. Only statuses and error text cross over, never key material. */
+  security?: {
+    presenceStatus(): Promise<PresenceStatus>;
+    turnOnPresence(): Promise<PresenceStatus>;
+    turnOffPresence(): Promise<PresenceStatus>;
+  };
   notifications?: {
     getSettings(): Promise<NotificationSettings>;
     setSettings(patch: Partial<NotificationSettings>): Promise<NotificationSettings>;
@@ -218,7 +224,10 @@ export type MobileBridge = {
   dev?: MobileDevBridge;
 };
 
-export type NotificationSettings = { enabled: boolean; sound: boolean };
+/** "Unlock connected apps with Windows Hello": unsupported off Windows, unavailable when Hello isn't set up. */
+export type PresenceStatus = { status: "unsupported" | "unavailable" | "off" | "on"; error?: string };
+
+export type NotificationSettings ={ enabled: boolean; sound: boolean };
 
 /** A window or screen that can be attached as a picture. The thumbnail is a data URL. */
 export type CaptureSource = { id: string; name: string; kind: "window" | "screen"; thumbnail?: string };

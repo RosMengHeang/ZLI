@@ -92,6 +92,7 @@ import {
   SECRETS_NO_KEYCHAIN_ENV,
   secretsKey,
 } from "./security/secretsKey.js";
+import { presenceSettings, registerPresenceIpc } from "./security/presenceSettings.js";
 import { windowsHello } from "./security/windowsHello.js";
 import { writeJsonFile } from "./storage/writeJsonFile.js";
 import { createElectronTray } from "./tray/electronTray.js";
@@ -202,17 +203,16 @@ async function main(): Promise<void> {
   // The runtime seals secrets on disk (the Composio key) with a key the OS keychain keeps.
   // Asked without blocking, and only for a few seconds: a keychain stuck on a prompt never keeps the window shut.
   // When the user has turned on Windows Hello for connected apps, this is where Hello asks, once per launch.
-  const sealing = await secretsKey(
-    join(dirname(databasePath), "secrets-key.bin"),
-    {
-      available: () => safeStorage.isAsyncEncryptionAvailable(),
-      encrypt: (text) => safeStorage.encryptStringAsync(text),
-      decrypt: async (sealed) => (await safeStorage.decryptStringAsync(sealed)).result,
-      weak: () => process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text",
-    },
-    undefined,
-    process.platform === "win32" ? windowsHello() : undefined,
-  );
+  const keyPath = join(dirname(databasePath), "secrets-key.bin");
+  const keychain = {
+    available: () => safeStorage.isAsyncEncryptionAvailable(),
+    encrypt: (text: string) => safeStorage.encryptStringAsync(text),
+    decrypt: async (sealed: Buffer) => (await safeStorage.decryptStringAsync(sealed)).result,
+    weak: () => process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text",
+  };
+  const presence = process.platform === "win32" ? windowsHello() : undefined;
+  const sealing = await secretsKey(keyPath, keychain, undefined, presence);
+  registerPresenceIpc(ipcMain, presenceSettings({ presence, codec: keychain, path: keyPath, key: () => sealing.key }));
   const keyFile = sealing.key ? await handOffKey(dirname(databasePath), sealing.key) : undefined;
   environment = new EnvironmentProcess({
     serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
