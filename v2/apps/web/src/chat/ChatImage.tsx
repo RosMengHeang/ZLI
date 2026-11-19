@@ -193,7 +193,6 @@ function ImageLightbox({
     .join(" · ");
 
   return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: Escape from anywhere in the viewer closes it.
     <div className="image-lightbox" role="dialog" aria-modal="true" aria-label={name} onKeyDown={onKeyDown}>
       <button className="image-lightbox-scrim" type="button" tabIndex={-1} aria-label="Close image" onClick={onClose} />
       <header className="image-lightbox-bar">

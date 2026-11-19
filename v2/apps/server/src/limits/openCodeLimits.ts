@@ -5,7 +5,7 @@ import { FIVE_HOUR_WINDOW, MONTHLY_WINDOW, type PlanLimitWindow, WEEKLY_WINDOW }
 
 import { clamp, isoTime, number, parseJson, record, retryAfterMs, secret } from "./answerFields.js";
 import type { LimitRead } from "./PlanLimits.js";
-import { jsonBody, type LimitReaderDeps, send } from "./readerDeps.js";
+import { type LimitReaderDeps, send } from "./readerDeps.js";
 
 /** OpenCode Go's usage endpoint (packages/console routes/zen/go/v1/usage.ts in sst/opencode). */
 export const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";

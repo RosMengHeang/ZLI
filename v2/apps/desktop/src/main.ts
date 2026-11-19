@@ -626,7 +626,7 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:app:quit", () => {
     app.quit();
   });
-  ipcMain.handle("zli:app:zoom", (event, input: { zoom?: unknown }) => {
+  ipcMain.handle("zli:app:zoom", (_event, input: { zoom?: unknown }) => {
     if (input?.zoom !== "in" && input?.zoom !== "out" && input?.zoom !== "reset") throw new Error("Unknown zoom.");
     zoomApp(input.zoom);
   });

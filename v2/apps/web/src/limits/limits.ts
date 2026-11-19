@@ -1,6 +1,5 @@
 import {
   DAILY_WINDOW,
-  FIVE_HOUR_WINDOW,
   MONTHLY_WINDOW,
   PLAN_LIMIT_PROVIDERS,
   type PlanLimitProvider,

@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noTemplateCurlyInString: plugin files use ${...} placeholders, and these tests feed them in as literal text.
 import { describe, expect, it } from "vitest";
 
 import { scanPlugins } from "./pluginPackage.js";
