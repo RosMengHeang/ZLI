@@ -15,6 +15,7 @@ import {
   createProviderRegistry,
   resolveAcpCommand,
   resolveClaudeCommand,
+  resolveCodexCommand,
   resolveCursorCommand,
   resolveDroidCommand,
 } from "./registerProviders.js";
@@ -197,6 +198,17 @@ describe("resolveClaudeCommand", () => {
     await expect(resolveClaudeCommand(missing)).rejects.toMatchObject({
       code: "cli_missing",
       message: "Claude Code CLI was not found on PATH or in known install locations.",
+    });
+  });
+});
+
+describe("resolveCodexCommand", () => {
+  it("reports a missing Codex CLI as cli_missing", async () => {
+    const missing: CliProbe = { pathEntries: [], platform: "linux", fileExists: () => false };
+
+    await expect(resolveCodexCommand(missing)).rejects.toMatchObject({
+      code: "cli_missing",
+      message: "Codex CLI was not found on PATH or in known install locations.",
     });
   });
 });
