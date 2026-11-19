@@ -138,7 +138,7 @@ export type ProviderRegistryOptions = {
   mcpServers?: McpServerSource;
   /** Where per-chat MCP config files go when there is no browser tool. */
   mcpConfigDir?: string;
-  /** ZLI's data folder: buddies' file tools are kept off ZLI's own files there. */
+  /** ZLI's data folder: Claude Code buddies' file tools are refused on ZLI's own files there (other agents get only the rule in their brief). */
   privateDir?: string;
   writeMcpConfig?: typeof writeAgentMcpConfig;
   /** Writes ZLI's project MCP file in a worktree for Cursor and Droid, which have no per-session option for servers. */

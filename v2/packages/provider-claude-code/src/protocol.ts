@@ -30,8 +30,10 @@ export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPe
 
 /**
  * ZLI's own files in its data folder (keys, settings, the database, saved sign-ins, the browser's key store), by
- * pattern under that folder. A buddy's Read and Edit rules (Edit covers every writing tool) apply there; Claude Code applies the same
- * rules to file paths in its shell commands. Its home sits in a subfolder these patterns do not reach.
+ * pattern under that folder. Deny rules for Read and Edit (Edit covers every writing tool) refuse Claude Code's own
+ * file tools there. This is a guard rail, not a wall: Claude Code also refused a plain `cat` of these files in a real
+ * run, but a script that builds the path itself still reads them, since the buddy runs as the person. Only running
+ * buddies as another OS user would close that. The buddy's home sits in a subfolder these patterns do not reach.
  */
 const PRIVATE_PATTERNS = [
   "*.json",
