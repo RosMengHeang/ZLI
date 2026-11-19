@@ -1,0 +1,9 @@
+.install-agent { display: inline-flex; align-items: center; gap: var(--zli-space-2); }
+.install-agent-problem { color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.install-agent-command {
+  max-height: 200px; margin: 0; padding: var(--zli-space-2) var(--zli-space-3); overflow: auto;
+  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well);
+}
+.install-agent-command code { color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-sm); overflow-wrap: anywhere; white-space: pre-wrap; }
+.new-agent-missing { display: grid; gap: var(--zli-space-1); margin: var(--zli-space-2) 0 0; padding: 0; list-style: none; }
+.new-agent-missing li { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); }

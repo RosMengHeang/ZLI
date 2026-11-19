@@ -19,6 +19,7 @@ import {
   validateDraft,
 } from "../accounts/accounts.js";
 import { type AgentStatus, agentStatus, statusLine } from "../agent/agentStatus.js";
+import { InstallAgentButton } from "../agent/InstallAgent.js";
 import { listedDiscoveries, providerDisplayName, signInCommand } from "../agent/providers.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Badge } from "../ui/Badge.js";
@@ -496,7 +497,7 @@ export function AccountsSection({
                     <span className="mcp-row-detail">
                       {command ? (
                         <>
-                          Install with <code>{command}</code>, then choose Re-check.
+                          Install with <code>{command}</code>, or choose Install to run it here.
                         </>
                       ) : entry.status === "missing" ? (
                         entry.reason
@@ -506,6 +507,7 @@ export function AccountsSection({
                   {command ? (
                     <CopyCommand label={`Copy the install command for ${entry.displayName}`} command={command} />
                   ) : null}
+                  <InstallAgentButton provider={entry.provider} name={entry.displayName} size="xs" />
                 </li>
               );
             })}
