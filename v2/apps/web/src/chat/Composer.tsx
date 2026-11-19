@@ -38,7 +38,7 @@ import { ImageViewer } from "./ChatImage.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { CHAT_DRAG_TYPE, readDraggedChat } from "./chatDrag.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
-import { readDraft, writeDraft } from "./drafts.js";
+import { moveDraft, readDraft, writeDraft } from "./drafts.js";
 import { EffortSlider } from "./EffortSlider.js";
 import { FileBadge } from "./FileBadge.js";
 import { type MentionOption, useMentionPicker } from "./MentionPicker.js";
@@ -236,8 +236,13 @@ export function Composer({
   peopleItems?: readonly Exclude<MenuEntry, "separator">[] | undefined;
 }) {
   const [draft, setDraft] = useState(() => (draftKey ? readDraft(draftKey) : ""));
+  const savedUnder = useRef(draftKey);
   useEffect(() => {
-    if (draftKey) writeDraft(draftKey, draft);
+    const previous = savedUnder.current;
+    savedUnder.current = draftKey;
+    if (!draftKey) return;
+    if (previous && previous !== draftKey) moveDraft(previous, draftKey, draft);
+    else writeDraft(draftKey, draft);
   }, [draftKey, draft]);
   const [images, setImages] = useState<Draft[]>([]);
   const [error, setError] = useState<string>();

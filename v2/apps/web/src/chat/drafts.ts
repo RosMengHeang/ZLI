@@ -46,6 +46,16 @@ export function writeDraft(key: string, text: string): void {
   save(map);
 }
 
+/**
+ * Moves a draft to a new key, as when a chat's session id arrives after its first message. The text in the
+ * box wins; the old key is dropped only when it still holds that same text, so another chat's draft is safe.
+ */
+export function moveDraft(from: string, to: string, text: string): void {
+  if (from === to) return;
+  if (readDraft(from) === text) writeDraft(from, "");
+  writeDraft(to, text);
+}
+
 /** Forgets every draft in memory, so tests start clean. */
 export function resetDraftsForTests(): void {
   drafts = undefined;
