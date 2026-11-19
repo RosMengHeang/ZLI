@@ -86,8 +86,11 @@ export function BuddyList({
   const byId = new Map(team.map((buddy) => [buddy.buddyId, buddy]));
   const drop = (targetId: string) => {
     if (!dragged || dragged === targetId) return;
-    const ids = team.map((buddy) => buddy.buddyId).filter((id) => id !== dragged);
-    ids.splice(ids.indexOf(targetId), 0, dragged);
+    const order = team.map((buddy) => buddy.buddyId);
+    // Dragged down, it lands after the row it was dropped on; dragged up, before it.
+    const movingDown = order.indexOf(dragged) < order.indexOf(targetId);
+    const ids = order.filter((id) => id !== dragged);
+    ids.splice(ids.indexOf(targetId) + (movingDown ? 1 : 0), 0, dragged);
     setDragged(undefined);
     void run({ type: "buddy.reorder", buddyIds: ids });
   };
