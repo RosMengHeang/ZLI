@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
-import { stableId, TaskReactor, type TaskReactorOptions } from "./TaskReactor.js";
+import { budgetReserved, stableId, TaskReactor, type TaskReactorOptions } from "./TaskReactor.js";
 
 const environment: EnvironmentDescriptor = {
   environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000001"),
@@ -450,5 +450,29 @@ describe("TaskReactor take over", () => {
     expect(state.tasks?.find((task) => task.taskId === "t1")?.status).toBe("working");
     // The note went to its chat as a new turn: the chat was idle while the person drove, and works again.
     expect(state.threads.find((thread) => thread.threadId === threadId)?.status).toBe("working");
+  });
+});
+
+describe("budgetReserved", () => {
+  const now = new Date("2026-11-19T12:00:00.000Z");
+  const buddy = { buddyId: "b1", budgetUsd: 10 } as never;
+  const finished = (taskId: string, costUsd: number) => ({
+    taskId,
+    buddyId: "b1",
+    updatedAt: "2026-11-19T10:00:00.000Z",
+    endedAt: "2026-11-19T10:00:00.000Z",
+    result: { costUsd },
+  });
+  it("counts running jobs at the week's average cost, so jobs side by side do not overshoot together", () => {
+    const state = { tasks: [finished("t1", 4)] } as unknown as RuntimeProjection;
+    // 4 spent; one running job at about 4 leaves room, a second running one would reach 12.
+    expect(budgetReserved(state, buddy, 1, now)).toBe(false);
+    expect(budgetReserved(state, buddy, 2, now)).toBe(true);
+  });
+  it("holds nothing back with no running jobs, no budget, or no history", () => {
+    const state = { tasks: [finished("t1", 4)] } as unknown as RuntimeProjection;
+    expect(budgetReserved(state, buddy, 0, now)).toBe(false);
+    expect(budgetReserved(state, { buddyId: "b1" } as never, 3, now)).toBe(false);
+    expect(budgetReserved({ tasks: [] } as unknown as RuntimeProjection, buddy, 3, now)).toBe(false);
   });
 });
