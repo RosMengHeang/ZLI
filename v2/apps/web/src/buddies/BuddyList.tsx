@@ -19,6 +19,7 @@ import { Menu, type MenuRequest } from "../ui/Menu.js";
 import { buddyMood, TeamSettingsDialog } from "./BuddiesPane.js";
 import { ConnectedAppsDialog } from "./ConnectedAppsDialog.js";
 import { NewBuddyDialog } from "./NewBuddyDialog.js";
+import { TEAM_CHAT_ID } from "./TeamChat.js";
 import { moveBuddy } from "./team.js";
 import type { Run } from "./useRun.js";
 
@@ -168,6 +169,21 @@ export function BuddyList({
                 ? "Paused"
                 : `${openJobs} job${openJobs === 1 ? "" : "s"} open${waiting.length > 0 ? ` · ${waiting.length} need${waiting.length === 1 ? "s" : ""} you` : ""}`}
             </span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className={`buddy-list-row is-board${selectedId === TEAM_CHAT_ID ? " is-active" : ""}`}
+          aria-current={selectedId === TEAM_CHAT_ID ? "page" : undefined}
+          onClick={() => onSelect(TEAM_CHAT_ID)}
+        >
+          <span className="buddy-list-board" aria-hidden="true">
+            <Icon name="message" size={18} />
+          </span>
+          <span className="buddy-list-text">
+            <span className="buddy-list-name">Team chat</span>
+            <span className="buddy-list-line">@mention buddies to bring them in</span>
           </span>
         </button>
 
