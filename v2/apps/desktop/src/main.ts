@@ -34,13 +34,13 @@ import {
   ipcMain,
   net,
   protocol,
+  safeStorage,
   screen,
   session,
   shell,
   WebContentsView,
 } from "electron";
 import { WebSocket } from "ws";
-
 import {
   type AgentControlHost,
   createAgentControlActions,
@@ -85,6 +85,7 @@ import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDae
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal } from "./security/NavigationPolicy.js";
+import { SECRETS_KEY_ENV, secretsKey } from "./security/secretsKey.js";
 import { writeJsonFile } from "./storage/writeJsonFile.js";
 import { createElectronTray } from "./tray/electronTray.js";
 import { TrayController } from "./tray/TrayController.js";
@@ -191,11 +192,18 @@ async function main(): Promise<void> {
     endpointPath: daemonEndpointPath,
   });
   const browserToolPaths = await startBrowserControl(databasePath);
+  // The runtime seals secrets on disk (the Composio key) with a key the OS keychain keeps.
+  const sealingKey = secretsKey(join(dirname(databasePath), "secrets-key.bin"), {
+    available: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (text) => safeStorage.encryptString(text),
+    decrypt: (sealed) => safeStorage.decryptString(sealed),
+  });
   environment = new EnvironmentProcess({
     serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
     databasePath,
     extraEnv: {
       ...browserToolEnvironment(browserToolPaths),
+      ...(sealingKey ? { [SECRETS_KEY_ENV]: sealingKey } : {}),
       // Test and development launches must leave the user's real agent settings alone.
       ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
     },

@@ -3,10 +3,10 @@ import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
 
 import {
+  MCP_SERVER_NAME_PATTERN,
   type McpImportApp,
   type McpImportCandidate,
   type McpImportResult,
-  MCP_SERVER_NAME_PATTERN,
   McpServerConfig,
   RESERVED_MCP_SERVER_NAMES,
 } from "@zli-v2/contracts";

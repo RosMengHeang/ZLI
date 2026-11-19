@@ -16,6 +16,7 @@ import {
   type CheckpointCommand,
   ClientWireMessage,
   CommandId,
+  type ConnectedAppsStatus,
   type EnvironmentDescriptor,
   FILE_COMMAND_TYPES,
   type FileCommand,
@@ -31,12 +32,12 @@ import {
   type HistoryCommand,
   ISSUE_COMMAND_TYPES,
   type IssueCommand,
+  isAppDraft,
   LIMITS_COMMAND_TYPES,
   type LimitsCommand,
   type ListedProviderKind,
   MCP_COMMAND_TYPES,
   type McpCommand,
-  type ConnectedAppsStatus,
   type McpImportResult,
   type McpListResult,
   type McpServerConfig,
@@ -978,14 +979,18 @@ export class RpcServer {
             });
             return;
           }
+          // An app card runs in the person's apps when answered, so only ZLI's own relay makes one: a client
+          // (or a program holding the daemon token) cannot plant a card and then answer it.
           const scopeError =
-            request.command.type === "huddle.create" || request.command.type === "huddle.join"
-              ? huddleScopeError(
-                  await this.engine.projection(),
-                  request.command,
-                  this.mcpServers?.list().agentScope ?? "project",
-                )
-              : undefined;
+            request.command.type === "thread.request" && isAppDraft(request.command.request.requestId)
+              ? "App cards come only from ZLI's connected apps relay."
+              : request.command.type === "huddle.create" || request.command.type === "huddle.join"
+                ? huddleScopeError(
+                    await this.engine.projection(),
+                    request.command,
+                    this.mcpServers?.list().agentScope ?? "project",
+                  )
+                : undefined;
           if (scopeError) {
             send(client, {
               type: "response",

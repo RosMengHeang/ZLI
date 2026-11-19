@@ -312,6 +312,31 @@ describe("ProviderReactor", () => {
     expect(await run("supervised", true, { toolName: "mcp__composio__COMPOSIO_SEARCH_TOOLS" })).toMatchObject({
       decisions: [{ approved: true }],
     });
+    // The person's apps: reading goes ahead once, never for the rest of the chat.
+    const read = await run("full-access", true, {
+      serverName: "composio",
+      _meta: {
+        tool_name: "COMPOSIO_MULTI_EXECUTE_TOOL",
+        tool_params: { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS" }] },
+      },
+    });
+    expect(read).toMatchObject({ decisions: [{ approved: true }], requests: [] });
+    expect(read.decisions[0]).not.toHaveProperty("scope");
+    // Sending from them too reaches ZLI's relay, once: the relay asks the person, so the agent's own prompt does not.
+    for (const payload of [
+      {
+        serverName: "composio",
+        _meta: {
+          tool_name: "COMPOSIO_MULTI_EXECUTE_TOOL",
+          tool_params: { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS" }, { tool_slug: "GMAIL_SEND_EMAIL" }] },
+        },
+      },
+      { toolName: "mcp__composio__COMPOSIO_REMOTE_WORKBENCH", input: { code_to_execute: "print(1)" } },
+    ]) {
+      const send = await run("supervised", true, payload);
+      expect(send).toMatchObject({ decisions: [{ approved: true }], requests: [] });
+      expect(send.decisions[0]).not.toHaveProperty("scope");
+    }
     // Anything else waits for the person, who answers it on a card in the buddy's chat.
     const command = await run("supervised", true, { command: "rm -rf build" });
     expect(command.decisions).toEqual([]);
@@ -322,6 +347,117 @@ describe("ProviderReactor", () => {
     expect(own.decisions).toEqual([]);
     expect(own.requests).toEqual([expect.objectContaining({ requestId: "ask-1" })]);
     expect(own.status).toBe("waiting");
+  });
+
+  it("holds an app action as a card that outlives the turn, and runs it with the person's edits on Send", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const ran: { tool: string; params: Record<string, unknown> | undefined }[] = [];
+    const reactor = new ProviderReactor(engine, service, undefined, {
+      runApps: async (tool, params) => {
+        ran.push({ tool, params });
+        return { ok: true, text: "{}" };
+      },
+    });
+    let n = 0;
+    const dispatch = (command: Record<string, unknown>) => {
+      n += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`10000000-0000-4000-8000-0000000008${String(n).padStart(2, "0")}`),
+        command: command as never,
+      });
+    };
+    await dispatch({ type: "project.register", path: "/workspace/apps" });
+    const projectId = ProjectId.parse((await engine.projection()).projects[0]?.projectId);
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId,
+      path: "/workspace/apps-tree",
+      workspaceRoot: "/workspace",
+      branch: "feature/apps",
+    });
+    await dispatch({ type: "thread.start", threadId, worktreeId, provider: "codex", cwd: "/workspace/apps-tree" });
+    await reactor.waitForIdle();
+    // A chat that is not working has nobody to show it to: refused at once.
+    expect(await reactor.askAppAction({ worktreeId: "someone-else", tool: "GMAIL_SEND_EMAIL" })).toMatchObject({
+      allowed: false,
+    });
+    await dispatch({ type: "thread.status", threadId, status: "working" });
+    const email = (body: string) => ({
+      worktreeId,
+      tool: "COMPOSIO_MULTI_EXECUTE_TOOL",
+      params: {
+        tools: [{ tool_slug: "GMAIL_SEND_EMAIL", arguments: { recipient_email: "a@b.co", subject: "Hi", body } }],
+      },
+    });
+    const drafts = async () =>
+      ((await engine.projection()).requests ?? []).filter((entry) => entry.requestId.startsWith("apps-"));
+
+    // The agent hears at once that the person has it, so it never waits on a card.
+    expect(await reactor.askAppAction(email("first"))).toMatchObject({
+      held: true,
+      reason: expect.stringContaining("draft"),
+    });
+    // A revised draft replaces the open one.
+    await reactor.askAppAction(email("second"));
+    expect(await drafts()).toHaveLength(1);
+    expect((await drafts())[0]?.payload).toMatchObject({
+      kind: "app-action",
+      apps: "Gmail",
+      email: { to: "a@b.co", subject: "Hi", body: "second" },
+    });
+    // The turn ends: the card stays, and the chat is free for the next message.
+    await dispatch({ type: "thread.status", threadId, status: "idle" });
+    const [card] = await drafts();
+    expect(card).toBeDefined();
+    expect((await engine.projection()).threads[0]?.status).toBe("idle");
+
+    // Send with the person's edits: ZLI runs it, with only the email's lines changed.
+    await dispatch({
+      type: "thread.respond",
+      threadId,
+      requestId: card?.requestId,
+      decision: { approved: true, edits: { to: "c@d.co", cc: "e@f.co", subject: "Hello", body: "edited" } },
+    });
+    await reactor.waitForIdle();
+    expect(ran).toEqual([
+      {
+        tool: "COMPOSIO_MULTI_EXECUTE_TOOL",
+        params: {
+          tools: [
+            {
+              tool_slug: "GMAIL_SEND_EMAIL",
+              arguments: { recipient_email: "c@d.co", cc: ["e@f.co"], subject: "Hello", body: "edited" },
+            },
+          ],
+        },
+      },
+    ]);
+    expect(await drafts()).toEqual([]);
+
+    // Discard: nothing runs.
+    await dispatch({ type: "thread.status", threadId, status: "working" });
+    await reactor.askAppAction(email("third"));
+    const [discarded] = await drafts();
+    await dispatch({
+      type: "thread.respond",
+      threadId,
+      requestId: discarded?.requestId,
+      decision: { approved: false },
+    });
+    await reactor.waitForIdle();
+    expect(ran).toHaveLength(1);
+    expect(await drafts()).toEqual([]);
+    // The agent never hears about a card ZLI made.
+    expect(adapter.decisions).toEqual([]);
+    reactor.stop();
+    await service.stopAll();
+    service.dispose();
   });
 
   it("turns durable thread intents into provider sessions and projected messages", async () => {

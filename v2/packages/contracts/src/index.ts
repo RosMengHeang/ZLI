@@ -5,6 +5,7 @@ export * from "./agentSettings.js";
 export * from "./browser.js";
 export * from "./buddies.js";
 export * from "./checkpoints.js";
+export * from "./connectedAppsCatalog.js";
 export * from "./devServers.js";
 export * from "./diagnostics.js";
 export * from "./events.js";

@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import {
+  APP_DRAFT_PREFIX,
   CommandId,
+  isAppDraft,
   type ListedProviderKind,
   MAX_REASONING_TEXT,
   ProviderKind,
@@ -11,12 +13,14 @@ import {
   type ThreadProjection,
   TurnId,
 } from "@zli-v2/contracts";
-
-import type { TurnCheckpoints, TurnStart } from "../checkpoints/TurnCheckpoints.js";
-import type { Engine } from "../orchestration/Engine.js";
 import { AGENT_MCP_SERVER, BROWSER_MCP_SERVER, MOBILE_MCP_SERVER } from "../browser-tool/browserTool.js";
+import type { TurnCheckpoints, TurnStart } from "../checkpoints/TurnCheckpoints.js";
+import type { AppsCall, AppsRunResult, AppsVerdict } from "../mcp/AppsProxy.js";
+import { appsCallEmail, describeAppsCall, withEmailEdits } from "../mcp/appsPolicy.js";
 import { CONNECTED_APPS_SERVER } from "../mcp/ConnectedApps.js";
+import type { Engine } from "../orchestration/Engine.js";
 import { trustedProject } from "../terminal/agentTrust.js";
+import { approvalAllowed } from "./ClaudeCodeProviderAdapter.js";
 import type {
   ProviderAccount,
   ProviderEvent,
@@ -104,7 +108,11 @@ export class ProviderReactor {
     private readonly engine: Engine,
     private readonly service: ProviderService,
     private readonly checkpoints?: Pick<TurnCheckpoints, "capture" | "record">,
-    private readonly options: { resolveAccount?: ThreadAccountResolver } = {},
+    private readonly options: {
+      resolveAccount?: ThreadAccountResolver;
+      /** Runs an app call the person sent from its card, with the saved key. */
+      runApps?: (tool: string, params: Record<string, unknown> | undefined) => Promise<AppsRunResult>;
+    } = {},
   ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
     this.unsubscribeProvider = service.subscribe((event) => this.onProviderEvent(event));
@@ -137,7 +145,9 @@ export class ProviderReactor {
       if (!LIVE_STATUSES.has(thread.status)) {
         // Older runs could end a chat without closing its requests, which left the chat stuck.
         for (const request of projection.requests ?? []) {
-          if (request.threadId === thread.threadId) await this.dropRequest(thread.threadId, request.requestId);
+          // An app card is ZLI's own and runs without the agent, so it outlives the session.
+          if (request.threadId === thread.threadId && !isAppDraft(request.requestId))
+            await this.dropRequest(thread.threadId, request.requestId);
         }
         continue;
       }
@@ -724,6 +734,12 @@ export class ProviderReactor {
   private async approval(threadId: string, requestId: string, payload: Record<string, unknown>): Promise<void> {
     await this.request(threadId, "approval", requestId, payload);
     const thread = (await this.engine.projection()).threads.find((candidate) => candidate.threadId === threadId);
+    // The person's apps: ZLI's relay judges every call itself and asks the person about anything that changes
+    // something, for every agent and even from a shell, so the agent's own prompt only lets the call reach it, once.
+    if (thread?.unattended && requestServer(payload) === CONNECTED_APPS_SERVER) {
+      await this.respond(threadId, requestId, { approved: true });
+      return;
+    }
     if (
       thread?.unattended &&
       ((thread.permissionMode ?? "full-access") === "full-access" || OWN_TOOL_SERVERS.has(requestServer(payload) ?? ""))
@@ -734,7 +750,116 @@ export class ProviderReactor {
     await this.status(threadId, "waiting");
   }
 
+  /**
+   * The relay holds a call that changes something in the person's apps: it becomes a card in the chat that made
+   * it (the worktree's working chat, newest first), and the agent is told at once that it waits on the person.
+   * The card stays until they send or discard it, after the agent's turn too; ZLI then runs the call itself. A new
+   * card from the same chat replaces an older one still open, so an agent that revises a draft leaves one card.
+   */
+  async askAppAction(call: AppsCall): Promise<AppsVerdict> {
+    const projection = await this.engine.projection();
+    const thread = projection.threads
+      .filter((candidate) => candidate.worktreeId === call.worktreeId && !this.deleted.has(candidate.threadId))
+      .filter((candidate) => ["working", "starting", "waiting"].includes(candidate.status))
+      .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
+    if (!thread) return { allowed: false, reason: APP_ACTION_NO_CHAT };
+    const buddy = (projection.buddies ?? []).find(
+      (entry) =>
+        entry.chatThreadId === thread.threadId ||
+        entry.home?.worktreeId === call.worktreeId ||
+        (projection.tasks ?? []).some((task) => task.buddyId === entry.buddyId && task.worktreeId === call.worktreeId),
+    );
+    for (const open of projection.requests ?? [])
+      if (open.threadId === thread.threadId && isAppDraft(open.requestId))
+        await this.dropRequest(thread.threadId, open.requestId);
+    const what = describeAppsCall(call.tool, call.params);
+    const email = appsCallEmail(call.tool, call.params);
+    const requestId = `${APP_DRAFT_PREFIX}${randomUUID()}`;
+    await this.request(thread.threadId, "approval", requestId, {
+      kind: "app-action",
+      title: `${buddy?.name ?? "Your agent"} wants to act in ${what.apps}`,
+      apps: what.apps,
+      actions: what.actions,
+      ...(what.details && what.details !== "{}" ? { details: what.details } : {}),
+      ...(buddy ? { buddyId: buddy.buddyId } : {}),
+      ...(email ? { email } : {}),
+      // What ZLI runs when the person sends it; the card can change only the email's lines.
+      call: { tool: call.tool, ...(call.params ? { params: call.params } : {}) },
+    });
+    return { held: true, reason: email ? APP_ACTION_HELD_EMAIL : APP_ACTION_HELD };
+  }
+
+  /** The person sent or discarded an app card: ZLI runs it (with their changes) and says how it went in the chat. */
+  private async answerAppDraft(threadId: string, requestId: string, decision: unknown): Promise<void> {
+    // A double click or a second window answers twice before the card closes: it runs once.
+    if (this.appAnswers.has(requestId)) return;
+    this.appAnswers.add(requestId);
+    try {
+      await this.runAppDraft(threadId, requestId, decision);
+    } finally {
+      this.appAnswers.delete(requestId);
+    }
+  }
+
+  private readonly appAnswers = new Set<string>();
+
+  private async runAppDraft(threadId: string, requestId: string, decision: unknown): Promise<void> {
+    const projection = await this.engine.projection();
+    const open = (projection.requests ?? []).find((request) => request.requestId === requestId);
+    const payload = (open?.payload ?? {}) as {
+      kind?: unknown;
+      buddyId?: unknown;
+      apps?: unknown;
+      call?: { tool?: unknown; params?: unknown };
+    };
+    if (!open || payload.kind !== "app-action") return;
+    await this.dropRequest(threadId, requestId);
+    const buddyId = typeof payload.buddyId === "string" ? payload.buddyId : undefined;
+    const apps = typeof payload.apps === "string" ? payload.apps : "your apps";
+    const tool = typeof payload.call?.tool === "string" ? payload.call.tool : "";
+    const stored = payload.call?.params;
+    const params =
+      typeof stored === "object" && stored !== null && !Array.isArray(stored)
+        ? (stored as Record<string, unknown>)
+        : undefined;
+    if (!approvalAllowed(decision) || !tool) {
+      await this.appOutcome(buddyId, "Discarded. Nothing was sent.");
+      return;
+    }
+    const edits = (decision as { edits?: unknown }).edits;
+    const final = edits === undefined ? params : withEmailEdits(tool, params, edits);
+    if (!final) {
+      await this.appOutcome(buddyId, "Not sent: the email needs one valid address in To.");
+      return;
+    }
+    const result = this.options.runApps
+      ? await this.options.runApps(tool, final).catch(() => ({ ok: false, text: "ZLI could not run it." }))
+      : { ok: false, text: "Connected apps are not running in ZLI." };
+    const email = appsCallEmail(tool, final);
+    const done = email ? `Sent to **${email.to}**${email.subject ? `: “${email.subject}”` : ""}.` : `Done in ${apps}.`;
+    await this.appOutcome(
+      buddyId,
+      result.ok ? done : `That didn't go through in ${apps}: ${result.text.slice(0, 300) || "no reason given"}.`,
+    );
+  }
+
+  /** The outcome of an app card, as a line from the buddy, so the chat and the buddy's history both show it. */
+  private async appOutcome(buddyId: string | undefined, text: string): Promise<void> {
+    if (!buddyId) return;
+    await this.engine
+      .dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: { type: "buddy.chat.reply", buddyId, messageId: randomUUID(), text },
+      } as Parameters<Engine["dispatchPromise"]>[0])
+      .catch(() => undefined);
+  }
+
   private async respond(threadId: string, requestId: string, decision: unknown): Promise<void> {
+    if (isAppDraft(requestId)) {
+      await this.answerAppDraft(threadId, requestId, decision);
+      return;
+    }
     try {
       await this.service.respondToRequest({ threadId: ThreadId.parse(threadId), requestId, decision });
       await this.resolveRequest(threadId, requestId);
@@ -795,7 +920,9 @@ export class ProviderReactor {
       // Already closed because the turn ended first, so the thread's status is already right.
       if (!resolved) return;
       const projection = await this.engine.projection();
-      const stillWaiting = (projection.requests ?? []).some((request) => request.threadId === threadId);
+      const stillWaiting = (projection.requests ?? []).some(
+        (request) => request.threadId === threadId && !isAppDraft(request.requestId),
+      );
       await this.status(threadId, stillWaiting ? "waiting" : "working");
     });
   }
@@ -928,6 +1055,17 @@ function safeTurnId(value: string): TurnId {
 }
 
 /** The tool servers ZLI itself gives every agent: the browser, ZLI's own tools, the phone, connected apps. */
+const APP_ACTION_HELD =
+  "Not done yet: ZLI showed this to the person as a card in the chat, and it runs when they press Send there (ZLI " +
+  "runs it, so don't call it again or wait for it). End your turn now with one short line saying it is ready for " +
+  "them to check. If they ask for changes, make the call again with the changes; the new card replaces this one.";
+const APP_ACTION_HELD_EMAIL =
+  "Not sent yet: ZLI showed this email to the person as a draft card in the chat, where they can edit it and press " +
+  "Send (ZLI sends it, so don't call it again or wait for it). End your turn now with one short line saying the " +
+  "draft is ready for them. If they ask for changes, make the call again with the changes; the new draft replaces this one.";
+const APP_ACTION_NO_CHAT =
+  "This was not done: it changes something in the person's apps, and there is no open chat to ask them in. Don't retry.";
+
 const OWN_TOOL_SERVERS = new Set<string>([
   BROWSER_MCP_SERVER,
   AGENT_MCP_SERVER,

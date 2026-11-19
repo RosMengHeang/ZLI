@@ -1,10 +1,11 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import { readdir, readFile, rm } from "node:fs/promises";
 import { dirname, join, posix, win32 } from "node:path";
 
 import {
-  type ConnectedAppsStatus,
   AgentToolAccess,
   AgentToolScope,
+  type ConnectedAppsStatus,
   DEFAULT_AGENT_TOOL_ACCESS,
   DEFAULT_AGENT_TOOL_SCOPE,
   isHttpServer,
@@ -31,7 +32,8 @@ import { freshAccessToken, markSignInExpired } from "./signIn/tokenFile.js";
 export type ConnectTool = { command: string; script: string };
 
 /** Where an agent is about to start. Servers limited to some projects reach only agents in those projects. */
-export type McpSpecContext = { projectPath?: string };
+/** `worktreeId`: whose agent this is, so the connected apps' relay knows whose calls they are. */
+export type McpSpecContext = { projectPath?: string; worktreeId?: string };
 
 /** A request about a server that cannot be done as asked, worth showing the person as is. */
 export class McpRequestError extends Error {}
@@ -203,7 +205,12 @@ export class McpServerStore {
     try {
       text = await readFile(this.options.path, "utf8");
     } catch (error) {
-      if (isNotFound(error)) return;
+      // No list of the person's own yet: the apps' and plugins' bridge files are still rewritten, so none left
+      // from an earlier run (an old key or address) stays on disk.
+      if (isNotFound(error)) {
+        await this.writeBridgeFiles();
+        return;
+      }
       this.problem = "The saved MCP server list could not be read.";
       return;
     }
@@ -235,10 +242,41 @@ export class McpServerStore {
    * when `projectPath` is one of them, so without a project they are left out.
    */
   specs(context: McpSpecContext = {}): McpServerSpec[] {
+    const apps = context.worktreeId ? this.appsServerFor(context.worktreeId) : undefined;
     return [
       ...this.servers.filter((server) => server.enabled && serverInProject(server, context.projectPath)),
-      ...this.extraServers(),
-    ].map((server) => mcpLaunchSpec(server, this.launchOptions(server)));
+      ...this.extraServers().map((server) => (apps && server.name === apps.server.name ? apps.server : server)),
+    ].map((server) =>
+      mcpLaunchSpec(
+        server,
+        apps && server === apps.server
+          ? { ...this.launchOptions(server), headerFile: apps.headerFile }
+          : this.launchOptions(server),
+      ),
+    );
+  }
+
+  /** Paths of the per-worktree header files written this run, which the bridge-file cleanup keeps. */
+  private readonly worktreeHeaderFiles = new Set<string>();
+
+  /**
+   * The connected apps' server as one worktree's agent gets it: the relay's address with that worktree's own token,
+   * in a header file of its own, so the relay knows whose call it is and asks in the right chat.
+   */
+  private appsServerFor(worktreeId: string): { server: McpServerConfig; headerFile: string } | undefined {
+    const server = this.options.apps?.server(worktreeId);
+    if (!server || !isHttpServer(server) || !hasHeaders(server)) return undefined;
+    if (this.servers.some((own) => own.name.toLowerCase() === server.name.toLowerCase())) return undefined;
+    const safeId = worktreeId.replace(/[^A-Za-z0-9_-]/gu, "_").slice(0, 80);
+    const headerFile = this.headerFile(`${server.name}.${safeId}`);
+    try {
+      mkdirSync(this.bridgeDir(), { recursive: true });
+      writeFileSync(headerFile, mcpRemoteHeaderFile(server.headers), { mode: 0o600 });
+      this.worktreeHeaderFiles.add(headerFile);
+    } catch {
+      return undefined;
+    }
+    return { server, headerFile };
   }
 
   private launchOptions(server: McpServerConfig): McpLaunchOptions {
@@ -566,7 +604,9 @@ export class McpServerStore {
     } catch {
       return;
     }
-    const keep = new Set([...wanted.keys()].map((path) => path.slice(this.bridgeDir().length + 1)));
+    const keep = new Set(
+      [...wanted.keys(), ...this.worktreeHeaderFiles].map((path) => path.slice(this.bridgeDir().length + 1)),
+    );
     for (const name of names) {
       if (!BRIDGE_FILE_SUFFIXES.some((suffix) => name.endsWith(suffix)) || keep.has(name)) continue;
       await rm(join(this.bridgeDir(), name), { force: true }).catch(() => undefined);

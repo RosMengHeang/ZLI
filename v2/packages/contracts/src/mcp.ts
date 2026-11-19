@@ -190,8 +190,13 @@ export const ConnectedAppAccount = z.object({
 export type ConnectedAppAccount = z.infer<typeof ConnectedAppAccount>;
 
 export const ConnectedAppsStatus = z.object({
-  /** A Composio project key is saved. */
+  /** A Composio key is saved. */
   configured: z.boolean(),
+  /**
+   * project: an ak_ project key; ZLI lists the accounts and makes the sign-in links. connect: a ck_ key from
+   * Composio Connect; Composio keeps the apps, and agents send sign-in links when an app is not connected yet.
+   */
+  via: z.enum(["project", "connect"]).optional(),
   accounts: z.array(ConnectedAppAccount),
   /** Why the accounts could not be listed. */
   problem: z.string().optional(),

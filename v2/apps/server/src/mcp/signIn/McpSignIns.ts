@@ -21,8 +21,8 @@ import {
   type OAuthClient,
   randomState,
   registerClient,
-  SignInError,
   type SignInDiscovery,
+  SignInError,
   tokenRequest,
 } from "./oauth.js";
 import { readSignIn, type SignInMethod, type StoredSignIn, signInUsable, writeSignIn } from "./tokenFile.js";

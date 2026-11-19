@@ -7,6 +7,7 @@ import {
   type BuddyEvent,
   HuddleCommand,
   type HuddleEvent,
+  isAppDraft,
   isBuddyCommand,
   type PermissionMode,
   ProjectId,
@@ -938,7 +939,10 @@ function queuedFor(projection: RuntimeProjection, threadId: string): ThreadQueue
 /** An agent takes its next message only between turns, with nothing waiting on the person. */
 function readyForNext(projection: RuntimeProjection, thread: ThreadProjection): boolean {
   return (
-    thread.status === "idle" && !(projection.requests ?? []).some((request) => request.threadId === thread.threadId)
+    thread.status === "idle" &&
+    !(projection.requests ?? []).some(
+      (request) => request.threadId === thread.threadId && !isAppDraft(request.requestId),
+    )
   );
 }
 
@@ -952,8 +956,9 @@ function expiredRequests(
   status: ThreadProjection["status"],
 ): DomainDecision[] {
   if (status === "working" || status === "waiting") return [];
+  // An app card is ZLI's own: it runs without the agent, so it stays until the person sends or discards it.
   return (projection.requests ?? [])
-    .filter((request) => request.threadId === threadId)
+    .filter((request) => request.threadId === threadId && !isAppDraft(request.requestId))
     .map((request): DomainDecision => ({ type: "thread.request.resolved", threadId, requestId: request.requestId }));
 }
 

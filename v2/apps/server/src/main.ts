@@ -43,6 +43,7 @@ import { GitLabIssues } from "./issues/GitLabIssues.js";
 import { LinearIssues } from "./issues/LinearIssues.js";
 import { type LimitTarget, mockLimitRead, PlanLimits } from "./limits/PlanLimits.js";
 import { planLimitReader } from "./limits/readers.js";
+import { AppsProxy } from "./mcp/AppsProxy.js";
 import { ConnectedApps } from "./mcp/ConnectedApps.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
 import { GITHUB_OAUTH_CLIENT_ID } from "./mcp/signIn/github.js";
@@ -59,6 +60,7 @@ import { UsageLimitResumer } from "./providers/UsageLimitResumer.js";
 import { ReviewReactor } from "./review/ReviewReactor.js";
 import { ReviewService } from "./review/ReviewService.js";
 import { RpcServer } from "./rpc/Server.js";
+import { SecretBox } from "./secrets/SecretBox.js";
 import { SkillStore } from "./skills/SkillStore.js";
 import { type SkillCopyTarget, syncSkillCopies, worktreeRootOf, worktreeSkillDirs } from "./skills/skillCopies.js";
 import { RemotePtyFactory } from "./terminal/RemotePtyFactory.js";
@@ -174,7 +176,20 @@ export async function startRuntime(options: {
     githubClientId: process.env.ZLI_GITHUB_CLIENT_ID?.trim() || GITHUB_OAUTH_CLIENT_ID,
   });
   await signIns.load();
-  const connectedApps = new ConnectedApps({ path: join(dirname(databasePath), "connected-apps.json") });
+  // The desktop app's keychain-held key seals secrets on disk; taken out of the environment so no agent inherits it.
+  const secrets = SecretBox.fromEnvironment();
+  // Agents reach Composio through a local stand-in that adds the key, so no agent ever holds the key.
+  const appsProxy: AppsProxy = new AppsProxy({
+    upstream: () => connectedApps.upstream(),
+    // Anything that changes something in the person's apps waits for their answer on a card in the calling chat.
+    decide: (call) => providerReactor.askAppAction(call),
+  });
+  await appsProxy.start().catch(() => undefined);
+  const connectedApps: ConnectedApps = new ConnectedApps({
+    path: join(dirname(databasePath), "connected-apps.json"),
+    proxy: appsProxy,
+    ...(secrets ? { box: secrets } : {}),
+  });
   await connectedApps.load();
   const mcpServers: McpServerStore = new McpServerStore({
     path: join(dirname(databasePath), "mcp-servers.json"),
@@ -247,7 +262,7 @@ export async function startRuntime(options: {
   const mcpOptions = {
     mcpServers: async ({ worktreeId }: McpServerContext): Promise<McpServerSpec[]> => {
       const projectPath = await projectPathFor(worktreeId).catch(() => undefined);
-      return mcpServers.specs(projectPath ? { projectPath } : {});
+      return mcpServers.specs({ ...(projectPath ? { projectPath } : {}), ...(worktreeId ? { worktreeId } : {}) });
     },
     mcpConfigDir,
   };
@@ -279,7 +294,11 @@ export async function startRuntime(options: {
     ...mcpOptions,
   });
   const checkpoints = new TurnCheckpoints(engine, new GitProcess({ maxOutputBytes: 4 * 1024 * 1024 }));
-  const providerReactor = new ProviderReactor(engine, providerService, checkpoints, { resolveAccount });
+  const providerReactor = new ProviderReactor(engine, providerService, checkpoints, {
+    resolveAccount,
+    // What the person sends from an app card, ZLI runs itself with the saved key.
+    runApps: (tool, params) => appsProxy.run(tool, params),
+  });
   const agentMessageReactor = new AgentMessageReactor(engine);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
@@ -457,6 +476,7 @@ export async function startRuntime(options: {
       worktreeSetup.stop();
       terminalReactor.stop();
       reviewReactor.stop();
+      await appsProxy.stop();
       providerReactor.stop();
       usageLimitResumer.stop();
       checkpoints.stop();
