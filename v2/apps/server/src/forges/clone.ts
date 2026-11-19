@@ -83,7 +83,8 @@ export async function cloneRepository(
 ): Promise<{ path: string }> {
   if (!isAbsolute(request.parent)) throw new CloneError("Choose the folder to clone into.");
   const target = await cloneTarget(request.source, request.forge, teaHosts);
-  const name = (request.name?.trim() || target.name).replace(/[\\/:*?"<>|]/gu, "-");
+  // Windows silently drops trailing dots and spaces, so the folder would not be where ZLI looks for it.
+  const name = (request.name?.trim() || target.name).replace(/[\\/:*?"<>|]/gu, "-").replace(/[. ]+$/u, "");
   if (!name || name === "." || name === "..") throw new CloneError("Give the folder a name.");
   const path = join(request.parent, name);
   const existing = await readdir(path).catch(() => undefined);

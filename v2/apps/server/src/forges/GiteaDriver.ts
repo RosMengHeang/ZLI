@@ -13,6 +13,8 @@ import {
 } from "./ForgeDriver.js";
 import { readTeaHosts } from "./remotes.js";
 
+const PAGE_SIZE = 50;
+const MAX_PAGES = 20;
 const FIELDS = "index,title,body,state,author,url,head,base,updated";
 /** Gitea marks a draft with a title prefix. */
 const DRAFT_PREFIX = /^(WIP:|\[WIP\])\s*/iu;
@@ -65,26 +67,35 @@ export class GiteaDriver implements ForgeDriver {
   }
 
   async view(cwd: string, branch: string): Promise<PullRequestInfo | undefined> {
-    const result = await this.cli.run(cwd, [
-      "pulls",
-      "list",
-      "--state",
-      "all",
-      "--limit",
-      "50",
-      "--fields",
-      FIELDS,
-      "--output",
-      "json",
-    ]);
-    if (result.code !== 0) throw new ForgeError(this.cli.failure("could not list the pull requests", result));
-    const list = parseJson(result.stdout);
-    if (!Array.isArray(list)) throw new ForgeError("tea returned pull requests ZLI could not read.");
+    // tea cannot filter by head branch, so pages are read until an open pull request from the branch
+    // turns up or the list ends. Stopping at the first page would miss an older one and let create
+    // open a duplicate.
+    const pulls: (PullRequestInfo & { head?: string | undefined })[] = [];
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const result = await this.cli.run(cwd, [
+        "pulls",
+        "list",
+        "--state",
+        "all",
+        "--limit",
+        String(PAGE_SIZE),
+        "--page",
+        String(page),
+        "--fields",
+        FIELDS,
+        "--output",
+        "json",
+      ]);
+      if (result.code !== 0) throw new ForgeError(this.cli.failure("could not list the pull requests", result));
+      const list = parseJson(result.stdout);
+      if (!Array.isArray(list)) throw new ForgeError("tea returned pull requests ZLI could not read.");
+      for (const entry of list) {
+        const pull = parseTeaPull(entry);
+        if (pull && pull.head === branch) pulls.push(pull);
+      }
+      if (pulls.some((pull) => pull.state === "OPEN") || list.length < PAGE_SIZE) break;
+    }
     // Newest first; an open one wins over an older closed one from the same branch.
-    const pulls = list.flatMap((entry) => {
-      const pull = parseTeaPull(entry);
-      return pull && pull.head === branch ? [pull] : [];
-    });
     const found = pulls.find((pull) => pull.state === "OPEN") ?? pulls[0];
     if (!found) return undefined;
     const { head: _head, ...pullRequest } = found;

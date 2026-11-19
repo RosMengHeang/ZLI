@@ -1,4 +1,5 @@
-import { readFile, realpath } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { access, readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -55,7 +56,9 @@ export async function agentFolderTrust(
       case "kimi":
         return { args: [], env: { KIMI_CODE_TRUST_WORKSPACE: "1" } };
       case "grok":
-        return { args: ["--trust"], env: {} };
+        // --trust also lets Grok start the servers in the folder's .grok/config.toml. A file the
+        // repository commits is not ZLI's, so Grok keeps asking before it starts those.
+        return (await repositoryTracks(options.cwd, GROK_CONFIG)) ? none : { args: ["--trust"], env: {} };
       case "claude-code": {
         // Claude Code also trusts a worktree whose main checkout is trusted.
         const folders = await variants(options.projectPath, options.platform ?? process.platform);
@@ -90,6 +93,23 @@ export async function agentFolderTrust(
   } catch {
     return none;
   }
+}
+
+const GROK_CONFIG = ".grok/config.toml";
+
+/** Whether git tracks `relPath` in `cwd`. A missing file counts as untracked; a git failure counts as tracked. */
+async function repositoryTracks(cwd: string, relPath: string): Promise<boolean> {
+  try {
+    await access(join(cwd, relPath));
+  } catch {
+    return false;
+  }
+  return new Promise((resolve) => {
+    execFile("git", ["ls-files", "--error-unmatch", "--", relPath], { cwd, windowsHide: true }, (error) =>
+      // git exits 1 for an untracked file; any other failure is treated as tracked.
+      resolve(error?.code !== 1),
+    );
+  });
 }
 
 function trustClaude(root: Record<string, unknown>, folders: readonly string[]): boolean {
