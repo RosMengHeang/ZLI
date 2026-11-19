@@ -34,7 +34,9 @@ function hello(options: { cancel?: boolean; available?: boolean; device?: string
     secret: async (challenge: Buffer) => {
       stub.asked += 1;
       if (options.cancel) return undefined;
-      return createHmac("sha256", options.device ?? "device").update(challenge).digest();
+      return createHmac("sha256", options.device ?? "device")
+        .update(challenge)
+        .digest();
     },
   };
   return stub;

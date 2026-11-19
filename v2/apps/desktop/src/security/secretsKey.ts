@@ -66,7 +66,12 @@ export type SealingResult = {
  * user is answering a prompt. If they cancel it is `locked`: never replaced, so the sealed secrets survive until the
  * next launch.
  */
-export async function secretsKey(path: string, codec: KeychainCodec, waitMs = KEYCHAIN_WAIT_MS, presence?: UserPresence): Promise<SealingResult> {
+export async function secretsKey(
+  path: string,
+  codec: KeychainCodec,
+  waitMs = KEYCHAIN_WAIT_MS,
+  presence?: UserPresence,
+): Promise<SealingResult> {
   const file = await readFile(path).catch(() => undefined);
   if (file && isPresenceSealed(file)) {
     const key = presence ? await openWithPresence(file, presence).catch(() => undefined) : undefined;
@@ -76,8 +81,8 @@ export async function secretsKey(path: string, codec: KeychainCodec, waitMs = KE
   const gaveUp = new Promise<{ slow: true }>((resolve) => {
     timer = setTimeout(() => resolve({ slow: true }), waitMs);
   });
-  const found = keyFrom(path, codec).then((key): SealingResult =>
-    key === UNSEALABLE ? { slow: true } : key ? { key } : { noKeychain: true },
+  const found = keyFrom(path, codec).then(
+    (key): SealingResult => (key === UNSEALABLE ? { slow: true } : key ? { key } : { noKeychain: true }),
   );
   return Promise.race([found, gaveUp]).finally(() => clearTimeout(timer));
 }

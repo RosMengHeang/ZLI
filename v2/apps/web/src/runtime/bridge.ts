@@ -227,7 +227,7 @@ export type MobileBridge = {
 /** "Unlock connected apps with Windows Hello": unsupported off Windows, unavailable when Hello isn't set up. */
 export type PresenceStatus = { status: "unsupported" | "unavailable" | "off" | "on"; error?: string };
 
-export type NotificationSettings ={ enabled: boolean; sound: boolean };
+export type NotificationSettings = { enabled: boolean; sound: boolean };
 
 /** A window or screen that can be attached as a picture. The thumbnail is a data URL. */
 export type CaptureSource = { id: string; name: string; kind: "window" | "screen"; thumbnail?: string };

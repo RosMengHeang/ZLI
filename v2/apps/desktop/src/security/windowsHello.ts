@@ -67,7 +67,9 @@ export function windowsHello(run: ScriptRunner = powershell): UserPresence {
       const out = await run("sign", challenge.toString("base64")).catch(() => "");
       if (!out.startsWith("ok:")) return undefined;
       // Hashed rather than used as is, so the wrapping key is a fixed size whatever the RSA key length.
-      return createHash("sha256").update(Buffer.from(out.slice(3), "base64")).digest();
+      return createHash("sha256")
+        .update(Buffer.from(out.slice(3), "base64"))
+        .digest();
     },
   };
 }

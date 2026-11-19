@@ -23,8 +23,7 @@ const keychain: KeychainCodec = {
 
 const hello = (options: { cancel?: boolean; available?: boolean } = {}): UserPresence => ({
   available: async () => options.available ?? true,
-  secret: async (challenge) =>
-    options.cancel ? undefined : createHmac("sha256", "device").update(challenge).digest(),
+  secret: async (challenge) => (options.cancel ? undefined : createHmac("sha256", "device").update(challenge).digest()),
 });
 
 async function setup(presence: UserPresence | undefined) {
@@ -64,7 +63,10 @@ describe("presence settings over IPC", () => {
 
   it("stays off with an error when the user cancels the Hello prompt", async () => {
     const { call } = await setup(hello({ cancel: true }));
-    expect(await call("on")).toEqual({ status: "off", error: "Windows Hello didn't confirm it was you, so this stays off." });
+    expect(await call("on")).toEqual({
+      status: "off",
+      error: "Windows Hello didn't confirm it was you, so this stays off.",
+    });
   });
 
   it("the preload keeps only the status and error", () => {

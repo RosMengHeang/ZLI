@@ -38,8 +38,7 @@ export function KeyAdvice({ onOpen }: { onOpen(link: string): void }) {
         </button>
       </span>
       <span>
-        For an ak_ key, make a scoped one with only Session management, Session tool execution and Connected
-        accounts.{" "}
+        For an ak_ key, make a scoped one with only Session management, Session tool execution and Connected accounts.{" "}
         <button type="button" className="apps-link" onClick={() => onOpen(SCOPED_KEY_PAGE)}>
           Scoped keys
           <Icon name="externalLink" size={11} />

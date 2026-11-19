@@ -58,7 +58,10 @@ describe("ConnectedAppsLock", () => {
   });
 
   it("stays off and says why when the Hello prompt is cancelled", async () => {
-    const bridge = security("off", { status: "off", error: "Windows Hello didn't confirm it was you, so this stays off." });
+    const bridge = security("off", {
+      status: "off",
+      error: "Windows Hello didn't confirm it was you, so this stays off.",
+    });
     await show(bridge);
     await act(async () => toggle()?.click());
     expect(toggle()?.checked).toBe(false);

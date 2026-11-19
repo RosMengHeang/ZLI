@@ -46,11 +46,13 @@ export async function sealWithPresence(key: string, presence: UserPresence): Pro
 
 /** The key inside a presence-sealed file, or undefined when the user cancels or the secret does not match. */
 export async function openWithPresence(file: Buffer, presence: UserPresence): Promise<string | undefined> {
-  let at = MAGIC.length;
-  const challenge = file.subarray(at, (at += CHALLENGE_BYTES));
-  const iv = file.subarray(at, (at += IV_BYTES));
-  const tag = file.subarray(at, (at += TAG_BYTES));
-  const sealed = file.subarray(at);
+  const ivAt = MAGIC.length + CHALLENGE_BYTES;
+  const tagAt = ivAt + IV_BYTES;
+  const sealedAt = tagAt + TAG_BYTES;
+  const challenge = file.subarray(MAGIC.length, ivAt);
+  const iv = file.subarray(ivAt, tagAt);
+  const tag = file.subarray(tagAt, sealedAt);
+  const sealed = file.subarray(sealedAt);
   const secret = await presence.secret(Buffer.from(challenge));
   if (!secret) return undefined;
   try {
