@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-const roots = ["../../../../packages/ui/src", ".."].map((dir) => fileURLToPath(new URL(dir, import.meta.url)));
+// Reads the styles from disk here because the web app itself may not import Node modules.
+const roots = ["../packages/ui/src", "../apps/web/src"].map((dir) => fileURLToPath(new URL(dir, import.meta.url)));
 
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
