@@ -17,6 +17,7 @@ import { IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuRequest } from "../ui/Menu.js";
 import { buddyMood, TeamSettingsDialog } from "./BuddiesPane.js";
+import { ConnectedAppsDialog } from "./ConnectedAppsDialog.js";
 import { NewBuddyDialog } from "./NewBuddyDialog.js";
 import type { Run } from "./useRun.js";
 
@@ -45,6 +46,7 @@ export function BuddyList({
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appsOpen, setAppsOpen] = useState(false);
   const [dragged, setDragged] = useState<string>();
   const [menu, setMenu] = useState<MenuRequest>();
   const [removing, setRemoving] = useState<BuddyProjection>();
@@ -226,9 +228,24 @@ export function BuddyList({
           {shown.length === 0 ? <p className="buddy-list-empty">No buddy by that name.</p> : null}
         </section>
       </div>
+      {/* Apps every buddy can use, at the foot of the list like a sidebar's settings. */}
+      <footer className="buddy-list-foot">
+        <button
+          type="button"
+          className="buddy-list-foot-btn"
+          title="Connected apps: Gmail, Slack, GitHub and more"
+          onClick={() => setAppsOpen(true)}
+        >
+          <span className="buddy-list-foot-icon" aria-hidden="true">
+            <Icon name="extensions" size={15} />
+          </span>
+          <span>Extensions</span>
+        </button>
+      </footer>
       {settingsOpen ? (
         <TeamSettingsDialog projection={projection} run={run} onClose={() => setSettingsOpen(false)} />
       ) : null}
+      {appsOpen ? <ConnectedAppsDialog onClose={() => setAppsOpen(false)} /> : null}
       {menu ? <Menu request={menu} onClose={() => setMenu(undefined)} /> : null}
       {removing ? (
         <ConfirmDialog
