@@ -45,4 +45,19 @@ describe("secretsKey", () => {
     };
     expect(await secretsKey(join(dir, "secrets-key.bin"), stuck, 20)).toEqual({ slow: true });
   });
+
+  it("never lets the runtime save unsealed when the keychain is there but will not seal", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "zli-key-"));
+    folders.push(dir);
+    const refusing: KeychainCodec = {
+      available: async () => true,
+      encrypt: async () => {
+        throw new Error("The user denied access to the keychain.");
+      },
+      decrypt: async () => {
+        throw new Error("The user denied access to the keychain.");
+      },
+    };
+    expect(await secretsKey(join(dir, "secrets-key.bin"), refusing)).toEqual({ slow: true });
+  });
 });
