@@ -207,6 +207,23 @@ describe("TurnCheckpoints", () => {
     expect(paths.some((path) => path.startsWith("target/"))).toBe(false);
   }, 20_000);
 
+  it("restore never deletes a skipped file that was staged after the turn began", async () => {
+    const { repo, git, engine, checkpoints } = await setup({ limits: { maxFileBytes: 1024, maxFolderFiles: 3 } });
+    await writeFile(join(repo, "huge.bin"), "x".repeat(2048));
+    const start = await checkpoints.capture(threadId);
+    if (!start) throw new Error("Expected a starting snapshot.");
+    // Staged mid-turn: the real index now holds the file the snapshots leave out.
+    await git.run(["add", "huge.bin"], { cwd: repo });
+    await writeFile(join(repo, "README.md"), "changed\n");
+    await checkpoints.record(threadId, "turn-1", start);
+    const [checkpoint] = (await engine.projection()).checkpoints ?? [];
+    if (!checkpoint) throw new Error("Expected a checkpoint.");
+    expect(checkpoint.files.map((file) => file.path)).toEqual(["README.md"]);
+    await checkpoints.restore(checkpoint.checkpointId);
+    expect(await readFile(join(repo, "huge.bin"), "utf8")).toBe("x".repeat(2048));
+    expect(await readFile(join(repo, "README.md"), "utf8")).toBe("base\n");
+  }, 20_000);
+
   it("sweeps old temp objects on the first snapshot", async () => {
     const { repo, checkpoints } = await setup();
     const stale = join(repo, ".git", "objects", "tmp_objdir-bulk-fsync-stale");

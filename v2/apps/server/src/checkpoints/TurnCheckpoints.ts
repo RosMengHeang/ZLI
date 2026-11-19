@@ -26,7 +26,6 @@ import {
   excludePathspecs,
   oversizedUntracked,
   sweepTempObjects,
-  tempObjectNames,
   type UntrackedLimits,
 } from "./untrackedLimits.js";
 
@@ -328,7 +327,6 @@ export class TurnCheckpoints {
       } catch {
         // A repository without commits or staged files has no index yet.
       }
-      const before = await tempObjectNames(objectsDir);
       try {
         await this.git.run(["add", "--all", "--", ".", ...excludePathspecs(skipped)], {
           cwd,
@@ -336,9 +334,17 @@ export class TurnCheckpoints {
           timeoutMs: SNAPSHOT_TIMEOUT_MS,
         });
       } catch (error) {
-        // A timed-out add is killed mid-write and leaves its temp objects behind; remove the ones it made.
-        await sweepTempObjects(objectsDir, Date.now(), 0, before);
+        // A timed-out add is killed mid-write and leaves its temp objects behind. Another Git writer sharing these
+        // objects may have fresh ones of its own, so nothing is removed now: the next snapshot here sweeps again,
+        // taking only folders old enough that no running command still owns them.
+        this.swept.delete(objectsDir);
         throw error;
+      }
+      // A skipped path the real index already holds (staged or committed since) would come back in through the
+      // copied index; it is taken out, so a restore never deletes it.
+      for (let index = 0; index < skipped.length; index += CHECKOUT_BATCH) {
+        const batch = skipped.slice(index, index + CHECKOUT_BATCH).map((path) => `:(literal)${path}`);
+        await this.git.run(["rm", "--cached", "-r", "-q", "--ignore-unmatch", "--", ...batch], { cwd, env });
       }
       return { tree: (await this.git.run(["write-tree"], { cwd, env })).stdout.trim(), skipped };
     });
