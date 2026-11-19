@@ -349,7 +349,12 @@ export function Composer({
       // Agents read other files from disk, so the message carries the path instead of the bytes.
       const path = getBridge()?.pathForFile?.(file);
       if (!path) {
-        skipped.push({ name, reason: isImageType(file.type) ? "larger than 10 MB" : "unsupported type" });
+        skipped.push({
+          name,
+          reason: isImageType(file.type)
+            ? "larger than 10 MB"
+            : "only PNG, JPEG, GIF and WebP images can be attached here",
+        });
         continue;
       }
       if (known.has(path)) continue;

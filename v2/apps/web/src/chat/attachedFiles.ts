@@ -122,7 +122,7 @@ export function fileKind(path: string): FileKind {
 /** A dropped or picked file that was left out, and why, in a few words. */
 export type SkippedFile = { name: string; reason: string };
 
-/** One line for the files a drop left out, grouped by reason: "Skipped a.exe and b.zip: unsupported type." */
+/** One line for the files a drop left out, grouped by reason: "Skipped a.exe and b.zip: larger than 10 MB." */
 export function skippedFilesMessage(skipped: readonly SkippedFile[]): string | undefined {
   if (skipped.length === 0) return undefined;
   const byReason = new Map<string, string[]>();
