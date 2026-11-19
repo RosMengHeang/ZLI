@@ -46,7 +46,11 @@ describe("appsPolicy", () => {
     expect(appsCallReads("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [] })).toBe(false);
     expect(appsCallReads("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: "print(1)" })).toBe(false);
     expect(appsCallReads("COMPOSIO_REMOTE_BASH_TOOL", { command: "ls" })).toBe(false);
-    expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "GET" })).toBe(true);
+    expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "GET", endpoint: "/users/me" })).toBe(true);
+    expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "GET", endpoint: "repos/a/b" })).toBe(true);
+    expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "GET" })).toBe(false);
+    for (const endpoint of ["https://evil.example/x?d=1", "//evil.example/x", "\\\\evil.example/x", "HTTP://a.b"])
+      expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "GET", endpoint })).toBe(false);
     expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "POST" })).toBe(false);
     expect(appsCallReads("COMPOSIO_MANAGE_CONNECTIONS", { toolkits: [{ name: "gmail", action: "list" }] })).toBe(true);
     expect(appsCallReads("COMPOSIO_MANAGE_CONNECTIONS", { toolkits: [{ name: "gmail" }] })).toBe(true);
