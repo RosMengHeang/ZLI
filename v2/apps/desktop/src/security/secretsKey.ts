@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+
+import { isPresenceSealed, openWithPresence, sealWithPresence, type UserPresence } from "./userPresence.js";
 
 /** The environment variable the runtime reads its sealing key from (the runtime's SecretBox reads the same name). */
 export const SECRETS_KEY_ENV = "ZLI_SECRETS_KEY";
@@ -43,26 +45,69 @@ export async function handOffKey(dir: string, key: string): Promise<string> {
 /** How long ZLI waits for the keychain before it starts without sealing, rather than never opening. */
 export const KEYCHAIN_WAIT_MS = 5_000;
 
+export type SealingResult = {
+  key?: string;
+  slow?: true;
+  noKeychain?: true;
+  /** The key file needs the presence check and the user cancelled it, or it is not set up here any more. */
+  locked?: true;
+  /** The key file is wrapped by the presence check rather than the keychain alone. */
+  presence?: true;
+};
+
 /**
  * The key ZLI's runtime seals secrets on disk with (the Composio key), kept at `path` encrypted by the OS keychain,
  * made on first use. No key when the OS has no keychain to seal it with. When the keychain does not answer within
  * `waitMs` (waiting on a prompt), `slow` is set and there is no key: the app still opens, and the runtime refuses to
  * save secrets until a restart rather than keeping them unsealed. A file that cannot be opened (another computer, a
  * changed account) is replaced, and the secrets sealed with the old key are asked for again.
+ *
+ * A file wrapped by the presence check (see userPresence.ts) is opened with `presence`, with no time limit since the
+ * user is answering a prompt. If they cancel it is `locked`: never replaced, so the sealed secrets survive until the
+ * next launch.
  */
-export function secretsKey(
-  path: string,
-  codec: KeychainCodec,
-  waitMs = KEYCHAIN_WAIT_MS,
-): Promise<{ key?: string; slow?: true; noKeychain?: true }> {
+export async function secretsKey(path: string, codec: KeychainCodec, waitMs = KEYCHAIN_WAIT_MS, presence?: UserPresence): Promise<SealingResult> {
+  const file = await readFile(path).catch(() => undefined);
+  if (file && isPresenceSealed(file)) {
+    const key = presence ? await openWithPresence(file, presence).catch(() => undefined) : undefined;
+    return key && Buffer.from(key, "base64").length === 32 ? { key, presence: true } : { locked: true, presence: true };
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const gaveUp = new Promise<{ slow: true }>((resolve) => {
     timer = setTimeout(() => resolve({ slow: true }), waitMs);
   });
-  const found = keyFrom(path, codec).then((key): { key?: string; slow?: true; noKeychain?: true } =>
+  const found = keyFrom(path, codec).then((key): SealingResult =>
     key === UNSEALABLE ? { slow: true } : key ? { key } : { noKeychain: true },
   );
   return Promise.race([found, gaveUp]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Turns the setting on: rewraps the running key behind the presence check. Written to a new file first and moved
+ * over the old one, so a failed write never leaves the key unreadable. False when the user cancels.
+ */
+export async function protectWithPresence(path: string, key: string, presence: UserPresence): Promise<boolean> {
+  if (!(await presence.available().catch(() => false))) return false;
+  const sealed = await sealWithPresence(key, presence).catch(() => undefined);
+  if (!sealed) return false;
+  // Checked before it replaces the old file: a credential that signs differently each time would lock the key out.
+  if ((await openWithPresence(sealed, presence).catch(() => undefined)) !== key) return false;
+  await replaceFile(path, sealed);
+  return true;
+}
+
+/** Turns the setting off: rewraps the running key with the keychain alone, as before. */
+export async function protectWithKeychain(path: string, key: string, codec: KeychainCodec): Promise<boolean> {
+  const sealed = await codec.encrypt(key).catch(() => undefined);
+  if (!sealed) return false;
+  await replaceFile(path, sealed);
+  return true;
+}
+
+async function replaceFile(path: string, contents: Buffer): Promise<void> {
+  const next = `${path}.${randomBytes(6).toString("hex")}.next`;
+  await writeFile(next, contents, { mode: 0o600, flag: "wx" });
+  await rename(next, path);
 }
 
 /**
@@ -83,8 +128,7 @@ async function keyFrom(path: string, codec: KeychainCodec): Promise<string | typ
   const key = randomBytes(32).toString("base64");
   try {
     // Known limit: the keychain unwraps this for any process running as the same OS user (DPAPI on Windows), a buddy's
-    // shell included. Deny rules and keeping the key out of agents' environments only narrow that; running buddies as
-    // a separate OS user would close it.
+    // shell included. Turning on the presence check (protectWithPresence) closes that for the file on disk.
     await writeFile(path, await codec.encrypt(key), { mode: 0o600 });
   } catch {
     return UNSEALABLE;
