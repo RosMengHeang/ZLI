@@ -127,6 +127,7 @@ describe("BuddiesPane", () => {
     await typeInto(box, "hello");
     await act(async () => buttonNamed("Send").click());
     expect(commands.at(-1)).toMatchObject({ type: "buddy.chat.send", buddyId: "b2", text: "hello" });
+    expect(document.activeElement).toBe(box);
   });
 
   it("sends once when Enter is pressed twice before the first send lands, and keeps the draft per buddy", async () => {

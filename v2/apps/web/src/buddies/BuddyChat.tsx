@@ -393,7 +393,15 @@ export function BuddyChat({
         </div>
       </div>
       <div className="buddy-chat-dock" ref={dock}>
-        <Composer key={buddy.buddyId} buddy={buddy} projection={projection} run={run} />
+        <Composer
+          key={buddy.buddyId}
+          buddy={buddy}
+          projection={projection}
+          run={run}
+          onSent={() => {
+            stick.current = true;
+          }}
+        />
       </div>
     </div>
   );
@@ -608,7 +616,17 @@ function LiveRow({
   );
 }
 
-function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projection: RuntimeProjection; run: Run }) {
+function Composer({
+  buddy,
+  projection,
+  run,
+  onSent,
+}: {
+  buddy: BuddyProjection;
+  projection: RuntimeProjection;
+  run: Run;
+  onSent?: () => void;
+}) {
   const draftKey = `buddy:${buddy.buddyId}`;
   const [text, setText] = useState(() => readDraft(draftKey));
   const sendingNow = useRef(false);
@@ -616,6 +634,7 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
   const [files, setFiles] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
   const attach = (list: FileList | null) => {
     const bridge = getBridge();
     const paths = [...(list ?? [])].flatMap((file) => {
@@ -644,6 +663,9 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
     if (ok) {
       setText("");
       setFiles([]);
+      // Your new message shows at the bottom, and the box stays ready for the next one.
+      onSent?.();
+      box.current?.focus();
     }
   };
   // Replying: your last message has no answer yet. Stop ends the reply and drops what is queued behind it.
@@ -711,6 +733,7 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
           }}
         />
         <textarea
+          ref={box}
           className="buddy-chat-input"
           aria-label={`Message ${buddy.name}`}
           placeholder={`Message ${buddy.name}`}
