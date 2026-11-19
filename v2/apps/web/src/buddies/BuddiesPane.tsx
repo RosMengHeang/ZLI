@@ -28,7 +28,7 @@ import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
-import { BuddyScreen, BudgetField, RulesEditor } from "./BuddyAutonomy.js";
+import { BuddyScreen, BudgetField, PersonalityField, RulesEditor } from "./BuddyAutonomy.js";
 import { BuddyChat } from "./BuddyChat.js";
 import { BuddyList } from "./BuddyList.js";
 import { BuddyLookEditor } from "./BuddyLookEditor.js";
@@ -1420,6 +1420,8 @@ function SettingsTab({
           onChange={(permissionMode) => void update({ permissionMode })}
         />
       </section>
+
+      <PersonalityField buddy={buddy} run={run} />
 
       <RulesEditor buddy={buddy} run={run} />
 

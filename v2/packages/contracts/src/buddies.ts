@@ -229,6 +229,11 @@ export function rulesText(rules: BuddyRules): string[] {
   ];
 }
 
+/** Ready-made voices the settings offer. Any other short text is a custom one. */
+export const BUDDY_PERSONALITY_PRESETS = ["warm", "dry", "cheerful", "blunt", "calm"] as const;
+export const MAX_PERSONALITY = 120;
+export const MAX_SAMPLE_REPLY = 300;
+
 export const BuddyProjection = z.object({
   buddyId: Id,
   name: BuddyName,
@@ -244,6 +249,10 @@ export const BuddyProjection = z.object({
   order: z.number().int().nonnegative(),
   engine: BuddyEngine,
   instructions: z.string().max(4_000).optional(),
+  /** How it sounds, on every model: a preset such as "dry" or a short description. Missing: the default voice. */
+  personality: z.string().trim().min(1).max(MAX_PERSONALITY).optional(),
+  /** One line in its voice, shown to the model as an example of how it talks. */
+  sampleReply: z.string().trim().min(1).max(MAX_SAMPLE_REPLY).optional(),
   /** The most a job may do. Auto can run lower, never higher. */
   permissionMode: PermissionMode,
   maxActiveJobs: z
@@ -538,6 +547,10 @@ export const BuddyChanges = z
     title: z.string().trim().max(40),
     engine: BuddyEngine,
     instructions: z.string().max(4_000),
+    /** Empty goes back to the default voice. */
+    personality: z.string().trim().max(MAX_PERSONALITY),
+    /** Empty removes the example line. */
+    sampleReply: z.string().trim().max(MAX_SAMPLE_REPLY),
     permissionMode: PermissionMode,
     maxActiveJobs: z
       .number()
@@ -1044,7 +1057,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       ];
       break;
     case "buddy.updated": {
-      const { title, instructions, image, budgetUsd, ...rest } = event.changes;
+      const { title, instructions, image, budgetUsd, personality, sampleReply, ...rest } = event.changes;
       updateBuddy(event.buddyId, (buddy) => {
         const next: BuddyProjection = { ...buddy, ...defined(rest) };
         if (budgetUsd !== undefined) {
@@ -1062,6 +1075,14 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
         if (image !== undefined) {
           if (image) next.image = image;
           else delete next.image;
+        }
+        if (personality !== undefined) {
+          if (personality) next.personality = personality;
+          else delete next.personality;
+        }
+        if (sampleReply !== undefined) {
+          if (sampleReply) next.sampleReply = sampleReply;
+          else delete next.sampleReply;
         }
         return next;
       });
