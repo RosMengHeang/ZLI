@@ -222,7 +222,7 @@ describe("ProjectionStore", () => {
       },
       chunk("a2", " there"),
     ];
-    events.forEach((event, index) => expect(store.apply(envelope(index + 1, event))).toBe("applied"));
+    for (const [index, event] of events.entries()) expect(store.apply(envelope(index + 1, event))).toBe("applied");
     const reply = () => store.current()?.messages?.filter((message) => message.threadId === replying) ?? [];
     expect(reply().map((message) => message.text)).toEqual(["Hello there"]);
 
@@ -235,7 +235,9 @@ describe("ProjectionStore", () => {
     expect(reloaded.apply(envelope(events.length, chunk("a2", " there")))).toBe("duplicate");
     expect(reloaded.apply(envelope(events.length + 1, chunk("a3", "!")))).toBe("applied");
     expect(
-      reloaded.apply(envelope(events.length + 2, { type: "thread.status.changed", threadId: replying, status: "idle" })),
+      reloaded.apply(
+        envelope(events.length + 2, { type: "thread.status.changed", threadId: replying, status: "idle" }),
+      ),
     ).toBe("applied");
     const after = reloaded.current();
     expect(after?.messages?.filter((message) => message.threadId === replying).map((message) => message.text)).toEqual([

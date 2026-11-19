@@ -559,7 +559,9 @@ describe("DroidClient permissions", () => {
     const droid = child(children);
     droid.ask("perm-1", "droid.request_permission", {
       toolUses: [
-        { toolUse: { type: "tool_use", id: "t1", name: "Read", input: { file_path: "C:/Users/me/ZLI/settings.json" } } },
+        {
+          toolUse: { type: "tool_use", id: "t1", name: "Read", input: { file_path: "C:/Users/me/ZLI/settings.json" } },
+        },
       ],
       options,
     });

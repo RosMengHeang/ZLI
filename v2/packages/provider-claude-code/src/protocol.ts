@@ -1,6 +1,6 @@
 import { PRIVATE_FILE_PATTERNS } from "@zli-v2/shared";
 
-export type ClaudePermissionMode ="read-only" | "supervised" | "full-access";
+export type ClaudePermissionMode = "read-only" | "supervised" | "full-access";
 
 const BASE_ARGS = [
   "-p",
