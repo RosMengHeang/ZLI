@@ -34,7 +34,16 @@ export function hostOf(url: string): string {
   }
 }
 
-const TILE_COLORS = ["#3157f5", "#0b8f6a", "#e01e5a", "#c56ff0", "#ff8a3d", "#24292f", "#2fbf8f", "#d4a017"];
+// Each pair is a tile fill and its letter, from the theme so tiles stay readable in light and dark.
+const TILE_COLORS = [
+  ["var(--zli-accent)", "var(--zli-accent-ink)"],
+  ["var(--zli-green-soft)", "var(--zli-green)"],
+  ["var(--zli-red-soft)", "var(--zli-red)"],
+  ["var(--zli-purple-soft)", "var(--zli-purple)"],
+  ["var(--zli-amber-soft)", "var(--zli-amber)"],
+  ["var(--zli-overlay)", "var(--zli-text)"],
+  ["var(--zli-blue-soft)", "var(--zli-blue)"],
+] as const;
 
 /**
  * The site's own icon, as the page names it. Until it does, or when it cannot be loaded, a small square with the
@@ -59,8 +68,13 @@ function SiteTile({ url, favicon }: { url: string; favicon?: string | undefined 
   if (!host) return <Icon name="globe" size={13} />;
   let hash = 0;
   for (const character of host) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
+  const tile = TILE_COLORS[hash % TILE_COLORS.length];
   return (
-    <span className="chrome-tile" style={{ background: TILE_COLORS[hash % TILE_COLORS.length] }} aria-hidden="true">
+    <span
+      className="chrome-tile"
+      style={{ background: tile?.[0], color: tile?.[1] }}
+      aria-hidden="true"
+    >
       {host[0]?.toUpperCase()}
     </span>
   );
