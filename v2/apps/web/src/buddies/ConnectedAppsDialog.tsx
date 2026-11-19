@@ -22,6 +22,32 @@ import "./connectedApps.css";
 
 /** Where a Composio key comes from: Connect → Settings → Sessions & API Key gives a ck_ key. */
 const KEY_PAGE = "https://dashboard.composio.dev";
+/** Composio's page on project keys limited to some permissions. */
+export const SCOPED_KEY_PAGE =
+  "https://docs.composio.dev/reference/authenticating-to-composio/project-api-key-permissions";
+
+/** Where to get a key, and the advice to make a project key that can do only what ZLI needs. */
+export function KeyAdvice({ onOpen }: { onOpen(link: string): void }) {
+  return (
+    <>
+      <span>
+        It stays on this computer.{" "}
+        <button type="button" className="apps-link" onClick={() => onOpen(KEY_PAGE)}>
+          Get a free key
+          <Icon name="externalLink" size={11} />
+        </button>
+      </span>
+      <span>
+        For an ak_ key, make a scoped one with only Session management, Session tool execution and Connected
+        accounts.{" "}
+        <button type="button" className="apps-link" onClick={() => onOpen(SCOPED_KEY_PAGE)}>
+          Scoped keys
+          <Icon name="externalLink" size={11} />
+        </button>
+      </span>
+    </>
+  );
+}
 /** While a sign-in is open in the browser, how often to look whether it finished, and for how long. */
 const WATCH_EVERY_MS = 4_000;
 const WATCH_FOR_MS = 3 * 60_000;
@@ -244,17 +270,9 @@ export function ConnectedAppsDialog({ onClose }: { onClose(): void }) {
           <Icon name="lock" size={16} />
           <div className="apps-key-text">
             <b>Add your Composio key to start connecting</b>
-            <span>
-              It stays on this computer.{" "}
-              <button
-                type="button"
-                className="apps-link"
-                onClick={() => void openExternalLink(bridge, KEY_PAGE).then((failed) => failed && setProblem(failed))}
-              >
-                Get a free key
-                <Icon name="externalLink" size={11} />
-              </button>
-            </span>
+            <KeyAdvice
+              onOpen={(link) => void openExternalLink(bridge, link).then((failed) => failed && setProblem(failed))}
+            />
           </div>
           <input
             ref={keyRef}
