@@ -119,6 +119,8 @@ export type ClaudeCodeClientOptions = {
   autoCompactTokens?: number;
   /** Passed as --append-system-prompt-file. */
   appendSystemPromptFile?: string;
+  /** ZLI's data folder, whose own files an unattended agent's file tools may not touch. */
+  privateDir?: string;
 };
 
 export class ClaudeProviderError extends Error {
@@ -683,6 +685,7 @@ function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string, sess
     ...(options.name ? { name: options.name } : {}),
     ...(options.autoCompactTokens !== undefined ? { autoCompactTokens: options.autoCompactTokens } : {}),
     ...(options.appendSystemPromptFile ? { appendSystemPromptFile: options.appendSystemPromptFile } : {}),
+    ...(options.privateDir ? { privateDir: options.privateDir } : {}),
   });
   const child = spawnProcess(command, args, {
     cwd: options.cwd,

@@ -138,6 +138,8 @@ export type ProviderRegistryOptions = {
   mcpServers?: McpServerSource;
   /** Where per-chat MCP config files go when there is no browser tool. */
   mcpConfigDir?: string;
+  /** ZLI's data folder: buddies' file tools are kept off ZLI's own files there. */
+  privateDir?: string;
   writeMcpConfig?: typeof writeAgentMcpConfig;
   /** Writes ZLI's project MCP file in a worktree for Cursor and Droid, which have no per-session option for servers. */
   writeWorktreeFile?: WorktreeFileWriter;
@@ -270,6 +272,7 @@ export function createProviderRegistry(
           ...(await claudeInstructions()),
           ...(title ? { name: title } : {}),
           ...(autoCompactTokens !== undefined ? { autoCompactTokens } : {}),
+          ...(options.privateDir ? { privateDir: options.privateDir } : {}),
         });
       },
     }),

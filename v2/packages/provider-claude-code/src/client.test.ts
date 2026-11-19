@@ -12,7 +12,7 @@ import {
   type ClaudeProviderEvent,
   type ClaudeSpawnOptions,
 } from "./client.js";
-import { CLAUDE_SESSION_ARGS, claudeSessionArgs } from "./protocol.js";
+import { CLAUDE_SESSION_ARGS, claudeRulePath, claudeSessionArgs, privateFileRules } from "./protocol.js";
 
 class FakePeer implements ClaudePeer {
   readonly written: string[] = [];
@@ -644,6 +644,27 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
       "--setting-sources",
       "project",
     ]);
+  });
+
+  it("keeps a buddy's file tools off ZLI's own files, and leaves the person's own chats alone", () => {
+    expect(claudeRulePath("C:\\Users\\me\\AppData\\Roaming\\ZLI\\")).toBe("//c/Users/me/AppData/Roaming/ZLI");
+    expect(claudeRulePath("/Users/me/Library/Application Support/ZLI")).toBe(
+      "//Users/me/Library/Application Support/ZLI",
+    );
+    const rules = privateFileRules("/data/zli");
+    expect(rules).toContain("Read(//data/zli/*.json)");
+    expect(rules).toContain("Read(//data/zli/Local State)");
+    expect(rules).toContain("Edit(//data/zli/mcp-headers/**)");
+    // Its home lives in a subfolder no rule reaches.
+    expect(rules.some((rule) => rule.includes("zli-buddy-homes"))).toBe(false);
+    for (const permissionMode of ["full-access", "supervised", "read-only"] as const) {
+      const args = claudeSessionArgs({ permissionMode, unattended: true, privateDir: "/data/zli" });
+      const from = args.indexOf("--disallowedTools");
+      expect(args.slice(from, from + 40), permissionMode).toContain("Read(//data/zli/*.bin)");
+    }
+    expect(claudeSessionArgs({ permissionMode: "full-access", privateDir: "/data/zli" })).not.toContain(
+      "--disallowedTools",
+    );
   });
 
   it("keeps the person's own plugins and hooks out of a buddy's session, and in their own chats", () => {

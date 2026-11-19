@@ -28,6 +28,34 @@ const READ_ONLY_OFF = ["Edit", "Write", "NotebookEdit"] as const;
 
 export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPermissions"] as const;
 
+/**
+ * ZLI's own files in its data folder (keys, settings, the database, saved sign-ins, the browser's key store), by
+ * pattern under that folder. A buddy's Read and Edit rules (Edit covers every writing tool) apply there; Claude Code applies the same
+ * rules to file paths in its shell commands. Its home sits in a subfolder these patterns do not reach.
+ */
+const PRIVATE_PATTERNS = [
+  "*.json",
+  "*.bin",
+  "runtime.sqlite*",
+  "Local State",
+  "mcp/**",
+  "mcp-headers/**",
+  "*.user-data/**",
+] as const;
+
+/** A folder as a Claude Code permission path: `//c/Users/...` on Windows, `//Users/...` elsewhere. */
+export function claudeRulePath(folder: string): string {
+  const slashed = folder.replace(/\\/gu, "/").replace(/\/+$/u, "");
+  const drive = /^([A-Za-z]):\//u.exec(slashed);
+  return drive ? `//${drive[1]?.toLowerCase()}/${slashed.slice(3)}` : `/${slashed}`;
+}
+
+/** The deny rules that keep an agent's file tools out of ZLI's own files in `privateDir`. */
+export function privateFileRules(privateDir: string): string[] {
+  const base = claudeRulePath(privateDir);
+  return ["Read", "Edit"].flatMap((tool) => PRIVATE_PATTERNS.map((pattern) => `${tool}(${base}/${pattern})`));
+}
+
 // Supervised accepts file edits and, with "stdio" as the prompt tool, asks over stdout
 // with can_use_tool control requests before anything else instead of denying it.
 // Read only is Claude's plan mode: it researches and proposes, and asks the same way
@@ -55,6 +83,8 @@ export function claudeSessionArgs(
     autoCompactTokens?: number;
     /** A file of instructions added after Claude Code's own system prompt. */
     appendSystemPromptFile?: string;
+    /** ZLI's data folder: an unattended agent's file tools are refused on ZLI's own files there. */
+    privateDir?: string;
   } = {},
 ): string[] {
   const args: string[] =
@@ -69,7 +99,9 @@ export function claudeSessionArgs(
             "stdio",
           ]
         : [...CLAUDE_SESSION_ARGS];
-  if (input.unattended && input.permissionMode !== "read-only") args.push("--disallowedTools", ...UNATTENDED_OFF);
+  const privateRules = input.unattended && input.privateDir ? privateFileRules(input.privateDir) : [];
+  if (input.unattended && input.permissionMode === "read-only") args.push(...privateRules);
+  else if (input.unattended) args.push("--disallowedTools", ...UNATTENDED_OFF, ...privateRules);
   // A buddy works on its own brief: only the project's settings load, not the person's own plugins and hooks.
   if (input.unattended) args.push("--setting-sources", "project");
   if (input.model) args.push("--model", input.model);

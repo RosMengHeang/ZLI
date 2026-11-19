@@ -279,6 +279,7 @@ export async function startRuntime(options: {
       writeWorktreeFile,
       metroEnv: (worktreeId) => projectionMetroEnv(engine, worktreeId),
       instructionsDir: join(dirname(databasePath), "instructions"),
+      privateDir: dirname(databasePath),
       claudeAutoCompactTokens: () => agentSettings.read().claudeAutoCompactTokens,
     }),
   );
