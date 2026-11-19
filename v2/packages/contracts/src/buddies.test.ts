@@ -4,6 +4,7 @@ import {
   applyBuddyEvent,
   type BuddyEvent,
   type BuddyProjection,
+  BuddyProjection as BuddyProjectionSchema,
   type BuddyState,
   buddiesInOrder,
   firstSentence,
@@ -217,5 +218,48 @@ describe("buddy homes, rules and budgets", () => {
     expect(overBudget({ tasks }, spender, now)).toBe(true);
     expect(overBudget({ tasks }, { ...spender, budgetUsd: 5 }, now)).toBe(false);
     expect(rulesText(rulesOf({})).join("\n")).toContain("Pay or buy anything");
+  });
+});
+
+describe("buddy personality", () => {
+  const saved = { ...buddy("a", "Builder"), order: 0, memory: [], pendingMemory: [], createdAt: at, updatedAt: at };
+
+  it("still loads a buddy saved before personalities", () => {
+    const parsed = BuddyProjectionSchema.parse(saved);
+    expect(parsed.personality).toBeUndefined();
+    expect(parsed.sampleReply).toBeUndefined();
+  });
+
+  it("loads a preset or custom voice with a sample, and refuses one that is too long", () => {
+    const parsed = BuddyProjectionSchema.parse({
+      ...saved,
+      personality: " dry ",
+      sampleReply: "Fixed. It was the cache.",
+    });
+    expect(parsed.personality).toBe("dry");
+    expect(parsed.sampleReply).toBe("Fixed. It was the cache.");
+    expect(BuddyProjectionSchema.safeParse({ ...saved, personality: "x".repeat(121) }).success).toBe(false);
+    expect(BuddyProjectionSchema.safeParse({ ...saved, sampleReply: "x".repeat(301) }).success).toBe(false);
+  });
+
+  it("sets the voice through an update, and empty clears it", () => {
+    const created = fold([{ type: "buddy.created", buddy: buddy("a", "Builder"), order: 0 }]);
+    const set = fold(
+      [
+        {
+          type: "buddy.updated",
+          buddyId: "a",
+          changes: { personality: "calm", sampleReply: "No rush. Done by noon." },
+        },
+      ],
+      created,
+    );
+    expect(set.buddies?.[0]).toMatchObject({ personality: "calm", sampleReply: "No rush. Done by noon." });
+    const cleared = fold([{ type: "buddy.updated", buddyId: "a", changes: { personality: "", sampleReply: "" } }], set);
+    expect(cleared.buddies?.[0]?.personality).toBeUndefined();
+    expect(cleared.buddies?.[0]?.sampleReply).toBeUndefined();
+    expect(
+      RuntimeCommand.safeParse({ type: "buddy.update", buddyId: "a", changes: { personality: "dry" } }).success,
+    ).toBe(true);
   });
 });

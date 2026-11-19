@@ -1,13 +1,16 @@
 import {
+  BUDDY_PERSONALITY_PRESETS,
   type BuddyProjection,
   type BuddyRules,
   firstSentence,
+  MAX_PERSONALITY,
+  MAX_SAMPLE_REPLY,
   overBudget,
   type RuntimeProjection,
   rulesOf,
   spentThisWeek,
 } from "@zli-v2/contracts";
-import { useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { BrowserPane } from "../browser/BrowserPane.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -15,6 +18,7 @@ import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { lookOf } from "../teammates/pixelBuddies.js";
 import { IconButton } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
+import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { money } from "./team.js";
 import type { Run } from "./useRun.js";
@@ -160,6 +164,87 @@ export function BudgetField({
           Limit reached: {buddy.name}'s new jobs wait until you raise it or older jobs leave the 7 days.
         </p>
       ) : null}
+    </section>
+  );
+}
+
+type Voice = "default" | (typeof BUDDY_PERSONALITY_PRESETS)[number] | "custom";
+
+const VOICES: readonly { value: Voice; label: string; description: string }[] = [
+  { value: "default", label: "Default", description: "Warm and quick, a little playful" },
+  { value: "warm", label: "Warm", description: "Kind, gentle when something breaks" },
+  { value: "dry", label: "Dry", description: "Understated, deadpan" },
+  { value: "cheerful", label: "Cheerful", description: "Upbeat, enjoys a win" },
+  { value: "blunt", label: "Blunt", description: "Verdict first, no padding" },
+  { value: "calm", label: "Calm", description: "Steady, unhurried" },
+  { value: "custom", label: "In your words", description: "Describe it yourself" },
+];
+
+function voiceOf(personality: string | undefined): Voice {
+  if (!personality) return "default";
+  const preset = BUDDY_PERSONALITY_PRESETS.find((entry) => entry === personality.toLowerCase());
+  return preset ?? "custom";
+}
+
+/** How the buddy sounds in chat, kept the same whichever model answers. */
+export function PersonalityField({ buddy, run }: { buddy: BuddyProjection; run: Run }) {
+  const [voice, setVoice] = useState<Voice>(voiceOf(buddy.personality));
+  const [custom, setCustom] = useState(voiceOf(buddy.personality) === "custom" ? (buddy.personality ?? "") : "");
+  const [sample, setSample] = useState(buddy.sampleReply ?? "");
+  const update = (changes: { personality?: string; sampleReply?: string }) =>
+    void run({ type: "buddy.update", buddyId: buddy.buddyId, changes });
+  const pick = (next: Voice) => {
+    setVoice(next);
+    if (next === "custom") {
+      if (custom.trim() && custom.trim() !== buddy.personality) update({ personality: custom.trim() });
+      return;
+    }
+    const personality = next === "default" ? "" : next;
+    if (personality !== (buddy.personality ?? "")) update({ personality });
+  };
+  const saveCustom = () => {
+    const personality = custom.trim();
+    if (personality !== (buddy.personality ?? "")) update({ personality });
+  };
+  const saveSample = () => {
+    const sampleReply = sample.trim();
+    if (sampleReply !== (buddy.sampleReply ?? "")) update({ sampleReply });
+  };
+  const blurOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") event.currentTarget.blur();
+  };
+  return (
+    <section className="buddies-section" aria-label="Personality">
+      <h3 className="buddies-heading">Personality</h3>
+      <p className="buddies-hint">
+        How {buddy.name} sounds when it talks to you, on any model. Standing instructions still win.
+      </p>
+      <Select<Voice> label="Personality" value={voice} options={VOICES} onChange={pick} />
+      {voice === "custom" ? (
+        <input
+          className="input"
+          aria-label="Personality in your words"
+          placeholder="Such as: patient, explains the why, a bit nerdy"
+          maxLength={MAX_PERSONALITY}
+          value={custom}
+          onChange={(event) => setCustom(event.target.value)}
+          onBlur={saveCustom}
+          onKeyDown={blurOnEnter}
+        />
+      ) : null}
+      <label className="buddies-hint" htmlFor={`sample-${buddy.buddyId}`}>
+        Sample reply (optional): one line the way {buddy.name} would say it
+      </label>
+      <input
+        id={`sample-${buddy.buddyId}`}
+        className="input"
+        placeholder="Such as: Fixed. It was the cache, again."
+        maxLength={MAX_SAMPLE_REPLY}
+        value={sample}
+        onChange={(event) => setSample(event.target.value)}
+        onBlur={saveSample}
+        onKeyDown={blurOnEnter}
+      />
     </section>
   );
 }
