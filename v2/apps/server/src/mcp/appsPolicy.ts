@@ -45,8 +45,10 @@ export function appsCallReads(tool: string, params: Record<string, unknown> | un
   if (LOOKUPS.has(name)) return true;
   const args = params ?? {};
   if (name === "COMPOSIO_MANAGE_CONNECTIONS") {
-    // Listing accounts, or making a sign-in link the person still has to open, changes nothing.
+    // Listing accounts, or making a sign-in link the person still has to open, changes nothing. A call in any
+    // other shape (no toolkits list, or the action outside it) is not one we can read, so the person decides.
     const toolkits = Array.isArray(args.toolkits) ? args.toolkits : [];
+    if (toolkits.length === 0 || args.action !== undefined) return false;
     return toolkits.every((toolkit) => {
       const action = (toolkit as { action?: unknown } | null)?.action ?? "add";
       return action === "list" || action === "add";

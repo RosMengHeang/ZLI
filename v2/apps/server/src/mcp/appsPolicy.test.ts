@@ -50,6 +50,12 @@ describe("appsPolicy", () => {
         toolkits: [{ name: "gmail", action: "remove", account_id: "a" }],
       }),
     ).toBe(false);
+    // A shape the check cannot read is held, never waved through as a lookup.
+    expect(appsCallReads("COMPOSIO_MANAGE_CONNECTIONS", { toolkits: { name: "gmail", action: "remove" } })).toBe(
+      false,
+    );
+    expect(appsCallReads("COMPOSIO_MANAGE_CONNECTIONS", { toolkit: "gmail", action: "remove" })).toBe(false);
+    expect(appsCallReads("COMPOSIO_MANAGE_CONNECTIONS", {})).toBe(false);
     expect(appsCallReads("COMPOSIO_MANAGE_SKILL", {})).toBe(false);
     expect(appsCallReads("SOMETHING_NEW", {})).toBe(false);
   });
