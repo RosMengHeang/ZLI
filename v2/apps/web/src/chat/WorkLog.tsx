@@ -2,6 +2,7 @@ import type { ThreadActivityProjection } from "@zli-v2/contracts";
 import { useState } from "react";
 
 import type { FileLinks } from "../files/FileIndex.js";
+import { useCopyFeedback } from "../review/links.js";
 import { Button } from "../ui/Button.js";
 import { Collapse } from "../ui/Collapse.js";
 import { Icon, type IconName } from "../ui/Icon.js";
@@ -156,7 +157,8 @@ function StepBody({
   links?: FileLinks | undefined;
 }) {
   // Only a failed step is worth the parse: its output is where a stack trace would be.
-  const trace = detail && entry.status === "failed" ? parseStackTrace(detail) : undefined;
+  const trace =
+    detail && entry.status === "failed" && detail.length <= OUTPUT_RENDER_LIMIT ? parseStackTrace(detail) : undefined;
   return (
     <>
       {entry.input?.length ? <StepInputs input={entry.input} /> : null}
@@ -192,9 +194,31 @@ export function foldOutput(text: string): { head: string; hidden: number; tail: 
   };
 }
 
-function StepOutput({ text }: { text: string }) {
+/** Output past this size renders only its ends, so one huge log cannot freeze the chat. */
+export const OUTPUT_RENDER_LIMIT = 200_000;
+const TRIM_HEAD = 60_000;
+const TRIM_TAIL = 20_000;
+
+/** The start and end of output too large to render, and how many characters sit between them. */
+export function trimOutput(
+  text: string,
+  limit = OUTPUT_RENDER_LIMIT,
+): { head: string; hidden: number; tail: string } | undefined {
+  if (text.length <= limit) return undefined;
+  const head = Math.min(TRIM_HEAD, Math.floor(limit * 0.3));
+  const tail = Math.min(TRIM_TAIL, Math.floor(limit * 0.1));
+  return { head: text.slice(0, head), hidden: text.length - head - tail, tail: text.slice(-tail) };
+}
+
+export function hiddenSizeLabel(chars: number): string {
+  return `${Math.max(1, Math.round(chars / 1024)).toLocaleString("en-US")} KB`;
+}
+
+export function StepOutput({ text }: { text: string }) {
   const [full, setFull] = useState(false);
-  const fold = full ? undefined : foldOutput(text);
+  const [copyState, copy] = useCopyFeedback();
+  const trim = trimOutput(text);
+  const fold = full ? undefined : foldOutput(trim ? trim.head + trim.tail : text);
   return (
     <div className="step-output">
       <pre className="step-detail">
@@ -202,9 +226,20 @@ function StepOutput({ text }: { text: string }) {
           <>
             {fold.head}
             <button className="step-more" type="button" onClick={() => setFull(true)}>
-              … +{fold.hidden} lines
+              … +{trim ? text.split("\n").length - FOLD_KEEP * 2 : fold.hidden} lines
             </button>
             {fold.tail}
+          </>
+        ) : trim ? (
+          <>
+            {trim.head}
+            <span className="step-trimmed">
+              Output trimmed, {hiddenSizeLabel(trim.hidden)} hidden.{" "}
+              <button className="step-more" type="button" onClick={() => copy(text)} aria-live="polite">
+                {copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy all"}
+              </button>
+            </span>
+            {trim.tail}
           </>
         ) : (
           text
