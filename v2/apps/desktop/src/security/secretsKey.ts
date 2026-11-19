@@ -36,11 +36,19 @@ export function secretsKey(
   const gaveUp = new Promise<{ slow: true }>((resolve) => {
     timer = setTimeout(() => resolve({ slow: true }), waitMs);
   });
-  const found = keyFrom(path, codec).then((key) => (key ? { key } : {}));
+  const found = keyFrom(path, codec).then((key): { key?: string; slow?: true } =>
+    key === UNSEALABLE ? { slow: true } : key ? { key } : {},
+  );
   return Promise.race([found, gaveUp]).finally(() => clearTimeout(timer));
 }
 
-async function keyFrom(path: string, codec: KeychainCodec): Promise<string | undefined> {
+/**
+ * The keychain is there but would not seal a new key (a denied prompt, a locked keychain, a file that cannot be
+ * written). Treated like a slow keychain: the runtime refuses to save secrets rather than keeping them unsealed.
+ */
+const UNSEALABLE = Symbol("unsealable");
+
+async function keyFrom(path: string, codec: KeychainCodec): Promise<string | typeof UNSEALABLE | undefined> {
   if (!(await codec.available().catch(() => false))) return undefined;
   try {
     const key = await codec.decrypt(await readFile(path));
@@ -52,7 +60,7 @@ async function keyFrom(path: string, codec: KeychainCodec): Promise<string | und
   try {
     await writeFile(path, await codec.encrypt(key), { mode: 0o600 });
   } catch {
-    return undefined;
+    return UNSEALABLE;
   }
   return key;
 }
