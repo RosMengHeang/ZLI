@@ -10,7 +10,6 @@ import { HuddleHeldPill, useHuddleEntries } from "../huddle/TileHuddle.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { setupProgress, worktreeSetup } from "../setup/setup.js";
-import { useChatBuddy } from "../teammates/chatBuddies.js";
 import { LazyTerminalView } from "../terminal/LazyTerminalView.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -73,7 +72,6 @@ export function AgentTile({
   onStartRuns,
   onBringIn,
   onOpenAgent,
-  onManageTeammates,
   onBranch,
   onNewChatWithPrompt,
   onAskAside,
@@ -130,7 +128,6 @@ export function AgentTile({
   onBringIn?: ((request: GuestRequest) => Promise<{ threadId: string } | { error: string }>) | undefined;
   /** Shows another agent's own tile, found by its thread or terminal id. */
   onOpenAgent?: ((agentId: string) => void) | undefined;
-  onManageTeammates?: (() => void) | undefined;
   onBranch?: ((branch: { from: string; context: string }) => void) | undefined;
   onNewChatWithPrompt?: ((text: string) => void) | undefined;
   onAskAside?:
@@ -162,7 +159,6 @@ export function AgentTile({
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const face = useChatBuddy(session.sessionId);
   const [envCardOpen, setEnvCardOpen] = useState(false);
   const [cardHost, setCardHost] = useState<HTMLDivElement | null>(null);
   // The environment card floats over the chat, so a click elsewhere or Escape puts it away. Clicks in the
@@ -549,7 +545,6 @@ export function AgentTile({
             <div className="tile-chat-start">
               <ChatStart
                 provider={session.provider}
-                buddy={face}
                 folder={projection.projects.find((project) => project.projectId === worktree.projectId)?.name}
               />
             </div>
@@ -618,7 +613,6 @@ export function AgentTile({
             onStartRuns={onStartRuns}
             onBringIn={onBringIn}
             onOpenAgent={onOpenAgent}
-            onManageTeammates={onManageTeammates}
             onBranch={onBranch}
             onNewChatWithPrompt={onNewChatWithPrompt}
             onAskAside={onAskAside}

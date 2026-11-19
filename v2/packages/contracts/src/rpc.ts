@@ -3,6 +3,7 @@ import { AccountCommand } from "./accounts.js";
 import { AgentName, StartedBy } from "./agentName.js";
 import { AgentSettingsCommand } from "./agentSettings.js";
 import { BrowserTabProjection } from "./browser.js";
+import { BuddyCommand } from "./buddies.js";
 import { CheckpointCommand, ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
@@ -160,6 +161,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     /** Explicit confirm to bind another live agent onto a worktree that already has one. */
     shareWorktree: z.boolean().optional(),
     permissionMode: PermissionMode.optional(),
+    /** Nobody answers the agent's prompts as they come: it must not stop to ask. See ThreadProjection. */
+    unattended: z.literal(true).optional(),
     model: z.string().min(1).max(200).optional(),
     /** A name for the agent. Rejected when another agent in the project has it. */
     name: AgentName.optional(),
@@ -331,6 +334,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   ...AgentSettingsCommand.options,
   ...HistoryCommand.options,
   ...HuddleCommand.options,
+  ...BuddyCommand.options,
   /** Reported by the runtime while it copies files and runs zli.json setup in a new worktree. */
   z.object({ type: z.literal("worktree.setup"), setup: WorktreeSetupProjection }),
   /** The person's answer to running zli.json setup commands; the hash pins the exact list they saw. */

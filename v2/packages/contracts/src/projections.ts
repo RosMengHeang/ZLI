@@ -1,5 +1,13 @@
 import { z } from "zod";
 import { BrowserTabProjection } from "./browser.js";
+import {
+  BuddyMessage,
+  BuddyProjection,
+  BuddySettings,
+  GoalProjection,
+  RoutineProjection,
+  TaskProjection,
+} from "./buddies.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { dropHuddleMembers, HuddlePost, HuddleProjection } from "./huddles.js";
@@ -139,6 +147,12 @@ export const RuntimeProjection = z.object({
   setupTrust: z.array(SetupTrustProjection).optional(),
   huddles: z.array(HuddleProjection).optional(),
   huddlePosts: z.array(HuddlePost).optional(),
+  buddies: z.array(BuddyProjection).optional(),
+  tasks: z.array(TaskProjection).optional(),
+  routines: z.array(RoutineProjection).optional(),
+  buddySettings: BuddySettings.optional(),
+  buddyMessages: z.array(BuddyMessage).optional(),
+  goals: z.array(GoalProjection).optional(),
 });
 export type RuntimeProjection = z.infer<typeof RuntimeProjection>;
 

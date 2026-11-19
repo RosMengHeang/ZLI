@@ -31,6 +31,7 @@ const CODEX_DECISIONS: Record<string, { label: string; tone: RequestChoice["tone
 };
 
 export function describeApproval(provider: string, payload: Record<string, unknown>): ApprovalView {
+  if (payload.kind === "app-action") return appActionApproval(payload);
   if (provider === "codex") return codexApproval(payload);
   if (Array.isArray(payload.options)) return acpApproval(payload);
   if (typeof payload.toolName === "string") return toolApproval(payload.toolName, record(payload.input) ?? {});
@@ -148,6 +149,28 @@ function inputFields(input: Record<string, unknown>): RequestField[] {
     fields.push({ label: "Content", value: clip(input.content) || "(empty file)", mono: true });
   }
   return fields;
+}
+
+/**
+ * A buddy wants to act in one of the person's connected apps (send, post, change, delete, or run code there).
+ * ZLI's own relay asks, whatever the agent, so the card reads the same for every buddy: what, where, and the details.
+ */
+function appActionApproval(payload: Record<string, unknown>): ApprovalView {
+  const fields: RequestField[] = [];
+  const apps = text(payload.apps);
+  if (apps) fields.push({ label: "In", value: apps });
+  const actions = text(payload.actions);
+  if (actions) fields.push({ label: "Action", value: clip(actions), mono: true });
+  const details = text(payload.details);
+  if (details) fields.push({ label: "Details", value: clip(details), mono: true });
+  return {
+    title: text(payload.title) ?? "Act in your apps",
+    fields,
+    choices: [
+      { key: "allow", label: "Allow once", tone: "primary", decision: { approved: true } },
+      { key: "deny", label: "Deny", tone: "secondary", decision: { approved: false } },
+    ],
+  };
 }
 
 function approveReject(): RequestChoice[] {

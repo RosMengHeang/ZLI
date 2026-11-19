@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 
-import { CommandId, EnvironmentId, ProjectId, type RuntimeProjection, type ThreadProjection } from "@zli-v2/contracts";
+import {
+  type BuddyProjection,
+  CommandId,
+  EnvironmentId,
+  ProjectId,
+  type RuntimeProjection,
+  type ThreadProjection,
+} from "@zli-v2/contracts";
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +41,22 @@ const guest = {
   joins: hostId,
   startedBy: hostId,
 } as ThreadProjection;
+const reviewer: BuddyProjection = {
+  buddyId: "b-reviewer",
+  name: "Reviewer",
+  color: "paper",
+  role: "buddy",
+  order: 1,
+  engine: { mode: "prefer", provider: "codex" },
+  instructions: "Look for missing tests.",
+  permissionMode: "read-only",
+  maxActiveJobs: 2,
+  handoffs: [],
+  memory: [{ noteId: "n1", text: "Prefers small PRs.", source: "you", at: "2026-11-15T08:00:00.000Z" }],
+  pendingMemory: [],
+  createdAt: "2026-11-15T08:00:00.000Z",
+  updatedAt: "2026-11-15T08:00:00.000Z",
+};
 
 function projectionWith(overrides: Partial<RuntimeProjection> = {}): RuntimeProjection {
   return {
@@ -145,25 +168,35 @@ describe("ChatView with more than one agent", () => {
     expect(toGuest.text).toBe("@Owl check again");
   });
 
-  it("brings a saved teammate in when the person calls it by name, with the chat so far and its instructions", async () => {
-    updateAppSettings((settings) => ({
-      ...settings,
-      teammates: [
-        { id: "t1", name: "Reviewer", buddy: "squircle", provider: "codex", instructions: "Look for missing tests." },
-      ],
-    }));
+  it("brings a buddy in from the people icon, on its own agent", async () => {
     const onBringIn = vi.fn(async () => ({ threadId: guestId }));
-    const { container, dispatched } = await render(projectionWith({ messages: roomMessages?.slice(0, 2) }), {
-      onBringIn,
-    });
+    const { container } = await render(projectionWith({ buddies: [reviewer] }), { onBringIn });
+    await act(async () => button(container, "Other agents")?.click());
+    const bring = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) =>
+      node.textContent?.includes("Bring in an agent"),
+    );
+    await act(async () => bring?.click());
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (node) => node.textContent === "Reviewer",
+    );
+    await act(async () => item?.click());
+    expect(onBringIn).toHaveBeenCalledWith({ provider: "codex", name: "Reviewer", permissionMode: "read-only" });
+    expect(container.querySelector("textarea")?.value).toBe("@Reviewer ");
+  });
+
+  it("gives a buddy in the chat its instructions and what it remembers", async () => {
+    const joined = { ...guest, name: "Reviewer" } as ThreadProjection;
+    const { container, dispatched } = await render(
+      projectionWith({ threads: [host, joined], buddies: [reviewer], messages: roomMessages?.slice(0, 2) }),
+      { onBringIn: vi.fn(async () => ({ threadId: guestId })) },
+    );
     await type(container, "@Reviewer what do you think?");
     await act(async () => button(container, "Send")?.click());
-    expect(onBringIn).toHaveBeenCalledWith({ provider: "codex", name: "Reviewer" });
-    const sent = dispatched.at(-1)?.command as { threadId: string; context?: string };
+    const sent = dispatched.at(-1)?.command as { type: string; threadId: string; context?: string };
+    expect(sent.type).toBe("thread.queue");
     expect(sent.threadId).toBe(guestId);
-    expect(sent.context).toContain("You are Reviewer.");
     expect(sent.context).toContain("Look for missing tests.");
-    expect(sent.context).toContain("## User\n\nAdd a login page");
+    expect(sent.context).toContain("- Prefers small PRs.");
   });
 
   it("brings any installed agent in from the people icon, named after the buddy it wears", async () => {
@@ -179,22 +212,22 @@ describe("ChatView with more than one agent", () => {
       node.textContent?.includes("Codex"),
     );
     await act(async () => (item as HTMLElement | undefined)?.click());
-    // The guest takes a buddy nobody in the chat wears yet, and is named after it.
+    // The guest takes a color nobody in the chat wears yet, and is named after it.
     const [request] = onBringIn.mock.calls[0] as unknown as [{ provider: string; name: string }];
     expect(request.provider).toBe("codex");
     expect([
-      "Gumdrop",
-      "Capsule",
-      "Plus",
-      "Cloud",
-      "Mushroom",
-      "Peanut",
-      "Jelly",
-      "Wedge",
-      "Squircle",
-      "Bulb",
-      "House",
-      "Bean",
+      "Sky",
+      "Indigo",
+      "Orchid",
+      "Rose",
+      "Tomato",
+      "Tangerine",
+      "Butter",
+      "Lime",
+      "Jade",
+      "Clay",
+      "Paper",
+      "Slate",
     ]).toContain(request.name);
     expect(container.querySelector("textarea")?.value).toBe(`@${request.name} `);
   });

@@ -481,7 +481,7 @@ export function NewAgentDialog({
                 disabled={modelUnsupported}
                 onChange={setModel}
               >
-                <ModelMark id={shownModel || undefined} label={modelLabel} size={15} />
+                <ModelMark id={shownModel || undefined} label={modelLabel} agent={provider} size={15} />
                 <span className="picker-trigger-label">{modelLabel}</span>
               </Picker>
             </FormSection>

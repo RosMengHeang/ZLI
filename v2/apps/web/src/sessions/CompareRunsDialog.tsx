@@ -128,7 +128,7 @@ function CompareColumn({
         <span>{name}</span>
       </div>
       <div className="compare-run-model">
-        <ModelMark id={model} label={modelLabel} size={12} />
+        <ModelMark id={model} label={modelLabel} agent={session?.provider} size={12} />
         <span>{modelLabel}</span>
       </div>
       {worktree ? (

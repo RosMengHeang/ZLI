@@ -20,6 +20,16 @@ export const BrowserTabCreateInput = z.object({
 export type BrowserTabCreateInput = z.infer<typeof BrowserTabCreateInput>;
 
 export const BrowserTabIdInput = z.object({ browserTabId: BrowserTabId });
+
+/** A worktree's browser profile, for reading or clearing what its sites keep. */
+export const BrowserProfileInput = z.object({ worktreeId: WorktreeId, profileId: BrowserProfileId });
+export type BrowserProfileInput = z.infer<typeof BrowserProfileInput>;
+/** One site, or every site when left out. */
+export const BrowserForgetSiteInput = BrowserProfileInput.extend({ site: z.string().min(1).max(253).optional() });
+export type BrowserForgetSiteInput = z.infer<typeof BrowserForgetSiteInput>;
+/** A site that keeps cookies in a profile: where a buddy is, or may be, signed in. */
+export const BrowserSite = z.object({ site: z.string().min(1).max(253), cookies: z.number().int().nonnegative() });
+export type BrowserSite = z.infer<typeof BrowserSite>;
 export type BrowserTabIdInput = z.infer<typeof BrowserTabIdInput>;
 
 export const BrowserNavigateInput = BrowserTabIdInput.extend({ url: z.string().url() });
@@ -43,7 +53,11 @@ export const BrowserWaitForNetworkIdleInput = BrowserTabIdInput.extend({
 });
 export type BrowserWaitForNetworkIdleInput = z.infer<typeof BrowserWaitForNetworkIdleInput>;
 
-export const BrowserScreenshotInput = BrowserTabIdInput.extend({ format: z.enum(["png", "jpeg"]).optional() });
+export const BrowserScreenshotInput = BrowserTabIdInput.extend({
+  format: z.enum(["png", "jpeg"]).optional(),
+  /** A small, light picture of what is on screen, for a preview card: the viewport, scaled down. */
+  thumbnail: z.boolean().optional(),
+});
 export type BrowserScreenshotInput = z.infer<typeof BrowserScreenshotInput>;
 
 export const BrowserReloadInput = BrowserTabIdInput.extend({ hard: z.boolean().default(false) });
@@ -180,6 +194,8 @@ export const BrowserTabProjection = z.object({
   status: z.enum(["idle", "loading", "crashed"]),
   loadError: z.string().max(512).optional(),
   viewport: BrowserViewport.optional(),
+  /** The icon the page names for itself, shown on its tab. */
+  favicon: z.string().max(2_000).optional(),
 });
 export type BrowserTabProjection = z.infer<typeof BrowserTabProjection>;
 

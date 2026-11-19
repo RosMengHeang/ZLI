@@ -3,12 +3,13 @@
 import { EnvironmentId, ProjectId, type RuntimeProjection, WorktreeId } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
 import type { AgentSession } from "../sessions/sessions.js";
-import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "./Sidebar.js";
+import { updateAppSettings } from "../settings/appSettings.js";
+import { isBuddySession, type ProjectAgentActions, Sidebar, type WorktreeAction } from "./Sidebar.js";
 import { parseSidebarCollapsed } from "./sidebarLayout.js";
 
 const bridge = {
@@ -20,6 +21,11 @@ const bridge = {
 } as unknown as ZliBridge;
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+// Most of these read the second line under each chat; one test below covers the one-line rows.
+beforeEach(() => {
+  updateAppSettings((current) => ({ ...current, compactChats: false, sidebarView: "projects" }));
+});
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -62,7 +68,6 @@ type MountOptions = {
   onDeleteSession?: (session: AgentSession) => void;
   onRenameSession?: (session: AgentSession) => void;
   onWorktreeAction?: (worktree: { worktreeId: string }, action: WorktreeAction) => void;
-  onCreateWorktree?: (project?: { projectId: string }) => void;
   onRemoveProject?: (projectId: string) => Promise<string | undefined>;
   onRenameProject?: (projectId: string, name: string) => void;
   onNewAgent?: (project?: { projectId: string }) => void;
@@ -96,7 +101,6 @@ async function mount(current: RuntimeProjection | undefined, options: MountOptio
           onSelectWorktree={noop}
           onNewAgent={options.onNewAgent ?? noop}
           onOpenProject={noop}
-          onCreateWorktree={options.onCreateWorktree ?? noop}
           onRemoveProject={options.onRemoveProject ?? (async () => undefined)}
           onRenameProject={options.onRenameProject ?? noop}
           onWorktreeAction={options.onWorktreeAction ?? noop}
@@ -105,7 +109,6 @@ async function mount(current: RuntimeProjection | undefined, options: MountOptio
           onOpenHelp={noop}
           onOpenSettings={options.onOpenSettings ?? noop}
           onOpenUsage={noop}
-          onHideSidebar={noop}
           projectAgentActions={options.projectAgentActions}
         />
       </RuntimeProvider>,
@@ -327,13 +330,13 @@ describe("Sidebar projects", () => {
     );
     // The chat is one card that names its worktree's branch on a quiet second line.
     const row = container.querySelector(".session-row");
-    expect(row?.classList.contains("has-branch")).toBe(true);
+    expect(row?.classList.contains("is-two-line")).toBe(true);
     expect(row?.querySelector(".session-branch .worktree-name")?.textContent).toBe("feat/login");
     expect(row?.querySelector(".worktree-status")).toBeNull();
     expect(container.querySelector(".worktree-toggle")).toBeNull();
   });
 
-  it("names a worktree's branch on its newest chat only, and leaves chats on the checkout to one line", async () => {
+  it("names a chat's branch on its second line, and the agent for chats on the checkout", async () => {
     const chat = (sessionId: string, worktreeId: string, createdAt: string): AgentSession => ({
       ...agent(worktreeId),
       sessionId,
@@ -356,8 +359,74 @@ describe("Sidebar projects", () => {
       },
     );
     const branches = [...container.querySelectorAll(".session-branch .worktree-name")].map((name) => name.textContent);
-    expect(branches).toEqual(["feat/login"]);
+    expect(branches).toEqual(["feat/login", "feat/login"]);
+    expect(container.querySelectorAll(".session-via")).toHaveLength(2);
     expect(container.querySelectorAll(".session-row")).toHaveLength(4);
+  });
+
+  it("shows a quiet chat on one line and keeps the second line for one that is working", async () => {
+    updateAppSettings((current) => ({ ...current, compactChats: true }));
+    const chat = (sessionId: string, status: AgentSession["status"]): AgentSession => ({
+      ...agent(checkoutId),
+      sessionId,
+      mode: "chat",
+      status,
+      createdAt: "2025-01-03T00:00:00.000Z",
+    });
+    const { container } = await mount(
+      projection([
+        { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
+      ]),
+      {
+        sessions: [
+          chat("quiet", "ready"),
+          {
+            ...chat("failed", "failed"),
+            pending: { errorMessage: "The agent crashed" } as NonNullable<AgentSession["pending"]>,
+          },
+        ],
+      },
+    );
+    const rows = [...container.querySelectorAll(".session-row")];
+    expect(rows.map((row) => row.className.includes("is-one-line"))).toEqual([true, false]);
+    expect(rows[0]?.querySelector(".session-sub")).toBeNull();
+    expect(rows[0]?.querySelector(".session-time")).not.toBeNull();
+  });
+
+  it("lists every chat by when it moved, naming its project and branch, and narrows to one project", async () => {
+    updateAppSettings((current) => ({ ...current, sidebarView: "activity" }));
+    const now = Date.now();
+    const chat = (
+      sessionId: string,
+      worktreeId: string,
+      minutesAgo: number,
+      status: AgentSession["status"] = "ready",
+    ) => ({
+      ...agent(worktreeId),
+      sessionId,
+      mode: "chat" as const,
+      status,
+      createdAt: new Date(now - minutesAgo * 60_000).toISOString(),
+      updatedAt: new Date(now - minutesAgo * 60_000).toISOString(),
+    });
+    const { container } = await mount(
+      projection([
+        { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
+        { worktreeId: featureId, projectId, path: "/work/repo-feat", branch: "feat/login", status: "ready" },
+      ]),
+      { sessions: [chat("old", checkoutId, 3 * 24 * 60), chat("busy", featureId, 600, "working")] },
+    );
+    const groups = [...container.querySelectorAll(".activity-group")].map((group) => group.getAttribute("aria-label"));
+    expect(groups).toEqual(["Recent", "Previous 7 days"]);
+    const rows = [...container.querySelectorAll(".session-row.is-activity")];
+    expect(rows.map((row) => row.querySelector(".activity-branch")?.textContent)).toEqual(["feat/login", "main"]);
+    expect(rows[0]?.querySelector(".activity-project")?.textContent).toBe("repo");
+    expect(rows[0]?.querySelector(".activity-spin")).not.toBeNull();
+    expect(container.querySelector(".project-label")).toBeNull();
+
+    // The sort switch goes back to the project tree.
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Group by project"]')?.click());
+    expect(container.querySelector(".project-label")).not.toBeNull();
   });
 
   it("folds quiet chats past the newest five into one row that opens", async () => {
@@ -471,21 +540,39 @@ describe("Sidebar projects", () => {
     expect(container.querySelector(".project-label")).not.toBeNull();
   });
 
-  it("pins a chat above every project and remembers it", async () => {
+  it("pins a chat to the top of its own project and remembers it", async () => {
+    const chat = (sessionId: string, name: string, createdAt: string): AgentSession => ({
+      ...agent(checkoutId),
+      sessionId,
+      status: "ready",
+      createdAt,
+      updatedAt: createdAt,
+      terminal: {
+        terminalId: `terminal-${sessionId}`,
+        worktreeId: checkoutId,
+        title: "Codex",
+        status: "running",
+        name,
+      } as unknown as NonNullable<AgentSession["terminal"]>,
+    });
+    const older = chat("session-1", "Older chat", "2025-01-01T00:00:00.000Z");
+    const newer = chat("session-2", "Newer chat", "2025-01-02T00:00:00.000Z");
     const { container } = await mount(
       projection([
         { worktreeId: checkoutId, projectId, path: "/work/repo", branch: "main", status: "ready", kind: "checkout" },
       ]),
-      { sessions: [{ ...agent(checkoutId), status: "ready", mode: "chat" }] },
+      { sessions: [older, newer] },
     );
-    expect(container.querySelector('[aria-label="Pinned chats"]')).toBeNull();
-    await openMenu(container, "Agent actions");
+    const titles = () =>
+      [...container.querySelectorAll(".sidebar-project .session-name")].map((node) => node.textContent);
+    expect(titles()).toEqual(["Newer chat", "Older chat"]);
+    const menus = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="Agent actions"]')];
+    await act(async () => menus[1]?.click());
     await act(async () => button(document.body, "Pin chat").click());
-    const pinned = container.querySelector('[aria-label="Pinned chats"]') as HTMLElement;
-    expect(pinned.querySelectorAll(".session-row")).toHaveLength(1);
-    expect(pinned.querySelector(".session-project")?.textContent).toBe("repo");
-    // Listed once: the project no longer shows it.
-    expect(container.querySelector(".sidebar-project .session-row")).toBeNull();
+    // It stays in the project, above the others, with no list of its own.
+    expect(titles()).toEqual(["Older chat", "Newer chat"]);
+    expect(container.querySelector('[aria-label="Pinned chats"]')).toBeNull();
+    expect(container.querySelectorAll(".sidebar-project .session-pin")).toHaveLength(1);
     expect(parseSidebarCollapsed(window.localStorage.getItem("zli.sidebar.collapsed")).chats).toEqual(["session-1"]);
   });
 
@@ -520,18 +607,6 @@ describe("Sidebar projects", () => {
     await act(async () => button(entry, "Retry").click());
     expect(onWorktreeAction).toHaveBeenCalledWith(expect.objectContaining({ worktreeId: featureId }), "retry");
     expect(entry.querySelector(".session-row")).not.toBeNull();
-  });
-
-  it("creates a worktree from the project row", async () => {
-    const onCreateWorktree = vi.fn();
-    const { container } = await mount(projection([]), { onCreateWorktree });
-    await openMenu(container, "repo actions");
-    await act(async () =>
-      [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')]
-        .find((item) => item.textContent === "New worktree")
-        ?.click(),
-    );
-    expect(onCreateWorktree).toHaveBeenCalledWith(expect.objectContaining({ projectId }));
   });
 
   it("keeps an agent's stop and delete in its ... menu", async () => {
@@ -699,12 +774,11 @@ describe("Sidebar projects", () => {
 
   it("offers pin and edit on right-click, but not in the ... menu", async () => {
     const { container } = await mount(projection([]));
-    expect(await rightClick(container)).toEqual(["Pin", "Edit", "New chat", "New worktree", "Remove project"]);
+    expect(await rightClick(container)).toEqual(["Pin", "Edit", "New chat", "Remove project"]);
     await act(async () => document.body.dispatchEvent(new Event("pointerdown")));
     await act(async () => button(container, "repo actions").click());
     expect([...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((item) => item.textContent)).toEqual([
       "New chat",
-      "New worktree",
       "Remove project",
     ]);
   });
@@ -754,7 +828,6 @@ describe("Sidebar projects", () => {
     );
     expect(await openMenu(container, "repo actions")).toEqual([
       "New chat",
-      "New worktree",
       "Show only this project",
       "Open all agents",
       "Close all agents",
@@ -859,5 +932,24 @@ describe("Sidebar footer", () => {
     expect(footer?.querySelector(".sidebar-waiting")?.textContent).toBe("Waiting for runtime");
     expect(footer?.querySelector('[role="status"]')?.textContent).toBe("");
     expect(has(footer as ParentNode, "Settings")).toBe(true);
+  });
+});
+
+describe("Sidebar buddy chats", () => {
+  const session = (thread: Partial<NonNullable<AgentSession["thread"]>>) =>
+    ({
+      sessionId: "s1",
+      worktreeId: "w1",
+      provider: "claude",
+      status: "idle",
+      mode: "chat",
+      thread,
+    }) as unknown as AgentSession;
+
+  it("leaves out a buddy's chats and jobs, which live on the Buddies page", () => {
+    const names = new Set(["Primary chat"]);
+    expect(isBuddySession(session({ unattended: true }), names)).toBe(true);
+    expect(isBuddySession(session({ name: "Primary chat" }), names)).toBe(true);
+    expect(isBuddySession(session({ name: "Fix login" }), names)).toBe(false);
   });
 });

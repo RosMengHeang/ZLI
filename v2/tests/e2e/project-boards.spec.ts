@@ -10,6 +10,7 @@ import {
   type DesktopFixture,
   git,
   launchDesktop,
+  openNewAgentOptions,
 } from "./desktop-fixtures.js";
 
 test("swaps project boards and brings each back as it was, without stopping agents", async () => {
@@ -94,8 +95,14 @@ const project = (page: Page, name: string) => page.getByRole("region", { name, e
 const tile = (page: Page, name: string) => page.getByRole("region", { name: new RegExp(`^${name},`, "u") });
 
 async function startAgent(page: Page, projectName: string, name: string): Promise<void> {
-  await fromProjectMenu(page, projectName, "New agent with options…");
+  // New agent with options is in the palette; its Project picker chooses where the agent works.
+  await openNewAgentOptions(page);
   const dialog = page.getByRole("dialog", { name: "New agent" });
+  const picker = dialog.locator('button[aria-label^="Project"]');
+  if ((await picker.getAttribute("aria-label")) !== `Project: ${projectName}`) {
+    await picker.click();
+    await page.getByRole("option", { name: new RegExp(`^${projectName}(\\s|$)`, "u") }).click();
+  }
   await dialog.getByText("Codex", { exact: true }).click();
   await dialog.getByText("Chat", { exact: true }).click();
   await dialog.getByRole("textbox", { name: "Name", exact: true }).fill(name);

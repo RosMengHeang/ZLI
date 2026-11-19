@@ -4,8 +4,11 @@ import { posix, win32 } from "node:path";
 import {
   agentNameTaken,
   assignMetroPort,
+  type BuddyEvent,
   HuddleCommand,
   type HuddleEvent,
+  isAppDraft,
+  isBuddyCommand,
   type PermissionMode,
   ProjectId,
   type ProjectProjection,
@@ -24,6 +27,7 @@ import {
 
 import { resolveTerminalCwd, TerminalCwdError } from "../terminal/terminalCwd.js";
 import { NOT_GIT_WORKTREE_MESSAGE } from "../worktrees/WorktreeService.js";
+import { decideBuddy } from "./buddyDecider.js";
 import { decideHuddle } from "./huddleDecider.js";
 
 export type DomainErrorCode =
@@ -48,6 +52,19 @@ export type DomainErrorCode =
   | "huddle_closed"
   | "huddle_member_missing"
   | "huddle_posted"
+  | "buddy_exists"
+  | "buddy_missing"
+  | "buddy_limit"
+  | "buddy_name_taken"
+  | "handoff_invalid"
+  | "memory_unsafe"
+  | "handoff_limit"
+  | "job_limit"
+  | "task_missing"
+  | "task_closed"
+  | "routine_missing"
+  | "goal_missing"
+  | "goal_limit"
   | "unsupported_command";
 
 export class DomainError extends Error {
@@ -135,7 +152,8 @@ export type DomainDecision = Extract<
       | "worktree.setup.changed"
       | "worktree.setup.responded"
       | "project.setup.trusted"
-      | HuddleEvent["type"];
+      | HuddleEvent["type"]
+      | BuddyEvent["type"];
   }
 >;
 
@@ -414,6 +432,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
             status: "starting",
             capabilities: {},
             ...(command.permissionMode ? { permissionMode: command.permissionMode } : {}),
+            ...(command.unattended ? { unattended: true as const } : {}),
             ...(command.model ? { model: command.model } : {}),
             ...(command.name !== undefined ? { name: command.name } : {}),
             ...(command.startedBy !== undefined ? { startedBy: command.startedBy } : {}),
@@ -752,6 +771,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       return decideSetupResponse(projection, command);
     default:
       if (isHuddleCommand(command)) return decideHuddle(projection, command);
+      if (isBuddyCommand(command)) return decideBuddy(projection, command);
       throw new DomainError("unsupported_command", `Command ${command.type} is not a domain mutation.`);
   }
 }
@@ -928,7 +948,10 @@ function queuedFor(projection: RuntimeProjection, threadId: string): ThreadQueue
 /** An agent takes its next message only between turns, with nothing waiting on the person. */
 function readyForNext(projection: RuntimeProjection, thread: ThreadProjection): boolean {
   return (
-    thread.status === "idle" && !(projection.requests ?? []).some((request) => request.threadId === thread.threadId)
+    thread.status === "idle" &&
+    !(projection.requests ?? []).some(
+      (request) => request.threadId === thread.threadId && !isAppDraft(request.requestId),
+    )
   );
 }
 
@@ -942,8 +965,9 @@ function expiredRequests(
   status: ThreadProjection["status"],
 ): DomainDecision[] {
   if (status === "working" || status === "waiting") return [];
+  // An app card is ZLI's own: it runs without the agent, so it stays until the person sends or discards it.
   return (projection.requests ?? [])
-    .filter((request) => request.threadId === threadId)
+    .filter((request) => request.threadId === threadId && !isAppDraft(request.requestId))
     .map((request): DomainDecision => ({ type: "thread.request.resolved", threadId, requestId: request.requestId }));
 }
 

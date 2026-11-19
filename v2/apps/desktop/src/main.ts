@@ -8,8 +8,10 @@ import {
   BrowserDesignCaptureInput,
   BrowserDesignMarkInput,
   BrowserFillInput,
+  BrowserForgetSiteInput,
   BrowserNavigateInput,
   BrowserPressInput,
+  BrowserProfileInput,
   BrowserReloadInput,
   BrowserScreenshotInput,
   BrowserSelectorInput,
@@ -32,13 +34,13 @@ import {
   ipcMain,
   net,
   protocol,
+  safeStorage,
   screen,
   session,
   shell,
   WebContentsView,
 } from "electron";
 import { WebSocket } from "ws";
-
 import {
   type AgentControlHost,
   createAgentControlActions,
@@ -72,20 +74,23 @@ import { createMobileControlActions, isMobileControlAction } from "./mobile/Mobi
 import { createMobileService, type MobileService, type MobileServiceOptions } from "./mobile/MobileService.js";
 import { MobileSettingsStore } from "./mobile/MobileSettingsStore.js";
 import { mobileIpcHandlers, streamViewer } from "./mobile/mobileIpc.js";
-import { PopOutWindows, type PopOutWindowLike } from "./mobile/PopOutWindows.js";
+import { type PopOutWindowLike, PopOutWindows } from "./mobile/PopOutWindows.js";
 import { createNodeProcessRunner, withDefaultEnv } from "./mobile/ProcessRunner.js";
 import { createFakeMobileService } from "./mobile/testing/fakeMobileService.js";
 import type { AgentNotifier } from "./notifications/AgentNotifier.js";
 import { registerAgentNotifications } from "./notifications/electronNotifications.js";
-import { registerMobileAccess } from "./remote/electronMobileAccess.js";
 import { detectApps, launchApp, nodeEnvironment, type ResolvedApp } from "./openIn/OpenInApps.js";
+import { registerMobileAccess } from "./remote/electronMobileAccess.js";
 import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDaemon.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal } from "./security/NavigationPolicy.js";
+import { SECRETS_KEY_ENV, SECRETS_KEYCHAIN_SLOW_ENV, secretsKey } from "./security/secretsKey.js";
+import { writeJsonFile } from "./storage/writeJsonFile.js";
+import { createElectronTray } from "./tray/electronTray.js";
+import { TrayController } from "./tray/TrayController.js";
 import { registerUpdates } from "./updates/electronUpdates.js";
 import { resolveAppAsset } from "./window/ElectronProtocol.js";
-import { writeJsonFile } from "./storage/writeJsonFile.js";
 import {
   applyWindowChrome,
   applyZoomKeys,
@@ -140,6 +145,7 @@ let mobileDev: MobileDev | undefined;
 let mobileTestOps: Record<string, MobileDevTestOp> = {};
 let popOuts: PopOutWindows | undefined;
 let mainWindow: BrowserWindow | undefined;
+let tray: TrayController | undefined;
 let notifier: AgentNotifier | undefined;
 let mobileAccess: { stop(): Promise<void> } | undefined;
 let reachRequests: ReachRequests | undefined;
@@ -186,11 +192,20 @@ async function main(): Promise<void> {
     endpointPath: daemonEndpointPath,
   });
   const browserToolPaths = await startBrowserControl(databasePath);
+  // The runtime seals secrets on disk (the Composio key) with a key the OS keychain keeps.
+  // Asked without blocking, and only for a few seconds: a keychain stuck on a prompt never keeps the window shut.
+  const sealing = await secretsKey(join(dirname(databasePath), "secrets-key.bin"), {
+    available: () => safeStorage.isAsyncEncryptionAvailable(),
+    encrypt: (text) => safeStorage.encryptStringAsync(text),
+    decrypt: async (sealed) => (await safeStorage.decryptStringAsync(sealed)).result,
+  });
   environment = new EnvironmentProcess({
     serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
     databasePath,
     extraEnv: {
       ...browserToolEnvironment(browserToolPaths),
+      ...(sealing.key ? { [SECRETS_KEY_ENV]: sealing.key } : {}),
+      ...(sealing.slow ? { [SECRETS_KEYCHAIN_SLOW_ENV]: "1" } : {}),
       // Test and development launches must leave the user's real agent settings alone.
       ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
     },
@@ -251,8 +266,25 @@ async function main(): Promise<void> {
   electronWindow.on("close", (event) => {
     if (quitController.exiting) return;
     event.preventDefault();
+    // While a buddy routine is on, closing hides ZLI to the tray so the routine keeps running.
+    if (tray?.hideOnClose()) return;
     app.quit();
   });
+  tray = new TrayController({
+    createTray: () => createElectronTray(appIcon(process.platform === "darwin" ? "icon.png" : "icon-square.png")),
+    showWindow: () => {
+      electronWindow.show();
+      electronWindow.focus();
+    },
+    hideWindow: () => electronWindow.hide(),
+    quit: () => app.quit(),
+    command: (command) =>
+      runtime
+        ? runtime.command({ protocolVersion: 1, commandId: randomUUID(), command })
+        : Promise.reject(new Error("ZLI's runtime is still starting.")),
+  });
+  tray.update(runtime?.projection());
+  runtime?.subscribe((projection) => tray?.update(projection));
   notifier = await registerAgentNotifications({
     window: electronWindow,
     runtime,
@@ -679,6 +711,14 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:browser:stop", (_event, input: unknown) =>
     browserManager?.stop(BrowserTabIdInput.parse(input).browserTabId),
   );
+  ipcMain.handle("zli:browser:sites", async (_event, input: unknown) => {
+    const parsed = BrowserProfileInput.parse(input);
+    return browserManager ? browserManager.sites(parsed.worktreeId, parsed.profileId) : [];
+  });
+  ipcMain.handle("zli:browser:forget-site", async (_event, input: unknown) => {
+    const parsed = BrowserForgetSiteInput.parse(input);
+    await browserManager?.forgetSite(parsed.worktreeId, parsed.profileId, parsed.site);
+  });
   ipcMain.handle("zli:browser:devtools", (_event, input: unknown) =>
     browserManager?.openDevTools(BrowserTabIdInput.parse(input).browserTabId),
   );
@@ -711,10 +751,10 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   });
   ipcMain.handle("zli:browser:screenshot", (_event, input: unknown) => {
     const parsed = BrowserScreenshotInput.parse(input);
-    return browserManager?.screenshot(
-      parsed.browserTabId,
-      parsed.format === undefined ? {} : { format: parsed.format },
-    );
+    return browserManager?.screenshot(parsed.browserTabId, {
+      ...(parsed.format === undefined ? {} : { format: parsed.format }),
+      ...(parsed.thumbnail ? { thumbnail: true } : {}),
+    });
   });
   ipcMain.handle("zli:browser:inspect", (_event, input: unknown) => {
     const parsed = BrowserSelectorInput.parse(input);

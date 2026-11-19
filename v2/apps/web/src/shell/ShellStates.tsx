@@ -1,5 +1,7 @@
 import type { ProjectProjection, RuntimeProjection } from "@zli-v2/contracts";
 
+import { type KeyboardEvent, type ReactNode, useState } from "react";
+
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
@@ -12,6 +14,7 @@ export function GridEmptyState({
   onOpenProject,
   onCloneProject,
   onNewAgent,
+  onStartChat,
   onScratchChat,
 }: {
   projection: RuntimeProjection;
@@ -22,6 +25,8 @@ export function GridEmptyState({
   /** Clones a repository from a forge and adds it; absent where cloning is not offered. */
   onCloneProject?: (() => void) | undefined;
   onNewAgent(): void;
+  /** Starts a new chat with what was typed on this screen as its first message. */
+  onStartChat?: ((text: string) => void) | undefined;
   /** Absent when scratch chats are not available, outside the desktop app. */
   onScratchChat?: (() => void) | undefined;
 }) {
@@ -51,41 +56,88 @@ export function GridEmptyState({
       </EmptyState>
     );
   }
-  if (project) {
+  if (onStartChat)
     return (
-      <EmptyState
-        size="large"
-        icon="folderOpen"
-        title={`No chats in ${project.name} yet`}
-        detail={
-          closedCount > 0
-            ? "Start one here, or pick a chat in the sidebar to open it again."
-            : "Ask an agent to build, fix, or explain something in this project."
-        }
+      <StartChat
+        place={project?.name}
+        hint={closedCount > 0 ? "Or pick a chat in the sidebar to open it again." : undefined}
+        onStart={onStartChat}
       >
-        <Button variant="primary" size="lg" icon="squarePen" shortcut={newChatShortcut} onClick={onNewAgent}>
-          New chat
-        </Button>
         {scratch}
-      </EmptyState>
+      </StartChat>
     );
-  }
   return (
     <EmptyState
       size="large"
       icon="message"
-      title="No chat open"
-      detail={
-        closedCount > 0
-          ? "Pick a chat in the sidebar to open it, or start a new one."
-          : "Ask an agent to build, fix, or explain something in your project."
-      }
+      title={project ? `No chats in ${project.name} yet` : "No chat open"}
+      detail="Ask an agent to build, fix, or explain something in your project."
     >
       <Button variant="primary" size="lg" icon="squarePen" shortcut={newChatShortcut} onClick={onNewAgent}>
         New chat
       </Button>
       {scratch}
     </EmptyState>
+  );
+}
+
+/**
+ * The empty screen as a place to start: one question and the message box under it. Enter opens a new chat and sends
+ * what was typed, so there is no New chat click before the first word.
+ */
+function StartChat({
+  place,
+  hint,
+  onStart,
+  children,
+}: {
+  place: string | undefined;
+  hint: string | undefined;
+  onStart(text: string): void;
+  children?: ReactNode;
+}) {
+  const [text, setText] = useState("");
+  const send = () => {
+    const typed = text.trim();
+    if (!typed) return;
+    onStart(typed);
+    setText("");
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    send();
+  };
+  return (
+    <div className="start-chat">
+      <h2 className="start-chat-title">What should we work on?</h2>
+      <form
+        className="start-chat-box"
+        onSubmit={(event) => {
+          event.preventDefault();
+          send();
+        }}
+      >
+        <textarea
+          className="start-chat-input"
+          aria-label="Start a chat"
+          placeholder={place ? `Describe a task or ask a question about ${place}` : "Describe a task or ask a question"}
+          rows={2}
+          // biome-ignore lint/a11y/noAutofocus: the empty screen exists to be typed into
+          autoFocus
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={onKeyDown}
+        />
+        <div className="start-chat-row">
+          <span className="start-chat-note">{hint ?? "Enter starts a new chat. Shift+Enter adds a line."}</span>
+          <button type="submit" className="send-button" aria-label="Start chat" disabled={!text.trim()}>
+            <Icon name="arrowUp" size={15} />
+          </button>
+        </div>
+      </form>
+      {children ? <div className="start-chat-more">{children}</div> : null}
+    </div>
   );
 }
 

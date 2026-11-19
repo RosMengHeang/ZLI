@@ -41,20 +41,32 @@ export function secureWebPreferences(preloadPath: string, partition?: string): R
   };
 }
 
-/** The window background and the color of the native title bar controls, from the renderer's theme. */
-export type WindowChrome = { background: string; symbols: string };
+/**
+ * The window background and the color of the native title bar controls, from the renderer's theme. The controls
+ * sit over the corner of the top-right panel, so they take that panel's color when the renderer gives one.
+ */
+export type WindowChrome = { background: string; symbols: string; controls?: string | undefined };
 
-export const DEFAULT_CHROME: WindowChrome = { background: themeColors.canvas, symbols: themeColors.muted };
+export const DEFAULT_CHROME: WindowChrome = {
+  background: themeColors.canvas,
+  symbols: themeColors.muted,
+  controls: themeColors.terminal,
+};
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/iu;
 
 /** Accepts only two `#rrggbb` colors, since the value comes from the renderer. */
 export function parseWindowChrome(input: unknown): WindowChrome | undefined {
   if (!input || typeof input !== "object") return undefined;
-  const { background, symbols } = input as Record<string, unknown>;
+  const { background, symbols, controls } = input as Record<string, unknown>;
   if (typeof background !== "string" || typeof symbols !== "string") return undefined;
   if (!HEX_COLOR.test(background) || !HEX_COLOR.test(symbols)) return undefined;
-  return { background: background.toLowerCase(), symbols: symbols.toLowerCase() };
+  const panel = typeof controls === "string" && HEX_COLOR.test(controls) ? controls.toLowerCase() : undefined;
+  return {
+    background: background.toLowerCase(),
+    symbols: symbols.toLowerCase(),
+    ...(panel ? { controls: panel } : {}),
+  };
 }
 
 export type ChromeWindowLike = {
@@ -65,7 +77,8 @@ export type ChromeWindowLike = {
 /** Recolors an open window. macOS keeps its traffic lights, which have no overlay colors to set. */
 export function applyWindowChrome(window: ChromeWindowLike, chrome: WindowChrome, platform: NodeJS.Platform): void {
   window.setBackgroundColor(chrome.background);
-  if (platform !== "darwin") window.setTitleBarOverlay?.({ color: chrome.background, symbolColor: chrome.symbols });
+  if (platform !== "darwin")
+    window.setTitleBarOverlay?.({ color: chrome.controls ?? chrome.background, symbolColor: chrome.symbols });
 }
 
 /** The renderer's top bar height, so the native chrome lines up with the app around it. */
@@ -88,7 +101,7 @@ export function titleBarOptions(
   }
   return {
     titleBarStyle: "hidden",
-    titleBarOverlay: { color: chrome.background, symbolColor: chrome.symbols, height },
+    titleBarOverlay: { color: chrome.controls ?? chrome.background, symbolColor: chrome.symbols, height },
   };
 }
 

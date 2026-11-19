@@ -12,7 +12,6 @@ import {
   type WorktreeProjection,
 } from "@zli-v2/contracts";
 import {
-  type CSSProperties,
   Fragment,
   memo,
   type ReactNode,
@@ -36,11 +35,11 @@ import type { RunAgent, RunStart } from "../sessions/bestOf.js";
 import { takeoverContext } from "../sessions/handoff.js";
 import type { ChatPlace } from "../sessions/launch.js";
 import { buildTimeline, conversationThreads, type TimelineItem } from "../sessions/sessions.js";
-import { useAppSettings } from "../settings/appSettings.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
-import { type Buddy, buddyHex, buddyName } from "../teammates/buddies.js";
+import { type Buddy, buddyName } from "../teammates/buddies.js";
 import { useChatBuddy } from "../teammates/chatBuddies.js";
 import {
+  buddyGuests,
   defaultBuddy,
   freeAgentName,
   freeBuddy,
@@ -92,6 +91,7 @@ import { TurnChanges } from "./TurnChanges.js";
 import { TurnRail } from "./TurnRail.js";
 import { groupTurns, trailSummary, workedFor } from "./turns.js";
 import { UsageLimitNote } from "./UsageLimitNote.js";
+import { useDockHeight } from "./useDockHeight.js";
 import { ChangedFiles, elapsedLabel, WorkSteps } from "./WorkLog.js";
 import { WorkspaceBar } from "./WorkspaceBar.js";
 import "./chat.css";
@@ -109,7 +109,6 @@ export function ChatView({
   onStartRuns,
   onBringIn,
   onOpenAgent,
-  onManageTeammates,
   onBranch,
   onNewChatWithPrompt,
   onAskAside,
@@ -142,8 +141,6 @@ export function ChatView({
   onBringIn?: ((request: GuestRequest) => Promise<{ threadId: string } | { error: string }>) | undefined;
   /** Shows an agent's own chat or terminal, found by its thread or terminal id. */
   onOpenAgent?: ((agentId: string) => void) | undefined;
-  /** Opens Settings at the saved teammates. */
-  onManageTeammates?: (() => void) | undefined;
   /** Starts a new chat that carries this conversation up to a reply. */
   onBranch?: ((branch: { from: string; context: string }) => void) | undefined;
   /** Opens a new chat in this project with the task already typed. */
@@ -169,6 +166,9 @@ export function ChatView({
   const [peerDraft, setPeerDraft] = useState("");
   const [peerTargetId, setPeerTargetId] = useState<string>();
   const logRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+  useDockHeight(viewRef, dockRef, logRef);
   const stickToBottom = useRef(true);
   /** Scrolled up from the end of the chat, which offers the way back down. */
   const [away, setAway] = useState(false);
@@ -236,8 +236,8 @@ export function ChatView({
     useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.turns, chainKey), [chainKey]),
     shallowArrayEqual,
   );
-  // The agents the person brought into this chat talk in it, so the chat reads as one room.
-  const { teammates } = useAppSettings();
+  // The team's buddies, which the person can bring into this chat to talk in it, so the chat reads as one room.
+  const teammates = useMemo(() => buddyGuests(projection), [projection]);
   // The chat's own buddy, the same one the sidebar shows for it.
   const hostBuddy = useChatBuddy(thread.sessionId ?? thread.threadId);
   const chainIds = useMemo(() => new Set(chain.map((entry) => entry.threadId)), [chain]);
@@ -775,13 +775,13 @@ export function ChatView({
           const items: MenuItem[] = [];
           const saved = teammates.filter((teammate) => !presentNames.has(agentNameKey(teammate.name)));
           if (saved.length > 0) {
-            items.push({ heading: "Your teammates" });
+            items.push({ heading: "Your buddies" });
             for (const teammate of saved) {
               items.push({
                 id: `teammate-${teammate.id}`,
                 label: teammate.name,
                 media: <BuddyAvatar buddy={teammate.buddy} provider={teammate.provider} size={20} />,
-                title: `${providerDisplayName(teammate.provider, projection.providers)}${teammate.model ? `, ${teammate.model}` : ""}`,
+                title: `Joins this chat on ${providerDisplayName(teammate.provider, projection.providers)}${teammate.model ? `, ${teammate.model}` : ""}`,
                 run: () =>
                   void bringIn(
                     {
@@ -810,15 +810,6 @@ export function ChatView({
                 run: () => void bringIn({ provider: entry.provider, name: buddyName(buddy) }, true),
               });
             }
-          }
-          if (onManageTeammates) {
-            items.push({ separator: true });
-            items.push({
-              id: "teammates",
-              label: teammates.length > 0 ? "Edit teammates" : "Save a teammate",
-              icon: "users",
-              run: onManageTeammates,
-            });
           }
           return items;
         }
@@ -862,18 +853,18 @@ export function ChatView({
         detail: `${person.agent} · ${person.role === "helper" ? "helper" : "in this chat"}`,
       }));
     const present = new Set(inChat.map((option) => agentNameKey(option.name)));
-    const saved = onBringIn
-      ? teammates
-          .filter((teammate) => !present.has(agentNameKey(teammate.name)))
-          .map((teammate) => ({
-            name: teammate.name,
-            buddy: teammate.buddy,
-            provider: teammate.provider,
-            detail: `${providerDisplayName(teammate.provider, projection.providers)} · joins when you send`,
-          }))
-      : [];
-    return [...inChat, ...saved];
-  }, [people, teammates, onBringIn, projection.providers]);
+    const taken = present;
+    // A buddy called with @Name gets the message as a job, in its own worktree and chat.
+    const team = (projection.buddies ?? [])
+      .filter((buddy) => !buddy.archived && !taken.has(agentNameKey(buddy.name)))
+      .map((buddy) => ({
+        name: buddy.name,
+        buddy: buddy.color,
+        provider: buddy.engine.mode === "auto" ? "" : buddy.engine.provider,
+        detail: `${buddy.title ? `${buddy.title} · ` : ""}gets this as a job`,
+      }));
+    return [...inChat, ...team];
+  }, [people, projection.buddies]);
 
   const queueTo = async (
     targetId: string,
@@ -907,8 +898,8 @@ export function ChatView({
   };
 
   /**
-   * A message that opens with @Name goes to that member of the chat, or brings the saved teammate of that name
-   * in first. Anything else goes to the chat's own agent.
+   * A message that opens with @Name goes to that member of the chat, or to that buddy as a job. Anything else
+   * goes to the chat's own agent.
    */
   const send = async (text: string, attachments: ComposerAttachment[]): Promise<boolean> => {
     setError(undefined);
@@ -919,15 +910,55 @@ export function ChatView({
       return true;
     }
     const callable = people.filter((person) => person.role !== "host" && !person.terminal);
-    const saved = onBringIn
-      ? teammates.filter(
-          (teammate) => !callable.some((person) => agentNameKey(person.name) === agentNameKey(teammate.name)),
-        )
-      : [];
-    const { names } = leadingMentions(text, [
-      ...callable.map((person) => person.name),
-      ...saved.map((entry) => entry.name),
-    ]);
+    const team = (projection.buddies ?? []).filter(
+      (buddy) => !buddy.archived && !callable.some((person) => agentNameKey(person.name) === agentNameKey(buddy.name)),
+    );
+    const asked = leadingMentions(
+      text,
+      team.map((buddy) => buddy.name),
+    );
+    if (asked.names.length > 0 && worktree) {
+      const goal = asked.rest.trim();
+      if (!goal) {
+        setError(`Say what the job is after @${asked.names[0]}.`);
+        return false;
+      }
+      // A job carries only its goal: rather than drop pasted images or files, the send waits and keeps them.
+      if (attachments.length > 0) {
+        setError(
+          `A job for @${asked.names[0]} can't take attached files yet. Remove them, or describe what's in them.`,
+        );
+        return false;
+      }
+      for (const name of asked.names) {
+        const buddy = team.find((candidate) => agentNameKey(candidate.name) === agentNameKey(name));
+        if (!buddy) continue;
+        const response = await dispatch({
+          protocolVersion: 1,
+          commandId: makeCommandId(),
+          command: {
+            type: "task.assign",
+            task: {
+              taskId: makeCommandId(),
+              buddyId: buddy.buddyId,
+              projectId: worktree.projectId,
+              kind: "job",
+              goal,
+              origin: { kind: "chat", threadId },
+            },
+          },
+        });
+        if (response?.accepted === false) {
+          setError(response.error.message);
+          return false;
+        }
+      }
+      return true;
+    }
+    const { names } = leadingMentions(
+      text,
+      callable.map((person) => person.name),
+    );
     if (names.length === 0) {
       const note = editing
         ? "The person edited their previous message. This message replaces it: follow this version, and undo or drop what you did for the earlier one where it no longer applies."
@@ -939,37 +970,18 @@ export function ChatView({
     let sent = true;
     for (const called of names) {
       const target = callable.find((person) => agentNameKey(person.name) === agentNameKey(called));
-      let targetId = target?.id;
-      let name = target?.name ?? called;
+      if (!target) continue;
+      const targetId = target.id;
+      const name = target.name;
       let joining = false;
-      let instructions = teammateNamed(teammates, name)?.instructions;
-      if (!target) {
-        const teammate = teammateNamed(teammates, called);
-        if (!teammate) continue;
-        const started = await bringIn(
-          {
-            provider: teammate.provider,
-            name: teammate.name,
-            ...(teammate.model ? { model: teammate.model } : {}),
-            ...(teammate.permissionMode ? { permissionMode: teammate.permissionMode } : {}),
-          },
-          false,
-        );
-        if (!started) {
-          sent = false;
-          continue;
-        }
-        targetId = started.threadId;
-        name = started.name;
-        joining = true;
-        instructions = teammate.instructions;
-      } else if (target.role === "guest") {
+      // A buddy brought into the chat reads its standing instructions and what it remembers.
+      const instructions = teammateNamed(teammates, name)?.instructions;
+      if (target.role === "guest") {
         joining = !roomMessages.some((message) => message.threadId === target.id && message.role === "user");
       }
-      if (!targetId) continue;
       const id = targetId;
       const context =
-        target?.role === "helper"
+        target.role === "helper"
           ? undefined
           : roomBrief({
               name,
@@ -1243,7 +1255,7 @@ export function ChatView({
     ) : null;
 
   return (
-    <div className="chat-view">
+    <div className="chat-view" ref={viewRef}>
       <ChatImageScope value={worktree?.worktreeId}>
         <div className="chat-stage">
           <div
@@ -1262,7 +1274,7 @@ export function ChatView({
             <div className="chat-column">
               {timeline.length === 0 && earlyMessages.length === 0 ? (
                 <>
-                  <ChatStart provider={thread.provider} folder={project?.name} buddy={buddies.get(thread.threadId)} />
+                  <ChatStart provider={thread.provider} folder={project?.name} />
                   {canSend ? (
                     <StartSuggestions
                       folder={project?.name}
@@ -1341,7 +1353,7 @@ export function ChatView({
           ) : null}
         </div>
       </ChatImageScope>
-      <div className="chat-dock">
+      <div className="chat-dock" ref={dockRef}>
         <div className="chat-column">
           {/* One thing above the message box at a time, the most pressing first: what holds the agent up, then
               the messages waiting their turn, then one quiet line about the chat. The next shows as each clears. */}
@@ -2083,25 +2095,16 @@ function peerOptionLabel(projection: RuntimeProjection, threadId: string): strin
 export function ChatStart({
   provider,
   folder,
-  buddy,
   onStartFromIssue,
 }: {
   provider: string;
   folder: string | undefined;
-  /** The chat's own buddy, which stays when the chat moves to another agent. */
-  buddy?: Buddy | undefined;
   /** Offers a quiet "Start from an issue" under the question. */
   onStartFromIssue?: (() => void) | undefined;
 }) {
   return (
     <div className="chat-start">
-      {buddy ? (
-        <span className="buddy-glow" style={{ "--face": buddyHex(buddy) } as CSSProperties}>
-          <BuddyAvatar buddy={buddy} size={92} />
-        </span>
-      ) : (
-        <ProviderMark provider={provider} size={28} />
-      )}
+      <ProviderMark provider={provider} size={28} />
       <h2 className="chat-start-title">
         What should we work on
         {folder ? (

@@ -4,7 +4,7 @@
  * such as "github-copilot/claude-sonnet-4" must match Claude before anything generic.
  */
 const MAKERS: readonly (readonly [RegExp, string])[] = [
-  [/claude|anthropic|opus|sonnet|haiku/u, "claude-code"],
+  [/claude|anthropic|opus|sonnet|haiku|fable/u, "claude-code"],
   [/gemini|gemma|google/u, "gemini"],
   [/grok|x-ai|xai/u, "xai"],
   [/glm|z-ai|zai|zhipu/u, "zai"],

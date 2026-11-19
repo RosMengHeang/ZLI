@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  BUDDY_HOMES_FOLDER,
   EnvironmentId,
   type McpServerConfig,
   PLAN_LIMIT_PROVIDERS,
@@ -21,6 +22,11 @@ import {
   zliMcpServerSpecs,
 } from "./browser-tool/browserTool.js";
 import { removeZliFromUserSettings, syncAccountMcpServers } from "./browser-tool/mcpSettingsFiles.js";
+import { BuddyChatReactor } from "./buddies/BuddyChatReactor.js";
+import { GoalReactor } from "./buddies/GoalReactor.js";
+import { BuddyHomes } from "./buddies/homes.js";
+import { RoutineReactor } from "./buddies/RoutineReactor.js";
+import { TaskReactor } from "./buddies/TaskReactor.js";
 import { TurnCheckpoints } from "./checkpoints/TurnCheckpoints.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
 import { Database } from "./db/Database.js";
@@ -37,6 +43,8 @@ import { GitLabIssues } from "./issues/GitLabIssues.js";
 import { LinearIssues } from "./issues/LinearIssues.js";
 import { type LimitTarget, mockLimitRead, PlanLimits } from "./limits/PlanLimits.js";
 import { planLimitReader } from "./limits/readers.js";
+import { AppsProxy } from "./mcp/AppsProxy.js";
+import { ConnectedApps } from "./mcp/ConnectedApps.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
 import { GITHUB_OAUTH_CLIENT_ID } from "./mcp/signIn/github.js";
 import { McpSignIns } from "./mcp/signIn/McpSignIns.js";
@@ -46,12 +54,13 @@ import { Engine } from "./orchestration/Engine.js";
 import { PluginStore } from "./plugins/PluginStore.js";
 import { AgentSettingsStore } from "./providers/AgentSettingsStore.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
-import { UsageLimitResumer } from "./providers/UsageLimitResumer.js";
 import { ProviderService } from "./providers/ProviderService.js";
 import { createProviderRegistry } from "./providers/registerProviders.js";
+import { UsageLimitResumer } from "./providers/UsageLimitResumer.js";
 import { ReviewReactor } from "./review/ReviewReactor.js";
 import { ReviewService } from "./review/ReviewService.js";
 import { RpcServer } from "./rpc/Server.js";
+import { SecretBox } from "./secrets/SecretBox.js";
 import { SkillStore } from "./skills/SkillStore.js";
 import { type SkillCopyTarget, syncSkillCopies, worktreeRootOf, worktreeSkillDirs } from "./skills/skillCopies.js";
 import { RemotePtyFactory } from "./terminal/RemotePtyFactory.js";
@@ -69,6 +78,8 @@ export type RuntimeProcess = {
   server: RpcServer;
   worktreeReactor: WorktreeReactor;
   huddleReactor: HuddleReactor;
+  taskReactor: TaskReactor;
+  routineReactor: RoutineReactor;
   terminalService: TerminalService;
   terminalReactor: TerminalReactor;
   daemonSupervisor: DaemonSupervisor;
@@ -167,8 +178,26 @@ export async function startRuntime(options: {
     githubClientId: process.env.ZLI_GITHUB_CLIENT_ID?.trim() || GITHUB_OAUTH_CLIENT_ID,
   });
   await signIns.load();
+  // The desktop app's keychain-held key seals secrets on disk; taken out of the environment so no agent inherits it.
+  const secrets = SecretBox.fromEnvironment();
+  const keychainSlow = SecretBox.keychainSlow();
+  // Agents reach Composio through a local stand-in that adds the key, so no agent ever holds the key.
+  const appsProxy: AppsProxy = new AppsProxy({
+    upstream: () => connectedApps.upstream(),
+    // Anything that changes something in the person's apps waits for their answer on a card in the calling chat.
+    decide: (call) => providerReactor.askAppAction(call),
+  });
+  await appsProxy.start().catch(() => undefined);
+  const connectedApps: ConnectedApps = new ConnectedApps({
+    path: join(dirname(databasePath), "connected-apps.json"),
+    proxy: appsProxy,
+    ...(secrets ? { box: secrets } : {}),
+    ...(keychainSlow ? { keychainSlow: true } : {}),
+  });
+  await connectedApps.load();
   const mcpServers: McpServerStore = new McpServerStore({
     path: join(dirname(databasePath), "mcp-servers.json"),
+    apps: connectedApps,
     extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
     signIns,
     importFrom: { home: userHome },
@@ -237,7 +266,7 @@ export async function startRuntime(options: {
   const mcpOptions = {
     mcpServers: async ({ worktreeId }: McpServerContext): Promise<McpServerSpec[]> => {
       const projectPath = await projectPathFor(worktreeId).catch(() => undefined);
-      return mcpServers.specs(projectPath ? { projectPath } : {});
+      return mcpServers.specs({ ...(projectPath ? { projectPath } : {}), ...(worktreeId ? { worktreeId } : {}) });
     },
     mcpConfigDir,
   };
@@ -252,6 +281,7 @@ export async function startRuntime(options: {
       writeWorktreeFile,
       metroEnv: (worktreeId) => projectionMetroEnv(engine, worktreeId),
       instructionsDir: join(dirname(databasePath), "instructions"),
+      privateDir: dirname(databasePath),
       claudeAutoCompactTokens: () => agentSettings.read().claudeAutoCompactTokens,
     }),
   );
@@ -269,7 +299,11 @@ export async function startRuntime(options: {
     ...mcpOptions,
   });
   const checkpoints = new TurnCheckpoints(engine, new GitProcess({ maxOutputBytes: 4 * 1024 * 1024 }));
-  const providerReactor = new ProviderReactor(engine, providerService, checkpoints, { resolveAccount });
+  const providerReactor = new ProviderReactor(engine, providerService, checkpoints, {
+    resolveAccount,
+    // What the person sends from an app card, ZLI runs itself with the saved key.
+    runApps: (tool, params) => appsProxy.run(tool, params),
+  });
   const agentMessageReactor = new AgentMessageReactor(engine);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
   const legacyImportReactor = new LegacyImportReactor(engine);
@@ -300,6 +334,45 @@ export async function startRuntime(options: {
       return [...usual.flat(), ...accounts.limitTargets()];
     },
     read: (target) => (mockLimits ? Promise.resolve(mockLimitRead(target)) : readLimits(target)),
+  });
+  const buddyHomes = new BuddyHomes(engine, join(dirname(databasePath), BUDDY_HOMES_FOLDER));
+  const taskReactor = new TaskReactor(engine, {
+    homes: buddyHomes,
+    providers: () => providerService.discoverProviders(),
+    // Auto steers away from logins near their plan limit, from readings ZLI already keeps.
+    usage: async () => {
+      const used = new Map<string, number>();
+      const { readings } = await planLimits.read();
+      for (const reading of readings) {
+        if (reading.accountId !== USUAL_LOGIN_ACCOUNT_ID) continue;
+        const most = Math.max(0, ...reading.windows.map((window) => window.usedPercent));
+        used.set(reading.provider, Math.max(used.get(reading.provider) ?? 0, most));
+      }
+      return used;
+    },
+    onError: (error) =>
+      log("warn", "buddies.task", { message: error instanceof Error ? error.message : String(error) }),
+  });
+  const buddyChatReactor = new BuddyChatReactor(engine, {
+    homes: buddyHomes,
+    providers: () => providerService.discoverProviders(),
+    onError: (error) =>
+      log("warn", "buddies.chat", { message: error instanceof Error ? error.message : String(error) }),
+  });
+  const goalReactor = new GoalReactor(engine, {
+    onError: (error) =>
+      log("warn", "buddies.goal", { message: error instanceof Error ? error.message : String(error) }),
+  });
+  // The homes project is there from the start, so a buddy can hand a web job out before any buddy chatted.
+  void engine
+    .projection()
+    .then((state) => ((state.buddies ?? []).length > 0 ? buddyHomes.project(state) : undefined))
+    .catch((error: unknown) =>
+      log("warn", "buddies.home", { message: error instanceof Error ? error.message : String(error) }),
+    );
+  const routineReactor = new RoutineReactor(engine, {
+    onError: (error) =>
+      log("warn", "buddies.routine", { message: error instanceof Error ? error.message : String(error) }),
   });
   const server = new RpcServer({
     engine,
@@ -356,6 +429,8 @@ export async function startRuntime(options: {
     server,
     worktreeReactor,
     huddleReactor,
+    taskReactor,
+    routineReactor,
     terminalService,
     terminalReactor,
     daemonSupervisor,
@@ -393,14 +468,22 @@ export async function startRuntime(options: {
       await diagnosticsReactor.waitForIdle();
       await legacyImportReactor.waitForIdle();
       await huddleReactor.waitForIdle();
+      routineReactor.stop();
+      goalReactor.stop();
+      await routineReactor.waitForIdle();
+      await goalReactor.waitForIdle();
+      await taskReactor.waitForIdle();
       // After the terminals and chats settle, so no launch writes a file once these are gone.
       await skills.removeCopies().catch(() => undefined);
       await agentFiles.removeAll().catch(() => undefined);
       huddleReactor.stop();
+      taskReactor.stop();
+      buddyChatReactor.stop();
       worktreeReactor.stop();
       worktreeSetup.stop();
       terminalReactor.stop();
       reviewReactor.stop();
+      await appsProxy.stop();
       providerReactor.stop();
       usageLimitResumer.stop();
       checkpoints.stop();

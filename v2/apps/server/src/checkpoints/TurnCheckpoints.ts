@@ -10,6 +10,7 @@ import {
   CheckpointRestoreResult,
   CommandId,
   MAX_CHECKPOINT_FILES,
+  MAX_SKIPPED_PATHS,
   type RuntimeProjection,
   type ThreadCheckpoint,
   ThreadId,
@@ -20,12 +21,25 @@ import {
 import type { GitProcess } from "../git/GitProcess.js";
 import type { Engine } from "../orchestration/Engine.js";
 import { parseNumstat } from "../review/ReviewService.js";
+import {
+  DEFAULT_UNTRACKED_LIMITS,
+  excludePathspecs,
+  oversizedUntracked,
+  sweepTempObjects,
+  type UntrackedLimits,
+} from "./untrackedLimits.js";
 
 /** A message the person can act on; anything else is reported as an unexpected failure. */
 export class CheckpointError extends Error {}
 
-/** The worktree's files as a Git tree, taken before the agent saw the message. */
-export type TurnStart = { worktreeId: string; worktreePath: string; tree: string };
+/**
+ * The worktree's files as a Git tree, taken before the agent saw the message, and the untracked paths too big
+ * to include in it.
+ */
+export type TurnStart = { worktreeId: string; worktreePath: string; tree: string; skipped: string[] };
+
+/** A snapshot's tree and the untracked paths it left out. */
+type Snapshot = { tree: string; skipped: string[] };
 
 type NameStatus = { status: string; path: string; oldPath?: string };
 
@@ -45,11 +59,16 @@ const BUSY_STATUSES = new Set(["working", "waiting"]);
 export class TurnCheckpoints {
   private readonly tasks = new Set<Promise<void>>();
   private readonly unsubscribe: () => void;
+  private readonly limits: UntrackedLimits;
+  /** Git objects folders already swept for leftover temp objects since start-up. */
+  private readonly swept = new Set<string>();
 
   constructor(
     private readonly engine: Engine,
     private readonly git: Pick<GitProcess, "run">,
+    options: { limits?: UntrackedLimits } = {},
   ) {
+    this.limits = options.limits ?? DEFAULT_UNTRACKED_LIMITS;
     this.unsubscribe = engine.subscribe((envelope) => {
       if (envelope.event.type === "session.deleted") this.track(this.dropRefs(envelope.event.threadIds));
     });
@@ -70,8 +89,8 @@ export class TurnCheckpoints {
       const thread = projection.threads.find((candidate) => candidate.threadId === threadId);
       const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread?.worktreeId);
       if (worktree?.status !== "ready") return undefined;
-      const tree = await this.snapshot(worktree.path);
-      return { worktreeId: worktree.worktreeId, worktreePath: worktree.path, tree };
+      const { tree, skipped } = await this.snapshot(worktree.path);
+      return { worktreeId: worktree.worktreeId, worktreePath: worktree.path, tree, skipped };
     } catch {
       return undefined;
     }
@@ -81,21 +100,25 @@ export class TurnCheckpoints {
   async record(threadId: string, turnId: string, start: TurnStart): Promise<void> {
     try {
       const cwd = start.worktreePath;
-      const end = await this.snapshot(cwd);
-      if (end === start.tree) return;
-      const { files, fileCount, additions, deletions } = await this.changes(cwd, start.tree, end);
+      // Both trees leave out the same paths, so a folder that crossed a limit mid-turn is not a change.
+      const ended = await this.snapshot(cwd, start.skipped);
+      const end = ended.tree;
+      const startTree = await this.withoutPaths(cwd, start.tree, newPaths(ended.skipped, start.skipped));
+      if (end === startTree) return;
+      const { files, fileCount, additions, deletions } = await this.changes(cwd, startTree, end);
       if (fileCount === 0) return;
       const checkpointId = randomUUID();
       const refs = `${REF_ROOT}/${threadId}/${checkpointId}`;
-      await this.git.run(["update-ref", `${refs}/start`, start.tree], { cwd });
+      await this.git.run(["update-ref", `${refs}/start`, startTree], { cwd });
       await this.git.run(["update-ref", `${refs}/end`, end], { cwd });
       const checkpoint: Omit<ThreadCheckpoint, "recordedAt"> = {
         checkpointId,
         threadId: ThreadId.parse(threadId),
         worktreeId: WorktreeId.parse(start.worktreeId),
         turnId: boundedTurnId(turnId),
-        startTree: start.tree,
+        startTree,
         endTree: end,
+        ...(ended.skipped.length > 0 ? { skippedPaths: ended.skipped.slice(0, MAX_SKIPPED_PATHS) } : {}),
         files,
         fileCount,
         additions,
@@ -162,12 +185,12 @@ export class TurnCheckpoints {
     if (worktreeBusy(projection, checkpoint.worktreeId)) {
       throw new CheckpointError("An agent is working in this worktree. Wait for its turn to end, then restore.");
     }
-    const current = await this.snapshot(cwd);
-    if (current === checkpoint.startTree) return { changedFiles: 0 };
+    const { current, target } = await this.alike(cwd, checkpoint.startTree, checkpoint.skippedPaths ?? []);
+    if (current === target) return { changedFiles: 0 };
     await this.git.run(["update-ref", `${REF_ROOT}/${checkpoint.threadId}/${checkpointId}/before-restore`, current], {
       cwd,
     });
-    const count = await this.writeTree(cwd, current, checkpoint.startTree);
+    const count = await this.writeTree(cwd, current, target);
     await this.engine.dispatchPromise({
       protocolVersion: 1,
       commandId: CommandId.parse(randomUUID()),
@@ -198,21 +221,51 @@ export class TurnCheckpoints {
       throw new CheckpointError("An agent is already working in the new worktree.");
     }
     let tree: string;
+    let skipped: readonly string[];
     if (command.from.kind === "checkpoint") {
       const { checkpointId } = command.from;
       const checkpoint = projection.checkpoints?.find((candidate) => candidate.checkpointId === checkpointId);
       if (!checkpoint) throw new CheckpointError("This turn's changes are no longer saved.");
       tree = checkpoint.startTree;
+      skipped = checkpoint.skippedPaths ?? [];
     } else {
       const { worktreeId } = command.from;
       const source = projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
       if (!source) throw new CheckpointError("The worktree to copy from was removed.");
       if (source.status !== "ready") throw new CheckpointError("The worktree to copy from is not ready.");
-      tree = await this.snapshot(source.path);
+      ({ tree, skipped } = await this.snapshot(source.path));
     }
-    const current = await this.snapshot(target.path);
-    if (current === tree) return { changedFiles: 0 };
-    return CheckpointForkResult.parse({ changedFiles: await this.writeTree(target.path, current, tree) });
+    const compared = await this.alike(target.path, tree, skipped);
+    if (compared.current === compared.target) return { changedFiles: 0 };
+    return CheckpointForkResult.parse({
+      changedFiles: await this.writeTree(target.path, compared.current, compared.target),
+    });
+  }
+
+  /**
+   * The files in `cwd` now, and `tree`, both leaving out the same untracked paths: the ones `tree` left out
+   * and the ones too big now. A path left out on either side is never written or deleted.
+   */
+  private async alike(
+    cwd: string,
+    tree: string,
+    skipped: readonly string[],
+  ): Promise<{ current: string; target: string }> {
+    const now = await this.snapshot(cwd, skipped);
+    return { current: now.tree, target: await this.withoutPaths(cwd, tree, newPaths(now.skipped, skipped)) };
+  }
+
+  /** `tree` without `paths` (files or whole folders). */
+  private async withoutPaths(cwd: string, tree: string, paths: readonly string[]): Promise<string> {
+    if (paths.length === 0) return tree;
+    return this.withIndex(async (env) => {
+      await this.git.run(["read-tree", tree], { cwd, env });
+      await this.git.run(
+        ["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", ...paths.map((path) => `:(literal)${path}`)],
+        { cwd, env },
+      );
+      return (await this.git.run(["write-tree"], { cwd, env })).stdout.trim();
+    });
   }
 
   /** Makes the files in `cwd` (snapshot `current`) match `tree`. Returns how many files changed. */
@@ -252,17 +305,48 @@ export class TurnCheckpoints {
     return { checkpoint, worktreePath: worktree.path, projection };
   }
 
-  /** `git add --all` into a copy of the real index, so unchanged files are not hashed again. */
-  private async snapshot(cwd: string): Promise<string> {
-    const indexPath = (await this.git.run(["rev-parse", "--git-path", "index"], { cwd })).stdout.trim();
+  /**
+   * `git add --all` into a copy of the real index, so unchanged files are not hashed again. Untracked files and
+   * folders over the limits (build output missing from .gitignore) are left out of both ends of every turn.
+   */
+  private async snapshot(cwd: string, alsoSkip: readonly string[] = []): Promise<Snapshot> {
+    const paths = (await this.git.run(["rev-parse", "--git-path", "index", "--git-path", "objects"], { cwd })).stdout
+      .trim()
+      .split(/\r?\n/u);
+    const indexPath = paths[0] ?? "index";
+    const objectsDir = resolve(cwd, paths[1] ?? ".git/objects");
+    if (!this.swept.has(objectsDir)) {
+      this.swept.add(objectsDir);
+      await sweepTempObjects(objectsDir, Date.now());
+    }
+    const found = await oversizedUntracked(this.git, cwd, this.limits).catch(() => []);
+    const skipped = [...new Set([...alsoSkip, ...found])].sort();
     return this.withIndex(async (env) => {
       try {
         await copyFile(resolve(cwd, indexPath), env.GIT_INDEX_FILE);
       } catch {
         // A repository without commits or staged files has no index yet.
       }
-      await this.git.run(["add", "--all", "--", "."], { cwd, env, timeoutMs: SNAPSHOT_TIMEOUT_MS });
-      return (await this.git.run(["write-tree"], { cwd, env })).stdout.trim();
+      try {
+        await this.git.run(["add", "--all", "--", ".", ...excludePathspecs(skipped)], {
+          cwd,
+          env,
+          timeoutMs: SNAPSHOT_TIMEOUT_MS,
+        });
+      } catch (error) {
+        // A timed-out add is killed mid-write and leaves its temp objects behind. Another Git writer sharing these
+        // objects may have fresh ones of its own, so nothing is removed now: the next snapshot here sweeps again,
+        // taking only folders old enough that no running command still owns them.
+        this.swept.delete(objectsDir);
+        throw error;
+      }
+      // A skipped path the real index already holds (staged or committed since) would come back in through the
+      // copied index; it is taken out, so a restore never deletes it.
+      for (let index = 0; index < skipped.length; index += CHECKOUT_BATCH) {
+        const batch = skipped.slice(index, index + CHECKOUT_BATCH).map((path) => `:(literal)${path}`);
+        await this.git.run(["rm", "--cached", "-r", "-q", "--ignore-unmatch", "--", ...batch], { cwd, env });
+      }
+      return { tree: (await this.git.run(["write-tree"], { cwd, env })).stdout.trim(), skipped };
     });
   }
 
@@ -382,6 +466,12 @@ function fileKind(status: string): TurnCheckpointFile["kind"] {
 }
 
 /** Matches the turn id the usage records use, so a turn is named the same everywhere. */
+/** Paths in `paths` that `known` does not have. */
+function newPaths(paths: readonly string[], known: readonly string[]): string[] {
+  const seen = new Set(known);
+  return paths.filter((path) => !seen.has(path));
+}
+
 function boundedTurnId(turnId: string): string {
   return turnId.length <= MAX_TURN_ID ? turnId : createHash("sha256").update(turnId).digest("hex");
 }

@@ -4,7 +4,7 @@ import { type KeyboardEvent, type RefObject, useId, useMemo, useState } from "re
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import type { Buddy } from "../teammates/buddies.js";
 
-/** Someone the person can call with @Name: a member of the chat, or a saved teammate who joins when called. */
+/** Someone the person can call with @Name: a member of the chat, or a buddy who gets the message as a job. */
 export type MentionOption = {
   name: string;
   buddy: Buddy;

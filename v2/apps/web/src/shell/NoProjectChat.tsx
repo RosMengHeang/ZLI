@@ -1,16 +1,5 @@
-import {
-  type CSSProperties,
-  type FormEvent,
-  type KeyboardEvent,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
-import { buddyHex } from "../teammates/buddies.js";
-import { hashedBuddy } from "../teammates/chatBuddies.js";
 import { scrollMovesAnchor, useAnchoredPlacement } from "../ui/anchoredPopup.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
@@ -44,7 +33,6 @@ export function NoProjectChat({
   const [folder, setFolder] = useState<ChatFolder>();
   const [menuOpen, setMenuOpen] = useState(false);
   const [starting, setStarting] = useState(false);
-  const [buddy] = useState(() => hashedBuddy(Math.random().toString(36)));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => textareaRef.current?.focus(), []);
@@ -85,9 +73,6 @@ export function NoProjectChat({
       <div className="chat-log" role="log" aria-label="Agent conversation">
         <div className="chat-column">
           <div className="chat-start no-project-start">
-            <span className="buddy-glow" style={{ "--face": buddyHex(buddy) } as CSSProperties}>
-              <BuddyAvatar buddy={buddy} mood={starting ? "working" : "idle"} size={92} />
-            </span>
             <h2 className="chat-start-title">What should we work on?</h2>
             <p className="no-project-hint">
               {folder ? (

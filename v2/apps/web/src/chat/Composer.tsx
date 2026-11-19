@@ -38,6 +38,7 @@ import { ImageViewer } from "./ChatImage.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { CHAT_DRAG_TYPE, readDraggedChat } from "./chatDrag.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
+import { readDraft, writeDraft } from "./drafts.js";
 import { EffortSlider } from "./EffortSlider.js";
 import { FileBadge } from "./FileBadge.js";
 import { type MentionOption, useMentionPicker } from "./MentionPicker.js";
@@ -56,15 +57,20 @@ const NO_LEVELS: readonly string[] = [];
 const NO_AGENTS: readonly AgentChoice[] = [];
 
 /**
- * Unsent text by chat session. Moving a chat to another agent, folder, or branch opens a new thread and a new
- * message box, and the text typed so far comes along instead of being lost.
+ * Unsent text is kept by chat session (see drafts.ts). Moving a chat to another agent, folder, or branch opens a
+ * new thread and a new message box, and the text typed so far comes along instead of being lost.
  */
-const drafts = new Map<string, string>();
+/** Chats whose seeded text goes out as soon as their message box can send it. */
+const sendOnOpen = new Set<string>();
 
-/** Puts text in a chat's message box before it opens, as if it had been typed there. */
-export function seedComposerDraft(key: string, text: string): void {
-  if (text) drafts.set(key, text);
-  else drafts.delete(key);
+/**
+ * Puts text in a chat's message box before it opens, as if it had been typed there. With `send`, the box sends it
+ * the moment it is ready, as when the person typed it on the empty screen and pressed Enter.
+ */
+export function seedComposerDraft(key: string, text: string, options: { send?: boolean } = {}): void {
+  writeDraft(key, text);
+  if (options.send && text.trim()) sendOnOpen.add(key);
+  else sendOnOpen.delete(key);
 }
 
 const CapturePicker = lazy(() => import("./CapturePicker.js").then((module) => ({ default: module.CapturePicker })));
@@ -157,7 +163,7 @@ export function Composer({
   peopleItems,
   issueRequest,
 }: {
-  /** Who "@" offers: the chat's other members and saved teammates. Empty turns the list off. */
+  /** Who "@" offers: the chat's other members and the buddies. Empty turns the list off. */
   mentions?: readonly MentionOption[] | undefined;
   /** Puts text such as "@Owl " at the start of the message box; a new nonce asks again. */
   /** Text to put in the message box. replace swaps the draft for it, as editing a sent message does. */
@@ -229,15 +235,14 @@ export function Composer({
   /** Other agents: bringing one in, or messaging one. A second icon beside the paperclip, when there are any. */
   peopleItems?: readonly Exclude<MenuEntry, "separator">[] | undefined;
 }) {
-  const [draft, setDraft] = useState(() => (draftKey ? (drafts.get(draftKey) ?? "") : ""));
+  const [draft, setDraft] = useState(() => (draftKey ? readDraft(draftKey) : ""));
   useEffect(() => {
-    if (!draftKey) return;
-    if (draft) drafts.set(draftKey, draft);
-    else drafts.delete(draftKey);
+    if (draftKey) writeDraft(draftKey, draft);
   }, [draftKey, draft]);
   const [images, setImages] = useState<Draft[]>([]);
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
+  const sendingNow = useRef(false);
   const [capturing, setCapturing] = useState(false);
   const [preview, setPreview] = useState<{ url: string; name: string }>();
   const [dragging, setDragging] = useState(false);
@@ -400,7 +405,16 @@ export function Composer({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const text = draft.trim();
-    if ((!text && images.length === 0 && references.length === 0) || disabled || blocked || sending) return;
+    // The ref turns a second Enter away at once, before the state that disables Send has rendered.
+    if (
+      (!text && images.length === 0 && references.length === 0) ||
+      disabled ||
+      blocked ||
+      sending ||
+      sendingNow.current
+    )
+      return;
+    sendingNow.current = true;
     setSending(true);
     setError(undefined);
     try {
@@ -433,9 +447,19 @@ export function Composer({
       setDraft(text);
       setError(cause instanceof Error ? cause.message : "The message could not be sent.");
     } finally {
+      sendingNow.current = false;
       setSending(false);
     }
   };
+
+  // Text typed on the empty screen goes out once this box can send, so starting a chat there takes one Enter.
+  const sendWhenReady = useRef(draftKey ? sendOnOpen.has(draftKey) : false);
+  useEffect(() => {
+    if (!sendWhenReady.current || !draftKey || disabled || blocked) return;
+    sendWhenReady.current = false;
+    sendOnOpen.delete(draftKey);
+    void submit({ preventDefault() {} } as FormEvent);
+  });
 
   useEffect(() => {
     if (!sendMenuOpen) return;

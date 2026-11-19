@@ -54,6 +54,8 @@ export type ProviderSessionStart = {
   cwd: string;
   /** Omitted means full access, matching how every agent launched before supervised mode existed. */
   permissionMode?: PermissionMode;
+  /** Nobody answers the agent's prompts as they come, so it must not stop to ask. */
+  unattended?: boolean;
   model?: string;
   /** Lets agent tools such as zli-browser act on this thread's worktree. */
   worktreeId?: string;

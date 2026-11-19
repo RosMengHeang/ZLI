@@ -244,6 +244,39 @@ describe("durable environment engine", () => {
     await expect(engine.eventsAfter(0)).rejects.toBeInstanceOf(StoredEventCompatibilityError);
   });
 
+  it("skips stored events of a type this build does not know, so newer data still opens", async () => {
+    const engine = makeEngine();
+    await engine.dispatchPromise(registerRequest("00000000-0000-4000-8000-000000000021", "C:workspace\newer"));
+    engine.database.execute(
+      "INSERT INTO events (sequence, event_id, command_id, event_type, event_version, event_json, occurred_at) VALUES (?, ?, NULL, ?, 1, ?, ?)",
+      [
+        2,
+        "00000000-0000-4000-8000-000000000022",
+        "later.feature.changed",
+        JSON.stringify({
+          protocolVersion: 1,
+          sequence: 2,
+          eventId: "00000000-0000-4000-8000-000000000022",
+          occurredAt: new Date().toISOString(),
+          event: { type: "later.feature.changed", detail: "from a newer build" },
+        }),
+        new Date().toISOString(),
+      ],
+    );
+
+    const events = await engine.eventsAfter(0);
+    expect(events.map((entry) => [entry.sequence, entry.event.type])).toEqual([
+      [1, "project.registered"],
+      [2, "runtime.event.unknown"],
+    ]);
+    await engine.rebuildProjection();
+    expect((await engine.projection()).projects).toHaveLength(1);
+    const next = await engine.dispatchPromise(
+      registerRequest("00000000-0000-4000-8000-000000000023", "C:workspaceafter"),
+    );
+    expect(next).toMatchObject({ status: "accepted", firstSequence: 3 });
+  });
+
   it("rejects a second project registration for the same path", async () => {
     const engine = makeEngine();
     await engine.dispatchPromise(registerRequest("00000000-0000-4000-8000-000000000019", "C:\\workspace\\same"));

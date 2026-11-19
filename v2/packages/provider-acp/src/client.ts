@@ -110,6 +110,8 @@ export type AcpSpawnOptions = {
 };
 
 export type AcpClientOptions = {
+  /** Tools that run without asking the person, by the name the agent gives them: ZLI's own trusted tools. */
+  approveTool?: (name: string) => boolean;
   cwd: string;
   command: string;
   /** Arguments that put the CLI in ACP stdio mode, such as ["acp"] or ["--acp"]. */
@@ -174,6 +176,7 @@ export class AcpClient {
   private readonly listeners = new Set<(event: AcpProviderEvent) => void>();
   private readonly completed: AcpTranscriptTurn[] = [];
   private readonly permissions = new Map<string, PendingPermission>();
+  private approveTool?: (name: string) => boolean;
   private sessionId = "";
   private imageInput = false;
   private authDescription: string | undefined;
@@ -238,6 +241,7 @@ export class AcpClient {
       options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
       options.readAttachment ?? ((path) => readFile(path)),
     );
+    if (options.approveTool) client.approveTool = options.approveTool;
     try {
       await client.handshake(
         options.model?.trim() || undefined,
@@ -626,6 +630,14 @@ export class AcpClient {
       return;
     }
     const { options } = parsed.data;
+    // ZLI's own tools report back to ZLI and never ask; the title may only have come with the earlier tool call.
+    const toolCallId = parsed.data.toolCall?.toolCallId;
+    const toolTitle =
+      parsed.data.toolCall?.title ?? (typeof toolCallId === "string" ? active.tools.get(toolCallId)?.title : undefined);
+    if (typeof toolTitle === "string" && this.approveTool?.(toolTitle)) {
+      this.connection.respond(id, permissionOutcome(pickOption(options, ["allow_once", "allow_always"], "allow")));
+      return;
+    }
     if (this.permissionMode === "full-access") {
       this.connection.respond(id, permissionOutcome(pickOption(options, ["allow_always", "allow_once"], "allow")));
       return;

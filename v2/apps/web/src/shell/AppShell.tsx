@@ -1,11 +1,13 @@
 import {
   type Account,
+  isBuddyHome,
   type ListedProviderKind,
   MCP_CATALOG,
   type PluginAction,
   type PluginOrigin,
   type ProjectProjection,
   ProjectRegisterResult,
+  primaryBuddy,
   type RuntimeProjection,
   type SetupDecision,
   threadOccupiesWorktree,
@@ -14,10 +16,21 @@ import {
   type WorktreeSetupProjection,
   worktreeDevServers,
 } from "@zli-v2/contracts";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type CSSProperties,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
+import { BuddiesPane, useStarterTeam, useTeammatesToBuddies } from "../buddies/BuddiesPane.js";
 import { type ChatBranch, saveChatBranch, takeChatBranch } from "../chat/branches.js";
 import type { GuestRequest, StartRunsRequest } from "../chat/ChatView.js";
 import { seedComposerDraft } from "../chat/Composer.js";
@@ -50,6 +63,7 @@ import {
 import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import { PullRequestPane } from "../review/PullRequestPane.js";
+import { PullRequestsPage } from "../review/PullRequestsPage.js";
 import { usePullRequestEntries, usePullRequestPolling } from "../review/pullRequestStore.js";
 import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
@@ -79,6 +93,7 @@ import {
   conversationThreads,
   deriveSessions,
   gridLayout,
+  isUnsentDraft,
   type PendingLaunch,
   type SessionMode,
   sessionAgentName,
@@ -122,6 +137,7 @@ import { AGENTS_NOT_TRUSTED, useAgentTrust } from "../setup/agentTrust.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
+import { SidebarResizer, useSidebarWidth } from "../sidebar/SidebarResizer.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { themeChoices } from "../theme/customThemes.js";
 import { ThemeEditor } from "../theme/ThemeEditor.js";
@@ -196,6 +212,8 @@ export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) 
 
 /** The narrowest the chat gets while the right panel is open beside it. */
 const MIN_CHAT_WIDTH = Math.max(MIN_GRID_WIDTH, 440);
+/** The Buddies page opened without naming a buddy: Primary's chat. */
+const PRIMARY_VIEW = "primary";
 
 function WorkspaceApp() {
   const { bridge, dispatch } = useRuntime();
@@ -211,8 +229,13 @@ function WorkspaceApp() {
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
   /** The huddle tab in view in the Huddle panel. */
   const [huddleId, setHuddleId] = useState<string>();
+  /** What the main area shows instead of the chats: the buddies' home ("team") or one buddy's chat. */
+  const [buddyView, setBuddyView] = useState<string>();
+  /** The pull requests page, open on one worktree's pull request ("all" picks the newest). */
+  const [pullView, setPullView] = useState<string>();
   // One width for the right panel: switching tabs keeps it where it was dragged to.
   const [panelWidth, setPanelWidth] = usePanelWidth("panel");
+  const [sidebarWidth, setSidebarWidth] = useSidebarWidth();
   const [gridRegionRef, gridWidth] = useElementWidth<HTMLElement>();
   const [workspaceBodyRef, workspaceSpace] = useWorkspaceSpace();
   // The remembered sizes stay as chosen; a smaller window only shrinks what is shown, so they return when it grows.
@@ -297,14 +320,20 @@ function WorkspaceApp() {
 
   // Side questions belong to the chat that asked them, so they are neither tiles nor sidebar rows.
   const sideChatIds = useSideChatIds();
+  // A buddy's chat with the person lives on the buddy's page, not in the project lists.
+  const buddyChatIds = useMemo(
+    () => new Set((projection?.buddies ?? []).flatMap((buddy) => (buddy.chatThreadId ? [buddy.chatThreadId] : []))),
+    [projection?.buddies],
+  );
   const sessions = useMemo(
     () =>
       projection
         ? deriveSessions(projection, workbench.pending, workbench.chats).filter(
-            (session) => !sideChatIds.has(session.sessionId),
+            (session) =>
+              !sideChatIds.has(session.sessionId) && !(session.thread && buddyChatIds.has(session.thread.threadId)),
           )
         : [],
-    [projection, workbench.pending, workbench.chats, sideChatIds],
+    [projection, workbench.pending, workbench.chats, sideChatIds, buddyChatIds],
   );
   /** Asks one tile to open its New chat menu, so the person picks blank or recent context each time. */
   const [newChatRequest, setNewChatRequest] = useState<{ sessionId: string; nonce: number }>();
@@ -361,7 +390,11 @@ function WorkspaceApp() {
   const contextWorktree =
     findWorktree(activeSession?.worktreeId) ??
     findWorktree(selectedWorktreeId) ??
-    projection?.worktrees.find((worktree) => worktree.status === "ready");
+    // Only a project the person works in: a buddy's home is the buddy's own folder (its project is not even listed).
+    projection?.worktrees.find((worktree) => {
+      const project = projection.projects.find((entry) => entry.projectId === worktree.projectId);
+      return worktree.status === "ready" && project !== undefined && !isBuddyHome(project);
+    });
   const contextProject = projection?.projects.find((project) => project.projectId === contextWorktree?.projectId);
   const selectedProject = projection?.projects.find((project) => project.projectId === selectedProjectId);
   const contextProjectId = contextProject?.projectId;
@@ -395,6 +428,8 @@ function WorkspaceApp() {
   activeSessionIdRef.current = workbench.activeSessionId;
   const focusSession = useCallback(
     (session: AgentSession) => {
+      setBuddyView(undefined);
+      setPullView(undefined);
       // Focus coming back to the tile that already had it, as when a dialog closes, keeps the added project.
       if (session.sessionId !== activeSessionIdRef.current) setSelectedProjectId(undefined);
       setSelectedWorktreeId(session.worktreeId);
@@ -517,6 +552,8 @@ function WorkspaceApp() {
     if (!bridge) return;
     let key = 0;
     return bridge.browser.onReveal(({ browserTabId, worktreeId }) => {
+      // A buddy's browser is its own: it shows on the buddy's screen, never in this panel.
+      if (projectionRef.current?.buddies?.some((buddy) => buddy.home?.worktreeId === worktreeId)) return;
       key += 1;
       setBrowserReveal({ browserTabId, worktreeId, key });
       setSidePane("browser");
@@ -610,12 +647,6 @@ function WorkspaceApp() {
       const last = lastPane.current;
       return last && last !== "launcher" && panelTabs.includes(last) ? last : "launcher";
     });
-  const closePanelTab = (pane: SidePane) => {
-    const index = panelTabs.indexOf(pane as Exclude<SidePane, "launcher">);
-    const rest = panelTabs.filter((tab) => tab !== pane);
-    setPanelTabs(rest);
-    if (sidePane === pane) setSidePane(rest[Math.min(index, rest.length - 1)]);
-  };
   // The side chat in the right panel: the chat in view draws its side question into this element.
   const [sideChatSlot, setSideChatSlot] = useState<HTMLElement | null>(null);
   const sideChatAvailable = !!activeSession?.thread;
@@ -628,12 +659,27 @@ function WorkspaceApp() {
     narrow
       ? setNarrowSidebarOpen((open) => !open)
       : updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
-  const hideSidebar = () =>
-    narrow ? setNarrowSidebarOpen(false) : updateWorkbench((state) => ({ ...state, sidebarOpen: false }));
   const openHuddle = useCallback((next: string) => {
     setHuddleId(next);
     setSidePane("huddle");
   }, []);
+  const openPullRequests = useCallback(() => {
+    setPullView("all");
+    setBuddyView(undefined);
+    setSidePane(undefined);
+  }, []);
+  const openBuddies = useCallback((next?: string) => {
+    setPullView(undefined);
+    // Opening Buddies starts on Primary's chat; the team board is one click away in the list.
+    setBuddyView(next ?? PRIMARY_VIEW);
+    // A buddy's chat has its own details column, so the workspace panel steps aside.
+    setSidePane(undefined);
+  }, []);
+  // "primary" stands for whoever is Primary now, so it still opens once the starter team has just been made.
+  const primaryId = projection ? primaryBuddy(projection)?.buddyId : undefined;
+  const shownBuddy = buddyView === PRIMARY_VIEW ? (primaryId ?? "team") : buddyView;
+  useStarterTeam(projection);
+  useTeammatesToBuddies(projection);
   // Chat only keeps the terminal out of sight: its toggle and shortcut only close a drawer something else opened.
   const chatOnly = workStyleOf(settings.defaults) === "chat";
   // The right panel's picker: every panel with one key, and a live line for what is going on in it for this
@@ -1290,8 +1336,12 @@ function WorkspaceApp() {
       }
     : undefined;
 
-  const openNewAgent = (project?: ProjectProjection) => {
+  /** Opens a new chat; with `typed`, the text from the empty screen goes out as its first message. */
+  const openNewAgent = (project?: ProjectProjection, typed?: string) => {
     if (!projection) return;
+    // A new chat is where the person goes next, so the Buddies or Pull requests page steps aside for it.
+    setBuddyView(undefined);
+    setPullView(undefined);
     // With no project yet, a chat still opens: its folder tab adds the first project.
     if (!hasProjects) {
       setPaletteOpen(false);
@@ -1318,7 +1368,10 @@ function WorkspaceApp() {
     }
     setPaletteOpen(false);
     const accountId = launchAccountId(accounts, agent.provider, undefined);
+    const sessionId = typed?.trim() ? makeCommandId() : undefined;
+    if (sessionId && typed) seedComposerDraft(sessionId, typed, { send: true });
     void submitNewAgent({
+      ...(sessionId ? { sessionId } : {}),
       project: target,
       draft: true,
       placement: { kind: "checkout" },
@@ -2562,6 +2615,12 @@ function WorkspaceApp() {
       action: () => setSidePane("review"),
     },
     {
+      label: "Buddies",
+      icon: "bot",
+      group: "View",
+      action: () => openBuddies(),
+    },
+    {
       label: "Focus huddle",
       icon: "users",
       group: "View",
@@ -2709,18 +2768,21 @@ function WorkspaceApp() {
   const handoffWorktree = handoffSession ? findWorktree(handoffSession.worktreeId) : undefined;
   const compareGroup = workbench.groups.find((group) => group.groupId === compareGroupId);
 
+  // A new chat stays off the sidebar until its first message is sent: until then it is only a draft.
+  const listedSessions = sessions.filter((session) => !isUnsentDraft(session));
   const columnsLayout = settings.layout === "columns";
-  // In the columns layout the top bar floats over the column headers, so it comes last in the page: the
-  // window takes its later drag areas over earlier ones, and the bar's buttons must win to take clicks.
+  // The top bar floats over the panel headers in both layouts, so the panels reach the top of the window. It comes
+  // last in the page: the window takes its later drag areas over earlier ones, and the bar's buttons must win.
   const topbar = (
     <Topbar
       sidebarOpen={sidebarOpen}
-      sidebarButton={!columnsLayout}
-      project={contextWorktree ? contextProject : undefined}
-      worktree={contextWorktree}
+      sidebarButton={false}
+      project={contextWorktree && !buddyView && !pullView ? contextProject : undefined}
+      worktree={buddyView || pullView ? undefined : contextWorktree}
       hasProjects={hasProjects}
       drawerOpen={workbench.drawerOpen}
       showTerminal={!chatOnly}
+      showPanels={!buddyView && !pullView}
       sidePane={sidePane}
       onShowSidebar={toggleSidebar}
       onNewAgent={() => openNewAgent()}
@@ -2746,11 +2808,12 @@ function WorkspaceApp() {
     <FileIndexProvider onOpenFile={openFile}>
       <div
         className={`app-shell${sidebarOpen ? "" : " is-sidebar-hidden"}${columnsLayout ? " is-columns" : ""}${sidePane ? " has-panel" : ""}`}
+        style={sidebarWidth ? ({ "--zli-sidebar-width": `${sidebarWidth}px` } as CSSProperties) : undefined}
       >
         {sidebarOpen ? (
           <Sidebar
             projection={projection}
-            sessions={sessions}
+            sessions={listedSessions}
             accounts={loadedAccounts}
             activeSessionId={activeSession?.sessionId}
             backgroundSessionIds={backgroundSessionIds}
@@ -2772,12 +2835,8 @@ function WorkspaceApp() {
               updateWorkbench((state) => ({ ...state, activeSessionId: latest?.sessionId }));
             }}
             onNewAgent={openNewAgent}
-            onNewAgentOptions={openNewAgentDialog}
             onStartFromIssue={openIssues}
             onOpenProject={() => void openProject()}
-            onCreateWorktree={(project) =>
-              setWorktreeDialogProject(project ?? contextProject ?? projection?.projects[0])
-            }
             onRemoveProject={async (projectId) => {
               const name = projection?.projects.find((project) => project.projectId === projectId)?.name ?? "project";
               const problem = await removeProject(projectId);
@@ -2792,7 +2851,6 @@ function WorkspaceApp() {
             onOpenHelp={() => setHelpOpen(true)}
             onOpenSettings={openSettings}
             onOpenUsage={openUsage}
-            onHideSidebar={hideSidebar}
             onOpenSearch={() => setPaletteOpen(true)}
             runGroups={workbench.groups}
             runStates={runStates}
@@ -2800,10 +2858,14 @@ function WorkspaceApp() {
             onOpenHuddle={openHuddle}
             onHuddleError={showError}
             projectAgentActions={projectAgentActions}
+            onOpenBuddies={openBuddies}
+            activeBuddyId={shownBuddy}
+            onOpenPullRequests={openPullRequests}
+            pullRequestsOpen={pullView !== undefined}
           />
         ) : null}
+        {sidebarOpen ? <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} /> : null}
         <main className="main-workspace">
-          {columnsLayout ? null : topbar}
           {notice ? (
             <div className={`banner banner-${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
               <Icon name={notice.tone === "danger" ? "alert" : "check"} size={14} />
@@ -2832,9 +2894,37 @@ function WorkspaceApp() {
             <div className="workspace-body" ref={workspaceBodyRef}>
               <div className="workbench-column">
                 <section className="agent-grid-region" aria-label="Agents" ref={gridRegionRef}>
-                  {visibleTiles.length === 0 &&
-                  projection.projects.length === 0 &&
-                  workStyleOf(settings.defaults) !== "terminal" ? (
+                  {pullView ? (
+                    <PullRequestsPage
+                      projection={projection}
+                      selectedId={pullView === "all" ? undefined : pullView}
+                      onSelect={setPullView}
+                      onShowAgent={showAgent}
+                      onOpenChanges={(worktreeId) => {
+                        const session = sessions.find((entry) => entry.worktreeId === worktreeId);
+                        if (session) showAgent(session.sessionId);
+                        setSidePane("review");
+                      }}
+                    />
+                  ) : buddyView ? (
+                    <BuddiesPane
+                      projection={projection}
+                      selectedId={shownBuddy === "team" ? undefined : shownBuddy}
+                      onSelect={(next) => setBuddyView(next ?? "team")}
+                      projectId={contextProject?.projectId}
+                      onOpenThread={(threadId) => {
+                        const thread = projection.threads.find((entry) => entry.threadId === threadId);
+                        if (thread) showAgent(thread.sessionId ?? thread.threadId);
+                      }}
+                      onOpenPullRequest={(threadId) => {
+                        const thread = projection.threads.find((entry) => entry.threadId === threadId);
+                        if (thread) showAgent(thread.sessionId ?? thread.threadId);
+                        setSidePane("pullRequest");
+                      }}
+                    />
+                  ) : visibleTiles.length === 0 &&
+                    projection.projects.length === 0 &&
+                    workStyleOf(settings.defaults) !== "terminal" ? (
                     // In chat, the first screen is already a chat: its folder tab adds the first project.
                     <NoProjectChat
                       agent={firstChatAgent}
@@ -2850,6 +2940,7 @@ function WorkspaceApp() {
                       onOpenProject={() => void openProject()}
                       onCloneProject={() => setCloneOpen(true)}
                       onNewAgent={() => openNewAgent()}
+                      onStartChat={(text) => openNewAgent(emptySelectedProject, text)}
                       onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
                     />
                   ) : (
@@ -2946,7 +3037,6 @@ function WorkspaceApp() {
                             }
                             onBringIn={session.thread ? (request) => bringIntoChat(session, request) : undefined}
                             onOpenAgent={openAgent}
-                            onManageTeammates={() => setSettingsSection("teammates")}
                             onBranch={(branch) => branchChat(session, branch)}
                             onNewChatWithPrompt={(text) => newChatWithPrompt(session, text)}
                             onAskAside={(question, context) => askAside(session, question, context)}
@@ -2985,7 +3075,6 @@ function WorkspaceApp() {
                       active={sidePane}
                       items={launcherItems}
                       onSelect={(pane) => setSidePane(pane as SidePane)}
-                      onClose={(pane) => closePanelTab(pane as SidePane)}
                     />
                     {panelTabs.includes("sideChat") ? (
                       <div className="side-chat-panel" hidden={sidePane !== "sideChat"}>
@@ -3066,25 +3155,25 @@ function WorkspaceApp() {
               ) : null}
             </div>
           )}
-          {columnsLayout ? topbar : null}
-          {columnsLayout && !sidebarOpen ? (
-            <div className="columns-lead">
+          {topbar}
+          {/* The sidebar's switch sits in the main panel's corner, by the chat's title, open or closed. */}
+          <div className={`columns-lead${sidebarOpen ? "" : " is-sidebar-hidden"}`}>
+            <IconButton
+              label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              icon="panelLeft"
+              shortcut={shortcuts.toggleSidebar}
+              onClick={toggleSidebar}
+            />
+            {/* Buddies and Pull requests are pages, not chats: their corner keeps only the switch. */}
+            {!sidebarOpen && hasProjects && !buddyView && !pullView ? (
               <IconButton
-                label="Show sidebar"
-                icon="panelLeft"
-                shortcut={shortcuts.toggleSidebar}
-                onClick={toggleSidebar}
+                label="New chat"
+                icon="squarePen"
+                shortcut={shortcuts.newAgent}
+                onClick={() => openNewAgent()}
               />
-              {hasProjects ? (
-                <IconButton
-                  label="New chat"
-                  icon="squarePen"
-                  shortcut={shortcuts.newAgent}
-                  onClick={() => openNewAgent()}
-                />
-              ) : null}
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </main>
         {paletteOpen ? <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} /> : null}
         {quickOpen && contextWorktree ? (

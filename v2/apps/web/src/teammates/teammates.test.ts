@@ -18,7 +18,7 @@ describe("teammates", () => {
     expect(freeAgentName("Fox", ["Owl"])).toBe("Fox");
   });
 
-  it("gives saved teammates their own buddy and everyone else their agent's, or the next free body", () => {
+  it("gives saved teammates their own color and everyone else their agent's, or the next free color", () => {
     const buddies = roomBuddies(
       [
         { id: "a", provider: "claude-code" },
@@ -26,10 +26,11 @@ describe("teammates", () => {
         { id: "c", provider: "codex", name: "reviewer" },
         { id: "d", provider: "cursor-agent" },
       ],
-      [{ id: "t", name: "Reviewer", buddy: "cloud/jade", provider: "codex" }],
+      [{ id: "t", name: "Reviewer", buddy: "jade", provider: "codex" }],
     );
-    // The saved Reviewer is a jade Cloud, so the Cursor agent's own Cloud is taken by body, not by color.
-    expect(Object.fromEntries(buddies)).toEqual({ a: "gumdrop", b: "capsule", c: "cloud/jade", d: "plus" });
+    // Claude Code wears tangerine, so the second one takes the first free color (sky), and the Cursor agent,
+    // whose own color is sky, takes the next one.
+    expect(Object.fromEntries(buddies)).toEqual({ a: "tangerine", b: "sky", c: "jade", d: "indigo" });
   });
 
   it("keeps only well-formed teammates with unique names", () => {
@@ -41,12 +42,13 @@ describe("teammates", () => {
         { id: "4", name: "Tester", animal: "dragon", provider: "claude-code" },
       ]),
     ).toEqual([
-      { id: "1", name: "Reviewer", buddy: "cloud/jade", provider: "codex", permissionMode: "read-only" },
-      { id: "4", name: "Tester", buddy: "gumdrop", provider: "claude-code" },
+      { id: "1", name: "Reviewer", buddy: "jade", provider: "codex", permissionMode: "read-only" },
+      { id: "4", name: "Tester", buddy: "tangerine", provider: "claude-code" },
     ]);
   });
 
-  it("gives teammates saved with an animal the matching buddy", () => {
-    expect(parseTeammates([{ id: "1", name: "Owl", animal: "owl", provider: "codex" }])[0]?.buddy).toBe("squircle");
+  it("gives teammates saved with an animal or a body the matching color", () => {
+    expect(parseTeammates([{ id: "1", name: "Owl", animal: "owl", provider: "codex" }])[0]?.buddy).toBe("paper");
+    expect(parseTeammates([{ id: "1", name: "Sq", buddy: "squircle", provider: "codex" }])[0]?.buddy).toBe("paper");
   });
 });

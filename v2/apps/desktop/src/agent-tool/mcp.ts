@@ -8,7 +8,7 @@ import {
 import type { ZliBrowserCall } from "../browser-tool/client.js";
 import { createToolServer, type McpServer, type McpTool } from "../browser-tool/mcp.js";
 
-export const ZLI_AGENT_TOOL_VERSION = "1.4.0";
+export const ZLI_AGENT_TOOL_VERSION = "1.5.0";
 
 const ROOM =
   "ZLI is the app you are running in. The person sees every agent in it as a tile and can watch and steer each one.";
@@ -33,6 +33,154 @@ const HUDDLE_REF = {
 
 const HUDDLE =
   "A huddle is a ZLI conversation between several agents that the person follows and can write in. The person adds agents to it, and taking an agent out ends its access.";
+
+const BUDDY_JOB =
+  "For buddy jobs: ZLI gave you this job as a buddy, in your own worktree and chat. The person sees the job on the buddy's card.";
+
+const BUDDY_TOOLS: readonly McpTool[] = [
+  {
+    name: "task_done",
+    title: "Finish the job",
+    action: "buddydone",
+    description: `${BUDDY_JOB} Call this when the job is done, with a 2–3 sentence summary of what you changed and how you checked it. For UI changes, pass the screenshot paths from browser_screenshot. If you worked out steps worth reusing on the next job like this in this project, pass them as a playbook. Then end your turn.`,
+    properties: {
+      summary: { type: "string", description: "What you did and how you checked it, 2–3 sentences." },
+      screenshots: {
+        type: "array",
+        items: { type: "string" },
+        description: "Paths of screenshots that show the change.",
+      },
+      playbook: {
+        type: "object",
+        description:
+          "Optional. Steps that worked for this kind of job in this project, for next time: how to run, test or check it, and any pitfall with its fix. Reuse a playbook's title from your brief to correct it.",
+        properties: {
+          title: { type: "string", description: "The kind of job, such as 'Add an API route'. Up to 120 characters." },
+          steps: {
+            type: "array",
+            items: { type: "string" },
+            description: "Up to 12 short steps, each one concrete: a file, a command, a check.",
+          },
+        },
+        required: ["title", "steps"],
+      },
+    },
+    required: ["summary"],
+  },
+  {
+    name: "ask_person",
+    title: "Ask the person",
+    action: "buddyask",
+    description: `${BUDDY_JOB} Ask the person for a decision you should not guess, such as a product choice. It shows in their Needs you list. End your turn after asking; the answer comes as your next message.`,
+    properties: {
+      question: { type: "string", description: "One clear question." },
+      options: { type: "array", items: { type: "string" }, description: "Up to 6 short answers to pick from." },
+    },
+    required: ["question"],
+  },
+  {
+    name: "remember",
+    title: "Keep a lesson",
+    action: "buddyremember",
+    description: `${BUDDY_JOB} Keep one short fact worth knowing on later jobs in this project, such as how to run its tests. The person reviews it first; once they keep it, it is in your next briefs for this project.`,
+    properties: { note: { type: "string", description: "One sentence, up to 400 characters." } },
+    required: ["note"],
+  },
+  {
+    name: "review_verdict",
+    title: "Report a review",
+    action: "buddyverdict",
+    description: `${BUDDY_JOB} For review jobs only: report ok, or notes with the list of what to fix. Notes go back to the buddy that did the work.`,
+    properties: {
+      verdict: { type: "string", enum: ["ok", "notes"] },
+      notes: { type: "array", items: { type: "string" }, description: "What to fix, one item each." },
+    },
+    required: ["verdict"],
+  },
+  {
+    name: "hand_off",
+    title: "Hand part of the job to another buddy",
+    action: "buddyhandoff",
+    description: `${BUDDY_JOB} Give part of your job to another buddy, such as tests or docs, without stopping your own work. Leave out buddy and ZLI picks the one that suits it. It starts on a branch from yours; its result comes back to you as a message. Jobs can be handed on 3 times.`,
+    properties: {
+      goal: { type: "string", description: "What the other buddy should do, in a sentence or two." },
+      buddy: { type: "string", description: "The buddy's name, from list_buddies." },
+      project: { type: "string", description: "A project name, when it is not this one." },
+    },
+    required: ["goal"],
+  },
+  {
+    name: "list_buddies",
+    title: "List buddies",
+    action: "buddylist",
+    description: "List the person's buddies: name, title, what each did last, and their open jobs.",
+    properties: {},
+    readOnly: true,
+  },
+  {
+    name: "assign_task",
+    title: "Give a buddy a job",
+    action: "buddyassign",
+    description:
+      "For the Primary buddy: give a buddy a job. It runs in its own worktree and chat, and its result comes back to you.",
+    properties: {
+      buddy: { type: "string", description: "The buddy's name, from list_buddies." },
+      goal: { type: "string", description: "The job, clear enough to work from alone." },
+      project: {
+        type: "string",
+        description:
+          'A project name, when it is not this one. "web" for work in a buddy\'s own browser: research, forms, accounts, reports.',
+      },
+      baseRef: { type: "string", description: "The branch to start from. Default: the project's current branch." },
+    },
+    required: ["buddy", "goal"],
+  },
+  {
+    name: "task_status",
+    title: "Check jobs",
+    action: "buddystatus",
+    description: "See every open buddy job and what finished in the last day, or one job by id.",
+    properties: { taskId: { type: "string", description: "A job id or its first characters." } },
+    readOnly: true,
+  },
+  {
+    name: "task_revise",
+    title: "Change a job",
+    action: "buddyrevise",
+    description: "For the Primary buddy: send a change request to a running or finished job.",
+    properties: {
+      taskId: { type: "string", description: "The job id or its first characters." },
+      note: { type: "string", description: "What to change." },
+    },
+    required: ["taskId", "note"],
+  },
+  {
+    name: "goal_done",
+    title: "Finish a goal",
+    action: "buddygoaldone",
+    description:
+      "For a lead's planning turn on a goal: say the whole goal is done, with a short summary for the person of what the team did and where to find it. Only once every job on it has ended and the result is checked. Then call task_done and end your turn.",
+    properties: { summary: { type: "string", description: "What the team did, 2–4 sentences." } },
+    required: ["summary"],
+  },
+  {
+    name: "set_routine",
+    title: "Set up a routine",
+    action: "buddyroutine",
+    description:
+      'For the Primary buddy: give a buddy recurring work. Use schedule as five-field cron in local time ("0 9 * * 1-5" is weekdays at 9:00), or when: ci_failed (with branch), review_requested, or issue_labeled (with label). Routines never push, open PRs, or merge.',
+    properties: {
+      buddy: { type: "string" },
+      goal: { type: "string", description: "What to do each time." },
+      project: { type: "string" },
+      schedule: { type: "string" },
+      when: { type: "string", enum: ["ci_failed", "review_requested", "issue_labeled"] },
+      branch: { type: "string" },
+      label: { type: "string" },
+    },
+    required: ["buddy", "goal"],
+  },
+];
 
 export const AGENT_MCP_TOOLS: readonly McpTool[] = [
   {
@@ -214,6 +362,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     required: ["service"],
     readOnly: true,
   },
+  ...BUDDY_TOOLS,
 ];
 
 const READ_TOOL_NAMES = new Set(
@@ -226,7 +375,7 @@ export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
   return createToolServer(call, {
     tools: AGENT_MCP_TOOLS,
     serverInfo: { name: "zli", title: "ZLI agents", version: ZLI_AGENT_TOOL_VERSION },
-    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. When you are in a huddle, talk there with huddle_read, huddle_post, and huddle_wait, post only when you are done, blocked, or need an answer, and follow the decisions from huddle_decisions. Refer to agents by name when they have one. An agent in another project can be named alone or as project/agent. When ZLI Settings keep agents to their own project, ZLI asks the person to allow it and the call waits for the answer. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in.`,
+    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. When you are in a huddle, talk there with huddle_read, huddle_post, and huddle_wait, post only when you are done, blocked, or need an answer, and follow the decisions from huddle_decisions. Refer to agents by name when they have one. An agent in another project can be named alone or as project/agent. When ZLI Settings keep agents to their own project, ZLI asks the person to allow it and the call waits for the answer. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in. When ZLI gave you a job as a buddy, finish with task_done, ask the person with ask_person, and hand parts to other buddies with hand_off.`,
     targetProperties: {
       cwd: {
         type: "string",

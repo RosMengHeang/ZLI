@@ -91,6 +91,7 @@ export function ReviewPane({
   );
   const [baseRef, setBaseRef] = useState("main");
   const [baseTouched, setBaseTouched] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
   const [targetRef, setTargetRef] = useState("main");
   const [targetTouched, setTargetTouched] = useState(false);
   const [prCheckKey, setPrCheckKey] = useState(0);
@@ -301,7 +302,15 @@ export function ReviewPane({
     refresh();
   }, [worktree?.worktreeId, noGit]);
 
+  // Comparing with another branch, pulling and pushing are a row of their own, out of the way until asked for
+  // or until there are commits to move.
+  const showSync = syncOpen || baseTouched || toPull > 0 || toPush > 0;
   const moreItems = (): MenuItem[] => [
+    {
+      label: showSync ? "Hide compare, pull and push" : "Compare, pull and push",
+      icon: "rotate",
+      run: () => setSyncOpen(!showSync),
+    },
     {
       label: "Merge into another branch…",
       icon: "merge",
@@ -363,7 +372,7 @@ export function ReviewPane({
           </>
         ) : null}
       </PaneHeader>
-      {worktree && !noGit ? (
+      {worktree && !noGit && showSync ? (
         <div className="toolbar review-toolbar">
           <span className="inline-field">
             <span aria-hidden="true">Compare against</span>
@@ -518,14 +527,14 @@ export function ReviewPane({
                       >
                         {file.oldPath ? (
                           <>
-                            {file.oldPath}
+                            <FilePath path={file.oldPath} />
                             <span className="rename-arrow" aria-hidden="true">
                               →
                             </span>
-                            {file.path}
+                            <FilePath path={file.path} />
                           </>
                         ) : (
-                          file.path
+                          <FilePath path={file.path} />
                         )}
                       </span>
                       <span className="file-stat">
@@ -864,4 +873,15 @@ function kindLetter(kind: string): string {
     default:
       return "M";
   }
+}
+
+/** A changed file's path: its folder quiet, its name plain, so the names line up as the thing to read. */
+function FilePath({ path }: { path: string }) {
+  const cut = path.lastIndexOf("/") + 1;
+  return (
+    <>
+      {cut > 0 ? <span className="review-file-dir">{path.slice(0, cut)}</span> : null}
+      <span className="review-file-base">{path.slice(cut)}</span>
+    </>
+  );
 }

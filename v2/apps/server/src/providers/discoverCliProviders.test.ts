@@ -9,6 +9,7 @@ import {
   createDefaultCliProbe,
   discoverCliProviders,
   fileLooksExecutable,
+  modelsForPlan,
   parseClaudeCodeModels,
   parseCodexModels,
   parseCursorModels,
@@ -568,5 +569,20 @@ describe("live model lists", () => {
       },
     ]);
     expect(parseCodexModels(undefined)).toBeUndefined();
+  });
+});
+
+describe("modelsForPlan", () => {
+  const claude = [
+    { id: "opus", label: "Opus" },
+    { id: "fable", label: "Fable 5.2" },
+    { id: "opencode/claude-fable-5-2", label: "opencode/claude-fable-5-2" },
+    { id: "sonnet", label: "Sonnet" },
+  ];
+  it("leaves every Fable model out on a Free or Pro Claude plan, whichever agent lists it", () => {
+    expect(modelsForPlan(claude, "pro").map((model) => model.id)).toEqual(["opus", "sonnet"]);
+    expect(modelsForPlan(claude, "Free").map((model) => model.id)).toEqual(["opus", "sonnet"]);
+    expect(modelsForPlan(claude, "max")).toBe(claude);
+    expect(modelsForPlan(claude, undefined)).toBe(claude);
   });
 });

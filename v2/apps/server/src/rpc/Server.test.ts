@@ -161,6 +161,34 @@ describe("authenticated local RPC server", () => {
     socket.close();
   });
 
+  it("refuses an app card from a client, so nothing outside ZLI's relay can plant one and answer it", async () => {
+    const server = await makeServer();
+    const socket = await connected(server);
+    socket.send(
+      JSON.stringify({
+        type: "command",
+        request: {
+          protocolVersion: 1,
+          commandId: "00000000-0000-4000-8000-000000000103",
+          command: {
+            type: "thread.request",
+            request: {
+              requestId: "apps-planted",
+              threadId: "00000000-0000-4000-8000-0000000001aa",
+              kind: "approval",
+              payload: { kind: "app-action", call: { tool: "COMPOSIO_MULTI_EXECUTE_TOOL" } },
+            },
+          },
+        },
+      }),
+    );
+    await expect(nextMessage(socket)).resolves.toMatchObject({
+      type: "response",
+      response: { accepted: false, error: { code: "invalid_request" } },
+    });
+    socket.close();
+  });
+
   it("sends terminal keystrokes and resizes to the PTY without recording them as events", async () => {
     const database = new Database({ path: ":memory:" });
     const engine = new Engine({ database, environment });

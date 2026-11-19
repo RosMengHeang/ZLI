@@ -48,6 +48,7 @@ import {
   BrowserControlError,
   resolveBrowserControlWorktree,
 } from "../browser/BrowserControlActions.js";
+import { createBuddyActions } from "./buddyActions.js";
 
 const MAX_MESSAGE_CHARS = 4_000;
 const STRICTEST_FIRST: readonly PermissionMode[] = ["read-only", "supervised", "full-access"];
@@ -1194,7 +1195,17 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         : {}),
     };
   };
+  const buddyActions = createBuddyActions({
+    projection,
+    caller: (input, state) => {
+      const found = caller(input as AgentControlTarget, state);
+      return { worktreeId: found.worktree.worktreeId, project: found.project };
+    },
+    run: (command) => run(command),
+    newId,
+  });
   const handlers: Record<AgentControlAction, (input: unknown, settings: AgentSettings) => Promise<unknown>> = {
+    ...buddyActions,
     agentaccess: async (_input, settings) => settings,
     agentlist: list,
     agentread: read,

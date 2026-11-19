@@ -20,7 +20,7 @@
 /* At 100% the zoom box hugs the screen and the stage scrolls; auto margins center it while it fits. */
 .is-actual .mobile-zoom { position: relative; inset: auto; width: fit-content; margin: var(--zli-space-3) auto; }
 /* Absolute with auto margins lets the screen keep its aspect ratio while fitting both the width and the height. */
-.mobile-screen { position: absolute; inset: 0; max-width: 100%; max-height: 100%; margin: auto; border-radius: var(--zli-radius-lg); outline: none; box-shadow: 0 0 0 1px var(--zli-border-strong); cursor: pointer; touch-action: none; user-select: none; }
+.mobile-screen { position: absolute; inset: 0; max-width: 100%; max-height: 100%; margin: auto; border-radius: var(--zli-radius-lg); outline: none; box-shadow: 0 0 0 1px var(--zli-border-strong); cursor: default; touch-action: none; user-select: none; }
 .mobile-screen:focus-visible { box-shadow: 0 0 0 1px var(--zli-accent-line), 0 0 0 4px var(--zli-accent-soft); }
 .mobile-screen.is-blocked { cursor: not-allowed; }
 .is-actual .mobile-screen { position: relative; display: block; max-width: none; max-height: none; }
@@ -51,7 +51,7 @@
 .is-portrait > .mobile-device-camera { left: 50%; }
 .is-landscape > .mobile-device-camera { top: 50%; }
 /* A key is a 10px hit area outside the body; ::before draws the thin key against the rim. */
-.mobile-device-key { position: absolute; padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: transparent; cursor: pointer; }
+.mobile-device-key { position: absolute; padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: transparent; cursor: default; }
 .mobile-device-key.is-right { left: 100%; width: 10px; }
 .mobile-device-key.is-left { right: 100%; width: 10px; }
 .mobile-device-key.is-top { bottom: 100%; height: 10px; }
@@ -89,7 +89,7 @@
 .mobile-notice .banner { animation: mobile-notice-fade 3s linear both; }
 @keyframes mobile-notice-fade { 0%, 83% { opacity: 1; } 100% { opacity: 0; } }
 .mobile-logs { flex: 0 0 auto; border-top: 1px solid var(--zli-border); }
-.mobile-logs-toggle { display: flex; align-items: center; gap: var(--zli-space-1-5); width: 100%; height: var(--zli-control-lg); padding: 0 var(--zli-space-3); border: 0; background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); text-align: left; transition: color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.mobile-logs-toggle { display: flex; align-items: center; gap: var(--zli-space-1-5); width: 100%; height: var(--zli-control-lg); padding: 0 var(--zli-space-3); border: 0; background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-sm); text-align: left; transition: color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
 .mobile-logs-toggle:hover { background: var(--zli-hover); color: var(--zli-text); }
 .mobile-logs-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 .mobile-logs-count { margin-left: auto; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
@@ -147,7 +147,7 @@
 fieldset.mobile-avd-actions { min-width: 0; margin: 0; padding: 0; border: 0; }
 .mobile-avd-confirm { color: var(--zli-muted); font-size: var(--zli-text-xs); }
 .mobile-license { display: flex; flex-direction: column; gap: var(--zli-space-1-5); }
-.mobile-license summary { color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-sm); }
+.mobile-license summary { color: var(--zli-muted); cursor: default; font-size: var(--zli-text-sm); }
 .mobile-license summary:hover { color: var(--zli-text); }
 .mobile-license-text { max-height: 220px; margin: var(--zli-space-1-5) 0 0; padding: var(--zli-space-2) var(--zli-space-3); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); white-space: pre-wrap; }
 .check-field.mobile-license-accept input { accent-color: var(--zli-accent); }

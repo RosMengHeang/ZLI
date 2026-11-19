@@ -267,7 +267,15 @@ export function codexServerConfig(spec: McpServerSpec): Record<string, unknown> 
     const headers = Object.keys(spec.headers).length > 0 ? { http_headers: { ...spec.headers } } : {};
     return { [`mcp_servers.${spec.name}`]: { url: spec.url, ...headers } };
   }
-  return { [`mcp_servers.${spec.name}`]: { command: spec.command, args: [...spec.args], env: { ...spec.env } } };
+  return {
+    [`mcp_servers.${spec.name}`]: {
+      command: spec.command,
+      args: [...spec.args],
+      env: { ...spec.env },
+      // The connected apps' relay can hold a call while the person answers its card: Codex waits for that answer.
+      ...(spec.name === "composio" ? { tool_timeout_sec: 900 } : {}),
+    },
+  };
 }
 
 /** OpenCode inline config, merged into any OPENCODE_CONFIG_CONTENT the user already set. */

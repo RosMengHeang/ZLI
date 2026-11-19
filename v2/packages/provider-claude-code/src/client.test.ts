@@ -12,7 +12,7 @@ import {
   type ClaudeProviderEvent,
   type ClaudeSpawnOptions,
 } from "./client.js";
-import { CLAUDE_SESSION_ARGS, claudeSessionArgs } from "./protocol.js";
+import { CLAUDE_SESSION_ARGS, claudeRulePath, claudeSessionArgs, privateFileRules } from "./protocol.js";
 
 class FakePeer implements ClaudePeer {
   readonly written: string[] = [];
@@ -252,6 +252,23 @@ describe("ClaudeCodeClient", () => {
       { type: "turn.completed", providerTurnId: turn.providerTurnId, status: "interrupted" },
       { type: "turn.started", providerTurnId: next.providerTurnId },
     ]);
+  });
+
+  it("does not fail the next turn with the stopped turn's late result", async () => {
+    const { client, peer, events } = await startedClient();
+    const turn = await client.sendTurn({ text: "Write a long story" });
+    await client.interruptTurn(turn.providerTurnId);
+    const next = await client.sendTurn({ text: "Say ok" });
+    // Claude reports the stopped turn only now, after the next one began.
+    peer.emit({ type: "result", subtype: "error_during_execution", is_error: true });
+    peer.emit({ type: "result", subtype: "success", is_error: false, result: "ok" });
+    expect(events.filter((event) => "providerTurnId" in event && event.providerTurnId === next.providerTurnId)).toEqual(
+      [
+        { type: "turn.started", providerTurnId: next.providerTurnId },
+        { type: "assistant.delta", providerTurnId: next.providerTurnId, text: "ok" },
+        { type: "turn.completed", providerTurnId: next.providerTurnId, status: "completed" },
+      ],
+    );
   });
 
   it("denies tool approval without a thread-fatal session error", async () => {
@@ -600,6 +617,61 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
     ]);
   });
 
+  it("never stops to ask when nobody is there to answer", () => {
+    const readOnly = claudeSessionArgs({ permissionMode: "read-only", unattended: true });
+    expect(readOnly).not.toContain("plan");
+    expect(readOnly).not.toContain("--permission-prompt-tool");
+    expect(readOnly.slice(readOnly.indexOf("--permission-mode"))).toEqual([
+      "--permission-mode",
+      "dontAsk",
+      "--disallowedTools",
+      "AskUserQuestion",
+      "EnterPlanMode",
+      "ExitPlanMode",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "--setting-sources",
+      "project",
+    ]);
+    const full = claudeSessionArgs({ permissionMode: "full-access", unattended: true, model: "sonnet" });
+    expect(full).toContain("bypassPermissions");
+    expect(full.slice(full.indexOf("--disallowedTools"), full.indexOf("--model"))).toEqual([
+      "--disallowedTools",
+      "AskUserQuestion",
+      "EnterPlanMode",
+      "ExitPlanMode",
+      "--setting-sources",
+      "project",
+    ]);
+  });
+
+  it("keeps a buddy's file tools off ZLI's own files, and leaves the person's own chats alone", () => {
+    expect(claudeRulePath("C:\\Users\\me\\AppData\\Roaming\\ZLI\\")).toBe("//c/Users/me/AppData/Roaming/ZLI");
+    expect(claudeRulePath("/Users/me/Library/Application Support/ZLI")).toBe(
+      "//Users/me/Library/Application Support/ZLI",
+    );
+    const rules = privateFileRules("/data/zli");
+    expect(rules).toContain("Read(//data/zli/*.json)");
+    expect(rules).toContain("Read(//data/zli/Local State)");
+    expect(rules).toContain("Edit(//data/zli/mcp-headers/**)");
+    // Its home lives in a subfolder no rule reaches.
+    expect(rules.some((rule) => rule.includes("zli-buddy-homes"))).toBe(false);
+    for (const permissionMode of ["full-access", "supervised", "read-only"] as const) {
+      const args = claudeSessionArgs({ permissionMode, unattended: true, privateDir: "/data/zli" });
+      const from = args.indexOf("--disallowedTools");
+      expect(args.slice(from, from + 40), permissionMode).toContain("Read(//data/zli/*.bin)");
+    }
+    expect(claudeSessionArgs({ permissionMode: "full-access", privateDir: "/data/zli" })).not.toContain(
+      "--disallowedTools",
+    );
+  });
+
+  it("keeps the person's own plugins and hooks out of a buddy's session, and in their own chats", () => {
+    expect(claudeSessionArgs({ permissionMode: "full-access", unattended: true })).toContain("--setting-sources");
+    expect(claudeSessionArgs({ permissionMode: "full-access" })).not.toContain("--setting-sources");
+  });
+
   it("starts supervised sessions accepting edits with stdio prompts and the chosen model", async () => {
     const child = new FakeProcess();
     let args: readonly string[] = [];
@@ -758,6 +830,37 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
       },
     ]);
     await expect(client.respondToApproval("req-1", true)).rejects.toMatchObject({ code: "request_failed" });
+  });
+
+  it("runs the tools it is told to trust without asking, and asks for the rest", async () => {
+    const peer = new FakePeer();
+    const pending = ClaudeCodeClient.start({
+      peer,
+      cwd: "/work/tree",
+      permissionMode: "supervised",
+      approveTool: (name) => name === "mcp__zli__task_done",
+    });
+    peer.emit({ type: "system", subtype: "init", session_id: "sess-a" });
+    const client = await pending;
+    const events: ClaudeProviderEvent[] = [];
+    client.subscribe((event) => events.push(event));
+    await client.sendTurn({ text: "Finish" });
+    peer.emit({
+      type: "control_request",
+      request_id: "req-1",
+      request: { subtype: "can_use_tool", tool_name: "mcp__zli__task_done", input: { summary: "Done" } },
+    });
+    peer.emit({
+      type: "control_request",
+      request_id: "req-2",
+      request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } },
+    });
+    expect(JSON.parse(peer.written.at(-1) ?? "{}")).toMatchObject({
+      response: { request_id: "req-1", response: { behavior: "allow", updatedInput: { summary: "Done" } } },
+    });
+    expect(events.filter((event) => event.type === "approval.requested").map((event) => event.requestId)).toEqual([
+      "req-2",
+    ]);
   });
 
   it("allows a tool for the rest of the session without asking again", async () => {

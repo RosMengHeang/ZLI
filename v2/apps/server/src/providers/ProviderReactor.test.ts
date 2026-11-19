@@ -50,8 +50,10 @@ class FakeAdapter implements ProviderAdapter {
     return { turnId: "provider-turn" };
   }
   async interruptTurn(): Promise<void> {}
-  async respondToRequest(): Promise<void> {
+  readonly decisions: unknown[] = [];
+  async respondToRequest(input: { decision: unknown }): Promise<void> {
     this.responded = true;
+    this.decisions.push(input.decision);
   }
   async respondToUserInput(): Promise<void> {}
   async stopSession(): Promise<void> {
@@ -232,6 +234,243 @@ describe("ProviderReactor", () => {
     await reactor.waitForIdle();
     expect(await status()).toBe("idle");
 
+    reactor.stop();
+    await service.stopAll();
+    service.dispose();
+  });
+
+  it("lets a buddy use its own tools without asking, and asks the person for anything else", async () => {
+    const run = async (
+      permissionMode: "full-access" | "supervised" | undefined,
+      unattended: boolean,
+      payload: Record<string, unknown> = { serverName: "zli-browser" },
+    ) => {
+      const database = new Database({ path: ":memory:" });
+      databases.push(database);
+      const engine = new Engine({ database, environment });
+      const adapter = new FakeAdapter();
+      const service = new ProviderService(new ProviderRegistry([adapter]));
+      const reactor = new ProviderReactor(engine, service);
+      let n = 0;
+      const id = () => {
+        n += 1;
+        return CommandId.parse(`10000000-0000-4000-8000-0000000007${String(n).padStart(2, "0")}`);
+      };
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: id(),
+        command: { type: "project.register", path: "/workspace/auto" },
+      });
+      const projectId = ProjectId.parse((await engine.projection()).projects[0]?.projectId);
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: id(),
+        command: {
+          type: "worktree.create",
+          worktreeId,
+          projectId,
+          path: "/workspace/auto-tree",
+          workspaceRoot: "/workspace",
+          branch: "feature/auto",
+        },
+      });
+      await engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: id(),
+        command: {
+          type: "thread.start",
+          threadId,
+          worktreeId,
+          provider: "codex",
+          cwd: "/workspace/auto-tree",
+          ...(permissionMode ? { permissionMode } : {}),
+          ...(unattended ? { unattended: true } : {}),
+        },
+      });
+      await reactor.waitForIdle();
+      adapter.emit({
+        type: "approval.requested",
+        threadId,
+        requestId: "ask-1",
+        payload,
+      });
+      await reactor.waitForIdle();
+      const state = await engine.projection();
+      reactor.stop();
+      await service.stopAll();
+      service.dispose();
+      return { decisions: adapter.decisions, requests: state.requests ?? [], status: state.threads[0]?.status };
+    };
+
+    // A buddy with full access: the tool is allowed for the rest of the chat, and nothing waits.
+    expect(await run("full-access", true)).toMatchObject({
+      decisions: [{ approved: true, scope: "session" }],
+      requests: [],
+    });
+    // A supervised buddy: its own browser never asks, whichever agent names it.
+    expect(await run("supervised", true)).toMatchObject({ decisions: [{ approved: true }], requests: [] });
+    expect(await run("supervised", true, { toolName: "mcp__composio__COMPOSIO_SEARCH_TOOLS" })).toMatchObject({
+      decisions: [{ approved: true }],
+    });
+    // The person's apps: reading goes ahead once, never for the rest of the chat.
+    const read = await run("full-access", true, {
+      serverName: "composio",
+      _meta: {
+        tool_name: "COMPOSIO_MULTI_EXECUTE_TOOL",
+        tool_params: { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS" }] },
+      },
+    });
+    expect(read).toMatchObject({ decisions: [{ approved: true }], requests: [] });
+    expect(read.decisions[0]).not.toHaveProperty("scope");
+    // Sending from them too reaches ZLI's relay, once: the relay asks the person, so the agent's own prompt does not.
+    for (const payload of [
+      {
+        serverName: "composio",
+        _meta: {
+          tool_name: "COMPOSIO_MULTI_EXECUTE_TOOL",
+          tool_params: { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS" }, { tool_slug: "GMAIL_SEND_EMAIL" }] },
+        },
+      },
+      { toolName: "mcp__composio__COMPOSIO_REMOTE_WORKBENCH", input: { code_to_execute: "print(1)" } },
+    ]) {
+      const send = await run("supervised", true, payload);
+      expect(send).toMatchObject({ decisions: [{ approved: true }], requests: [] });
+      expect(send.decisions[0]).not.toHaveProperty("scope");
+    }
+    // Anything else waits for the person, who answers it on a card in the buddy's chat.
+    const command = await run("supervised", true, { command: "rm -rf build" });
+    expect(command.decisions).toEqual([]);
+    expect(command.requests).toEqual([expect.objectContaining({ requestId: "ask-1" })]);
+    expect(command.status).toBe("waiting");
+    // The person's own chat: they answer it.
+    const own = await run("full-access", false);
+    expect(own.decisions).toEqual([]);
+    expect(own.requests).toEqual([expect.objectContaining({ requestId: "ask-1" })]);
+    expect(own.status).toBe("waiting");
+  });
+
+  it("holds an app action as a card that outlives the turn, and runs it with the person's edits on Send", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const ran: { tool: string; params: Record<string, unknown> | undefined }[] = [];
+    let clock = Date.parse("2026-11-19T10:00:00.000Z");
+    const reactor = new ProviderReactor(engine, service, undefined, {
+      runApps: async (tool, params) => {
+        ran.push({ tool, params });
+        return { ok: true, text: "{}" };
+      },
+      now: () => clock,
+    });
+    let n = 0;
+    const dispatch = (command: Record<string, unknown>) => {
+      n += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`10000000-0000-4000-8000-0000000008${String(n).padStart(2, "0")}`),
+        command: command as never,
+      });
+    };
+    await dispatch({ type: "project.register", path: "/workspace/apps" });
+    const projectId = ProjectId.parse((await engine.projection()).projects[0]?.projectId);
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId,
+      path: "/workspace/apps-tree",
+      workspaceRoot: "/workspace",
+      branch: "feature/apps",
+    });
+    await dispatch({ type: "thread.start", threadId, worktreeId, provider: "codex", cwd: "/workspace/apps-tree" });
+    await reactor.waitForIdle();
+    // A chat that is not working has nobody to show it to: refused at once.
+    expect(await reactor.askAppAction({ worktreeId: "someone-else", tool: "GMAIL_SEND_EMAIL" })).toMatchObject({
+      allowed: false,
+    });
+    await dispatch({ type: "thread.status", threadId, status: "working" });
+    const email = (body: string) => ({
+      worktreeId,
+      tool: "COMPOSIO_MULTI_EXECUTE_TOOL",
+      params: {
+        tools: [{ tool_slug: "GMAIL_SEND_EMAIL", arguments: { recipient_email: "a@b.co", subject: "Hi", body } }],
+      },
+    });
+    const drafts = async () =>
+      ((await engine.projection()).requests ?? []).filter((entry) => entry.requestId.startsWith("apps-"));
+
+    // The agent hears at once that the person has it, so it never waits on a card.
+    expect(await reactor.askAppAction(email("first"))).toMatchObject({
+      held: true,
+      reason: expect.stringContaining("draft"),
+    });
+    // A revised draft replaces the open one.
+    await reactor.askAppAction(email("second"));
+    expect(await drafts()).toHaveLength(1);
+    expect((await drafts())[0]?.payload).toMatchObject({
+      kind: "app-action",
+      apps: "Gmail",
+      email: { to: "a@b.co", subject: "Hi", body: "second" },
+    });
+    // The turn ends: the card stays, and the chat is free for the next message.
+    await dispatch({ type: "thread.status", threadId, status: "idle" });
+    const [card] = await drafts();
+    expect(card).toBeDefined();
+    expect((await engine.projection()).threads[0]?.status).toBe("idle");
+
+    // Send with the person's edits: ZLI runs it, with only the email's lines changed.
+    await dispatch({
+      type: "thread.respond",
+      threadId,
+      requestId: card?.requestId,
+      decision: { approved: true, edits: { to: "c@d.co", cc: "e@f.co", subject: "Hello", body: "edited" } },
+    });
+    await reactor.waitForIdle();
+    expect(ran).toEqual([
+      {
+        tool: "COMPOSIO_MULTI_EXECUTE_TOOL",
+        params: {
+          tools: [
+            {
+              tool_slug: "GMAIL_SEND_EMAIL",
+              arguments: { recipient_email: "c@d.co", cc: ["e@f.co"], subject: "Hello", body: "edited" },
+            },
+          ],
+        },
+      },
+    ]);
+    expect(await drafts()).toEqual([]);
+
+    // Discard: nothing runs.
+    await dispatch({ type: "thread.status", threadId, status: "working" });
+    await reactor.askAppAction(email("third"));
+    const [discarded] = await drafts();
+    await dispatch({
+      type: "thread.respond",
+      threadId,
+      requestId: discarded?.requestId,
+      decision: { approved: false },
+    });
+    await reactor.waitForIdle();
+    expect(ran).toHaveLength(1);
+    expect(await drafts()).toEqual([]);
+    // A card nobody answers expires after a day: it goes away, and a late answer runs nothing.
+    await dispatch({ type: "thread.status", threadId, status: "working" });
+    await reactor.askAppAction(email("fourth"));
+    const [stale] = await drafts();
+    clock += 24 * 60 * 60_000 + 1;
+    await reactor.expireAppDrafts();
+    expect(await drafts()).toEqual([]);
+    await reactor.askAppAction(email("fifth"));
+    const [late] = await drafts();
+    clock += 24 * 60 * 60_000 + 1;
+    await dispatch({ type: "thread.respond", threadId, requestId: late?.requestId, decision: { approved: true } });
+    await reactor.waitForIdle();
+    expect(ran).toHaveLength(1);
+    expect(stale?.payload).toMatchObject({ expiresAt: expect.any(String) });
+    // The agent never hears about a card ZLI made.
+    expect(adapter.decisions).toEqual([]);
     reactor.stop();
     await service.stopAll();
     service.dispose();
@@ -1137,6 +1376,7 @@ describe("ProviderReactor usage", () => {
           worktreeId,
           worktreePath: "C:\\workspace\\checkpoint-tree",
           tree: `tree-${id.slice(-1)}-${turns + 1}`,
+          skipped: [],
         };
       },
       record: async (id: string, turnId: string, start: { tree: string }) => {

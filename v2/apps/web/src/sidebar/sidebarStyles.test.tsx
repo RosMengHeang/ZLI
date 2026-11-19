@@ -783,10 +783,11 @@ describe("Project rail style", () => {
     expect(first?.querySelector(".session-note.is-failed")?.textContent).toBe("1 check failed");
   });
 
-  it("says an agent is working and shows the branch with no change count", async () => {
+  it("says an agent is working and names its branch", async () => {
     const container = await mount("rail", { agents: [session(1, "running", "working")], currentProjectId: repoId });
-    expect(container.querySelector(".session-status.is-working")).not.toBeNull();
-    expect(container.querySelector(".session-branch .worktree-name")?.textContent).toBe("working-branch");
+    // A working row's dot says so, and its second line shows what it is doing; the branch is in the tooltip.
+    expect(container.querySelector(".session-dot.is-working")).not.toBeNull();
+    expect(container.querySelector(".session-row")?.getAttribute("title")).toContain("working-branch");
   });
 
   it("keeps sub-agent rows to their task, with the branch in the tooltip", async () => {

@@ -43,7 +43,9 @@ describe("app settings", () => {
       chatTint: "card",
       archiveMergedChats: true,
       severalChats: false,
-      layout: "columns",
+      layout: "classic",
+      compactChats: true,
+      sidebarView: "activity",
       typography: DEFAULT_TYPOGRAPHY,
     });
   });
@@ -79,10 +81,12 @@ describe("app settings", () => {
     expect(parseAppSettings(JSON.stringify({ chatTint: "loud" })).chatTint).toBe("card");
   });
 
-  it("starts in the columns layout and keeps classic once chosen", () => {
-    expect(parseAppSettings(null).layout).toBe("columns");
-    expect(parseAppSettings(JSON.stringify({ layout: "classic" })).layout).toBe("classic");
-    expect(parseAppSettings(JSON.stringify({ layout: "grid" })).layout).toBe("columns");
+  it("starts in the rounded classic layout and keeps columns only once chosen", () => {
+    expect(parseAppSettings(null).layout).toBe("classic");
+    // Columns saved before anyone chose it was the old default: it moves to classic.
+    expect(parseAppSettings(JSON.stringify({ layout: "columns" })).layout).toBe("classic");
+    expect(parseAppSettings(JSON.stringify({ layout: "columns", layoutChosen: true })).layout).toBe("columns");
+    expect(parseAppSettings(JSON.stringify({ layout: "grid" })).layout).toBe("classic");
   });
 
   it("prefers project settings, then general defaults, then the last launch", () => {

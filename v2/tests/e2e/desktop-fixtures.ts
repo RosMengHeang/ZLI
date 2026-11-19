@@ -55,6 +55,8 @@ export type DesktopLaunchOptions = {
   trustAgents?: boolean;
   /** Puts every open agent on screen side by side, for tests about the board rather than one chat. */
   severalChats?: boolean;
+  /** The sidebar's list: the project tree most tests drive, unless a test is about the activity list. */
+  sidebarView?: "activity" | "projects";
 };
 
 /** Sends a message from the chat composer of a newly started Codex agent once it is ready. */
@@ -96,25 +98,16 @@ export async function clickProjectAction(row: Locator, button: Locator): Promise
   }).toPass({ timeout: 30_000 });
 }
 
-/** Opens the Create worktree dialog from the first project's row. */
+/** Opens the Create worktree dialog from the command palette, where New worktree lives since the project menu was trimmed. */
 export async function openCreateWorktree(page: Page): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Create worktree" });
-  const row = page.locator(".project-label").first();
-  // New worktree sits in the project's menu, so the row keeps only New chat and the menu on hover.
-  const menu = row.getByRole("button", { name: / actions$/u });
-  const item = page.getByRole("menuitem", { name: "New worktree" });
-  // The scrim covers the sidebar button. A click that already opened the dialog is still reported
-  // as a miss, and every retry then times out on that same scrim.
   await expect(async () => {
     if (await dialog.isVisible()) return;
-    await revealProjectActions(row);
-    try {
-      if (!(await item.isVisible())) await menu.click({ timeout: 2_000 });
-      await item.click({ timeout: 2_000 });
-    } catch (error) {
-      if (await dialog.isVisible()) return;
-      throw error;
-    }
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("Control+K");
+    await page.getByRole("textbox", { name: "Search commands" }).fill("New worktree");
+    await page.keyboard.press("Enter");
+    await expect(dialog).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
   await expect(dialog).toBeVisible();
 }
@@ -244,6 +237,13 @@ export async function launchDesktop(
       // A relaunch in the same test keeps the profile of the launch before it, which can leave the sidebar hidden.
       if (await showSidebar.isVisible()) await showSidebar.click();
       await runtime.waitFor({ state: "visible" });
+      // The settings store follows storage events, so the sidebar switches without a reload.
+      await page.evaluate((view) => {
+        const key = "zli.settings.v1";
+        const settings = JSON.parse(window.localStorage.getItem(key) ?? "{}") as Record<string, unknown>;
+        window.localStorage.setItem(key, JSON.stringify({ ...settings, sidebarView: view }));
+        window.dispatchEvent(new StorageEvent("storage", { key }));
+      }, options.sidebarView ?? "projects");
       if (options.severalChats) {
         await page.evaluate(() => {
           const key = "zli.settings.v1";
@@ -467,7 +467,7 @@ export async function git(cwd: string, args: string[]): Promise<string> {
 
 /**
  * Shows or hides a side panel the way a person does: the right-panel switch in the top bar closes what is
- * open, and opens on a picker that lists every panel.
+ * open; once open, the panel's icon strip switches to any panel.
  */
 export async function togglePanel(page: Page, name: string): Promise<void> {
   const toggle = page.locator(".topbar-tools").getByRole("button", { name: "Right panel", exact: true });
@@ -477,11 +477,7 @@ export async function togglePanel(page: Page, name: string): Promise<void> {
     return;
   }
   if (!(await panel.isVisible())) await toggle.click();
-  await panel.getByRole("button", { name: "Add a panel", exact: true }).click();
-  await page
-    .getByRole("menu", { name: "Add a panel" })
-    .getByRole("menuitem", { name: new RegExp(`^${name}`, "u") })
-    .click();
+  await panel.getByRole("tablist", { name: "Panels" }).getByRole("tab", { name, exact: true }).click();
 }
 
 /**

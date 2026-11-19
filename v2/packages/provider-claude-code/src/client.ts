@@ -102,6 +102,10 @@ export type ClaudeCodeClientOptions = {
   spawnProcess?: (command: string, args: readonly string[], options: ClaudeSpawnOptions) => ClaudeChild;
   initTimeoutMs?: number;
   permissionMode?: ClaudePermissionMode;
+  /** Tools that run without asking the person, by the name the agent gives them: ZLI's own trusted tools. */
+  approveTool?: (name: string) => boolean;
+  /** Nobody answers prompts as they come: see claudeSessionArgs. */
+  unattended?: boolean;
   model?: string;
   /** Conversation id from an earlier process. The CLI continues it instead of starting a new one. */
   resumeSessionId?: string;
@@ -115,6 +119,8 @@ export type ClaudeCodeClientOptions = {
   autoCompactTokens?: number;
   /** Passed as --append-system-prompt-file. */
   appendSystemPromptFile?: string;
+  /** ZLI's data folder, whose own files an unattended agent's file tools may not touch. */
+  privateDir?: string;
 };
 
 export class ClaudeProviderError extends Error {
@@ -158,6 +164,8 @@ export class ClaudeCodeClient {
   private readonly pendingApprovals = new Map<string, { toolName: string; input: Record<string, unknown> }>();
   /** Tools the person allowed for the rest of this session. Claude Code does not remember them for us. */
   private readonly sessionAllowedTools = new Set<string>();
+  private approveTool?: (name: string) => boolean;
+  private staleResult = false;
   /** Claude reports cost as a running session total, so each turn's cost is the change since the last result. */
   private sessionCostUsd: number | undefined;
   /** Undefined is the model's own default, which is how every session starts. */
@@ -195,6 +203,7 @@ export class ClaudeCodeClient {
       sessionId,
     );
     if (options.now) client.now = options.now;
+    if (options.approveTool) client.approveTool = options.approveTool;
     try {
       client.sendInitialize();
       await client.waitForInit(options.initTimeoutMs ?? SESSION_INIT_TIMEOUT_MS);
@@ -276,6 +285,8 @@ export class ClaudeCodeClient {
       throw new ClaudeProviderError("request_failed", "Claude Code turn does not match the active turn.");
     }
     this.write(interruptRequest(`interrupt_${randomUUID()}`));
+    // Claude still sends the stopped turn's result, after the turn has ended here. The next result is that one.
+    this.staleResult = true;
     this.finishTurn("interrupted");
   }
 
@@ -403,6 +414,11 @@ export class ClaudeCodeClient {
   }
 
   private onResult(message: { isError: boolean; text?: string; subtype?: string; usage?: ClaudeResultUsage }): void {
+    // The result of a turn that was stopped arrives late; applied to the next turn, it would fail that one.
+    if (this.staleResult) {
+      this.staleResult = false;
+      return;
+    }
     if (!this.active) return;
     this.emitUsage(this.active, message.usage);
     if (this.active.usageLimit) {
@@ -553,7 +569,7 @@ export class ClaudeCodeClient {
       if (subtype === "can_use_tool" && this.permissionMode !== "full-access") {
         const input = message.input ?? {};
         const toolName = message.toolName ?? "Tool";
-        if (this.sessionAllowedTools.has(toolName)) {
+        if (this.sessionAllowedTools.has(toolName) || this.approveTool?.(toolName)) {
           this.write(allowToolRequest(requestId, input));
           return;
         }
@@ -662,12 +678,14 @@ function spawnClaudePeer(options: ClaudeCodeClientOptions, command: string, sess
   const spawnProcess = options.spawnProcess ?? defaultSpawn;
   const args = claudeSessionArgs({
     ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
+    ...(options.unattended ? { unattended: true } : {}),
     ...(options.model?.trim() ? { model: options.model.trim() } : {}),
     ...(options.resumeSessionId?.trim() ? { resumeSessionId: options.resumeSessionId.trim() } : { sessionId }),
     ...(options.mcpConfig ? { mcpConfig: options.mcpConfig } : {}),
     ...(options.name ? { name: options.name } : {}),
     ...(options.autoCompactTokens !== undefined ? { autoCompactTokens: options.autoCompactTokens } : {}),
     ...(options.appendSystemPromptFile ? { appendSystemPromptFile: options.appendSystemPromptFile } : {}),
+    ...(options.privateDir ? { privateDir: options.privateDir } : {}),
   });
   const child = spawnProcess(command, args, {
     cwd: options.cwd,

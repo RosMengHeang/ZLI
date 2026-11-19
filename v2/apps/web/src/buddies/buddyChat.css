@@ -1,0 +1,510 @@
+/* ---------- Buddies in the main area ---------- */
+.buddies-main { display: flex; min-width: 0; height: 100%; min-height: 0; flex: 1; flex-direction: column; background: var(--zli-surface); }
+.buddies-home { display: flex; width: 100%; max-width: 760px; min-height: 0; flex: 1; flex-direction: column; margin: 0 auto; }
+.buddies-home-head { display: flex; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-4) var(--zli-space-4) var(--zli-space-2); }
+.buddies-home-head h2 { margin: 0; color: var(--zli-text); font-size: var(--zli-text-lg, 18px); font-weight: 600; }
+.buddies-home .buddies-body { padding: var(--zli-space-2) var(--zli-space-4) var(--zli-space-6, 32px); }
+
+/* ---------- One buddy: the chat in the middle, its details beside it ---------- */
+.buddy-view { display: flex; min-width: 0; min-height: 0; flex: 1; }
+.buddy-view-main { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
+/* A name tag floating over the top of the chat; the messages scroll under it. */
+.buddy-view-top { position: absolute; top: 0; right: 0; left: 0; z-index: 2; display: flex; height: 104px; align-items: flex-start; justify-content: center; padding: 10px var(--zli-space-3) 0; background: linear-gradient(var(--zli-surface) 70%, color-mix(in srgb, var(--zli-surface) 0%, transparent)); pointer-events: none; }
+.buddy-view-top > * { pointer-events: auto; }
+/* The face on top and the name in a pill just under it, overlapping its foot, like a contact card. */
+.buddy-view-tag { display: inline-flex; flex-direction: column; align-items: center; padding: 0; border: 0; background: none; color: inherit; cursor: default; font: inherit; }
+.buddy-view-name { position: relative; max-width: 220px; margin: -6px 0 0; overflow: hidden; padding: 3px 12px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-pill); background: var(--zli-raised); box-shadow: var(--zli-highlight); color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); }
+.buddy-view-main .buddy-chat-column { padding-top: 96px; }
+
+/* The details slide in from the right: the column grows from nothing while its content, a fixed width, fades in. */
+.buddy-view-info { display: flex; width: 0; min-height: 0; flex: 0 0 auto; overflow: hidden; border-left: 1px solid transparent; background: var(--zli-surface); transition: width 240ms cubic-bezier(.2, .8, .2, 1), border-color 240ms ease; }
+.buddy-view-info.is-open { width: 320px; border-left-color: var(--zli-border); }
+.buddy-view-info-inner { display: flex; width: 320px; min-height: 0; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-4); padding: 0 var(--zli-space-3) var(--zli-space-4); overflow-y: auto; opacity: 0; transform: translateX(16px); transition: opacity 180ms ease, transform 240ms cubic-bezier(.2, .8, .2, 1); }
+.buddy-view-info.is-open .buddy-view-info-inner { opacity: 1; transform: none; transition-delay: 40ms; }
+@media (prefers-reduced-motion: reduce) { .buddy-view-info, .buddy-view-info-inner { transition: none; } }
+.buddy-info-close { display: flex; height: 48px; flex: 0 0 auto; align-items: center; justify-content: flex-start; }
+.buddy-info-close .btn { border: 1px solid var(--zli-border); border-radius: 50%; }
+.buddy-info-hero { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-1); margin-top: calc(-1 * var(--zli-space-2)); text-align: center; }
+.buddy-info-hero h2 { margin: var(--zli-space-2) 0 0; color: var(--zli-text); font-size: var(--zli-text-lg, 18px); font-weight: 600; }
+.buddy-info-hero span { color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.buddy-tabs.segmented { align-self: center; border: 0; background: transparent; }
+.buddy-tabs .segmented-item { padding: 4px 12px; border-radius: 15px; color: var(--zli-muted); }
+.buddy-tabs .segmented-item[aria-pressed="true"] { background: var(--zli-raised); color: var(--zli-text); }
+.buddy-view-info .buddy-profile { gap: var(--zli-space-4); }
+.buddy-view-info .buddies-heading { padding: 0 2px; }
+@media (max-width: 1100px) { .buddy-view-info.is-open { width: 280px; } .buddy-view-info-inner { width: 280px; } }
+
+/* A rounded card, like the rows of a settings sheet. */
+.buddy-card { margin: 0; padding: 10px 12px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
+.buddy-card-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; text-align: left; }
+.buddy-card-title { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.buddy-card-sub { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.buddy-routine { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-muted); }
+.buddy-routine.is-paused .buddy-card-title { color: var(--zli-muted); }
+.buddy-routine-remove { opacity: 0; }
+.buddy-routine:hover .buddy-routine-remove, .buddy-routine-remove:focus-visible { opacity: 1; }
+.buddy-view-info .buddy-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--zli-space-3); }
+.buddy-view-info .buddy-models.buddy-card, .buddy-view-info .buddy-memory.buddy-card { gap: var(--zli-space-1-5); padding: 10px 12px; }
+.buddy-lesson { display: flex; flex-direction: column; gap: var(--zli-space-1-5); font-size: var(--zli-text-sm); }
+.buddy-lesson-actions { display: flex; gap: var(--zli-space-1); }
+.buddy-settings { display: flex; flex-direction: column; gap: var(--zli-space-2); }
+.buddy-view-info .buddy-rule { padding: 8px 10px 8px 12px; }
+
+
+/* ---------- The transcript: your messages as soft bubbles on the right, the buddy's as plain text, events between ---------- */
+.buddy-chat { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.buddy-chat-log { min-height: 0; flex: 1; overflow-y: auto; }
+.buddy-chat-column { display: flex; width: 100%; max-width: 760px; flex-direction: column; gap: var(--zli-space-3); margin: 0 auto; padding: 64px var(--zli-space-6) var(--zli-space-2); }
+.buddy-chat-entry { display: flex; flex-direction: column; }
+.buddy-chat-entry.is-event, .buddy-chat-entry.is-event + .buddy-chat-entry,
+.buddy-chat-entry.is-you + .buddy-chat-entry:not(.is-you), .buddy-chat-entry:not(.is-you) + .buddy-chat-entry.is-you { margin-top: var(--zli-space-2); }
+.buddy-chat-time { margin: var(--zli-space-3) 0 var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-align: center; }
+.buddy-chat-you {
+  align-self: flex-end; max-width: 75%; padding: 10px 16px; border-radius: 20px; background: color-mix(in srgb, var(--zli-text) 9%, var(--zli-surface));
+  color: var(--zli-text); font-size: var(--zli-text-chat); line-height: var(--zli-leading-relaxed); overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.buddy-chat-say {
+  align-self: stretch; max-width: 100%; padding: 0 2px;
+  color: var(--zli-text); font-size: var(--zli-text-chat); line-height: var(--zli-leading-relaxed); overflow-wrap: anywhere; white-space: pre-wrap;
+}
+/* A note between teammates: a quiet card in their color, named, so it never reads as the buddy's own words. */
+.buddy-chat-teammate { align-self: flex-start; max-width: min(88%, 620px); margin: 0; padding: 10px 14px 12px; border: 1px solid color-mix(in srgb, var(--teammate) 22%, var(--zli-border)); border-radius: var(--zli-radius-lg); background: color-mix(in srgb, var(--teammate) 6%, var(--zli-surface)); }
+.buddy-chat-teammate.is-sent { align-self: flex-end; }
+.buddy-chat-teammate-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.buddy-chat-teammate-head strong { color: var(--zli-text); font-weight: 500; }
+.buddy-chat-teammate-text { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-relaxed); overflow-wrap: anywhere; white-space: pre-wrap; }
+.buddy-chat-event { display: flex; max-width: 100%; align-items: center; align-self: center; justify-content: center; gap: 6px; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.buddy-chat-event span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.buddy-chat-open { flex: 0 0 auto; padding: 0; border: 0; background: transparent; color: var(--zli-text); cursor: default; font-size: var(--zli-text-xs); font-weight: 500; }
+.buddy-chat-open:hover { text-decoration: underline; }
+.buddy-chat-card { align-self: flex-start; width: min(78%, 520px); }
+.buddy-chat-card .job-card.is-inline { padding: var(--zli-space-2-5) var(--zli-space-3); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
+.buddy-chat-card .job-card.is-inline:not(.is-waiting):not(.is-failed) { border-color: var(--zli-border); }
+.buddy-chat-live { display: flex; align-self: flex-start; flex-direction: column; gap: var(--zli-space-1-5); max-width: 78%; padding: 10px 14px; border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
+.buddy-chat-live-head { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-sm); }
+
+/* What the buddy is doing: its last few steps, the older ones fading. */
+.buddy-steps { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.buddy-steps li { display: flex; min-width: 0; align-items: baseline; gap: 6px; font-size: var(--zli-text-xs); transition: opacity var(--zli-duration-base) var(--zli-ease); }
+.buddy-step-title { overflow: hidden; color: var(--zli-text); text-overflow: ellipsis; white-space: nowrap; }
+.buddy-step-detail { min-width: 0; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.buddy-step-lines { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.buddy-step-lines .is-added { color: var(--zli-green, #3fb950); }
+.buddy-step-lines .is-removed { color: var(--zli-red-ink); }
+
+.buddy-chat-empty { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-2); margin: 12vh auto 0; color: var(--zli-muted); text-align: center; }
+.buddy-chat-empty h3 { margin: var(--zli-space-1) 0 0; color: var(--zli-text); font-size: var(--zli-text-md); }
+.buddy-chat-empty p { max-width: 320px; margin: 0; font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+
+/* The message box: a filled, gently raised surface, like the main chat's composer. */
+.buddy-chat-composer {
+  display: flex; width: calc(100% - 2 * var(--zli-space-4)); max-width: 712px; flex: 0 0 auto; align-items: flex-end; gap: var(--zli-space-1-5);
+  margin: var(--zli-space-2) auto var(--zli-space-4); padding: 8px 8px 8px 12px; border: 1px solid var(--zli-border); border-radius: 24px; background: var(--zli-raised);
+  box-shadow: var(--zli-highlight), var(--zli-shadow-lift); transition: border-color var(--zli-duration-fast) var(--zli-ease);
+}
+.buddy-chat-composer:focus-within { border-color: var(--zli-border-strong); }
+.buddy-chat-input { min-width: 0; max-height: 160px; flex: 1; align-self: center; padding: 5px 2px; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-chat); line-height: var(--zli-leading-normal); outline: none; resize: none; field-sizing: content; }
+.buddy-chat-input:focus, .buddy-chat-input:focus-visible { outline: none; box-shadow: none; }
+.buddy-chat-note { margin: var(--zli-space-3) auto; }
+
+/* Sidebar roster rows: face, name and time, one line under it. */
+.sidebar-buddy { padding: 6px var(--zli-space-1-5); border-radius: var(--zli-radius-md); }
+.sidebar-buddy.is-active { background: var(--zli-active); }
+/* The team and the projects are two lists with the same heading style. */
+.sidebar-buddies { margin-bottom: var(--zli-space-1); }
+.sidebar-buddies-add { margin-left: auto; color: var(--zli-dim); }
+.sidebar-buddies-needs + .sidebar-buddies-add { margin-left: 0; }
+.sidebar-buddies-head { margin: var(--zli-space-1) 0 2px; padding: 0 6px; font-size: var(--zli-text-sm); font-weight: 500; line-height: 24px; }
+
+/* Standing instructions: tall enough to read, scrolls past that, and opens full size. */
+.buddy-instructions { min-height: 180px; max-height: 360px; overflow-y: auto; resize: vertical; font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.buddy-instructions.is-full { width: 100%; min-height: 50vh; max-height: none; }
+.buddy-view-info .buddies-hint { margin: -2px 2px 0; line-height: var(--zli-leading-normal); }
+
+/* The message box: files on top, then the paperclip, the words and the send button. */
+.buddy-chat-composer { flex-direction: column; align-items: stretch; gap: 4px; }
+.buddy-chat-row { display: flex; align-items: flex-end; gap: var(--zli-space-1-5); }
+.buddy-chat-attach { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; color: var(--zli-muted); }
+.buddy-chat-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 4px 4px 0; list-style: none; }
+.buddy-chat-files li { display: inline-flex; max-width: 220px; align-items: center; gap: 5px; padding: 3px 4px 3px 8px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-text); font-size: var(--zli-text-xs); }
+.buddy-chat-files li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.buddy-chat-files.is-sent { align-self: flex-end; justify-content: flex-end; margin-top: 4px; padding: 0; }
+.buddy-chat-files.is-sent li { padding-right: 8px; }
+
+/* The buddy is thinking: three dots, then what it is looking at. */
+.buddy-typing { display: inline-flex; height: 18px; align-items: center; gap: 4px; }
+.buddy-typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--zli-muted); animation: buddy-typing 1.2s var(--zli-ease) infinite; }
+.buddy-typing span:nth-child(2) { animation-delay: .15s; }
+.buddy-typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes buddy-typing { 0%, 60%, 100% { opacity: .35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .buddy-typing span { animation: none; } }
+
+/* The name tag opens and closes the details column. */
+.buddy-view-tag:hover .buddy-view-name { border-color: var(--zli-border-hover); background: color-mix(in srgb, var(--zli-text) 6%, var(--zli-raised)); }
+.buddy-view-tag:focus-visible { outline: none; }
+.buddy-view-tag:focus-visible .buddy-view-name { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+
+/* The name under the face renames the buddy: a pencil shows on hover, a click turns it into a box. */
+.buddy-info-rename { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: text; font: inherit; }
+.buddy-info-rename svg { color: var(--zli-dim); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.buddy-info-rename:hover { background: var(--zli-hover); }
+.buddy-info-rename:hover svg, .buddy-info-rename:focus-visible svg { opacity: 1; }
+.buddy-info-name-input { width: 200px; margin-top: var(--zli-space-2); text-align: center; font-size: var(--zli-text-lg, 18px); font-weight: 600; }
+
+/* ---------- New buddy ---------- */
+/* The fields scroll; Cancel and Create stay pinned under them. */
+.new-buddy-form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
+.new-buddy { gap: var(--zli-space-4); padding-top: 0; }
+.new-buddy-face { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-2) 0 0; }
+.new-buddy-preview { color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 500; }
+.new-buddy-field { display: flex; min-width: 0; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; }
+.new-buddy-label { padding: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
+.new-buddy-field > .segmented { align-self: flex-start; }
+.new-buddy-hint { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.new-buddy-roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.new-buddy-role { display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; text-align: left; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.new-buddy-role:hover { background: var(--zli-hover); }
+.new-buddy-role.is-on { border-color: var(--zli-accent-line); background: var(--zli-accent-soft); color: var(--zli-text); }
+.new-buddy-role:focus-visible, .new-buddy-color:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.new-buddy-role-dot { width: 8px; height: 8px; flex: 0 0 8px; margin-top: 5px; border-radius: 50%; }
+.new-buddy-role-text { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.new-buddy-role-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
+.new-buddy-role-blurb { color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 1.35; }
+.new-buddy-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+.new-buddy-color { width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--zli-radius-md); cursor: default; transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.new-buddy-color:hover { transform: scale(1.08); }
+.new-buddy-color.is-on { box-shadow: 0 0 0 2px var(--zli-surface), 0 0 0 4px var(--zli-text); }
+.new-buddy-instructions { min-height: 84px; resize: vertical; line-height: 1.5; }
+@media (max-width: 520px) { .new-buddy-roles { grid-template-columns: minmax(0, 1fr); } }
+
+/* While the buddy replies, the send button stops it. */
+.buddy-chat-composer .send-button.is-stop { background: var(--zli-text); color: var(--zli-surface); }
+.buddy-chat-composer .send-button.is-stop:hover { background: color-mix(in srgb, var(--zli-text) 85%, var(--zli-surface)); }
+
+/* The message box floats over the end of the chat, frosted, so the chat scrolls on under it (see useDockHeight). */
+.buddy-chat { position: relative; }
+.buddy-chat-end { flex: 0 0 auto; height: var(--dock-h, 0px); }
+.buddy-chat-dock { position: absolute; right: 0; bottom: 0; left: 0; z-index: 3; display: flex; flex-direction: column; padding-top: var(--zli-space-2); background: linear-gradient(to top, var(--zli-surface) 0, var(--zli-surface) 14px, color-mix(in srgb, var(--zli-surface) 0%, transparent) 40px); pointer-events: none; }
+.buddy-chat-dock > * { pointer-events: auto; }
+.buddy-chat-dock .buddy-chat-composer { background: color-mix(in srgb, var(--zli-raised) 80%, transparent); -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2); }
+.buddy-chat-resend { display: flex; margin-top: var(--zli-space-2); }
+
+/* Calm chat: the same soft bubble and round box as an agent's chat. */
+.buddy-chat-you { padding: 10px 18px; border-radius: 22px; background: var(--zli-overlay); }
+.buddy-chat-composer, .buddy-chat-dock .buddy-chat-composer { border-color: transparent; border-radius: 26px; background: var(--zli-overlay); box-shadow: 0 0 0 1px var(--zli-border), 0 10px 30px -14px rgba(0, 0, 0, .55); }
+.buddy-chat-composer:focus-within { border-color: transparent; }
+
+/* A job handed to a teammate: their face (its mood is the job's), the job, and a word for how it is going. */
+.buddy-chat-job { display: flex; align-self: stretch; min-width: 0; align-items: center; gap: 11px; padding: 8px 12px; border-radius: 14px; }
+.buddy-chat-job:hover { background: var(--zli-hover); }
+.buddy-chat-job-text { min-width: 0; flex: 1; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.buddy-chat-job-text strong { color: var(--zli-text); font-weight: 500; }
+.buddy-chat-job-state { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.buddy-chat-job-state.is-busy > svg { color: var(--zli-accent); }
+.buddy-chat-job-state.is-done > svg { color: var(--zli-green); }
+.buddy-chat-job-state.is-needs { color: var(--zli-amber); }
+.buddy-chat-job-state.is-failed { color: var(--zli-red); }
+.buddy-chat-job:has(.is-needs) { background: var(--zli-amber-soft); }
+
+/* ---------- Buddies, like a messenger ---------- */
+/* The team down the left, the chosen buddy's chat (or the team board) on the right. */
+.buddies-main.is-split { flex-direction: row; }
+.buddies-detail { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
+.buddy-list { display: flex; width: 300px; min-height: 0; flex: 0 0 auto; flex-direction: column; border-right: 1px solid var(--zli-border); }
+.buddy-list-head { display: flex; height: 52px; flex: 0 0 auto; align-items: center; gap: 2px; padding: 0 var(--zli-space-2) 0 18px; }
+.buddy-list-head h2 { min-width: 0; flex: 1; margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.buddy-list-find { display: flex; height: 32px; flex: 0 0 auto; align-items: center; gap: 8px; margin: 0 var(--zli-space-3) var(--zli-space-2); padding: 0 10px; border-radius: 10px; background: var(--zli-hover); color: var(--zli-dim); }
+.buddy-list-find input { min-width: 0; flex: 1; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); }
+.buddy-list-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 0 var(--zli-space-2) var(--zli-space-3); scrollbar-width: thin; }
+.buddy-list-section { margin-top: var(--zli-space-2); }
+.buddy-list-heading { display: flex; justify-content: space-between; margin: var(--zli-space-2) 0 2px; padding: 0 10px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
+.buddy-list-heading span { font-variant-numeric: tabular-nums; }
+.buddy-list-items { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.buddy-list-items .buddies-row { margin: 0; padding: 0; border: 0; background: transparent; }
+.buddy-list-row { display: flex; width: 100%; min-width: 0; align-items: center; gap: 11px; padding: 8px 10px; border: 0; border-radius: 12px; background: transparent; color: inherit; cursor: default; font: inherit; text-align: left; }
+.buddy-list-row:hover { background: var(--zli-hover); }
+.buddy-list-row.is-active { background: var(--zli-active); }
+.buddy-list-board { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 11px; background: var(--zli-raised); color: var(--zli-muted); }
+.buddy-list-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.buddy-list-name { display: flex; min-width: 0; align-items: baseline; gap: 6px; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.buddy-list-role { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.buddy-list-time { margin-left: auto; flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; font-weight: 400; }
+.buddy-list-line { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.buddy-list-row.is-working .buddy-list-line { color: var(--zli-blue); }
+.buddy-list-row.is-needs .buddy-list-line, .buddy-list-row.is-waiting .buddy-list-line { color: var(--zli-amber); }
+.buddy-list-row.is-failed .buddy-list-line { color: var(--zli-red); }
+.buddy-list-empty { margin: var(--zli-space-2) 10px; color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.buddy-list-foot { flex: 0 0 auto; padding: var(--zli-space-2) var(--zli-space-2) var(--zli-space-3); }
+.buddy-list-foot-btn { display: flex; width: 100%; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; border: 1px solid var(--zli-border); border-radius: 999px; background: var(--zli-raised); color: var(--zli-text); cursor: default; font: inherit; font-size: var(--zli-text-sm); font-weight: 500; text-align: left; transition: background var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); }
+.buddy-list-foot-btn:hover { border-color: var(--zli-border-hover); background: var(--zli-hover); }
+.buddy-list-foot-btn:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.buddy-list-foot-icon { display: inline-flex; width: 28px; height: 28px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 999px; background: var(--zli-text); color: var(--zli-surface); }
+
+/* The chat's head: a bar with who it is with, not a floating tag. */
+.buddy-view-meta { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.buddies-main.is-split .buddies-home { max-width: 820px; }
+@media (max-width: 860px) {
+  .buddy-list { width: 232px; }
+}
+/* The sidebar's switch sits in the panel's top-left corner; the list's head leaves room for it. */
+.app-shell:not(.is-sidebar-hidden) .buddy-list-head { padding-left: 52px; }
+/* The floating top bar sits over the detail's top-right corner; the chat's head keeps clear of it. */
+.app-shell:not(.has-panel) .buddies-main.is-split .buddies-home-head { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
+/* With the sidebar folded, its switch sits alone in the corner (no New chat on these pages); the heads leave room. */
+.app-shell.is-sidebar-hidden :is(.buddy-list-head, .pr-list-head) { padding-left: calc(max(var(--zli-space-2), env(titlebar-area-x, 0px)) + 40px); }
+
+/* ---------- Team board ---------- */
+/* Who is doing what right now, then every job in three quiet lanes. Cards are text first; the face says whose. */
+.buddies-main.is-split .buddies-home .buddies-body { max-width: 980px; }
+.board-crew { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.board-crew-item { display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--zli-border); border-radius: 12px; background: transparent; color: inherit; cursor: default; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.board-crew-item:hover { background: var(--zli-hover); }
+.board-crew-text { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.board-crew-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
+.board-crew-line { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.board-crew-item.is-working .board-crew-line { color: var(--zli-blue); }
+.board-crew-item.is-waiting .board-crew-line { color: var(--zli-amber); }
+
+.board-lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.board-lane { display: flex; min-width: 0; flex-direction: column; gap: 6px; padding: 8px; border-radius: 14px; background: var(--zli-hover); }
+.board-lane-head { display: flex; align-items: center; justify-content: space-between; margin: 0; padding: 2px 4px 4px; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
+.board-lane-head span { color: var(--zli-dim); font-variant-numeric: tabular-nums; }
+.board-lane-empty { margin: 0; padding: 10px 4px; color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
+.board-card { display: flex; width: 100%; min-width: 0; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--zli-border); border-radius: 10px; background: var(--zli-surface); color: inherit; cursor: default; font: inherit; text-align: left; transition: border-color var(--zli-duration-fast) var(--zli-ease); }
+.board-card:hover { border-color: var(--zli-border-hover); }
+.board-card-goal { display: -webkit-box; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.board-card-meta { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
+.board-card-who { color: var(--zli-muted); }
+.board-card-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.board-card-state { margin-left: auto; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.board-card.is-ready .board-card-state, .board-card.is-shipped .board-card-state, .board-card.is-closed .board-card-state { color: var(--zli-green); }
+.board-card.is-failed .board-card-state { color: var(--zli-red); }
+.board-lane.is-doing .board-card { border-color: color-mix(in srgb, var(--zli-blue) 22%, var(--zli-border)); }
+.board-empty { margin: 0; padding: var(--zli-space-4); border: 1px dashed var(--zli-border-strong); border-radius: 12px; color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: center; }
+@media (max-width: 1100px) { .board-lanes { grid-template-columns: minmax(0, 1fr); } }
+
+/* Paused: a strip under the list's head, with the way back one click away. */
+.buddy-list-paused { display: flex; align-items: center; gap: 8px; margin: var(--zli-space-2) var(--zli-space-3) 0; padding: 7px 8px 7px 10px; border: 1px solid var(--zli-amber-line); border-radius: 10px; background: var(--zli-amber-soft); color: var(--zli-amber-ink); font-size: var(--zli-text-xs); }
+.buddy-list-paused > span { flex: 1; }
+.buddy-list-paused button { height: 22px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--zli-amber); color: #1a1408; cursor: default; font: inherit; font-weight: 600; }
+.buddy-list-paused button:hover { filter: brightness(1.08); }
+
+/* Team settings: three short sections in a small dialog. */
+.team-settings { display: flex; flex-direction: column; gap: var(--zli-space-5); }
+.team-settings .buddies-section { margin: 0; }
+.team-settings-row { display: flex; align-items: center; gap: var(--zli-space-3); }
+.team-settings-row .buddies-hint { flex: 1; margin: 0; }
+/* In Team settings the model picker spans the dialog, its three choices sharing the width evenly. */
+.team-settings .segmented { display: flex; width: 100%; }
+.team-settings .segmented-item { flex: 1 1 0; justify-content: center; text-align: center; }
+
+/* Picking a body: each one drawn in the buddy's color, its name under it. */
+.buddy-bodies { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; border: 0; }
+.buddy-body-choice { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px 6px; border: 1px solid var(--zli-border); border-radius: 12px; background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-2xs); transition: background-color var(--zli-duration-fast) var(--zli-ease), border-color var(--zli-duration-fast) var(--zli-ease); }
+.buddy-body-choice:hover { background: var(--zli-hover); }
+.buddy-body-choice[aria-pressed="true"] { border-color: var(--zli-accent-line); background: var(--zli-accent-soft); color: var(--zli-text); }
+.buddy-view-info .buddy-bodies { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: var(--zli-space-2); }
+
+/* ---------- The buddy's bubbles ---------- */
+/* Its words sit in a grey bubble on the left, the same grey as yours: two sides of one chat. */
+.buddy-chat-say.is-bubble { align-self: flex-start; max-width: min(85%, 640px); padding: 10px 16px; border-radius: 20px 20px 20px 6px; background: var(--zli-overlay); }
+/* A reply is Markdown in the bubble: paragraphs keep their own spacing, so the bubble does not add pre-wrap gaps. */
+.buddy-chat-say.is-bubble { position: relative; white-space: normal; }
+.buddy-chat-say.is-bubble .markdown { font-size: inherit; }
+.buddy-chat-say.is-bubble .markdown ul, .buddy-chat-say.is-bubble .markdown ol { padding-left: 20px; }
+.buddy-chat-say.is-bubble .markdown li::marker { color: var(--zli-muted); }
+.buddy-chat-say.is-bubble .markdown .md-link { overflow-wrap: anywhere; }
+.buddy-chat-say.is-bubble .markdown .md-table-wrap { max-width: 100%; overflow-x: auto; }
+/* Copy sits just outside the bubble's bottom-right corner and shows on hover or keyboard focus. */
+.buddy-chat-say-tools { position: absolute; right: -34px; bottom: 2px; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.buddy-chat-say.is-bubble:hover .buddy-chat-say-tools, .buddy-chat-say-tools:focus-within { opacity: 1; }
+@media (hover: none) { .buddy-chat-say-tools { display: none; } }
+
+/* ---------- The message box ---------- */
+/* One rounded pill: a round + to attach, the words, and a round send button in the buddy's color. */
+.buddy-chat-dock .buddy-chat-composer, .buddy-chat-composer { padding: 7px; border-radius: 999px; }
+.buddy-chat-composer:has(.buddy-chat-files) { border-radius: 24px; }
+.buddy-chat-row { align-items: center; gap: 8px; }
+.buddy-chat-attach.btn { width: 34px; height: 34px; border-radius: 50%; background: var(--zli-active); color: var(--zli-text); }
+.buddy-chat-attach.btn:hover { background: var(--zli-pressed); }
+.buddy-chat-input { padding: 6px 2px; }
+.buddy-chat-composer .send-button:not(.is-stop) { width: 34px; height: 34px; background: var(--buddy, var(--zli-text)); color: var(--buddy-ink, #fff); }
+.buddy-chat-composer .send-button:not(.is-stop):hover:not(:disabled) { background: color-mix(in srgb, var(--buddy, var(--zli-text)) 85%, #fff); }
+.buddy-chat-composer .send-button:not(.is-stop):disabled { background: color-mix(in srgb, var(--buddy, var(--zli-text)) 35%, var(--zli-overlay)); color: color-mix(in srgb, #fff 60%, transparent); }
+
+/* ---------- The face editor ---------- */
+/* The face with a pencil on hover; a click opens a small panel under it: body and color, or a picture. */
+.buddy-look { position: relative; display: flex; justify-content: center; }
+.buddy-look-face { position: relative; display: grid; padding: 0; border: 0; border-radius: 22px; background: transparent; cursor: default; }
+.buddy-look-pencil { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 22px; background: rgba(0, 0, 0, .45); color: #fff; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.buddy-look-face:hover .buddy-look-pencil, .buddy-look-face:focus-visible .buddy-look-pencil, .buddy-look-face[aria-expanded="true"] .buddy-look-pencil { opacity: 1; }
+.buddy-look-panel { position: absolute; top: calc(100% + 8px); left: 50%; z-index: 20; display: flex; width: 284px; flex-direction: column; gap: 12px; padding: 10px; border: 1px solid var(--zli-border-strong); border-radius: 16px; background: var(--zli-raised); box-shadow: var(--zli-shadow-pop); transform: translateX(-50%); animation: zli-fade-in var(--zli-duration-fast) var(--zli-ease) both; text-align: left; }
+.buddy-look-tabs { display: flex; align-items: center; gap: 2px; }
+.buddy-look-spacer { flex: 1; }
+.buddy-look-tab { height: 28px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-sm); font-weight: 500; }
+.buddy-look-tab:hover { color: var(--zli-text); }
+.buddy-look-tab[aria-pressed="true"] { background: var(--zli-active); color: var(--zli-text); }
+.buddy-look-bodies { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.buddy-look-body { display: grid; height: 60px; place-items: center; border: 1px solid transparent; border-radius: 12px; background: transparent; cursor: default; }
+.buddy-look-body:hover { background: var(--zli-hover); }
+.buddy-look-body[aria-pressed="true"] { border-color: var(--zli-border-hover); background: var(--zli-active); }
+.buddy-look-colors { display: grid; grid-template-columns: repeat(6, 1fr); justify-items: center; gap: 8px; padding: 2px 0 4px; }
+.buddy-look-color { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; cursor: default; }
+.buddy-look-color[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--zli-raised), 0 0 0 4px var(--zli-text); }
+.buddy-look-upload { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 6px 4px 2px; }
+.buddy-look-preview { width: 72px; height: 72px; border-radius: 28%; object-fit: cover; }
+.buddy-look-hint { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
+
+/* ---------- Goals ---------- */
+/* One box for an outcome: a lead plans it and hands the jobs out, so nobody picks who does what. */
+.goal-composer { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--zli-border); border-radius: 18px; background: var(--zli-raised); box-shadow: var(--zli-highlight); transition: border-color var(--zli-duration-fast) var(--zli-ease); }
+.goal-composer:focus-within { border-color: var(--zli-border-hover); }
+.goal-composer-text { width: 100%; min-height: 40px; resize: none; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); line-height: 1.45; outline: none; }
+.goal-composer-text::placeholder { color: var(--zli-dim); }
+.goal-composer-row { display: flex; align-items: center; gap: 8px; }
+.goal-composer-pick { width: auto; min-width: 0; }
+.goal-composer-pick .field-label { display: none; }
+.goal-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; margin-top: 10px; }
+.goal-card { display: flex; min-width: 0; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--zli-border); border-radius: 14px; background: var(--zli-surface); }
+.goal-card.is-needs_you { border-color: var(--zli-amber-line); }
+.goal-card.is-done, .goal-card.is-stopped { opacity: 0.78; }
+.goal-card-head { display: flex; align-items: center; gap: 8px; }
+.goal-card-lead { display: inline-flex; min-width: 0; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-xs); }
+button.goal-card-lead:hover { color: var(--zli-text); }
+.goal-card-state { margin-left: auto; padding: 1px 8px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.goal-card-state.is-planning, .goal-card-state.is-working { background: color-mix(in srgb, var(--zli-blue) 16%, transparent); color: var(--zli-blue); }
+.goal-card-state.is-needs_you { background: var(--zli-amber-soft); color: var(--zli-amber-ink); }
+.goal-card-state.is-done { background: color-mix(in srgb, var(--zli-green) 16%, transparent); color: var(--zli-green); }
+.goal-card-text { display: -webkit-box; margin: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.goal-card-progress { display: flex; align-items: center; gap: 8px; }
+.goal-card-bar { position: relative; flex: 1; height: 4px; overflow: hidden; border-radius: 2px; background: var(--zli-hover); }
+.goal-card-bar > span { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--zli-green); transition: width var(--zli-duration-base) var(--zli-ease); }
+.goal-card-count { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.goal-card-jobs { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.goal-card-job { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.goal-card-job-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-card-job.is-working .goal-card-job-line, .goal-card-job.is-preparing .goal-card-job-line { color: var(--zli-blue); }
+.goal-card-job.is-needs_you .goal-card-job-line { color: var(--zli-amber); }
+.goal-card-job.is-failed .goal-card-job-line { color: var(--zli-red); }
+.goal-card-hint, .goal-card-summary { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 1.45; }
+.goal-card-summary { color: var(--zli-muted); }
+.goal-card-needs { margin: 0; padding: 6px 8px; border-radius: 8px; background: var(--zli-amber-soft); color: var(--zli-amber-ink); font-size: var(--zli-text-xs); }
+.goal-card-actions { display: flex; gap: 6px; }
+
+/* ---------- Rules and budget ---------- */
+.rule-group { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.rule-group-head { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
+.rule-group.is-ask .rule-group-head { color: var(--zli-amber); }
+.rule-group.is-never .rule-group-head { color: var(--zli-red); }
+.rule-group-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.rule-item { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border-radius: 8px; background: var(--zli-hover); color: var(--zli-text); font-size: var(--zli-text-xs); }
+.rule-item > span { flex: 1; min-width: 0; }
+.rule-add { height: 28px; font-size: var(--zli-text-xs); }
+.budget-field { display: flex; align-items: center; gap: 6px; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.budget-field .input { width: 110px; }
+.budget-unit { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.budget-over { margin: 6px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--zli-amber-soft); color: var(--zli-amber-ink); font-size: var(--zli-text-xs); }
+
+/* ---------- The buddy's screen ---------- */
+/* A small live picture of its browser beside the chat; a click opens it full size to take over. */
+.buddy-screen { display: flex; flex-direction: column; gap: 6px; }
+.buddy-screen-frame { position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; padding: 6px; overflow: hidden; border: 1px solid var(--zli-border); border-radius: 14px; background: var(--zli-raised); color: var(--zli-dim); cursor: default; font: inherit; transition: border-color var(--zli-duration-fast) var(--zli-ease), transform var(--zli-duration-fast) var(--zli-ease); }
+.buddy-screen-frame:not(:disabled):hover { border-color: var(--zli-border-hover); }
+.buddy-screen-frame:not(:disabled):active { transform: scale(0.99); }
+.buddy-screen-frame img { display: block; width: 100%; height: 100%; border-radius: 9px; object-fit: cover; object-position: top center; }
+.buddy-screen-empty { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; background: var(--zli-surface); font-size: var(--zli-text-xs); text-align: center; }
+.buddy-screen-live { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 7px; border-radius: var(--zli-radius-pill); background: rgba(0, 0, 0, 0.62); color: #fff; font-size: 11px; font-weight: 600; }
+.buddy-screen-live::before { width: 6px; height: 6px; border-radius: 50%; background: #ff5a5a; content: ""; animation: buddy-screen-pulse 1.6s ease-in-out infinite; }
+@keyframes buddy-screen-pulse { 50% { opacity: 0.35; } }
+.buddy-screen-expand { position: absolute; right: 12px; bottom: 12px; display: grid; width: 26px; height: 26px; place-items: center; border-radius: 8px; background: rgba(0, 0, 0, 0.55); color: #fff; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.buddy-screen-frame:hover .buddy-screen-expand, .buddy-screen-frame:focus-visible .buddy-screen-expand { opacity: 1; }
+.buddy-screen-caption { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); text-align: center; }
+.dialog.buddy-screen-dialog { display: flex; width: min(1280px, 94vw); max-width: none; height: min(800px, calc(100vh - 120px)); max-height: none; flex-direction: column; }
+.buddy-screen-full { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 0 var(--zli-space-3) var(--zli-space-3); }
+.buddy-screen-full > * { min-height: 0; flex: 1; overflow: hidden; border: 1px solid var(--zli-border); border-radius: 12px; }
+@media (prefers-reduced-motion: reduce) { .buddy-screen-live::before { animation: none; } }
+.buddy-screen-full .pane-detail { display: none; }
+
+/* ---------- The buddy's browser window ---------- */
+/* Like a browser of its own: rounded tabs on top, an address bar under them, and who is in control. */
+.dialog.buddy-screen-dialog { padding: 0; overflow: hidden; }
+.buddy-screen-dialog .buddy-screen-full { padding: 0; }
+.buddy-screen-dialog .buddy-screen-full > * { border: 0; border-radius: 0; }
+.browser-pane.is-chrome { background: var(--zli-surface); }
+.browser-pane.is-chrome .browser-surface { position: relative; }
+.browser-frozen { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.chrome-head { position: relative; flex: 0 0 auto; }
+.chrome-tabs { display: flex; height: 42px; align-items: flex-end; gap: 2px; padding: 0 8px 0 10px; background: var(--zli-canvas); }
+.chrome-tab { position: relative; display: flex; width: 200px; min-width: 72px; height: 34px; flex: 0 1 200px; align-items: center; border-radius: 10px 10px 0 0; color: var(--zli-muted); }
+.chrome-tab:hover:not(.is-on) { background: color-mix(in srgb, var(--zli-surface) 55%, transparent); }
+.chrome-tab.is-on { background: var(--zli-surface); color: var(--zli-text); }
+.chrome-tab.is-on::before, .chrome-tab.is-on::after { position: absolute; bottom: 0; width: 10px; height: 10px; content: ""; }
+.chrome-tab.is-on::before { left: -10px; background: radial-gradient(circle at 0 0, transparent 10px, var(--zli-surface) 10.5px); }
+.chrome-tab.is-on::after { right: -10px; background: radial-gradient(circle at 100% 0, transparent 10px, var(--zli-surface) 10.5px); }
+.chrome-tab-main { display: flex; min-width: 0; height: 100%; flex: 1; align-items: center; gap: 8px; padding: 0 4px 0 12px; border: 0; background: transparent; color: inherit; cursor: default; font: inherit; font-size: var(--zli-text-xs); text-align: left; }
+.chrome-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chrome-tab-x { display: grid; width: 20px; height: 20px; flex: 0 0 auto; margin-right: 6px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--zli-dim); cursor: default; }
+.chrome-tab-x:hover { background: var(--zli-hover); color: var(--zli-text); }
+.chrome-tile { display: grid; width: 16px; height: 16px; flex: 0 0 auto; place-items: center; border-radius: 4px; color: #fff; font-size: 9px; font-weight: 700; }
+.chrome-spinner { width: 14px; height: 14px; flex: 0 0 auto; border: 2px solid var(--zli-border-strong); border-top-color: var(--zli-blue); border-radius: 50%; animation: chrome-spin 0.8s linear infinite; }
+@keyframes chrome-spin { to { transform: rotate(360deg); } }
+.chrome-tabs > .btn-icon, .chrome-tabs > .icon-button { margin: 0 0 3px 2px; }
+.chrome-owner { display: flex; align-items: center; gap: 6px; align-self: center; margin-left: auto; padding-left: 12px; white-space: nowrap; }
+.chrome-owner-who { display: inline-flex; align-items: center; gap: 7px; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.chrome-bar { position: relative; display: flex; height: 46px; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--zli-border); background: var(--zli-surface); }
+.chrome-omni { position: relative; display: flex; min-width: 0; height: 34px; flex: 1; align-items: center; margin: 0 6px; border-radius: var(--zli-radius-pill); background: var(--zli-raised); transition: box-shadow var(--zli-duration-fast) var(--zli-ease); }
+.chrome-omni:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--zli-blue) 55%, transparent); }
+.chrome-omni-icon { display: grid; width: 34px; flex: 0 0 auto; place-items: center; color: var(--zli-muted); }
+.chrome-omni input { min-width: 0; height: 100%; flex: 1; padding: 0 14px 0 0; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); outline: none; }
+.chrome-omni-shown { position: absolute; top: 0; right: 14px; bottom: 0; left: 34px; display: flex; align-items: center; overflow: hidden; font-size: var(--zli-text-sm); pointer-events: none; white-space: nowrap; }
+.chrome-omni-host { color: var(--zli-text); }
+.chrome-omni-rest { overflow: hidden; color: var(--zli-dim); text-overflow: ellipsis; }
+.chrome-load { position: absolute; bottom: -1px; left: 0; height: 2px; width: 40%; border-radius: 0 2px 2px 0; background: var(--zli-blue); animation: chrome-load 1.4s var(--zli-ease) infinite; }
+@keyframes chrome-load { 0% { left: 0; width: 0; } 50% { width: 55%; } 100% { left: 100%; width: 0; } }
+.chrome-menu-wrap { position: relative; }
+.chrome-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 230px; padding: 6px; border: 1px solid var(--zli-border); border-radius: 12px; background: var(--zli-overlay); box-shadow: var(--zli-shadow-overlay, 0 16px 40px rgba(0, 0, 0, 0.5)); }
+.chrome-menu-item { display: flex; width: 100%; height: 32px; align-items: center; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--zli-text); cursor: default; font: inherit; font-size: var(--zli-text-sm); text-align: left; }
+.chrome-menu-item:hover:not(:disabled), .chrome-menu-item.is-on { background: var(--zli-hover); }
+.chrome-menu-item:disabled { color: var(--zli-dim); }
+.chrome-menu-hint { margin-left: auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.chrome-menu-sep { height: 1px; margin: 5px 4px; background: var(--zli-border); }
+.chrome-ctl { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--zli-border); font-size: var(--zli-text-sm); }
+.chrome-ctl.is-agent { background: color-mix(in srgb, var(--zli-blue) 11%, var(--zli-surface)); color: var(--zli-blue); }
+.chrome-ctl.is-you { background: var(--zli-amber-soft); color: var(--zli-amber-ink); }
+.chrome-ctl-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent); }
+.chrome-ctl-step { min-width: 0; overflow: hidden; color: var(--zli-muted); text-overflow: ellipsis; white-space: nowrap; }
+.chrome-ctl-btn { height: 26px; flex: 0 0 auto; margin-left: auto; padding: 0 12px; border: 0; border-radius: 13px; background: var(--zli-text); color: var(--zli-canvas); cursor: default; font: inherit; font-size: var(--zli-text-xs); font-weight: 600; }
+.chrome-ctl.is-you .chrome-ctl-btn { background: var(--zli-amber); color: #1a1408; }
+.chrome-sites { position: absolute; top: calc(100% + 6px); right: 52px; z-index: 5; width: 300px; padding: 12px; border: 1px solid var(--zli-border); border-radius: 12px; background: var(--zli-overlay); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5); }
+.chrome-sites-head { display: flex; align-items: center; justify-content: space-between; }
+.chrome-sites-head h4 { margin: 0; font-size: var(--zli-text-sm); }
+.chrome-sites-note { margin: 4px 0 10px; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 1.4; }
+.chrome-sites-note.is-error { color: var(--zli-red); }
+.chrome-sites-list { max-height: 280px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.chrome-site { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-top: 1px solid var(--zli-border); }
+.chrome-site-name { display: flex; min-width: 0; flex: 1; flex-direction: column; font-size: var(--zli-text-sm); }
+.chrome-site-name > span { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.chrome-site-out { height: 26px; padding: 0 10px; border: 1px solid var(--zli-border); border-radius: 13px; background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-xs); }
+.chrome-site-out:hover { border-color: var(--zli-border-hover); color: var(--zli-text); }
+.chrome-sites-forget { margin-top: 8px; padding: 0; border: 0; background: transparent; color: var(--zli-red); cursor: default; font: inherit; font-size: var(--zli-text-xs); font-weight: 500; }
+@media (prefers-reduced-motion: reduce) { .chrome-spinner, .chrome-load { animation: none; } }
+.chrome-favicon { width: 16px; height: 16px; flex: 0 0 auto; border-radius: 3px; object-fit: contain; }
+.about-you-list { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.about-you-note { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border: 1px solid var(--zli-border); border-radius: 8px; }
+.about-you-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.about-you-by { color: var(--zli-dim); font-size: 11px; }
+.about-you-add { display: flex; gap: 8px; margin-top: 8px; }
+.about-you-add .input { flex: 1; }
+.buddy-chat-ask { max-width: 560px; }
+
+/* Narrow: the chat keeps the whole width and the details slide over it, instead of squeezing it to nothing. */
+.buddy-view { position: relative; container-type: inline-size; container-name: buddy-view; }
+@container buddy-view (max-width: 700px) {
+  .buddy-view-info { position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; box-shadow: none; }
+  .buddy-view-info.is-open { width: min(320px, 100%); box-shadow: -12px 0 32px rgb(0 0 0 / 0.35); }
+  .buddy-view-info-inner { width: min(320px, 100cqw); }
+}
+@container buddy-view (max-width: 420px) {
+  .buddy-view-info.is-open { width: 100%; border-left: 0; }
+  .buddy-view-info-inner { width: 100%; }
+}

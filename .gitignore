@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 v2/node_modules
 v2/**/dist
+/dist/
+/src-tauri/target/
 v2/**/coverage
 v2/**/*.tsbuildinfo
 .worktrees

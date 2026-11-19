@@ -44,7 +44,6 @@ import { MobileAccessSection } from "./MobileAccessSection.js";
 import { MobileSection } from "./MobileSection.js";
 import { SettingsGroup, SettingsPageHeader, SettingsRow } from "./SettingsLayout.js";
 import { SkillsSection } from "./SkillsSection.js";
-import { TeammatesSection } from "./TeammatesSection.js";
 import { UsageSection } from "./UsageSection.js";
 import "./settings.css";
 
@@ -57,7 +56,6 @@ export type SettingsPage =
   | "accounts"
   | "usage"
   | "skills"
-  | "teammates"
   | "agentMessages"
   | "projects"
   | "worktrees"
@@ -116,13 +114,6 @@ const pages: readonly PageEntry[] = [
   { id: "accounts", label: "Accounts", icon: "user", group: "Agents", keywords: "sign in api key login" },
   { id: "usage", label: "Usage", icon: "gauge", group: "Agents", keywords: "plan limits sidebar quota subscription" },
   { id: "skills", label: "Skills", icon: "sparkle", group: "Agents", keywords: "prompts instructions" },
-  {
-    id: "teammates",
-    label: "Teammates",
-    icon: "users",
-    group: "Agents",
-    keywords: "bring in mention @ avatar buddy animal reviewer second opinion chat",
-  },
   {
     id: "agentMessages",
     label: "Agent messages",
@@ -331,7 +322,7 @@ export function SettingsDialog({
                       tabIndex={focusable === entry.id ? 0 : -1}
                       onClick={() => select(entry.id)}
                     >
-                      <Icon name={entry.icon} size={14} />
+                      <Icon name={entry.icon} size={16} />
                       <span>{entry.label}</span>
                     </button>
                   ))}
@@ -365,7 +356,6 @@ export function SettingsDialog({
             ) : null}
             {page === "usage" ? <UsageSection projection={projection} /> : null}
             {page === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}
-            {page === "teammates" ? <TeammatesSection projection={projection} /> : null}
             {page === "agentMessages" ? <AgentMessagesSection /> : null}
             {page === "projects" ? (
               <ProjectsSection

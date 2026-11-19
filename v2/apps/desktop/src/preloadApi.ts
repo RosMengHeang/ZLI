@@ -6,14 +6,17 @@ import {
   BrowserDesignCaptureInput,
   BrowserDesignMarkInput,
   BrowserFillInput,
+  BrowserForgetSiteInput,
   BrowserNavigateInput,
   BrowserPressInput,
+  BrowserProfileInput,
   BrowserReloadInput,
   BrowserRevealEvent,
   BrowserScreenshotInput,
   BrowserSelectorInput,
   BrowserSetBoundsInput,
   BrowserSetViewportInput,
+  BrowserSite,
   BrowserTabCreateInput,
   BrowserTabIdInput,
   BrowserTabProjection,
@@ -327,6 +330,17 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
       stop: (browserTabId: string) => ipc.invoke("zli:browser:stop", BrowserTabIdInput.parse({ browserTabId })),
       openDevTools: (browserTabId: string) =>
         ipc.invoke("zli:browser:devtools", BrowserTabIdInput.parse({ browserTabId })),
+      /** The sites that keep sign-ins in a worktree's browser profile. */
+      sites: async (worktreeId: string, profileId: string) =>
+        BrowserSite.array().parse(
+          await ipc.invoke("zli:browser:sites", BrowserProfileInput.parse({ worktreeId, profileId })),
+        ),
+      /** Signs that profile out of one site, or every site when none is named. */
+      forgetSite: (worktreeId: string, profileId: string, site?: string) =>
+        ipc.invoke(
+          "zli:browser:forget-site",
+          BrowserForgetSiteInput.parse({ worktreeId, profileId, ...(site ? { site } : {}) }),
+        ),
       setViewport: async (browserTabId: string, viewport: BrowserViewport | null) =>
         BrowserTabProjection.parse(
           await ipc.invoke("zli:browser:set-viewport", BrowserSetViewportInput.parse({ browserTabId, viewport })),
@@ -346,7 +360,7 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
         ipc.invoke("zli:browser:press", BrowserPressInput.parse(input)),
       waitForNetworkIdle: (input: { browserTabId: string; idleMs?: number; timeoutMs?: number }) =>
         ipc.invoke("zli:browser:wait-network-idle", BrowserWaitForNetworkIdleInput.parse(input)),
-      screenshot: (input: { browserTabId: string; format?: "png" | "jpeg" }) =>
+      screenshot: (input: { browserTabId: string; format?: "png" | "jpeg"; thumbnail?: boolean }) =>
         ipc.invoke("zli:browser:screenshot", BrowserScreenshotInput.parse(input)),
       inspectElement: (input: { browserTabId: string; selector: string }) =>
         ipc.invoke("zli:browser:inspect", BrowserSelectorInput.parse(input)),
@@ -408,7 +422,8 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
       quit: () => ipc.invoke("zli:app:quit"),
       zoom: (zoom: "in" | "out" | "reset") => ipc.invoke("zli:app:zoom", { zoom }),
       openExternal: (url: string) => ipc.invoke("zli:app:open-external", { url }),
-      setChrome: (colors: { background: string; symbols: string }) => ipc.invoke("zli:app:set-chrome", colors),
+      setChrome: (colors: { background: string; symbols: string; controls?: string }) =>
+        ipc.invoke("zli:app:set-chrome", colors),
     },
     notifications: {
       getSettings: async () => parseNotificationSettings(await ipc.invoke("zli:notifications:get-settings")),

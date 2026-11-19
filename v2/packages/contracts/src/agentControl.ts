@@ -47,6 +47,17 @@ export const AGENT_CONTROL_ACTIONS = [
   "huddlepost",
   "huddlewait",
   "huddledecisions",
+  "buddydone",
+  "buddyask",
+  "buddyremember",
+  "buddyverdict",
+  "buddyhandoff",
+  "buddylist",
+  "buddyassign",
+  "buddystatus",
+  "buddyrevise",
+  "buddyroutine",
+  "buddygoaldone",
 ] as const;
 export const AgentControlAction = z.enum(AGENT_CONTROL_ACTIONS);
 export type AgentControlAction = z.infer<typeof AgentControlAction>;
@@ -60,6 +71,15 @@ export const READ_AGENT_CONTROL_ACTIONS: readonly AgentControlAction[] = [
   "huddleread",
   "huddlewait",
   "huddledecisions",
+  "buddylist",
+  "buddystatus",
+  // A buddy reporting on its own job changes nothing outside it.
+  "buddydone",
+  "buddyask",
+  "buddyremember",
+  "buddyverdict",
+  // A lead closing its own goal, like a buddy reporting on its own job.
+  "buddygoaldone",
 ];
 
 /** An agent's name or id, or a unique id prefix. `project/agent` reaches an agent in another project. */

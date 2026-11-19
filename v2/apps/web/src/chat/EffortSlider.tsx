@@ -143,11 +143,12 @@ export function EffortSlider({
           setOpen(true);
         }}
       >
-        <EffortDial fraction={index < 0 ? 0.5 : index / last} />
         {/* Keyed by level, so the chip's name lifts in with each step, as the popup's does. */}
         <span className="picker-trigger-label effort-chip-label" key={shown ?? noun}>
           {shown ? reasoningLabel(shown) : noun}
         </span>
+        {/* A dial whose needle turns up with the level. */}
+        <EffortDial fraction={index < 0 ? 0.5 : last > 0 ? index / last : 1} />
         {fast ? <Icon name="zap" size={11} className="effort-chip-fast" /> : null}
         <Icon name="chevronDown" size={12} className="picker-chevron" />
       </button>

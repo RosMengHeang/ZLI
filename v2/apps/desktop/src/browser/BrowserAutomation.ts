@@ -101,6 +101,8 @@ export type BrowserScreenshotOptions = {
   readonly format?: "png" | "jpeg";
   readonly clip?: { x: number; y: number; width: number; height: number; scale?: number };
   readonly fullPage?: boolean;
+  /** For a preview card: what is on screen, more compressed. */
+  readonly thumbnail?: boolean;
 };
 
 export type BrowserInspection = {
@@ -412,6 +414,10 @@ export class BrowserAutomation {
     const format = options.format ?? "png";
     let clip = options.clip;
     let captureBeyondViewport = false;
+    let quality: number | undefined;
+    // A preview card's picture: what is on screen as it is, more compressed. Scaling it down with a clip makes
+    // the page paint again, which costs several times more than the bytes it saves.
+    if (options.thumbnail && format === "jpeg") quality = 55;
     if (options.fullPage) {
       const metrics = await this.cdp.send("Page.getLayoutMetrics");
       const size = isRecord(metrics) ? (metrics.cssContentSize ?? metrics.contentSize) : undefined;
@@ -431,6 +437,7 @@ export class BrowserAutomation {
       const response = await withTimeout(
         this.cdp.send("Page.captureScreenshot", {
           format,
+          ...(quality !== undefined ? { quality } : {}),
           ...(clip ? { clip } : {}),
           ...(captureBeyondViewport ? { captureBeyondViewport: true } : {}),
         }),

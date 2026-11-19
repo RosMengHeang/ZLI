@@ -70,6 +70,11 @@ export type AgentSession = {
   mode: SessionMode;
 };
 
+/** A chat opened but never sent: no agent has run in it yet. */
+export function isUnsentDraft(session: AgentSession): boolean {
+  return Boolean(session.pending?.draft) && !session.thread && !session.terminal;
+}
+
 type Builder = Omit<AgentSession, "status" | "mode" | "threads"> & {
   order: number;
   lastKind?: SessionMode;

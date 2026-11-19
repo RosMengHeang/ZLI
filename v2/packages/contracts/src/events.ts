@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentName } from "./agentName.js";
 import { BrowserTabProjection } from "./browser.js";
+import { BuddyEvent } from "./buddies.js";
 import { ThreadCheckpoint } from "./checkpoints.js";
 import { DevServerProjection } from "./devServers.js";
 import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
@@ -228,6 +229,12 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("project.setup.trusted"), projectId: ProjectId, commandsHash: z.string().min(1) }),
   ...HuddleEvent.options,
+  ...BuddyEvent.options,
+  /**
+   * Stands in for a stored event written by a newer or different build that this one cannot read. It keeps the
+   * sequence unbroken and changes nothing. Never written; only produced when stored events are read.
+   */
+  z.object({ type: z.literal("runtime.event.unknown"), originalType: z.string().min(1).max(200) }),
 ]);
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>;
 

@@ -100,6 +100,7 @@ describe("ReviewPane", () => {
     );
 
     expect(commands.map((command) => command.type)).toContain("review.git.branches");
+    await openSync(container);
     const picker = container.querySelector<HTMLButtonElement>('button[aria-label^="Compare against"]');
     expect(picker?.getAttribute("aria-label")).toBe("Compare against: trunk");
     expect(container.querySelector("input.is-mono")).toBeNull();
@@ -118,6 +119,7 @@ describe("ReviewPane", () => {
           ? { local: ["feature", "main"], remote: [] }
           : undefined,
     );
+    await openSync(container);
     const pull = [...container.querySelectorAll("button")].find((button) => button.textContent === "Pull");
     await act(async () => pull?.click());
 
@@ -125,6 +127,15 @@ describe("ReviewPane", () => {
     expect(container.textContent).toContain("Pulled 2 commits into feature.");
   });
 });
+
+/** Compare, pull and push stay out of the way until asked for from the More menu. */
+async function openSync(container: HTMLElement): Promise<void> {
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="More Git actions"]')?.click());
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (entry) => entry.textContent === "Compare, pull and push",
+  );
+  await act(async () => item?.click());
+}
 
 const UNSTAGED_PATCH = [
   "diff --git a/src/app.ts b/src/app.ts",

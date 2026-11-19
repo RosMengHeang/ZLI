@@ -1,0 +1,87 @@
+/*
+ * Connect apps, opened from the Buddies list: a catalog of apps with one Connect each. Without a Composio key the
+ * catalog still shows, with the key asked for on top. Two columns of apps when there is room, one when narrow.
+ */
+.dialog-backdrop:has(> .apps-dialog) { padding-top: 6vh; }
+.dialog.apps-dialog { width: min(880px, 100%); height: min(760px, calc(100vh - 6vh - var(--zli-space-6))); max-height: none; container-type: inline-size; }
+
+/* ---------- Head ---------- */
+.apps-head { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-5) var(--zli-space-4) var(--zli-space-3) var(--zli-space-6); }
+.apps-head-text { min-width: 0; flex: 1; }
+.apps-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-lg); font-weight: 600; line-height: var(--zli-leading-tight); }
+.apps-sub { margin: 2px 0 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.apps-count { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); height: 32px; padding: 0 var(--zli-space-2) 0 var(--zli-space-1-5); border: 0; border-radius: var(--zli-radius-full, 999px); background: transparent; color: var(--zli-muted); font: inherit; font-size: var(--zli-text-sm); cursor: default; }
+.apps-count:hover, .apps-count.is-on { background: var(--zli-hover); color: var(--zli-text); }
+.apps-count:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.apps-count-logos { display: inline-flex; }
+.apps-count-logos > .apps-logo { box-shadow: 0 0 0 2px var(--zli-raised); }
+.apps-count-logos > .apps-logo + .apps-logo { margin-left: -6px; }
+
+/* ---------- Key, when none is saved ---------- */
+.apps-key { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2) var(--zli-space-3); margin: 0 var(--zli-space-6) var(--zli-space-3); padding: var(--zli-space-3) var(--zli-space-3) var(--zli-space-3) var(--zli-space-4); border-radius: var(--zli-radius-lg); background: var(--zli-accent-soft); color: var(--zli-accent-ink); }
+.apps-key > svg { flex: 0 0 auto; }
+.apps-key-text { display: flex; min-width: 180px; flex: 1; flex-direction: column; gap: 2px; color: var(--zli-text); font-size: var(--zli-text-sm); }
+.apps-key-text span { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.apps-key-input { width: 240px; min-width: 0; flex: 0 1 240px; }
+
+.apps-link { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--zli-accent-ink); font: inherit; cursor: default; }
+.apps-link:hover:not(:disabled) { text-decoration: underline; }
+.apps-link.is-quiet { color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.apps-link:disabled { opacity: .5; }
+
+/* ---------- Search and groups ---------- */
+.apps-tools { display: flex; flex: 0 0 auto; flex-direction: column; gap: var(--zli-space-2-5); padding: 0 var(--zli-space-6) var(--zli-space-3); }
+.apps-search { display: flex; height: 36px; align-items: center; gap: var(--zli-space-2); padding: 0 var(--zli-space-3); border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); color: var(--zli-dim); }
+.apps-search:focus-within { box-shadow: inset 0 0 0 1px var(--zli-border-hover); }
+.apps-search input { min-width: 0; flex: 1; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); }
+.apps-chips { display: flex; min-width: 0; margin: 0; padding: 0; border: 0; gap: var(--zli-space-1-5); overflow-x: auto; scrollbar-width: none; }
+.apps-chips::-webkit-scrollbar { display: none; }
+.apps-chip { flex: 0 0 auto; height: 28px; padding: 0 var(--zli-space-3); border: 0; border-radius: 999px; background: var(--zli-hover); color: var(--zli-muted); font: inherit; font-size: var(--zli-text-sm); white-space: nowrap; cursor: default; }
+.apps-chip:hover { color: var(--zli-text); }
+.apps-chip.is-on { background: var(--zli-text); color: var(--zli-raised); }
+.apps-chip:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+
+.apps-waiting { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); margin: 0 var(--zli-space-6) var(--zli-space-3); padding: var(--zli-space-2) var(--zli-space-3); border-radius: var(--zli-radius-md); background: var(--zli-accent-soft); color: var(--zli-text); font-size: var(--zli-text-sm); }
+.apps-error { flex: 0 0 auto; padding: 0 var(--zli-space-6) var(--zli-space-3); }
+.apps-dialog .inline-error { display: flex; align-items: flex-start; gap: var(--zli-space-1-5); margin: 0; }
+.apps-dialog .inline-error > svg { flex: 0 0 auto; margin-top: 2px; }
+
+/* ---------- The catalog ---------- */
+.apps-body { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: var(--zli-space-5); overflow-y: auto; padding: var(--zli-space-1) var(--zli-space-6) var(--zli-space-6); border-top: 1px solid var(--zli-border); padding-top: var(--zli-space-4); scrollbar-width: thin; }
+.apps-section { display: flex; flex-direction: column; gap: var(--zli-space-2); }
+.apps-section-head { display: flex; align-items: baseline; justify-content: space-between; }
+.apps-heading { margin: 0; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.apps-viewall { padding: 0; border: 0; background: none; color: var(--zli-muted); font: inherit; font-size: var(--zli-text-xs); cursor: default; }
+.apps-viewall:hover { color: var(--zli-text); }
+.apps-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-1) var(--zli-space-6); margin: 0; padding: 0; list-style: none; }
+.apps-item { display: flex; min-width: 0; min-height: 56px; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-1-5) 0; }
+.apps-item-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.apps-item-name { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.apps-item-blurb { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.apps-item-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); }
+.apps-connect { flex: 0 0 auto; min-width: 84px; }
+.apps-state { display: inline-flex; align-items: center; gap: 4px; color: var(--zli-amber-ink); font-size: var(--zli-text-xs); white-space: nowrap; }
+.apps-state.is-live { color: var(--zli-green-ink); }
+.apps-state.is-live svg { color: var(--zli-green); }
+.apps-empty { margin: var(--zli-space-4) 0; color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: center; }
+
+/* Brand marks are drawn for light backgrounds, so each sits on a light tile in both themes. */
+.apps-logo { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; overflow: hidden; border-radius: 22%; background: #fff; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .08); }
+.apps-logo img { width: 62%; height: 62%; object-fit: contain; }
+
+.apps-foot { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-3); padding: var(--zli-space-3) var(--zli-space-4) var(--zli-space-3) var(--zli-space-6); border-top: 1px solid var(--zli-border); }
+.apps-spacer { flex: 1; }
+
+/* ---------- Narrow ---------- */
+@container (max-width: 600px) {
+  .apps-list { grid-template-columns: minmax(0, 1fr); }
+  .apps-head, .apps-tools, .apps-body, .apps-foot { padding-left: var(--zli-space-4); padding-right: var(--zli-space-4); }
+  .apps-key, .apps-waiting { margin-left: var(--zli-space-4); margin-right: var(--zli-space-4); }
+  .apps-error { padding-left: var(--zli-space-4); padding-right: var(--zli-space-4); }
+  .apps-key-input { flex: 1 1 100%; width: auto; }
+  .apps-sub { display: none; }
+}
+@media (max-width: 640px) {
+  .dialog-backdrop:has(> .apps-dialog) { padding: var(--zli-space-2); }
+  .dialog.apps-dialog { height: calc(100vh - var(--zli-space-4)); }
+}

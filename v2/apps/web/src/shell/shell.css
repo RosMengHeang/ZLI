@@ -34,7 +34,7 @@
 .topbar :is(button, a, input, select, [role="menu"], [role="dialog"]) { -webkit-app-region: no-drag; }
 .app-shell.is-sidebar-hidden .topbar { padding-left: max(var(--zli-space-2), env(titlebar-area-x, 0px)); }
 .topbar-context { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); font-size: var(--zli-text-base); }
-.topbar-project { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--zli-text); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-project { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--zli-text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-project.is-empty { color: var(--zli-muted); font-weight: 500; }
 .topbar-separator { color: var(--zli-disabled); }
 .topbar-branch { display: inline-flex; min-width: 0; align-items: center; gap: 5px; color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
@@ -67,9 +67,9 @@
 .palette-search input { width: 100%; height: 52px; border: 0; outline: none; background: transparent; color: var(--zli-text); font-size: var(--zli-text-md); }
 .palette-search input:focus-visible { outline: none; }
 .palette-list { display: flex; min-height: 0; max-height: min(420px, 56vh); flex-direction: column; padding: var(--zli-space-1-5); overflow: auto; }
-.palette-group { margin: var(--zli-space-2) var(--zli-space-2-5) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 600; }
+.palette-group { margin: var(--zli-space-2) var(--zli-space-2-5) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
 .palette-entry:first-child .palette-group { margin-top: var(--zli-space-1); }
-.palette-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); height: 36px; padding: 0 var(--zli-space-2) 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text); cursor: pointer; font-size: var(--zli-text-base); text-align: left; }
+.palette-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); height: 36px; padding: 0 var(--zli-space-2) 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text); cursor: default; font-size: var(--zli-text-base); text-align: left; }
 .palette-item > svg { color: var(--zli-dim); }
 .palette-item.is-active { background: var(--zli-active); }
 .palette-item.is-active > svg { color: var(--zli-text); }
@@ -102,7 +102,7 @@
 .panel-launcher-head h2 { margin: 0; overflow: hidden; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .panel-launcher-head p { margin: 3px 0 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .panel-launcher-list { display: flex; flex-direction: column; gap: 1px; margin-block: 0; padding: 0; list-style: none; }
-.panel-launcher-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); padding: 6px var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.panel-launcher-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); padding: 6px var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
 .panel-launcher-item:hover { background: var(--zli-hover); }
 .panel-launcher-item:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
 .panel-launcher-icon { position: relative; display: inline-grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-dim); transition: color var(--zli-duration-fast) var(--zli-ease); }
@@ -121,47 +121,26 @@
 .panel-launcher-item.is-red .panel-launcher-detail { color: var(--zli-red); }
 .panel-launcher-add { color: var(--zli-green); font-family: var(--zli-mono); font-size: 11px; }
 .panel-launcher-del { color: var(--zli-red); font-family: var(--zli-mono); font-size: 11px; }
-.panel-launcher-key { display: inline-grid; min-width: 20px; height: 20px; flex: 0 0 auto; place-items: center; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: 5px; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; opacity: .7; transition: opacity var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.panel-launcher-key { display: inline-grid; min-width: 20px; height: 20px; flex: 0 0 auto; place-items: center; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; opacity: .7; transition: opacity var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
 .panel-launcher-item:hover .panel-launcher-key { color: var(--zli-text); opacity: 1; }
 .panel-launcher-foot { margin-top: var(--zli-space-3); padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); }
-.panel-launcher-foot kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: 4px; font-family: var(--zli-mono); font-size: 10.5px; }
+.panel-launcher-foot kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xs); font-family: var(--zli-mono); font-size: 10.5px; }
 
-/* ---------- The right panel's tabs ---------- */
-/* One tab per panel opened, then a plus that lists every panel. The tab in use is lifted onto a soft pill; the
-   others stay quiet text, and each shows its close mark only on hover or while in use. */
+/* ---------- The right panel's strip ---------- */
+/* One icon per panel, always in the same order. The open one sits on a soft pill with its name; any panel with
+   something waiting shows a count beside its icon. */
 .panel-tabs { position: relative; display: flex; height: 36px; flex: 0 0 auto; align-items: center; gap: 2px; padding: 0 6px; border-bottom: 1px solid var(--zli-border); }
-.panel-tabs-list { display: flex; min-width: 0; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
-.panel-tab { position: relative; display: flex; min-width: 0; flex: 0 1 auto; align-items: center; height: 26px; border-radius: var(--zli-radius-md); color: var(--zli-dim); transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
-.panel-tab:hover { background: var(--zli-hover); color: var(--zli-muted); }
-.panel-tab.is-active { flex-shrink: 0; background: var(--zli-hover); color: var(--zli-text); }
-.panel-tab-name { display: flex; min-width: 29px; height: 100%; overflow: hidden; align-items: center; gap: 6px; padding: 0 8px; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: var(--zli-text-xs); font-weight: 500; white-space: nowrap; }
-.panel-tab-name:focus-visible, .panel-tab-close:focus-visible, .panel-tabs-plus:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; border-radius: var(--zli-radius-md); }
-.panel-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.panel-tab-icon { display: inline-grid; flex: 0 0 auto; width: 13px; height: 13px; place-items: center; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
-/* No × beside the name: on hover the tab's own icon turns into the close mark, in the same spot. */
-.panel-tab-close { position: absolute; top: 50%; left: 4px; z-index: 1; display: inline-grid; width: 21px; height: 21px; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--zli-muted); cursor: pointer; opacity: 0; transform: translateY(-50%); transition: opacity var(--zli-duration-fast) var(--zli-ease); }
-.panel-tab:hover .panel-tab-close, .panel-tab-close:focus-visible { opacity: 1; }
-.panel-tab:hover .panel-tab-icon, .panel-tab:has(.panel-tab-close:focus-visible) .panel-tab-icon { opacity: 0; }
-.panel-tab-close:hover { background: var(--zli-border); color: var(--zli-text); }
-.panel-tabs-add { position: relative; flex: 0 0 auto; }
-.panel-tabs-plus { display: inline-grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); cursor: pointer; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
-.panel-tabs-plus:hover, .panel-tabs-plus[aria-expanded="true"] { background: var(--zli-hover); color: var(--zli-text); }
-
-/* The list behind the plus: icon, name, what is going on in it, and its key. */
-.panel-tabs .menu.panel-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: 272px; max-width: none; animation: panel-menu-in var(--zli-duration-fast) var(--zli-ease); }
-.panel-tabs-add:has(.panel-menu) { z-index: 20; }
-.panel-menu .panel-menu-item { height: 30px; }
-.panel-menu-icon { position: relative; display: inline-grid; width: 16px; flex: 0 0 auto; place-items: center; color: var(--zli-muted); }
-.panel-menu-item:is(.is-accent, .is-green, .is-red) .panel-menu-icon::after { position: absolute; top: -3px; right: -4px; width: 6px; height: 6px; border: 1.5px solid var(--zli-overlay); border-radius: 50%; background: var(--dot); content: ""; }
-.panel-menu-item.is-accent { --dot: var(--zli-accent); }
-.panel-menu-item.is-green { --dot: var(--zli-green); }
-.panel-menu-item.is-red { --dot: var(--zli-red); }
-.panel-menu-live { min-width: 0; max-width: 130px; flex: 0 1 auto; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
-.panel-menu-item.is-green .panel-menu-live { color: var(--zli-green); }
-.panel-menu-item.is-red .panel-menu-live { color: var(--zli-red); }
-.panel-menu-key { min-width: 14px; flex: 0 0 auto; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; text-align: right; }
-@keyframes panel-menu-in { from { opacity: 0; transform: translateY(-3px); } }
-@media (prefers-reduced-motion: reduce) { .panel-tabs .menu.panel-menu { animation: none; } }
+.panel-strip { display: flex; min-width: 0; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.panel-strip-tab {
+  display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; height: 28px; min-width: 30px; justify-content: center; padding: 0 8px; border: 0; border-radius: var(--zli-radius-md);
+  background: transparent; color: var(--zli-dim); cursor: default; font: inherit; font-size: var(--zli-text-sm);
+  transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
+}
+.panel-strip-tab:hover { background: var(--zli-hover); color: var(--zli-text); }
+.panel-strip-tab.is-active { background: var(--zli-active, var(--zli-hover)); color: var(--zli-text); font-weight: 500; }
+.panel-strip-tab:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.panel-strip-count { color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.panel-strip-tab.is-active .panel-strip-count { color: var(--zli-text); }
 
 /* The side chat as a panel: the side question fills it, the log growing above the box. */
 .side-chat-panel { display: flex; min-height: 0; flex: 1; flex-direction: column; }
@@ -184,32 +163,84 @@
  * right panel sit flush on one surface, split by hairlines, and each column's header shares the first row.
  * The top bar's tools float over the top-right corner, and the header under them keeps their width clear.
  */
-.app-shell.is-columns .main-workspace { position: relative; }
-.app-shell.is-columns .topbar { position: absolute; top: 0; right: 0; z-index: 5; padding-left: var(--zli-space-2); background: transparent; }
+.main-workspace { position: relative; }
+.app-shell .topbar { position: absolute; top: 0; right: 0; z-index: 5; padding-left: var(--zli-space-2); background: transparent; }
 /* Laid over the chat's header, a thin line keeps the chat's own actions apart from the app's panel switches. */
-.app-shell.is-columns .topbar-tools::before { width: 1px; height: 16px; flex: 0 0 auto; margin-right: var(--zli-space-1-5); background: var(--zli-border-strong); content: ""; }
+.app-shell .topbar-tools::before { width: 1px; height: 16px; flex: 0 0 auto; margin-right: var(--zli-space-1-5); background: var(--zli-border-strong); content: ""; }
 /* The project and branch already show on the message box; the dev server chip stays with the tools. */
-.app-shell.is-columns :is(.topbar-project, .topbar-separator, .topbar-branch, .topbar-spacer) { display: none; }
+.app-shell :is(.topbar-project, .topbar-separator, .topbar-branch, .topbar-spacer) { display: none; }
 .app-shell.is-columns .sidebar { border-right: 1px solid var(--zli-border-strong); }
 .app-shell.is-columns .workspace-body, .app-shell.is-columns.is-sidebar-hidden .workspace-body { padding: 0; }
 .app-shell.is-columns .main-workspace > .banner { margin: 0; padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); border-width: 0 0 1px; border-radius: 0; }
 /* Chats on a board meet at hairlines: the grid shows its border color through a 1px gap. */
 .app-shell.is-columns .agent-grid { gap: 1px; background: var(--zli-border-strong); }
-.app-shell.is-columns .agent-tile, .app-shell.is-columns .tool-panel, .app-shell.is-columns .agent-grid-region:has(> .empty-state) { border: 0; border-radius: 0; }
+.app-shell.is-columns .agent-tile, .app-shell.is-columns .tool-panel, .app-shell.is-columns .agent-grid-region:has(> :is(.empty-state, .start-chat)) { border: 0; border-radius: 0; }
 .app-shell.is-columns .agent-grid:has(> .agent-tile + .agent-tile) .agent-tile.is-active .tile-header { box-shadow: inset 0 2px 0 var(--zli-accent-edge); }
-.app-shell.is-columns :is(.tile-header, .panel-tabs) { height: var(--zli-bar-height); border-bottom: 1px solid var(--zli-border); -webkit-app-region: drag; }
-.app-shell.is-columns :is(.tile-header, .panel-tabs) :is(button, a, input, select, [role="menu"], [role="tab"]) { -webkit-app-region: no-drag; }
+.app-shell :is(.tile-header, .panel-tabs) { height: var(--zli-bar-height); border-bottom: 1px solid var(--zli-border); -webkit-app-region: drag; }
+.app-shell :is(.tile-header, .panel-tabs) :is(button, a, input, select, [role="menu"], [role="tab"]) { -webkit-app-region: no-drag; }
 /*
  * The first-run chat and the empty states have no header, so their content reaches the top edge. This strip
  * keeps the first row draggable over them. A tile header lies on top of it and works the same way. Controls
  * in the chat area opt out, so any that scroll under the strip stay clickable.
  */
-.app-shell.is-columns .agent-grid-region { position: relative; }
-.app-shell.is-columns .agent-grid-region::before { position: absolute; top: 0; right: 0; left: 0; height: var(--zli-bar-height); content: ""; pointer-events: none; -webkit-app-region: drag; }
-.app-shell.is-columns .agent-grid-region :is(button, a, input, select, textarea, [role="menu"], [role="tab"]) { -webkit-app-region: no-drag; }
-.app-shell.is-columns:not(.has-panel) .tile-header, .app-shell.is-columns .panel-tabs { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-1-5)); }
+.app-shell .agent-grid-region { position: relative; }
+.app-shell .agent-grid-region::before { position: absolute; top: 0; right: 0; left: 0; height: var(--zli-bar-height); content: ""; pointer-events: none; -webkit-app-region: drag; }
+.app-shell .agent-grid-region :is(button, a, input, select, textarea, [role="menu"], [role="tab"]) { -webkit-app-region: no-drag; }
+.app-shell:not(.has-panel) .tile-header, .app-shell .panel-tabs { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-1-5)); }
 /* The resizer keeps a 7px grip but draws as the 1px seam between the chat and the panel. */
 .app-shell.is-columns .panel-resizer { flex-basis: 7px; margin: 0 -3px; border-inline: 3px solid transparent; background: var(--zli-border-strong); background-clip: padding-box; }
 /* With the sidebar hidden, Show sidebar sits at the left end of the header row, before the chat's title. */
 .columns-lead { position: absolute; top: 0; left: 0; z-index: 5; display: flex; align-items: center; height: var(--zli-bar-height); padding-left: max(var(--zli-space-2), env(titlebar-area-x, 0px)); gap: 2px; -webkit-app-region: no-drag; }
-.app-shell.is-columns.is-sidebar-hidden .tile-header { padding-left: calc(max(var(--zli-space-2), env(titlebar-area-x, 0px)) + 64px); }
+.app-shell.is-sidebar-hidden .tile-header { padding-left: calc(max(var(--zli-space-2), env(titlebar-area-x, 0px)) + 64px); }
+/*
+ * Classic: the rounded panels start a gutter from the top of the window, and the floating bar sits inside the top-right
+ * panel's corner, beside the window's own buttons. The canvas strip above the panels drags the window.
+ */
+.app-shell:not(.is-columns) .workspace-body { padding-top: var(--zli-gutter); }
+.app-shell:not(.is-columns) .main-workspace::before { position: absolute; top: 0; right: 0; left: 0; height: var(--zli-gutter); content: ""; -webkit-app-region: drag; }
+.app-shell:not(.is-columns) .topbar { top: var(--zli-gutter); right: calc(var(--zli-gutter) + 1px); height: var(--zli-bar-height); }
+.app-shell:not(.is-columns) .columns-lead { top: var(--zli-gutter); left: calc(var(--zli-gutter) + 1px); }
+.app-shell:not(.is-columns) .main-workspace > .banner { margin-top: var(--zli-gutter); }
+
+/* ---------- The empty screen ---------- */
+/* One question and the message box under it, a little above the middle, where the eye lands. */
+.start-chat { display: flex; width: min(680px, calc(100% - 2 * var(--zli-space-6))); flex-direction: column; align-items: stretch; gap: var(--zli-space-5); margin: auto; padding-bottom: 8vh; }
+.start-chat-title { margin: 0; color: var(--zli-text); font-size: clamp(24px, 3vw, 34px); font-weight: 600; letter-spacing: -.025em; text-align: center; }
+.start-chat-box { display: flex; flex-direction: column; gap: var(--zli-space-2); padding: 14px var(--zli-space-3) 10px var(--zli-space-4); border: 1px solid color-mix(in srgb, var(--zli-border-strong) 85%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--zli-raised) 45%, var(--zli-surface)); box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent), var(--zli-shadow-lift); transition: border-color var(--zli-duration-fast) var(--zli-ease); }
+.start-chat-box:focus-within { border-color: var(--zli-border-hover); }
+.start-chat-input { width: 100%; min-height: 48px; max-height: 240px; resize: none; padding: 2px 0 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-chat); line-height: var(--zli-leading-normal); field-sizing: content; }
+.start-chat-input::placeholder { color: var(--zli-dim); }
+.start-chat-row { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-3); }
+.start-chat-note { min-width: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.start-chat-more { display: flex; justify-content: center; }
+.start-chat-more .btn { height: var(--zli-control-sm); font-size: var(--zli-text-sm); }
+/* A notice under the floating bar keeps clear of its buttons. */
+.app-shell:not(.is-columns) .main-workspace > .banner { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
+
+/* The sidebar's switch lives in the main panel's top-left corner; the chat's header keeps room for it. */
+.columns-lead:not(.is-sidebar-hidden) { padding-left: var(--zli-space-2); }
+.app-shell:not(.is-sidebar-hidden) .tile-header { padding-left: 44px; }
+.app-shell.is-columns:not(.is-sidebar-hidden) .columns-lead { left: 0; }
+
+/* ---------- Pages in the main panel ---------- */
+/* Buddies and Pull requests sit in the same rounded panel as a chat, and their heads match a chat's head:
+   the bar's height, a hairline under it, and the same title size. */
+.buddies-main, .pr-page { overflow: hidden; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); }
+.app-shell.is-columns :is(.buddies-main, .pr-page) { border: 0; border-radius: 0; }
+:is(.buddy-list-head, .pr-list-head, .buddies-main.is-split .buddies-home-head) {
+  height: var(--zli-bar-height); flex: 0 0 auto; border-bottom: 1px solid var(--zli-border);
+}
+:is(.buddy-list-head, .pr-list-head) h2, .buddies-main.is-split .buddies-home-head h2 {
+  color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600;
+}
+.buddies-main.is-split .buddies-home-head { display: flex; align-items: center; padding: 0 var(--zli-space-4); }
+.buddy-list-scroll, .pr-list-scroll { padding-top: var(--zli-space-2); }
+.buddies-main.is-split .buddies-home .buddies-body { padding-top: var(--zli-space-4); }
+.buddies-main.is-split .buddies-home { max-width: none; }
+.buddies-main.is-split .buddies-home .buddies-body { width: 100%; max-width: 820px; margin: 0 auto; }
+.pr-page-head { display: flex; height: var(--zli-bar-height); flex: 0 0 auto; align-items: center; gap: 8px; padding: 0 var(--zli-space-4); border-bottom: 1px solid var(--zli-border); color: var(--zli-muted); }
+.app-shell:not(.has-panel) .pr-page-head { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-2)); }
+.pr-page-head-title { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pr-page-head-branch { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.pr-page-detail > .pr-page-head { max-width: none; }
+.pr-page-head { position: sticky; top: 0; z-index: 1; background: var(--zli-surface); }

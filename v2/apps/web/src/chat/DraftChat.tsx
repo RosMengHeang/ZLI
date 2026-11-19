@@ -5,7 +5,6 @@ import { agentUsable, chatAgentStatus } from "../agent/agentStatus.js";
 import { providerDisplayName } from "../agent/providers.js";
 import type { ChatPlace } from "../sessions/launch.js";
 import type { PendingLaunch } from "../sessions/sessions.js";
-import { useChatBuddy } from "../teammates/chatBuddies.js";
 import { Icon } from "../ui/Icon.js";
 import { AgentUnavailableNotice } from "./AgentUnavailableNotice.js";
 import { accountPlan, otherAgents } from "./agentModels.js";
@@ -74,7 +73,6 @@ export function DraftChat({
   const fastValue = fastFor(models, launch.model);
   const project = projection.projects.find((candidate) => candidate.projectId === worktree.projectId);
   const name = providerDisplayName(provider, projection.providers);
-  const face = useChatBuddy(launch.sessionId);
   const [branch] = useState(() => chatBranch(launch.sessionId));
   const [insertRequest, setInsertRequest] = useState<{ text: string; nonce: number; replace?: boolean }>();
   // Counts "Start from an issue" clicks; the message box opens the picker and attaches the issue it gets.
@@ -96,7 +94,6 @@ export function DraftChat({
           <ChatStart
             provider={provider}
             folder={project?.name}
-            buddy={face}
             onStartFromIssue={project ? () => setIssueRequest((count) => count + 1) : undefined}
           />
           {branch ? null : (

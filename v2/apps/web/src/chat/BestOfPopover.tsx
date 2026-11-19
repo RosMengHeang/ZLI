@@ -126,7 +126,7 @@ export function BestOfPopover({
                 options={models}
                 onChange={(model) => update(index, { model: model || undefined })}
               >
-                <ModelMark id={run.model} label={modelLabel} size={13} />
+                <ModelMark id={run.model} label={modelLabel} agent={run.provider} size={13} />
                 <span className="picker-trigger-label">{modelLabel}</span>
               </Picker>
             </li>

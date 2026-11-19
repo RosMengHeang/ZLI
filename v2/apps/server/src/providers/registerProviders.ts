@@ -1,10 +1,11 @@
+import { BUDDY_TOOL_NAMES, isBuddyToolCall } from "@zli-v2/contracts";
 import { AcpProviderError } from "@zli-v2/provider-acp";
 import { ClaudeCodeClient, ClaudeProviderError } from "@zli-v2/provider-claude-code";
 import { CodexAppServerClient, CodexProviderError } from "@zli-v2/provider-codex";
 import { CursorAgentClient, CursorProviderError } from "@zli-v2/provider-cursor-agent";
 import { DroidClient, DroidProviderError } from "@zli-v2/provider-droid";
-
 import {
+  AGENT_MCP_SERVER,
   agentEnv,
   type BrowserToolConfig,
   codexMcpArgs,
@@ -143,6 +144,8 @@ export type ProviderRegistryOptions = {
   mcpServers?: McpServerSource;
   /** Where per-chat MCP config files go when there is no browser tool. */
   mcpConfigDir?: string;
+  /** ZLI's data folder: Claude Code buddies' file tools are refused on ZLI's own files there (other agents get only the rule in their brief). */
+  privateDir?: string;
   writeMcpConfig?: typeof writeAgentMcpConfig;
   /** Writes ZLI's project MCP file in a worktree for Cursor and Droid, which have no per-session option for servers. */
   writeWorktreeFile?: WorktreeFileWriter;
@@ -251,11 +254,15 @@ export function createProviderRegistry(
         CodexAppServerClient.connect({
           command: await resolveCodexCommand(),
           ...(browserTool ? { args: zliMcpServerSpecs(browserTool).flatMap(codexMcpArgs) } : {}),
+          approveTool: (server, tool) => server === AGENT_MCP_SERVER && BUDDY_TOOL_NAMES.has(tool),
           ...browserEnv(undefined, account),
         }),
       threadConfig: async (input) => {
         await trustFolder("codex", input);
-        return browserTool || options.mcpServers ? codexThreadOverrides(input.worktreeId) : undefined;
+        const servers = browserTool || options.mcpServers ? await codexThreadOverrides(input.worktreeId) : undefined;
+        if (!input.unattended) return servers;
+        // A buddy works on its own brief: the person's plugins, and the skills that come with them, stay out.
+        return { ...(servers ?? {}), "features.plugins": false };
       },
     }),
     new ClaudeCodeProviderAdapter({
@@ -264,12 +271,14 @@ export function createProviderRegistry(
         const autoCompactTokens = options.claudeAutoCompactTokens?.();
         return ClaudeCodeClient.start({
           ...input,
+          approveTool: isBuddyToolCall,
           command: await resolveClaudeCommand(),
           ...(await chatEnv(worktreeId, account)),
           ...(await claudeMcpConfig(worktreeId)),
           ...(await claudeInstructions()),
           ...(title ? { name: title } : {}),
           ...(autoCompactTokens !== undefined ? { autoCompactTokens } : {}),
+          ...(options.privateDir ? { privateDir: options.privateDir } : {}),
         });
       },
     }),
@@ -291,6 +300,7 @@ export function createProviderRegistry(
         await worktreeMcpFile("droid", input.cwd, worktreeId);
         return DroidClient.start({
           ...input,
+          approveTool: isBuddyToolCall,
           command: await resolveDroidCommand(),
           ...(await chatEnv(worktreeId, account)),
         });
@@ -301,6 +311,7 @@ export function createProviderRegistry(
         new AcpProviderAdapter({
           ...config,
           resolveCommand: () => resolveAcpCommand(config.provider),
+          approveTool: isBuddyToolCall,
           ...(browserTool ? { browserTool } : {}),
           ...(options.mcpServers ? { mcpServers: (context) => addedServers(context.worktreeId) } : {}),
           ...(options.metroEnv ? { metroEnv } : {}),

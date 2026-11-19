@@ -151,7 +151,19 @@ describe("zli MCP server", () => {
       "huddle_wait",
       "huddle_decisions",
       "connect_service",
+      "task_done",
+      "ask_person",
+      "remember",
+      "review_verdict",
+      "hand_off",
+      "list_buddies",
+      "assign_task",
+      "task_status",
+      "task_revise",
+      "goal_done",
+      "set_routine",
     ]);
+    // A buddy can still report on its own job when Settings keep agents to reading.
     expect(await listNames("read")).toEqual([
       "list_agents",
       "read_agent",
@@ -159,6 +171,13 @@ describe("zli MCP server", () => {
       "huddle_wait",
       "huddle_decisions",
       "connect_service",
+      "task_done",
+      "ask_person",
+      "remember",
+      "review_verdict",
+      "list_buddies",
+      "task_status",
+      "goal_done",
     ]);
     expect(await listNames("off")).toEqual([]);
   });

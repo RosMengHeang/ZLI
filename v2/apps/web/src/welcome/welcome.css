@@ -17,10 +17,10 @@
   -webkit-app-region: drag;
 }
 .welcome-bar button { -webkit-app-region: no-drag; }
-.welcome-brand { display: inline-flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.welcome-brand { display: inline-flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; }
 .welcome-skip {
   margin-left: auto; padding: var(--zli-space-1) var(--zli-space-2); border: 0; border-radius: var(--zli-radius-xs); background: none;
-  color: var(--zli-dim); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); transition: color var(--zli-duration-fast) var(--zli-ease);
+  color: var(--zli-dim); cursor: default; font: inherit; font-size: var(--zli-text-sm); transition: color var(--zli-duration-fast) var(--zli-ease);
 }
 .welcome-skip:hover:not(:disabled) { color: var(--zli-text); }
 .welcome-skip:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
@@ -33,7 +33,7 @@
 .welcome-head { display: flex; flex-direction: column; margin-bottom: var(--zli-space-8); }
 .welcome-step-count { margin-bottom: var(--zli-space-3); color: var(--zli-dim); font-size: var(--zli-text-sm); font-variant-numeric: tabular-nums; }
 /* Larger than the app's 20px ceiling on purpose: this is the one screen that has a single message to give. */
-.welcome-title { margin: 0; color: var(--zli-text); font-size: 28px; font-weight: 650; letter-spacing: -.025em; line-height: 1.15; }
+.welcome-title { margin: 0; color: var(--zli-text); font-size: 28px; font-weight: 600; letter-spacing: -.025em; line-height: 1.15; }
 .welcome-lede { margin: var(--zli-space-2-5) 0 0; max-width: 520px; color: var(--zli-muted); font-size: var(--zli-text-md); line-height: var(--zli-leading-relaxed); }
 .welcome-loading { display: flex; align-items: center; gap: var(--zli-space-2); margin: 0 0 var(--zli-space-4); color: var(--zli-muted); font-size: var(--zli-text-base); }
 
@@ -45,7 +45,7 @@
   background: var(--zli-raised); box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border); color: var(--zli-muted);
 }
 .welcome-row-copy { display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; gap: 3px; }
-.welcome-row-title { display: flex; align-items: center; gap: var(--zli-space-2); overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.welcome-row-title { display: flex; align-items: center; gap: var(--zli-space-2); overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-md); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .welcome-row-detail { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .welcome-row-detail.is-mono, .welcome-row-detail code { font-family: var(--zli-mono); font-size: var(--zli-text-xs); font-variant-ligatures: none; }
 .welcome-row-detail code { color: var(--zli-muted); user-select: all; }
@@ -61,7 +61,7 @@
 .welcome-row.is-action { padding: 0; }
 .welcome-row-button {
   display: flex; width: 100%; align-items: center; gap: 14px; min-height: 64px; padding: var(--zli-space-3) var(--zli-space-1);
-  border: 0; background: none; color: inherit; cursor: pointer; font: inherit; text-align: left;
+  border: 0; background: none; color: inherit; cursor: default; font: inherit; text-align: left;
 }
 .welcome-row-button .welcome-row-title { font-weight: 500; }
 .welcome-row-button:hover:not(:disabled) .welcome-mark { color: var(--zli-text); box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border-hover); }
@@ -72,15 +72,15 @@
 .welcome-under-note.is-warning { color: var(--zli-amber); }
 .welcome-link {
   display: inline-flex; align-items: center; gap: var(--zli-space-1-5); padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: none;
-  color: var(--zli-muted); cursor: pointer; font: inherit; font-size: var(--zli-text-sm); transition: color var(--zli-duration-fast) var(--zli-ease);
+  color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-sm); transition: color var(--zli-duration-fast) var(--zli-ease);
 }
 .welcome-link:hover:not(:disabled) { color: var(--zli-text); }
 .welcome-link:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 
 /* ---------- Projects ---------- */
 .welcome-row.is-folder { padding: 0; }
-.welcome-folder-pick { display: flex; min-width: 0; flex: 1 1 auto; min-height: 64px; align-items: center; gap: 14px; padding: var(--zli-space-3) var(--zli-space-1); cursor: pointer; }
-.welcome-check { width: 15px; height: 15px; flex: 0 0 15px; margin: 0 var(--zli-space-2-5) 0 var(--zli-space-2); accent-color: var(--zli-accent); cursor: pointer; }
+.welcome-folder-pick { display: flex; min-width: 0; flex: 1 1 auto; min-height: 64px; align-items: center; gap: 14px; padding: var(--zli-space-3) var(--zli-space-1); cursor: default; }
+.welcome-check { width: 15px; height: 15px; flex: 0 0 15px; margin: 0 var(--zli-space-2-5) 0 var(--zli-space-2); accent-color: var(--zli-accent); cursor: default; }
 .welcome-check:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 /* Which agents worked in the folder and when, so the person can tell old projects from current ones. */
 .welcome-folder-meta { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); font-variant-numeric: tabular-nums; }
@@ -92,7 +92,7 @@
 .welcome-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-4); }
 .welcome-choice {
   position: relative; display: flex; min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--zli-border-strong);
-  border-radius: var(--zli-radius-lg); background: var(--zli-surface); cursor: pointer;
+  border-radius: var(--zli-radius-lg); background: var(--zli-surface); cursor: default;
   transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease);
 }
 .welcome-choice:hover { border-color: var(--zli-border-hover); }
@@ -100,7 +100,7 @@
 .welcome-choice:has(input:focus-visible) { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
 .welcome-choice input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
 .welcome-choice-copy { display: flex; flex-direction: column; gap: var(--zli-space-1-5); padding: var(--zli-space-4) var(--zli-space-10) var(--zli-space-5) var(--zli-space-5); }
-.welcome-choice-title { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-lg); font-weight: 600; letter-spacing: -.01em; }
+.welcome-choice-title { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-lg); font-weight: 500; letter-spacing: -.01em; }
 .welcome-choice-detail { color: var(--zli-muted); font-size: var(--zli-text-base); line-height: var(--zli-leading-normal); }
 .welcome-radio {
   position: absolute; top: var(--zli-space-4); right: var(--zli-space-4); width: 16px; height: 16px; border-radius: 50%;
@@ -166,7 +166,7 @@
 
 /* A ready agent's row picks it as the default agent: the whole row is the radio, with the dot at its end. */
 .welcome-row-pickable { display: block; }
-.welcome-row.is-pickable { display: flex; flex-wrap: nowrap; align-items: center; position: relative; margin: 0 calc(-1 * var(--zli-space-2)); padding-right: var(--zli-space-3); padding-left: var(--zli-space-3); border-radius: var(--zli-radius-md); cursor: pointer; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.welcome-row.is-pickable { display: flex; flex-wrap: nowrap; align-items: center; position: relative; margin: 0 calc(-1 * var(--zli-space-2)); padding-right: var(--zli-space-3); padding-left: var(--zli-space-3); border-radius: var(--zli-radius-md); cursor: default; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
 .welcome-row.is-pickable:hover { background: var(--zli-hover); }
 .welcome-row.is-picked { background: var(--zli-accent-soft); }
 .welcome-row.is-picked:hover { background: var(--zli-accent-soft); }
