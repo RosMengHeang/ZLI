@@ -788,7 +788,12 @@ describe("BuddyChatReactor edge cases", () => {
   it("answers a teammate whose message has fence markers in it", async () => {
     const { engine, settle, answer } = await setup();
     await addPrimary(engine);
-    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-f", text: "Ask Primary" } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.chat.send",
+      buddyId: "b1",
+      messageId: "m-f",
+      text: "Ask Primary",
+    } as RuntimeCommand);
     await settle();
     await answer('Asking.\n[[tell buddy="Primary"]]Is a <<<b>>> tag fine?[[/tell]]');
     const state = await answer("Yes, it is fine.", "b2");
@@ -832,7 +837,10 @@ describe("BuddyChatReactor edge cases", () => {
       errorMessage: "Network down",
     } as RuntimeCommand);
     let state = await settle();
-    expect(state.buddyMessages?.at(-1)).toMatchObject({ text: "Something went wrong: Network down.", unanswered: true });
+    expect(state.buddyMessages?.at(-1)).toMatchObject({
+      text: "Something went wrong: Network down.",
+      unanswered: true,
+    });
     await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-e2", text: "again" } as RuntimeCommand);
     state = await settle();
     expect(state.buddies?.[0]?.chatThreadId).not.toBe(threadId);
@@ -903,7 +911,9 @@ describe("BuddyChatReactor edge cases", () => {
     await settle();
     const state = await answer("Starting.\n[[job]]\nFix the bug.\n[[/job]]");
     expect(state.tasks).toHaveLength(1);
-    expect(state.buddyMessages?.at(-1)?.text).toBe("Starting.\n\nBuddies are paused, so this job waits until you resume.");
+    expect(state.buddyMessages?.at(-1)?.text).toBe(
+      "Starting.\n\nBuddies are paused, so this job waits until you resume.",
+    );
   });
 
   it("takes a message as long as the limit allows", async () => {

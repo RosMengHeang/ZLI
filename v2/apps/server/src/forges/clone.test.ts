@@ -66,9 +66,9 @@ describe("cloneRepository", () => {
       const runner: ProcessRunner = async () => ({ code: 0, stdout: "", stderr: "" });
       const result = await cloneRepository({ source: "acme/app", forge: "github", parent, name: "app. . " }, runner);
       expect(result.path).toBe(join(parent, "app"));
-      await expect(cloneRepository({ source: "acme/app", forge: "github", parent, name: ". ." }, runner)).rejects.toThrow(
-        "Give the folder a name.",
-      );
+      await expect(
+        cloneRepository({ source: "acme/app", forge: "github", parent, name: ". ." }, runner),
+      ).rejects.toThrow("Give the folder a name.");
     } finally {
       await rm(parent, { recursive: true, force: true });
     }

@@ -70,11 +70,7 @@ function SiteTile({ url, favicon }: { url: string; favicon?: string | undefined 
   for (const character of host) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) >>> 0;
   const tile = TILE_COLORS[hash % TILE_COLORS.length];
   return (
-    <span
-      className="chrome-tile"
-      style={{ background: tile?.[0], color: tile?.[1] }}
-      aria-hidden="true"
-    >
+    <span className="chrome-tile" style={{ background: tile?.[0], color: tile?.[1] }} aria-hidden="true">
       {host[0]?.toUpperCase()}
     </span>
   );

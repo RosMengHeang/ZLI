@@ -450,7 +450,9 @@ describe("BuddyList", () => {
 
   it("moves a buddy one place down when dropped on the row below it", async () => {
     const { commands } = await render(
-      projection({ buddies: [buddy("b1", "Primary", 0, "primary"), buddy("b2", "Builder", 1), buddy("b3", "Tester", 2)] }),
+      projection({
+        buddies: [buddy("b1", "Primary", 0, "primary"), buddy("b2", "Builder", 1), buddy("b3", "Tester", 2)],
+      }),
     );
     const item = (name: string) =>
       [...document.querySelectorAll<HTMLElement>(".buddies-row")].find((entry) => entry.textContent?.includes(name));
@@ -465,7 +467,9 @@ describe("BuddyList", () => {
 
   it("moves a buddy down from its menu, without dragging", async () => {
     const { commands } = await render(
-      projection({ buddies: [buddy("b1", "Primary", 0, "primary"), buddy("b2", "Builder", 1), buddy("b3", "Tester", 2)] }),
+      projection({
+        buddies: [buddy("b1", "Primary", 0, "primary"), buddy("b2", "Builder", 1), buddy("b3", "Tester", 2)],
+      }),
     );
     const row = [...document.querySelectorAll<HTMLElement>(".buddy-list-row")].find((entry) =>
       entry.textContent?.includes("Builder"),

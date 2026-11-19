@@ -66,7 +66,9 @@ describe("Composer", () => {
       new File(["x"], "shot.png", { type: "image/png" }),
       new File(["x"], "b.zip", { type: "application/zip" }),
     ]);
-    expect(document.body.textContent).toContain("Skipped a.exe and b.zip: only PNG, JPEG, GIF and WebP images can be attached here.");
+    expect(document.body.textContent).toContain(
+      "Skipped a.exe and b.zip: only PNG, JPEG, GIF and WebP images can be attached here.",
+    );
     const attachments = document.querySelector('[aria-label="Attachments"]');
     expect(attachments?.querySelectorAll("li")).toHaveLength(1);
   });

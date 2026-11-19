@@ -311,7 +311,10 @@ export function Sidebar({
   const worktrees = projection?.worktrees ?? [];
   // Built once per projection, so search and the rows look a chat's worktree and project up without a scan each.
   const worktreeById = useMemo(
-    () => new Map((projection?.worktrees ?? []).map((worktree) => [worktree.worktreeId, worktree])),
+    () =>
+      new Map<string, WorktreeProjection>(
+        (projection?.worktrees ?? []).map((worktree) => [worktree.worktreeId, worktree]),
+      ),
     [projection?.worktrees],
   );
   const worktreesByProject = useMemo(() => {
@@ -1466,12 +1469,7 @@ export function Sidebar({
       (session) =>
         !parents.has(session.sessionId) && (!scopeProject || projectOf(session)?.projectId === scopeProject.projectId),
     );
-    const groups = activityGroups(
-      chats,
-      new Date(now),
-      (sessionId) => layout.chatPinned(sessionId),
-      heldChat.current,
-    );
+    const groups = activityGroups(chats, new Date(now), (sessionId) => layout.chatPinned(sessionId), heldChat.current);
     if (groups.length === 0)
       return (
         <p className="sidebar-results-empty">

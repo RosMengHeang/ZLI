@@ -303,9 +303,9 @@ export function chatBrief(options: {
     lines.push(
       "",
       "Your conversation so far:",
-      ...options.history.slice(-MAX_HISTORY).map(
-        (message) => `${senderName(state, message)}: ${message.text.replace(/\s+/gu, " ").slice(0, 400)}`,
-      ),
+      ...options.history
+        .slice(-MAX_HISTORY)
+        .map((message) => `${senderName(state, message)}: ${message.text.replace(/\s+/gu, " ").slice(0, 400)}`),
     );
   return lines.join("\n");
 }

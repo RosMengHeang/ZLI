@@ -959,9 +959,7 @@ function readyForNext(projection: RuntimeProjection, thread: ThreadProjection): 
 }
 
 function hasAgentRequest(projection: RuntimeProjection, threadId: string): boolean {
-  return (projection.requests ?? []).some(
-    (request) => request.threadId === threadId && !isAppDraft(request.requestId),
-  );
+  return (projection.requests ?? []).some((request) => request.threadId === threadId && !isAppDraft(request.requestId));
 }
 
 /**
