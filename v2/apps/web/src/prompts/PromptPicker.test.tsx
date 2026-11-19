@@ -53,13 +53,13 @@ describe("prompt picker keys", () => {
       const { event, prevented } = keyEvent(key, true);
       let used = true;
       act(() => {
-        used = state.picker!.onKeyDown(event);
+        used = state.picker?.onKeyDown(event) ?? true;
       });
       expect(used).toBe(false);
       expect(prevented()).toBe(false);
     }
     expect(state.draft).toBe("/rev");
-    expect(state.picker!.open).toBe(true);
+    expect(state.picker?.open).toBe(true);
   });
 
   it("inserts the highlighted prompt on Enter once composing ends", () => {
@@ -67,7 +67,7 @@ describe("prompt picker keys", () => {
     const { event } = keyEvent("Enter", false);
     let used = false;
     act(() => {
-      used = state.picker!.onKeyDown(event);
+      used = state.picker?.onKeyDown(event) ?? false;
     });
     expect(used).toBe(true);
     expect(state.draft).toContain("Review this change.");

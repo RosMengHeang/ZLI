@@ -10,7 +10,6 @@ import {
   git,
   launchDesktop,
   openNewAgentOptions,
-  sendChatMessage,
 } from "./desktop-fixtures.js";
 
 type WorktreeInfo = { worktreeId: string; branch: string; path: string; kind?: string };
