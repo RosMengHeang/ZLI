@@ -43,7 +43,8 @@ export function usePromptPicker({
 
   /** Returns true when the picker used the key, so the text box should not act on it. */
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): boolean => {
-    if (!open) return false;
+    // While an IME is composing, Enter and Escape belong to the IME, not the list.
+    if (!open || event.nativeEvent.isComposing) return false;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (matches.length === 0) return true;
