@@ -299,6 +299,8 @@ export const BuddyMessage = z.object({
   unanswered: z.literal(true).optional(),
   /** On a "buddy" message: a line it sent while still working. The answer is still to come. */
   progress: z.literal(true).optional(),
+  /** Set when it belongs to the team chat: the id of the person's message there that it came from or answers. */
+  team: Id.optional(),
 });
 export type BuddyMessage = z.infer<typeof BuddyMessage>;
 
@@ -623,6 +625,12 @@ export const BuddyCommand = z.discriminatedUnion("type", [
     /** Set when another buddy sends it. */
     from: Id.optional(),
   }),
+  /** A message in the team chat. It reaches the buddies it @mentions, or the Primary when it names nobody. */
+  z.object({
+    type: z.literal("buddies.team.send"),
+    messageId: Id,
+    text: z.string().trim().min(1, "Say something.").max(MAX_GOAL),
+  }),
   z.object({
     type: z.literal("buddy.chat.reply"),
     buddyId: Id,
@@ -636,6 +644,8 @@ export const BuddyCommand = z.discriminatedUnion("type", [
     unanswered: z.literal(true).optional(),
     /** A line sent while the buddy is still working; its answer is still to come. */
     progress: z.literal(true).optional(),
+    /** The team chat message this answers, so the reply shows there. */
+    team: Id.optional(),
   }),
   z.object({ type: z.literal("buddy.chat.thread"), buddyId: Id, threadId: Id }),
   z.object({ type: z.literal("buddies.pause") }),
@@ -756,6 +766,7 @@ export const BuddyEvent = z.discriminatedUnion("type", [
     messageId: Id,
     text: z.string().min(1).max(MAX_GOAL),
     from: Id.optional(),
+    team: Id.optional(),
   }),
   z.object({
     type: z.literal("buddy.chat.replied"),
@@ -766,6 +777,7 @@ export const BuddyEvent = z.discriminatedUnion("type", [
     to: Id.optional(),
     unanswered: z.literal(true).optional(),
     progress: z.literal(true).optional(),
+    team: Id.optional(),
   }),
   z.object({ type: z.literal("buddy.chat.thread.set"), buddyId: Id, threadId: Id }),
   z.object({ type: z.literal("buddies.paused") }),
@@ -889,6 +901,25 @@ export function buddiesInOrder(state: Pick<BuddyState, "buddies">): BuddyProject
     .sort((left, right) => (left.role === right.role ? left.order - right.order : left.role === "primary" ? -1 : 1));
 }
 
+/**
+ * The buddies a team chat message @mentions, in team order. A name matches whole and in any case, so "@Bo"
+ * does not reach Bob. With nobody named, it goes to the Primary.
+ */
+export function teamTargets(state: Pick<BuddyState, "buddies">, text: string): BuddyProjection[] {
+  const said = text.toLowerCase();
+  const named = buddiesInOrder(state).filter((buddy) => {
+    const mention = `@${buddy.name.toLowerCase()}`;
+    for (let at = said.indexOf(mention); at !== -1; at = said.indexOf(mention, at + 1)) {
+      const next = said.slice(at + mention.length, at + mention.length + 1);
+      if (!/[\p{L}\p{N}_]/u.test(next)) return true;
+    }
+    return false;
+  });
+  if (named.length > 0) return named;
+  const primary = primaryBuddy(state);
+  return primary ? [primary] : [];
+}
+
 export function primaryBuddy(state: Pick<BuddyState, "buddies">): BuddyProjection | undefined {
   return (state.buddies ?? []).find((buddy) => buddy.role === "primary" && !buddy.archived);
 }
@@ -1007,6 +1038,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
     to?: string,
     unanswered?: boolean,
     progress?: boolean,
+    team?: string,
   ) => {
     if (buddyMessages.some((message) => message.messageId === messageId)) return;
     const next = [
@@ -1021,6 +1053,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
         ...(to ? { to } : {}),
         ...(unanswered ? { unanswered: true as const } : {}),
         ...(progress ? { progress: true as const } : {}),
+        ...(team ? { team } : {}),
       },
     ];
     const own = next.filter((message) => message.buddyId === buddyId);
@@ -1353,10 +1386,20 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       }));
       break;
     case "buddy.chat.sent":
-      say(event.buddyId, event.messageId, "you", event.text, event.from);
+      say(event.buddyId, event.messageId, "you", event.text, event.from, undefined, undefined, undefined, event.team);
       break;
     case "buddy.chat.replied":
-      say(event.buddyId, event.messageId, "buddy", event.text, event.from, event.to, event.unanswered, event.progress);
+      say(
+        event.buddyId,
+        event.messageId,
+        "buddy",
+        event.text,
+        event.from,
+        event.to,
+        event.unanswered,
+        event.progress,
+        event.team,
+      );
       // The sidebar line is what the buddy itself said, not a teammate's answer or a note it passed on.
       if (!event.from && !event.to)
         updateBuddy(event.buddyId, (buddy) => ({ ...buddy, lastLine: { text: firstSentence(event.text, 100), at } }));

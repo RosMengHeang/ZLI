@@ -2,11 +2,11 @@ import {
   agentNameTaken,
   type BuddyMessage,
   type BuddyProjection,
-  type PermissionMode,
   buddyNamed,
   CommandId,
   guessProject,
   isBuddyHome,
+  type PermissionMode,
   type ProjectProjection,
   type ProviderDiscovery,
   type RuntimeCommand,
@@ -599,6 +599,7 @@ export class BuddyChatReactor {
       await this.reply(buddy, `answer:${answer.messageId}`, text, {
         ...(how.progress ? { progress: true as const } : {}),
         ...(how.cut ? { unanswered: true as const } : {}),
+        ...teamOf(answered),
       });
     // Each message to a teammate shows in this chat as its own note, addressed to them.
     for (const note of sent) await this.reply(buddy, note.key, note.text, { to: note.to });
@@ -634,7 +635,11 @@ export class BuddyChatReactor {
     for (const piece of replyPieces(answer.text, stepOffsets(state, threadId, answer.turnId)))
       if (!piece.last) {
         const text = parseChatReply(piece.text).text;
-        if (text) await this.reply(buddy, `progress:${answer.messageId}:${piece.start}`, text, { progress: true });
+        if (text)
+          await this.reply(buddy, `progress:${answer.messageId}:${piece.start}`, text, {
+            progress: true,
+            ...teamOf(answered),
+          });
       }
   }
 
@@ -665,7 +670,7 @@ export class BuddyChatReactor {
     key: string,
     text: string,
   ): Promise<void> {
-    await this.reply(buddy, key, text, { unanswered: true });
+    await this.reply(buddy, key, text, { unanswered: true, ...teamOf(answered) });
     for (const senderId of new Set(answered.flatMap((message) => (message.from ? [message.from] : [])))) {
       const sender = state.buddies?.find((entry) => entry.buddyId === senderId && !entry.archived);
       if (sender)
@@ -679,7 +684,7 @@ export class BuddyChatReactor {
     buddy: BuddyProjection,
     key: string,
     text: string,
-    teammate: { from?: string; to?: string; unanswered?: true; progress?: true } = {},
+    teammate: { from?: string; to?: string; unanswered?: true; progress?: true; team?: string } = {},
   ): Promise<CommandReceipt> {
     return this.dispatch(
       {
@@ -711,6 +716,12 @@ export function teammateAsk(sender: string, text: string): string {
     "teammate message>>>",
     "Answer them in your reply. ZLI passes it back to them.",
   ].join("\n");
+}
+
+/** The team chat message a reply answers, so it shows there: the newest waiting message that came from it. */
+export function teamOf(answered: readonly BuddyMessage[]): { team?: string } {
+  const team = answered.findLast((message) => message.team)?.team;
+  return team ? { team } : {};
 }
 
 function defang(text: string): string {

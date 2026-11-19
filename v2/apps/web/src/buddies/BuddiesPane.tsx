@@ -33,6 +33,7 @@ import { BuddyChat } from "./BuddyChat.js";
 import { BuddyList } from "./BuddyList.js";
 import { BuddyLookEditor } from "./BuddyLookEditor.js";
 import { GoalComposer, GoalList, isPlanTurn, isWebTask } from "./Goals.js";
+import { TEAM_CHAT_ID, TeamChat } from "./TeamChat.js";
 import {
   buddyStats,
   duration,
@@ -101,12 +102,20 @@ export function BuddiesPane(props: BuddiesPaneProps) {
       <BuddyList
         projection={projection}
         team={team}
-        selectedId={selected?.buddyId}
+        selectedId={selected?.buddyId ?? (selectedId === TEAM_CHAT_ID ? TEAM_CHAT_ID : undefined)}
         run={run}
         onSelect={props.onSelect}
       />
       <div className="buddies-detail">
-        {selected ? (
+        {selectedId === TEAM_CHAT_ID ? (
+          <div className="buddies-home">
+            <header className="buddies-home-head">
+              <h2>Team chat</h2>
+            </header>
+            {errorLine}
+            <TeamChat projection={projection} run={run} />
+          </div>
+        ) : selected ? (
           // Keyed by buddy: what one buddy's Settings were editing never carries over to the next.
           <BuddyPage key={selected.buddyId} {...props} buddy={selected} run={run} error={errorLine} />
         ) : (
