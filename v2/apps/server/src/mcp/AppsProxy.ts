@@ -319,7 +319,7 @@ export function keyScrubber(secrets: readonly string[]): Transform {
   const needles = secrets.map((secret) => Buffer.from(secret, "utf8"));
   const hold = Math.max(0, ...needles.map((needle) => needle.length - 1));
   const mask = Buffer.from("[key]");
-  let pending = Buffer.alloc(0);
+  let pending: Buffer = Buffer.alloc(0);
   const clean = (bytes: Buffer): Buffer => {
     let out = bytes;
     for (const needle of needles) {
