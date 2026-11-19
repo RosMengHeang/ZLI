@@ -152,6 +152,7 @@ describe("ProviderService", () => {
       ["kimi", "missing"],
       ["qwen", "missing"],
       ["goose", "missing"],
+      ["grok", "missing"],
     ]);
     expect(discovery.slice(0, 4)).toEqual([
       {

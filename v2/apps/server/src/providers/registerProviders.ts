@@ -115,6 +115,12 @@ export const ACP_PROVIDERS: ReadonlyArray<Omit<AcpProviderConfig, "resolveComman
     acpArgs: ["acp"],
     authHint: "Configure a Goose provider in a terminal first (run `goose configure`).",
   },
+  {
+    provider: "grok",
+    displayName: "Grok",
+    acpArgs: ["agent", "stdio"],
+    authHint: "Sign in to Grok in a terminal first (run `grok login`).",
+  },
 ];
 
 export async function resolveAcpCommand(

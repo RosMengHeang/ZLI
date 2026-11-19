@@ -76,6 +76,7 @@ const providerBuddy: Partial<Record<string, Buddy>> = {
   copilot: "peanut",
   kimi: "plus",
   qwen: "bean",
+  grok: "wedge",
 };
 
 export function defaultBuddy(provider: string): Buddy {

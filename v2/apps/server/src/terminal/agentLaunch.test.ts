@@ -24,6 +24,7 @@ describe("buildAgentArgs", () => {
     expect(buildAgentArgs({ provider: "kimi" })).toEqual(["--auto"]);
     expect(buildAgentArgs({ provider: "qwen" })).toEqual(["--approval-mode", "yolo"]);
     expect(buildAgentArgs({ provider: "goose" })).toEqual(["session"]);
+    expect(buildAgentArgs({ provider: "grok" })).toEqual(["--always-approve"]);
   });
 
   it("drops permission bypass flags in supervised mode", () => {
@@ -34,7 +35,7 @@ describe("buildAgentArgs", () => {
     ]);
     expect(buildAgentArgs({ provider: "cursor-agent", permissionMode: "supervised" })).toEqual(["--trust"]);
     expect(buildAgentArgs({ provider: "droid", permissionMode: "supervised" })).toEqual([]);
-    for (const provider of ["opencode", "gemini", "copilot", "kimi"] as const) {
+    for (const provider of ["opencode", "gemini", "copilot", "kimi", "grok"] as const) {
       expect(buildAgentArgs({ provider, permissionMode: "supervised" })).toEqual([]);
     }
     expect(buildAgentArgs({ provider: "qwen", permissionMode: "supervised" })).toEqual(["--approval-mode", "default"]);
@@ -54,6 +55,7 @@ describe("buildAgentArgs", () => {
     expect(readOnly("qwen")).toEqual(["--approval-mode", "plan"]);
     expect(readOnly("copilot")).toEqual([]);
     expect(readOnly("goose")).toEqual(["session"]);
+    expect(readOnly("grok")).toEqual(["--permission-mode", "plan"]);
   });
 
   it("sets Goose's mode through GOOSE_MODE, since goose session has no flag for it", () => {
@@ -105,6 +107,10 @@ describe("buildAgentArgs", () => {
       "qwen3-coder-plus",
     ]);
     expect(buildAgentArgs({ provider: "goose", model: "gpt-5" })).toEqual(["session"]);
+    expect(buildAgentArgs({ provider: "grok", model: "grok-code-fast-1", permissionMode: "supervised" })).toEqual([
+      "--model",
+      "grok-code-fast-1",
+    ]);
     expect(() => buildAgentArgs({ provider: "goose", model: "gpt 5" })).toThrow(AgentLaunchError);
   });
 
@@ -185,7 +191,7 @@ describe("mcpLaunchArgs", () => {
   });
 
   it("adds nothing for CLIs that read a project file or the environment, or when the config file is missing", () => {
-    for (const provider of ["droid", "opencode", "gemini", "kimi", "qwen"] as const) {
+    for (const provider of ["droid", "opencode", "gemini", "kimi", "qwen", "grok"] as const) {
       expect(mcpLaunchArgs(provider, { specs, worktreeFile: true })).toEqual([]);
     }
     expect(mcpLaunchArgs("claude-code", { specs })).toEqual([]);
@@ -194,7 +200,7 @@ describe("mcpLaunchArgs", () => {
     expect(mcpLaunchArgs("cursor-agent", { specs: [], worktreeFile: true })).toEqual([]);
   });
 
-  it.each(["cursor-agent", "droid", "kimi", "gemini", "qwen"] as const)(
+  it.each(["cursor-agent", "droid", "kimi", "gemini", "qwen", "grok"] as const)(
     "writes %s's servers into its project MCP file in the worktree",
     async (provider) => {
       const written: unknown[] = [];

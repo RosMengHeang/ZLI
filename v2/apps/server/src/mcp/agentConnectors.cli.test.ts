@@ -51,6 +51,7 @@ const AGENTS: readonly ListedProviderKind[] = [
   "kimi",
   "qwen",
   "goose",
+  "grok",
 ];
 
 const FIXTURE_TOKEN = { signIn: "zli-check-signin-token", header: "zli-check-header-token" };
@@ -338,7 +339,35 @@ async function readBack(
       if (!file) throw new Error("No project MCP file.");
       return settingsEntries(JSON.parse(await readFile(join(context.project, ...file.split("/")), "utf8")));
     }
+    case "grok": {
+      // Grok's own reading of ZLI's .grok/config.toml, so a TOML mistake shows up here.
+      const { stdout } = await run(context.command, ["mcp", "list", "--json"], {
+        cwd: context.project,
+        env: context.env,
+      });
+      return grokEntries(JSON.parse(stdout) as unknown[]);
+    }
   }
+}
+
+function grokEntries(list: unknown[]): Map<string, Entry> {
+  const entries = new Map<string, Entry>();
+  for (const raw of list) {
+    const server = record(raw);
+    if (server.scope !== "project") continue;
+    entries.set(
+      String(server.name),
+      typeof server.url === "string"
+        ? { kind: "http", url: server.url, headers: strings(server.headers) }
+        : {
+            kind: "stdio",
+            command: String(server.command),
+            args: Array.isArray(server.args) ? server.args.map(String) : [],
+            env: strings(server.env),
+          },
+    );
+  }
+  return entries;
 }
 
 function settingsEntries(parsed: unknown): Map<string, Entry> {

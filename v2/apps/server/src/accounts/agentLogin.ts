@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import type { AgentLogin, ListedProviderKind } from "@zli-v2/contracts";
 
-import { CONFIG_DIR_ENV } from "./accountEnv.js";
+import { CONFIG_DIR_ENV, grokAuthEntries } from "./accountEnv.js";
 
 export type LoginContext = { home: string; env: NodeJS.ProcessEnv };
 
@@ -29,6 +29,8 @@ export async function readAgentLogin(
         return await openCodeLogin(context);
       case "kimi":
         return await kimiLogin(context);
+      case "grok":
+        return await grokLogin(context);
       default:
         return undefined;
     }
@@ -130,6 +132,17 @@ async function kimiLogin(context: LoginContext): Promise<AgentLogin> {
   for (const name of names.filter((entry) => entry.endsWith(".json"))) {
     if (text((await readJson(join(dir, name)))?.access_token)) return { status: "signed-in", method: "subscription" };
   }
+  return { status: "signed-out" };
+}
+
+/**
+ * Grok keeps each browser or SSO sign-in in auth.json in its home, with the account's email. Without one
+ * it falls back to XAI_API_KEY.
+ */
+async function grokLogin(context: LoginContext): Promise<AgentLogin> {
+  const [entry] = await grokAuthEntries(configDir("grok", context, join(context.home, ".grok")));
+  if (entry) return { status: "signed-in", method: "subscription", ...withEmail(text(entry.email)) };
+  if (context.env.XAI_API_KEY?.trim()) return { status: "signed-in", method: "api-key" };
   return { status: "signed-out" };
 }
 

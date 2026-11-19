@@ -8,6 +8,9 @@ import { isHttpSpec, isPlainObject, type McpServerSpec, writeFileAtomic } from "
 /** Agents that read MCP servers from a JSON settings file rather than a launch flag. */
 export type SettingsFileProvider = Extract<ListedProviderKind, "cursor-agent" | "droid" | "kimi" | "gemini" | "qwen">;
 
+/** Agents that read MCP servers from a project file ZLI can write in the worktree. */
+export type ProjectFileProvider = SettingsFileProvider | "grok";
+
 /**
  * The project-level MCP file each of these CLIs reads from the folder it starts in, relative to that folder:
  * - Cursor: https://cursor.com/docs/mcp
@@ -15,13 +18,16 @@ export type SettingsFileProvider = Extract<ListedProviderKind, "cursor-agent" | 
  * - Kimi Code: https://www.kimi.com/code/docs/en/kimi-code-cli/customization/mcp.html
  * - Gemini: https://geminicli.com/docs/tools/mcp-server/
  * - Qwen Code: https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/
+ * - Grok Build: user guide 07-mcp-servers.md, shipped in ~/.grok/docs. Grok starts the servers in this
+ *   file only in a trusted folder; see agentFolderTrust.
  */
-export const PROJECT_MCP_FILES: Readonly<Record<SettingsFileProvider, string>> = {
+export const PROJECT_MCP_FILES: Readonly<Record<ProjectFileProvider, string>> = {
   "cursor-agent": ".cursor/mcp.json",
   droid: ".factory/mcp.json",
   kimi: ".kimi-code/mcp.json",
   gemini: ".gemini/settings.json",
   qwen: ".qwen/settings.json",
+  grok: ".grok/config.toml",
 };
 
 export function projectMcpFile(provider: ListedProviderKind): string | undefined {
@@ -29,9 +35,43 @@ export function projectMcpFile(provider: ListedProviderKind): string | undefined
 }
 
 /** A whole project MCP file holding `specs`, in the provider's format. */
-export function projectMcpFileContents(provider: SettingsFileProvider, specs: readonly McpServerSpec[]): string {
+export function projectMcpFileContents(provider: ProjectFileProvider, specs: readonly McpServerSpec[]): string {
+  if (provider === "grok") return grokConfigToml(specs);
   const mcpServers = Object.fromEntries(specs.map((spec) => [spec.name, mcpSettingsEntry(provider, spec)]));
   return `${JSON.stringify({ mcpServers }, null, 2)}\n`;
+}
+
+/** Grok's `[mcp_servers.<name>]` tables. Every key and value is quoted, so any name or path stays valid TOML. */
+export function grokConfigToml(specs: readonly McpServerSpec[]): string {
+  const tables = specs.map((spec) => {
+    const lines = [`[mcp_servers.${tomlString(spec.name)}]`];
+    if (isHttpSpec(spec)) {
+      lines.push(`url = ${tomlString(spec.url)}`);
+      if (Object.keys(spec.headers).length > 0) lines.push(`headers = ${tomlInlineTable(spec.headers)}`);
+    } else {
+      lines.push(`command = ${tomlString(spec.command)}`);
+      lines.push(`args = [${spec.args.map(tomlString).join(", ")}]`);
+      if (Object.keys(spec.env).length > 0) lines.push(`env = ${tomlInlineTable(spec.env)}`);
+    }
+    return lines.join("\n");
+  });
+  return `${tables.join("\n\n")}\n`;
+}
+
+function tomlInlineTable(values: Record<string, string>): string {
+  const pairs = Object.entries(values).map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`);
+  return `{ ${pairs.join(", ")} }`;
+}
+
+/** A TOML basic string, with backslashes, quotes, and control characters escaped. */
+export function tomlString(value: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: TOML basic strings cannot hold raw control characters.
+  const escaped = value.replace(/[\\"\u0000-\u001f\u007f]/gu, (char) => {
+    if (char === "\\") return "\\\\";
+    if (char === '"') return '\\"';
+    return `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
+  });
+  return `"${escaped}"`;
 }
 
 /**
