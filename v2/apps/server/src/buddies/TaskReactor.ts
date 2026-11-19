@@ -10,6 +10,7 @@ import {
   MAX_ACTIVE_JOBS,
   MAX_GOAL_ROUNDS,
   overBudget,
+  spentThisWeek,
   type ProjectProjection,
   type ProviderDiscovery,
   type RuntimeCommand,
@@ -161,6 +162,9 @@ export class TaskReactor {
     for (const envelope of reactions) await this.react(envelope);
     const state = await this.engine.projection();
     const tasks = state.tasks ?? [];
+    // Forget retries for attempts that are over, so the set does not grow for the life of the server.
+    const attempts = new Set(tasks.filter((task) => task.status === "preparing").map(attemptKey));
+    for (const attempt of this.worktreeRetries) if (!attempts.has(attempt)) this.worktreeRetries.delete(attempt);
     for (const task of tasks) {
       if (task.status === "preparing") await this.prepare(state, task);
       else if (task.status === "working" || task.status === "needs_you") await this.sync(state, task);
@@ -195,6 +199,9 @@ export class TaskReactor {
       if (active >= buddy.maxActiveJobs) continue;
       // Past its weekly budget, a buddy's new jobs wait until the person raises it or the week moves on.
       if (overBudget(state, buddy, this.now())) continue;
+      // Spending lands only when a job ends, so count each running job at this week's average cost too; otherwise
+      // jobs started side by side could all slip under the budget and overshoot it together.
+      if (budgetReserved(state, buddy, active, this.now())) continue;
       const place = sharedPlace(state, task);
       if (place && places.has(place)) continue;
       if (place) places.add(place);
@@ -273,7 +280,7 @@ export class TaskReactor {
     // A failed worktree is made again once per attempt, so Try again (or a passing hiccup) can recover; failing
     // again in the same attempt ends the job.
     if (worktree.status === "failed" && place.create) {
-      const attempt = `${task.taskId}:${task.updatedAt}`;
+      const attempt = attemptKey(task);
       if (!this.worktreeRetries.has(attempt)) {
         this.worktreeRetries.add(attempt);
         await this.dispatch(
@@ -881,4 +888,25 @@ function sharedPlace(state: RuntimeProjection, task: TaskProjection): string | u
     (worktree) => worktree.projectId === task.projectId && worktree.kind === "checkout" && worktree.status === "ready",
   );
   return checkout ? `checkout:${task.projectId}` : undefined;
+}
+
+/** One preparing attempt of a job: a new attempt (Try again) changes its updatedAt. */
+function attemptKey(task: TaskProjection): string {
+  return `${task.taskId}:${task.updatedAt}`;
+}
+
+/**
+ * Whether the buddy's running jobs, each counted at this week's average job cost, would use up what is left of its
+ * budget. With no finished jobs yet there is nothing to average, so it does not hold anything back.
+ */
+export function budgetReserved(state: RuntimeProjection, buddy: BuddyProjection, active: number, now: Date): boolean {
+  if (buddy.budgetUsd === undefined || active === 0) return false;
+  const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const costs = (state.tasks ?? [])
+    .filter((task) => task.buddyId === buddy.buddyId && task.result?.costUsd !== undefined)
+    .filter((task) => (task.endedAt ?? task.updatedAt) >= since)
+    .map((task) => task.result?.costUsd ?? 0);
+  if (costs.length === 0) return false;
+  const average = costs.reduce((sum, cost) => sum + cost, 0) / costs.length;
+  return spentThisWeek(state, buddy.buddyId, now) + average * active >= buddy.budgetUsd;
 }
