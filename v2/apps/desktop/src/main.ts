@@ -85,7 +85,7 @@ import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDae
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal } from "./security/NavigationPolicy.js";
-import { SECRETS_KEY_ENV, secretsKey } from "./security/secretsKey.js";
+import { SECRETS_KEY_ENV, SECRETS_KEYCHAIN_SLOW_ENV, secretsKey } from "./security/secretsKey.js";
 import { writeJsonFile } from "./storage/writeJsonFile.js";
 import { createElectronTray } from "./tray/electronTray.js";
 import { TrayController } from "./tray/TrayController.js";
@@ -194,7 +194,7 @@ async function main(): Promise<void> {
   const browserToolPaths = await startBrowserControl(databasePath);
   // The runtime seals secrets on disk (the Composio key) with a key the OS keychain keeps.
   // Asked without blocking, and only for a few seconds: a keychain stuck on a prompt never keeps the window shut.
-  const sealingKey = await secretsKey(join(dirname(databasePath), "secrets-key.bin"), {
+  const sealing = await secretsKey(join(dirname(databasePath), "secrets-key.bin"), {
     available: () => safeStorage.isAsyncEncryptionAvailable(),
     encrypt: (text) => safeStorage.encryptStringAsync(text),
     decrypt: async (sealed) => (await safeStorage.decryptStringAsync(sealed)).result,
@@ -204,7 +204,8 @@ async function main(): Promise<void> {
     databasePath,
     extraEnv: {
       ...browserToolEnvironment(browserToolPaths),
-      ...(sealingKey ? { [SECRETS_KEY_ENV]: sealingKey } : {}),
+      ...(sealing.key ? { [SECRETS_KEY_ENV]: sealing.key } : {}),
+      ...(sealing.slow ? { [SECRETS_KEYCHAIN_SLOW_ENV]: "1" } : {}),
       // Test and development launches must leave the user's real agent settings alone.
       ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
     },

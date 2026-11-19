@@ -11,22 +11,33 @@ export type KeychainCodec = {
   decrypt(sealed: Buffer): Promise<string>;
 };
 
+/**
+ * Set for the runtime when the keychain was there but did not answer in time: the runtime then refuses to save
+ * secrets unsealed, rather than writing them in the clear. (The runtime's SecretBox reads the same name.)
+ */
+export const SECRETS_KEYCHAIN_SLOW_ENV = "ZLI_SECRETS_KEYCHAIN_SLOW";
+
 /** How long ZLI waits for the keychain before it starts without sealing, rather than never opening. */
 export const KEYCHAIN_WAIT_MS = 5_000;
 
 /**
  * The key ZLI's runtime seals secrets on disk with (the Composio key), kept at `path` encrypted by the OS keychain,
- * made on first use. Undefined when the OS has no keychain to seal it with, or it does not answer within `waitMs`
- * (a keychain waiting on a prompt, or none for this account): the runtime then starts without sealing instead of
- * the app never opening. A file that cannot be opened (another computer, a changed account) is replaced, and the
- * secrets sealed with the old key are asked for again.
+ * made on first use. No key when the OS has no keychain to seal it with. When the keychain does not answer within
+ * `waitMs` (waiting on a prompt), `slow` is set and there is no key: the app still opens, and the runtime refuses to
+ * save secrets until a restart rather than keeping them unsealed. A file that cannot be opened (another computer, a
+ * changed account) is replaced, and the secrets sealed with the old key are asked for again.
  */
-export function secretsKey(path: string, codec: KeychainCodec, waitMs = KEYCHAIN_WAIT_MS): Promise<string | undefined> {
+export function secretsKey(
+  path: string,
+  codec: KeychainCodec,
+  waitMs = KEYCHAIN_WAIT_MS,
+): Promise<{ key?: string; slow?: true }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const gaveUp = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => resolve(undefined), waitMs);
+  const gaveUp = new Promise<{ slow: true }>((resolve) => {
+    timer = setTimeout(() => resolve({ slow: true }), waitMs);
   });
-  return Promise.race([keyFrom(path, codec), gaveUp]).finally(() => clearTimeout(timer));
+  const found = keyFrom(path, codec).then((key) => (key ? { key } : {}));
+  return Promise.race([found, gaveUp]).finally(() => clearTimeout(timer));
 }
 
 async function keyFrom(path: string, codec: KeychainCodec): Promise<string | undefined> {

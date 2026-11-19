@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 /** The environment variable the desktop app hands its sealing key over in. Read once, then removed. */
 export const SECRETS_KEY_ENV = "ZLI_SECRETS_KEY";
+export const SECRETS_KEYCHAIN_SLOW_ENV = "ZLI_SECRETS_KEYCHAIN_SLOW";
 const PREFIX = "sealed:v1:";
 
 /**
@@ -20,6 +21,16 @@ export class SecretBox {
     if (!value) return undefined;
     const key = Buffer.from(value, "base64");
     return key.length === 32 ? new SecretBox(key) : undefined;
+  }
+
+  /**
+   * Whether the desktop app found a keychain that did not answer in time, taken out of the environment like the
+   * key. Secrets are then not saved at all until a restart, rather than saved unsealed.
+   */
+  static keychainSlow(env: NodeJS.ProcessEnv = process.env): boolean {
+    const slow = env[SECRETS_KEYCHAIN_SLOW_ENV] === "1";
+    delete env[SECRETS_KEYCHAIN_SLOW_ENV];
+    return slow;
   }
 
   static withKey(key: Buffer): SecretBox {

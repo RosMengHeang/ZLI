@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ConnectedApps } from "../mcp/ConnectedApps.js";
-import { SECRETS_KEY_ENV, SecretBox } from "./SecretBox.js";
+import { SECRETS_KEY_ENV, SECRETS_KEYCHAIN_SLOW_ENV, SecretBox } from "./SecretBox.js";
 
 const folders: string[] = [];
 afterEach(() => {
@@ -61,5 +61,17 @@ describe("SecretBox", () => {
     await elsewhere.load();
     expect(elsewhere.upstream()).toBeUndefined();
     expect(await elsewhere.status()).toMatchObject({ configured: false, problem: expect.stringContaining("Paste it") });
+  });
+
+  it("never saves the key unsealed when the keychain was there but slow to answer", async () => {
+    const env: NodeJS.ProcessEnv = { [SECRETS_KEYCHAIN_SLOW_ENV]: "1" };
+    expect(SecretBox.keychainSlow(env)).toBe(true);
+    expect(env).toEqual({});
+    const path = join(folder(), "connected-apps.json");
+    const apps = new ConnectedApps({ path, keychainSlow: true });
+    await apps.load();
+    await expect(apps.setKey("ck_new")).rejects.toThrow(/Restart ZLI/u);
+    expect(() => readFileSync(path, "utf8")).toThrow();
+    expect(await apps.status()).toMatchObject({ configured: false, problem: expect.stringContaining("Restart ZLI") });
   });
 });

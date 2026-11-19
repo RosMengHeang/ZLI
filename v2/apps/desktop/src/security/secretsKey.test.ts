@@ -23,19 +23,19 @@ describe("secretsKey", () => {
     const dir = mkdtempSync(join(tmpdir(), "zli-key-"));
     folders.push(dir);
     const path = join(dir, "secrets-key.bin");
-    const key = await secretsKey(path, keychain());
+    const { key } = await secretsKey(path, keychain());
     expect(Buffer.from(key ?? "", "base64")).toHaveLength(32);
     expect(readFileSync(path, "utf8")).not.toContain(key);
-    expect(await secretsKey(path, keychain())).toBe(key);
+    expect((await secretsKey(path, keychain())).key).toBe(key);
   });
 
   it("gives no key without a keychain, so nothing is sealed with a key kept in the clear", async () => {
     const dir = mkdtempSync(join(tmpdir(), "zli-key-"));
     folders.push(dir);
-    expect(await secretsKey(join(dir, "secrets-key.bin"), keychain(false))).toBeUndefined();
+    expect(await secretsKey(join(dir, "secrets-key.bin"), keychain(false))).toEqual({});
   });
 
-  it("starts without a key when the keychain never answers, so the app still opens", async () => {
+  it("says the keychain was slow when it never answers, so the app opens and the runtime stays careful", async () => {
     const dir = mkdtempSync(join(tmpdir(), "zli-key-"));
     folders.push(dir);
     const stuck: KeychainCodec = {
@@ -43,6 +43,6 @@ describe("secretsKey", () => {
       encrypt: () => new Promise(() => undefined),
       decrypt: () => new Promise(() => undefined),
     };
-    expect(await secretsKey(join(dir, "secrets-key.bin"), stuck, 20)).toBeUndefined();
+    expect(await secretsKey(join(dir, "secrets-key.bin"), stuck, 20)).toEqual({ slow: true });
   });
 });

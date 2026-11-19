@@ -120,6 +120,8 @@ export class ConnectedApps {
       proxy?: { endpoint(worktreeId?: string): { url: string; headers: Record<string, string> } | undefined };
       /** Seals the key on disk with the OS keychain's key. Without it the file holds the key as before. */
       box?: SecretBox;
+      /** The keychain was there but did not answer at start: no key is saved until a restart, never unsealed. */
+      keychainSlow?: boolean;
     },
   ) {}
 
@@ -201,6 +203,7 @@ export class ConnectedApps {
       this.options.onChange?.();
       return this.status();
     }
+    if (this.options.keychainSlow && !this.options.box) throw new ConnectedAppsError(KEYCHAIN_SLOW);
     if (apiKey.startsWith("ck_")) {
       await this.checkConnectKey(apiKey);
       this.saved = { via: "connect", apiKey };
@@ -224,11 +227,14 @@ export class ConnectedApps {
   async status(): Promise<ConnectedAppsStatus> {
     const saved = this.saved;
     if (!saved)
-      return this.unreadable
+      return this.unreadable || (this.options.keychainSlow && !this.options.box)
         ? {
             configured: false,
             accounts: [],
-            problem: "The saved Composio key can't be opened on this computer. Paste it again to keep using your apps.",
+            problem:
+              this.options.keychainSlow && !this.options.box
+                ? KEYCHAIN_SLOW
+                : "The saved Composio key can't be opened on this computer. Paste it again to keep using your apps.",
           }
         : { configured: false, accounts: [] };
     if (saved.via === "connect") {
@@ -440,6 +446,9 @@ function problemIn(text: string): string | undefined {
 }
 
 /** A sign-in page ZLI may open: https, on Composio's own domain, so a bad answer cannot send the person elsewhere. */
+const KEYCHAIN_SLOW =
+  "Your system keychain didn't answer when ZLI started, so ZLI won't save or open the Composio key unprotected. Restart ZLI to use your apps.";
+
 export function isComposioPage(link: string): boolean {
   try {
     const url = new URL(link);
