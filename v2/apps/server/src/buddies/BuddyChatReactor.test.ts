@@ -755,3 +755,81 @@ describe("BuddyChatReactor memory and progress", () => {
     ]);
   });
 });
+
+describe("BuddyChatReactor edge cases", () => {
+  const addPrimary = (engine: Engine) =>
+    send(engine, {
+      type: "buddy.create",
+      buddy: {
+        buddyId: "b2",
+        name: "Primary",
+        color: "indigo",
+        role: "primary",
+        engine: { mode: "auto" },
+        permissionMode: "read-only",
+        maxActiveJobs: 1,
+        handoffs: [],
+      },
+    } as RuntimeCommand);
+
+  it("answers a teammate whose message has fence markers in it", async () => {
+    const { engine, settle, answer } = await setup();
+    await addPrimary(engine);
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-f", text: "Ask Primary" } as RuntimeCommand);
+    await settle();
+    await answer('Asking.\n[[tell buddy="Primary"]]Is a <<<b>>> tag fine?[[/tell]]');
+    const state = await answer("Yes, it is fine.", "b2");
+    const last = (buddyId: string) => state.buddyMessages?.findLast((message) => message.buddyId === buddyId);
+    expect(last("b2")).toMatchObject({ role: "buddy", text: "Yes, it is fine." });
+    expect(last("b1")).toMatchObject({ from: "b2", text: "Yes, it is fine." });
+  });
+
+  it("says to sign in when no agent is set up", async () => {
+    const { engine, settle } = await setup({ providers: async () => [] });
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-n", text: "hi" } as RuntimeCommand);
+    const state = await settle();
+    expect(state.buddyMessages?.at(-1)).toMatchObject({
+      role: "buddy",
+      text: "No agent is set up to answer. Sign in to one in Settings.",
+    });
+    expect(state.threads).toEqual([]);
+  });
+
+  it("answers a second message sent while the first is still being answered", async () => {
+    const { engine, settle, deliver, answer } = await setup();
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-1", text: "first" } as RuntimeCommand);
+    const threadId = await deliver();
+    await send(engine, { type: "thread.status", threadId, status: "working" } as RuntimeCommand);
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-2", text: "second" } as RuntimeCommand);
+    const mid = await settle();
+    expect(mid.queuedMessages?.map((queued) => queued.text)).toEqual(["second"]);
+    expect(mid.threads.filter((thread) => thread.unattended)).toHaveLength(1);
+    const state = await answer("Both done.");
+    expect(state.buddyMessages?.at(-1)).toMatchObject({ role: "buddy", text: "Both done." });
+  });
+
+  it("says so when the agent fails mid-reply, and opens a fresh chat for the next message", async () => {
+    const { engine, settle, deliver } = await setup();
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-e", text: "go" } as RuntimeCommand);
+    const threadId = await deliver();
+    await send(engine, {
+      type: "thread.status",
+      threadId,
+      status: "failed",
+      errorMessage: "Network down",
+    } as RuntimeCommand);
+    let state = await settle();
+    expect(state.buddyMessages?.at(-1)).toMatchObject({ text: "Something went wrong: Network down.", unanswered: true });
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-e2", text: "again" } as RuntimeCommand);
+    state = await settle();
+    expect(state.buddies?.[0]?.chatThreadId).not.toBe(threadId);
+  });
+
+  it("takes a message as long as the limit allows", async () => {
+    const { engine, settle } = await setup();
+    const text = "x".repeat(4_000);
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-big", text } as RuntimeCommand);
+    const state = await settle();
+    expect(state.queuedMessages?.[0]?.text).toBe(text);
+  });
+});
