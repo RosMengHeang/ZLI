@@ -6,6 +6,7 @@ import {
   type PluginOrigin,
   type ProjectProjection,
   ProjectRegisterResult,
+  primaryBuddy,
   type RuntimeProjection,
   type SetupDecision,
   threadOccupiesWorktree,
@@ -209,6 +210,8 @@ export function AppShell({ bridge = getBridge() }: { bridge?: ZliBridge } = {}) 
 
 /** The narrowest the chat gets while the right panel is open beside it. */
 const MIN_CHAT_WIDTH = Math.max(MIN_GRID_WIDTH, 440);
+/** The Buddies page opened without naming a buddy: Primary's chat. */
+const PRIMARY_VIEW = "primary";
 
 function WorkspaceApp() {
   const { bridge, dispatch } = useRuntime();
@@ -660,10 +663,14 @@ function WorkspaceApp() {
   }, []);
   const openBuddies = useCallback((next?: string) => {
     setPullView(undefined);
-    setBuddyView(next ?? "team");
+    // Opening Buddies starts on Primary's chat; the team board is one click away in the list.
+    setBuddyView(next ?? PRIMARY_VIEW);
     // A buddy's chat has its own details column, so the workspace panel steps aside.
     setSidePane(undefined);
   }, []);
+  // "primary" stands for whoever is Primary now, so it still opens once the starter team has just been made.
+  const primaryId = projection ? primaryBuddy(projection)?.buddyId : undefined;
+  const shownBuddy = buddyView === PRIMARY_VIEW ? (primaryId ?? "team") : buddyView;
   useStarterTeam(projection);
   useTeammatesToBuddies(projection);
   // Chat only keeps the terminal out of sight: its toggle and shortcut only close a drawer something else opened.
@@ -2843,7 +2850,7 @@ function WorkspaceApp() {
             onHuddleError={showError}
             projectAgentActions={projectAgentActions}
             onOpenBuddies={openBuddies}
-            activeBuddyId={buddyView}
+            activeBuddyId={shownBuddy}
             onOpenPullRequests={openPullRequests}
             pullRequestsOpen={pullView !== undefined}
           />
@@ -2893,7 +2900,7 @@ function WorkspaceApp() {
                   ) : buddyView ? (
                     <BuddiesPane
                       projection={projection}
-                      selectedId={buddyView === "team" ? undefined : buddyView}
+                      selectedId={shownBuddy === "team" ? undefined : shownBuddy}
                       onSelect={(next) => setBuddyView(next ?? "team")}
                       projectId={contextProject?.projectId}
                       onOpenThread={(threadId) => {

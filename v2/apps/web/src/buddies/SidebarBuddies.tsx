@@ -4,7 +4,7 @@ import { BuddyGlyph } from "../ui/BuddyGlyph.js";
 
 /**
  * Buddies in the sidebar menu: one line like the others, lit while a buddy page is open, with an amber count
- * when someone on the team needs the person. The team itself is listed on the Buddies page.
+ * when someone on the team needs the person, and a Beta tag while buddies are new. The team itself is listed on the Buddies page.
  */
 export function SidebarBuddies({
   projection,
@@ -28,6 +28,9 @@ export function SidebarBuddies({
     >
       <BuddyGlyph size={16} />
       <span className="sidebar-nav-label">Buddies</span>
+      <span className="sidebar-beta" title="Buddies are new and still changing">
+        Beta
+      </span>
       {waiting > 0 ? (
         <span className="sidebar-nav-badge is-needs" title={`${waiting} need${waiting === 1 ? "s" : ""} you`}>
           {waiting}

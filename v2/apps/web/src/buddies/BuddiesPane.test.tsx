@@ -408,7 +408,7 @@ describe("SidebarBuddies", () => {
       accept,
     );
     const team = document.querySelector<HTMLButtonElement>(".sidebar-team");
-    expect(team?.textContent).toBe("Buddies1");
+    expect(team?.textContent).toBe("BuddiesBeta1");
     expect(team?.querySelector(".sidebar-nav-badge.is-needs")?.textContent).toBe("1");
     // No faces, buttons or roster on the line: the team lives on the Buddies page.
     expect(document.querySelectorAll(".sidebar-team .buddy-avatar, .sidebar-buddy, .btn")).toHaveLength(0);

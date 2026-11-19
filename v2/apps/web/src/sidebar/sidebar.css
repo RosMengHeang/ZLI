@@ -521,6 +521,7 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .sidebar-nav .sidebar-primary-row { display: block; }
 .sidebar-nav-item, .sidebar-nav .sidebar-primary-row .sidebar-nav-item { display: flex; width: 100%; height: 34px; min-width: 0; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--zli-text); cursor: default; font: inherit; font-size: var(--zli-text-base); font-weight: 400; text-align: left; }
 .sidebar-nav-item > svg { flex: 0 0 auto; color: var(--zli-muted); }
+.sidebar-beta { flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--zli-border-strong); border-radius: 999px; color: var(--zli-muted); font-size: 10px; font-weight: 600; letter-spacing: .04em; line-height: 14px; text-transform: uppercase; }
 .sidebar-nav-item:hover, .sidebar-nav-item:focus-visible, .sidebar-nav-row:hover > .sidebar-nav-item { background: var(--zli-hover); }
 .sidebar-nav-item:active, .sidebar-nav-item.is-active, .sidebar-nav-row.is-active > .sidebar-nav-item { background: var(--zli-active); }
 .sidebar-nav-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

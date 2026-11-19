@@ -129,11 +129,17 @@ export function BuddiesPane(props: BuddiesPaneProps) {
 
 /**
  * Primary, Builder and Tester, Builder's work checked by Tester. Nothing is scheduled: routines start when the
- * person asks a buddy for one or adds one on its page.
+ * person asks a buddy for one or adds one on its page. A name already taken (a buddy moved over from Settings, or
+ * one the person made) is left as it is, so only the missing ones are made.
  */
-async function startTeam(run: Run): Promise<void> {
+async function startTeam(run: Run, taken: ReadonlySet<string> = new Set()): Promise<void> {
   const { buddies, handoff } = starterTeam(makeCommandId);
-  for (const buddy of buddies) if (!(await run({ type: "buddy.create", buddy }))) return;
+  const made = new Set<string>();
+  for (const buddy of buddies) {
+    if (taken.has(buddy.name.toLowerCase())) continue;
+    if (await run({ type: "buddy.create", buddy })) made.add(buddy.buddyId);
+  }
+  if (!made.has(handoff.from) || !made.has(handoff.to)) return;
   await run({
     type: "buddy.handoff.set",
     buddyId: handoff.from,
@@ -142,18 +148,19 @@ async function startTeam(run: Run): Promise<void> {
 }
 
 /**
- * The team is there from the first run: when no buddy was ever made, this makes the starter three.
- * A team someone removed stays removed, since removed buddies stay in the projection as archived.
+ * The team is there from the first run, for a new install and for someone updating from a version before buddies:
+ * while there has never been a Primary, this makes the starter three (any not already there by name). A Primary
+ * someone removed stays removed, since removed buddies stay in the projection as archived.
  */
 export function useStarterTeam(projection: RuntimeProjection | undefined): void {
   const run = useRun(() => undefined);
   const started = useRef(false);
-  const empty = projection !== undefined && (projection.buddies ?? []).length === 0;
+  const missing = projection !== undefined && !(projection.buddies ?? []).some((buddy) => buddy.role === "primary");
   useEffect(() => {
-    if (!empty || !projection || started.current) return;
+    if (!missing || !projection || started.current) return;
     started.current = true;
-    void startTeam(run);
-  }, [empty, projection, run]);
+    void startTeam(run, new Set((projection.buddies ?? []).map((buddy) => buddy.name.toLowerCase())));
+  }, [missing, projection, run]);
 }
 
 /**
@@ -703,7 +710,7 @@ function BuddyPage({
             title={info ? "Hide details" : "Show details"}
             onClick={() => setInfo((open) => !open)}
           >
-            <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} image={buddy.image} size={22} mood={mood} />
+            <BuddyAvatar buddy={buddy.color} look={lookOf(buddy)} image={buddy.image} size={52} mood={mood} />
             <h2 className="buddy-view-name">{buddy.name}</h2>
           </button>
         </header>
