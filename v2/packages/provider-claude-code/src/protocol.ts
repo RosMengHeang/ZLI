@@ -36,7 +36,13 @@ export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPe
  * buddies as another OS user would close that. The buddy's home sits in a subfolder these patterns do not reach.
  */
 const PRIVATE_PATTERNS = [
+  // The key that opens the connected-apps key, and the sealed key itself. Named so that narrowing the wider
+  // patterns below cannot leave them out.
+  "secrets-key.bin",
+  "connected-apps.json",
   "*.json",
+  // A settings file mid-save, before it is renamed into place.
+  "*.json.*.tmp",
   "*.bin",
   "runtime.sqlite*",
   "Local State",
@@ -45,17 +51,31 @@ const PRIVATE_PATTERNS = [
   "*.user-data/**",
 ] as const;
 
-/** A folder as a Claude Code permission path: `//c/Users/...` on Windows, `//Users/...` elsewhere. */
+/**
+ * A folder as a Claude Code permission path: `//c/Users/...` on Windows, `//Users/...` elsewhere. A network folder
+ * (`\\server\share\...`, as with redirected AppData) becomes `//server/share/...`, not `///server/...`, which no
+ * path matches.
+ */
 export function claudeRulePath(folder: string): string {
-  const slashed = folder.replace(/\\/gu, "/").replace(/\/+$/u, "");
-  const drive = /^([A-Za-z]):\//u.exec(slashed);
-  return drive ? `//${drive[1]?.toLowerCase()}/${slashed.slice(3)}` : `/${slashed}`;
+  const slashed = folder
+    .replace(/\\/gu, "/")
+    .replace(/^\/\/\?\/(?:UNC\/)?/u, (prefix) => (prefix.endsWith("UNC/") ? "//" : ""))
+    .replace(/\/+$/u, "");
+  const drive = /^([A-Za-z]):(?:\/|$)/u.exec(slashed);
+  if (drive) return `//${drive[1]?.toLowerCase()}/${slashed.slice(3)}`.replace(/\/+$/u, "");
+  if (/^\/\/[^/]/u.test(slashed)) return slashed;
+  return `/${slashed}`;
 }
 
 /** The deny rules that keep an agent's file tools out of ZLI's own files in `privateDir`. */
 export function privateFileRules(privateDir: string): string[] {
   const base = claudeRulePath(privateDir);
-  return ["Read", "Edit"].flatMap((tool) => PRIVATE_PATTERNS.map((pattern) => `${tool}(${base}/${pattern})`));
+  // The drive letter in both cases: the documented form is lowercase, but a path Claude Code is given may not be.
+  const drive = /^\/\/([a-z])\//u.exec(base);
+  const bases = drive ? [base, `//${drive[1]?.toUpperCase()}${base.slice(3)}`] : [base];
+  return ["Read", "Edit"].flatMap((tool) =>
+    bases.flatMap((root) => PRIVATE_PATTERNS.map((pattern) => `${tool}(${root}/${pattern})`)),
+  );
 }
 
 // Supervised accepts file edits and, with "stdio" as the prompt tool, asks over stdout
