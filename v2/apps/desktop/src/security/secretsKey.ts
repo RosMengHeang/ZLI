@@ -58,6 +58,9 @@ async function keyFrom(path: string, codec: KeychainCodec): Promise<string | typ
   }
   const key = randomBytes(32).toString("base64");
   try {
+    // Known limit: the keychain unwraps this for any process running as the same OS user (DPAPI on Windows), a buddy's
+    // shell included. Deny rules and keeping the key out of agents' environments only narrow that; running buddies as
+    // a separate OS user would close it.
     await writeFile(path, await codec.encrypt(key), { mode: 0o600 });
   } catch {
     return UNSEALABLE;

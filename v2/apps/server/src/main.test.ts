@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { randomBytes } from "node:crypto";
+
 import { takeLaunchOptions } from "./main.js";
+import { SecretBox } from "./secrets/SecretBox.js";
 
 describe("takeLaunchOptions", () => {
   it("passes the runtime token to the server and deletes it from the environment children inherit", () => {
@@ -29,6 +32,22 @@ describe("takeLaunchOptions", () => {
       if (previous === undefined) delete process.env.ZLI_RUNTIME_TOKEN;
       else process.env.ZLI_RUNTIME_TOKEN = previous;
     }
+  });
+
+  it("takes the secrets sealing key out of the environment children inherit, so only this process holds it", () => {
+    const env: NodeJS.ProcessEnv = {
+      ZLI_DATABASE_PATH: "/tmp/zli/runtime.sqlite",
+      ZLI_SECRETS_KEY: randomBytes(32).toString("base64"),
+      ZLI_SECRETS_KEYCHAIN_SLOW: "1",
+    };
+
+    const options = takeLaunchOptions(env);
+
+    expect(options.secrets).toBeInstanceOf(SecretBox);
+    expect(options.keychainSlow).toBe(true);
+    expect(env).not.toHaveProperty("ZLI_SECRETS_KEY");
+    expect(env).not.toHaveProperty("ZLI_SECRETS_KEYCHAIN_SLOW");
+    expect(JSON.stringify(options)).not.toContain("ZLI_SECRETS_KEY");
   });
 
   it("leaves the token out when the server was started without one", () => {
