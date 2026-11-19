@@ -838,6 +838,74 @@ describe("BuddyChatReactor edge cases", () => {
     expect(state.buddies?.[0]?.chatThreadId).not.toBe(threadId);
   });
 
+  it("shows the answer to each message when a second one arrives while the first is answered", async () => {
+    const { engine, settle, deliver, answer } = await setup();
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-a", text: "first" } as RuntimeCommand);
+    const threadId = await deliver();
+    await send(engine, { type: "thread.status", threadId, status: "working" } as RuntimeCommand);
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-b", text: "second" } as RuntimeCommand);
+    await settle();
+    await send(engine, {
+      type: "thread.message",
+      message: { messageId: "a-first", threadId, role: "assistant", text: "Answer to first." },
+    } as RuntimeCommand);
+    const state = await answer("Answer to second.");
+    expect(
+      state.buddyMessages?.filter((message) => message.role === "buddy").map((m) => [m.text, m.progress ?? false]),
+    ).toEqual([
+      ["Answer to first.", true],
+      ["Answer to second.", false],
+    ]);
+  });
+
+  it("marks a partial answer from a stopped chat as cut off and starts nothing from it", async () => {
+    const { engine, settle, deliver } = await setup();
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-c", text: "go" } as RuntimeCommand);
+    const threadId = await deliver();
+    await send(engine, {
+      type: "thread.message",
+      message: { messageId: "a-part", threadId, role: "assistant", text: "Here is the first half\n[[job]]\nDo it" },
+    } as RuntimeCommand);
+    await send(engine, { type: "thread.status", threadId, status: "stopped" } as RuntimeCommand);
+    const state = await settle();
+    expect(state.buddyMessages?.at(-1)).toMatchObject({
+      role: "buddy",
+      unanswered: true,
+      text: expect.stringContaining("(Cut off: I stopped before finishing."),
+    });
+    expect(state.tasks ?? []).toEqual([]);
+    // The note ends the wait: the message is not sent again to a new chat on its own.
+    expect(state.buddies?.[0]?.chatThreadId).toBe(threadId);
+  });
+
+  it("ends a chat left working by a restart with a short note", async () => {
+    const { engine, settle, deliver } = await setup();
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-r", text: "go" } as RuntimeCommand);
+    const threadId = await deliver();
+    await send(engine, { type: "thread.status", threadId, status: "working" } as RuntimeCommand);
+    await settle();
+    // The app restarts: a new reactor looks at the chat it finds still working.
+    const restarted = new BuddyChatReactor(engine, { providers: async () => providers });
+    cleanup.push(() => restarted.stop());
+    for (let round = 0; round < 5; round += 1) await restarted.waitForIdle();
+    const state = await engine.projection();
+    expect(state.buddyMessages?.at(-1)).toMatchObject({
+      role: "buddy",
+      unanswered: true,
+      text: "ZLI restarted while I was answering, so I stopped. Send your message again.",
+    });
+  });
+
+  it("still chats while buddies are paused, and says a job it starts waits for Resume", async () => {
+    const { engine, settle, answer } = await setup();
+    await send(engine, { type: "buddies.pause" } as RuntimeCommand);
+    await send(engine, { type: "buddy.chat.send", buddyId: "b1", messageId: "m-p", text: "fix it" } as RuntimeCommand);
+    await settle();
+    const state = await answer("Starting.\n[[job]]\nFix the bug.\n[[/job]]");
+    expect(state.tasks).toHaveLength(1);
+    expect(state.buddyMessages?.at(-1)?.text).toBe("Starting.\n\nBuddies are paused, so this job waits until you resume.");
+  });
+
   it("takes a message as long as the limit allows", async () => {
     const { engine, settle } = await setup();
     const text = "x".repeat(4_000);
