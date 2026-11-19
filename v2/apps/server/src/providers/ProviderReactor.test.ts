@@ -356,11 +356,13 @@ describe("ProviderReactor", () => {
     const adapter = new FakeAdapter();
     const service = new ProviderService(new ProviderRegistry([adapter]));
     const ran: { tool: string; params: Record<string, unknown> | undefined }[] = [];
+    let clock = Date.parse("2026-11-19T10:00:00.000Z");
     const reactor = new ProviderReactor(engine, service, undefined, {
       runApps: async (tool, params) => {
         ran.push({ tool, params });
         return { ok: true, text: "{}" };
       },
+      now: () => clock,
     });
     let n = 0;
     const dispatch = (command: Record<string, unknown>) => {
@@ -453,6 +455,20 @@ describe("ProviderReactor", () => {
     await reactor.waitForIdle();
     expect(ran).toHaveLength(1);
     expect(await drafts()).toEqual([]);
+    // A card nobody answers expires after a day: it goes away, and a late answer runs nothing.
+    await dispatch({ type: "thread.status", threadId, status: "working" });
+    await reactor.askAppAction(email("fourth"));
+    const [stale] = await drafts();
+    clock += 24 * 60 * 60_000 + 1;
+    await reactor.expireAppDrafts();
+    expect(await drafts()).toEqual([]);
+    await reactor.askAppAction(email("fifth"));
+    const [late] = await drafts();
+    clock += 24 * 60 * 60_000 + 1;
+    await dispatch({ type: "thread.respond", threadId, requestId: late?.requestId, decision: { approved: true } });
+    await reactor.waitForIdle();
+    expect(ran).toHaveLength(1);
+    expect(stale?.payload).toMatchObject({ expiresAt: expect.any(String) });
     // The agent never hears about a card ZLI made.
     expect(adapter.decisions).toEqual([]);
     reactor.stop();

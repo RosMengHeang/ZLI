@@ -112,13 +112,19 @@ export class ProviderReactor {
       resolveAccount?: ThreadAccountResolver;
       /** Runs an app call the person sent from its card, with the saved key. */
       runApps?: (tool: string, params: Record<string, unknown> | undefined) => Promise<AppsRunResult>;
+      /** The clock app cards expire by; tests set it. */
+      now?: () => number;
     } = {},
   ) {
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
+    // App cards nobody answered within a day go away, so an old one is never sent by a late click.
+    this.draftSweep = setInterval(() => void this.expireAppDrafts().catch(() => undefined), APP_DRAFT_SWEEP_MS);
+    this.draftSweep.unref?.();
     this.unsubscribeProvider = service.subscribe((event) => this.onProviderEvent(event));
   }
 
   stop(): void {
+    clearInterval(this.draftSweep);
     this.unsubscribe();
     this.unsubscribeProvider();
     for (const pending of this.pendingDeltas.values()) clearTimeout(pending.timer);
@@ -139,6 +145,7 @@ export class ProviderReactor {
    * instead of appearing idle and failing on the next send.
    */
   async reconcileOrphanedThreads(): Promise<void> {
+    await this.expireAppDrafts().catch(() => undefined);
     const projection = await this.engine.projection();
     for (const thread of projection.threads) {
       if (this.service.hasSession(ThreadId.parse(thread.threadId))) continue;
@@ -783,6 +790,7 @@ export class ProviderReactor {
       ...(what.details && what.details !== "{}" ? { details: what.details } : {}),
       ...(buddy ? { buddyId: buddy.buddyId } : {}),
       ...(email ? { email } : {}),
+      expiresAt: new Date(this.now() + APP_DRAFT_TTL_MS).toISOString(),
       // What ZLI runs when the person sends it; the card can change only the email's lines.
       call: { tool: call.tool, ...(call.params ? { params: call.params } : {}) },
     });
@@ -810,11 +818,16 @@ export class ProviderReactor {
       kind?: unknown;
       buddyId?: unknown;
       apps?: unknown;
+      expiresAt?: unknown;
       call?: { tool?: unknown; params?: unknown };
     };
     if (!open || payload.kind !== "app-action") return;
     await this.dropRequest(threadId, requestId);
     const buddyId = typeof payload.buddyId === "string" ? payload.buddyId : undefined;
+    if (this.draftExpired(payload.expiresAt)) {
+      await this.appOutcome(buddyId, APP_DRAFT_EXPIRED);
+      return;
+    }
     const apps = typeof payload.apps === "string" ? payload.apps : "your apps";
     const tool = typeof payload.call?.tool === "string" ? payload.call.tool : "";
     const stored = payload.call?.params;
@@ -841,6 +854,30 @@ export class ProviderReactor {
       buddyId,
       result.ok ? done : `That didn't go through in ${apps}: ${result.text.slice(0, 300) || "no reason given"}.`,
     );
+  }
+
+  private readonly draftSweep: ReturnType<typeof setInterval>;
+
+  private now(): number {
+    return this.options.now?.() ?? Date.now();
+  }
+
+  /** A card's expiry has passed. A card without one (made before cards expired) never expires. */
+  private draftExpired(expiresAt: unknown): boolean {
+    const at = typeof expiresAt === "string" ? Date.parse(expiresAt) : Number.NaN;
+    return Number.isFinite(at) && at <= this.now();
+  }
+
+  /** Removes app cards past their expiry and says so in the buddy's chat. */
+  async expireAppDrafts(): Promise<void> {
+    const projection = await this.engine.projection();
+    for (const request of projection.requests ?? []) {
+      if (!isAppDraft(request.requestId) || this.appAnswers.has(request.requestId)) continue;
+      const payload = request.payload as { kind?: unknown; buddyId?: unknown; expiresAt?: unknown };
+      if (payload.kind !== "app-action" || !this.draftExpired(payload.expiresAt)) continue;
+      await this.dropRequest(request.threadId, request.requestId);
+      await this.appOutcome(typeof payload.buddyId === "string" ? payload.buddyId : undefined, APP_DRAFT_EXPIRED);
+    }
   }
 
   /** The outcome of an app card, as a line from the buddy, so the chat and the buddy's history both show it. */
@@ -1055,6 +1092,11 @@ function safeTurnId(value: string): TurnId {
 }
 
 /** The tool servers ZLI itself gives every agent: the browser, ZLI's own tools, the phone, connected apps. */
+/** How long an app card waits for the person, and how often ZLI looks for expired ones. */
+const APP_DRAFT_TTL_MS = 24 * 60 * 60_000;
+const APP_DRAFT_SWEEP_MS = 10 * 60_000;
+const APP_DRAFT_EXPIRED =
+  "That draft waited a day without an answer, so it expired and nothing was sent. Ask me again if you still want it.";
 const APP_ACTION_HELD =
   "Not done yet: ZLI showed this to the person as a card in the chat, and it runs when they press Send there (ZLI " +
   "runs it, so don't call it again or wait for it). End your turn now with one short line saying it is ready for " +
