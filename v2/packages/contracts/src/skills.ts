@@ -23,6 +23,7 @@ export const MAX_SKILL_INSTRUCTIONS = 200_000;
  * - Kimi Code: https://www.kimi.com/code/docs/en/kimi-code-cli/customization/skills.html
  * - Qwen Code: https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/
  * - Goose: https://goose-docs.ai/docs/guides/context-engineering/using-skills/
+ * - Grok Build: user guide 08-skills.md, shipped in ~/.grok/docs (Claude and Cursor folders are on by default)
  */
 export const AGENT_SKILL_DIRS: Record<ListedProviderKind, { user: readonly string[]; project: readonly string[] }> = {
   "claude-code": { user: [".claude/skills"], project: [".claude/skills"] },
@@ -46,6 +47,10 @@ export const AGENT_SKILL_DIRS: Record<ListedProviderKind, { user: readonly strin
   goose: {
     user: [".agents/skills", ".claude/skills"],
     project: [".agents/skills", ".goose/skills", ".claude/skills"],
+  },
+  grok: {
+    user: [".grok/skills", ".agents/skills", ".claude/skills", ".cursor/skills"],
+    project: [".grok/skills", ".agents/skills", ".claude/skills", ".cursor/skills"],
   },
 };
 

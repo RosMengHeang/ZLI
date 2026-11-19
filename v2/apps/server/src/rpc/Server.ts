@@ -26,6 +26,8 @@ import {
   FileReadResult,
   FileSearchResult,
   FileWriteResult,
+  FORGE_COMMAND_TYPES,
+  type ForgeCommand,
   GIT_CHANGES_COMMAND_TYPES,
   type GitChangesCommand,
   HISTORY_COMMAND_TYPES,
@@ -61,6 +63,9 @@ import { type RawData, WebSocket, WebSocketServer } from "ws";
 
 import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckpoints.js";
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
+import { CloneError, cloneRepository } from "../forges/clone.js";
+import { ForgeService } from "../forges/ForgeService.js";
+import { PublishError, publishRepository } from "../forges/publish.js";
 import { huddleScopeError } from "../huddles/huddleScope.js";
 import type { TerminalInputTracker } from "../huddles/TerminalInputTracker.js";
 import type { AgentHistoryScanner } from "../import/AgentHistoryScanner.js";
@@ -114,6 +119,7 @@ type RpcServerOptions = {
   gitChangesService?: GitChangesService;
   /** GitHub issues through gh, and Linear when a key path is configured. */
   issues?: IssueSources;
+  forges?: ForgeService;
   /** Turn diffs and restores. Without it, checkpoint commands are answered as unavailable. */
   checkpoints?: Pick<TurnCheckpoints, "run">;
   /** The MCP servers from Settings. Without it, MCP commands are answered as unavailable. */
@@ -157,6 +163,7 @@ export class RpcServer {
   private readonly pullRequestService: PullRequestService;
   private readonly gitChangesService: GitChangesService;
   private readonly issues: IssueSources;
+  private readonly forges: ForgeService;
   private readonly checkpoints: RpcServerOptions["checkpoints"];
   private readonly mcpServers: RpcServerOptions["mcpServers"];
   private readonly skills: SkillStore | undefined;
@@ -196,6 +203,7 @@ export class RpcServer {
     this.pullRequestService = options.pullRequestService ?? new PullRequestService();
     this.gitChangesService = options.gitChangesService ?? new GitChangesService();
     this.issues = options.issues ?? defaultIssueSources();
+    this.forges = options.forges ?? new ForgeService();
     this.checkpoints = options.checkpoints;
     this.mcpServers = options.mcpServers;
     this.skills = options.skills;
@@ -843,6 +851,59 @@ export class RpcServer {
     return true;
   }
 
+  /** Forge status runs each forge's CLI and answers directly, outside the event log. */
+  private async handleForgeCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isForgeCommand(command)) return false;
+    try {
+      const result =
+        command.type === "project.publish"
+          ? await this.publish(command)
+          : command.type === "project.clone"
+            ? await cloneRepository({
+                source: command.source,
+                forge: command.forge,
+                parent: command.parent,
+                name: command.name,
+              })
+            : command.type === "forges.rescan"
+              ? await this.forges.rescan()
+              : await this.forges.status();
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch (error) {
+      const message =
+        error instanceof CloneError || error instanceof PublishError
+          ? error.message
+          : `The forge command failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`;
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "invalid_request", message, retryable: true },
+        },
+      });
+    }
+    return true;
+  }
+
+  private async publish(command: Extract<ForgeCommand, { type: "project.publish" }>) {
+    const projection = await this.engine.projection();
+    const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
+    if (!worktree) throw new PublishError("Worktree does not exist.");
+    const url = (
+      await publishRepository(worktree.path, {
+        forge: command.forge,
+        owner: command.owner,
+        name: command.name,
+        private: command.private,
+      })
+    ).url;
+    // The forge is there now; status checks run the CLIs again so pull requests show at once.
+    void this.forges.rescan();
+    return { url };
+  }
+
   /** Turn diffs and restores read and write the worktree with Git and answer directly. */
   private async handleCheckpointCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
     const command = request.command;
@@ -953,6 +1014,7 @@ export class RpcServer {
         if (await this.handlePullRequestCommand(client, message.data.request)) return;
         if (await this.handleGitChangesCommand(client, message.data.request)) return;
         if (await this.handleIssueCommand(client, message.data.request)) return;
+        if (await this.handleForgeCommand(client, message.data.request)) return;
         if (await this.handleCheckpointCommand(client, message.data.request)) return;
         if (await this.handleProjectConfig(client, message.data.request)) return;
         if (await this.handleProjectBranch(client, message.data.request)) return;
@@ -1200,6 +1262,10 @@ function isPullRequestCommand(command: RpcRequest["command"]): command is PullRe
 
 function isGitChangesCommand(command: RpcRequest["command"]): command is GitChangesCommand {
   return (GIT_CHANGES_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isForgeCommand(command: RpcRequest["command"]): command is ForgeCommand {
+  return (FORGE_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isIssueCommand(command: RpcRequest["command"]): command is IssueCommand {

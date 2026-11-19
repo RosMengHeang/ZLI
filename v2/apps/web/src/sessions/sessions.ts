@@ -205,6 +205,8 @@ export function sessionStatus(session: Pick<AgentSession, "terminal" | "thread" 
   if (!terminal && !thread) return pending?.errorMessage ? "failed" : "preparing";
   if (thread?.status === "waiting") return "waiting";
   if (thread?.status === "working") return "working";
+  // An agent CLI in a terminal says nothing about its turns, so the runtime reads its output instead.
+  if (terminal?.status === "running" && terminal.activity === "working") return "working";
   if (thread?.status === "starting" || terminal?.status === "starting") return "starting";
   const terminalLive = terminal?.status === "running";
   const threadLive = thread?.status === "idle";

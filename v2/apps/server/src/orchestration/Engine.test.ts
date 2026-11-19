@@ -252,13 +252,13 @@ describe("durable environment engine", () => {
       [
         2,
         "00000000-0000-4000-8000-000000000022",
-        "terminal.activity.changed",
+        "later.feature.changed",
         JSON.stringify({
           protocolVersion: 1,
           sequence: 2,
           eventId: "00000000-0000-4000-8000-000000000022",
           occurredAt: new Date().toISOString(),
-          event: { type: "terminal.activity.changed", terminalId: "t1", activity: "working" },
+          event: { type: "later.feature.changed", detail: "from a newer build" },
         }),
         new Date().toISOString(),
       ],

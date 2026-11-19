@@ -14,6 +14,7 @@ import {
   parseCodexModels,
   parseCursorModels,
   parseDroidModels,
+  parseGrokModels,
   parseOpenCodeModels,
   readCachedCliModels,
   readCliModels,
@@ -27,6 +28,7 @@ const ACP_CLIS = [
   ["kimi", "Kimi Code"],
   ["qwen", "Qwen Code"],
   ["goose", "Goose"],
+  ["grok", "Grok"],
 ] as const;
 
 const acpMissing = ACP_CLIS.map(([provider, displayName]) => ({
@@ -103,7 +105,7 @@ describe("discoverCliProviders", () => {
       }),
     );
 
-    expect(discovery.map((entry) => entry.status)).toEqual(Array(10).fill("missing"));
+    expect(discovery.map((entry) => entry.status)).toEqual(Array(11).fill("missing"));
     expect(discovery.map((entry) => ("reason" in entry ? entry.reason : ""))).toEqual([
       "Codex CLI was not found on PATH or in known install locations.",
       "Claude Code CLI was not found on PATH or in known install locations.",
@@ -198,6 +200,7 @@ describe("discoverCliProviders", () => {
       "C:\\Users\\dev\\.kimi-code\\bin\\kimi.exe",
       "C:\\Users\\dev\\.bun\\bin\\qwen.exe",
       "C:\\Users\\dev\\.local\\bin\\goose.exe",
+      "C:\\Users\\dev\\.local\\bin\\grok.exe",
     ]);
     const discovery = await discoverCliProviders(
       probe({
@@ -234,6 +237,7 @@ describe("discoverCliProviders", () => {
       },
       { provider: "qwen", displayName: "Qwen Code", status: "found", path: "C:\\Users\\dev\\.bun\\bin\\qwen.exe" },
       { provider: "goose", displayName: "Goose", status: "found", path: "C:\\Users\\dev\\.local\\bin\\goose.exe" },
+      { provider: "grok", displayName: "Grok", status: "found", path: "C:\\Users\\dev\\.local\\bin\\grok.exe" },
     ]);
   });
 
@@ -312,7 +316,7 @@ describe("CLI probe helpers", () => {
       version: "codex mock",
     });
     expect(windows.filter((entry) => entry.provider !== "codex").map((entry) => entry.status)).toEqual(
-      Array(9).fill("missing"),
+      Array(10).fill("missing"),
     );
   });
 
@@ -426,6 +430,31 @@ describe("model discovery", () => {
     ]);
     expect(parseOpenCodeModels("Error: no providers")).toBeUndefined();
     expect(parseOpenCodeModels(undefined)).toBeUndefined();
+  });
+
+  it("parses grok models output and marks the default", () => {
+    const output = [
+      "You are logged in with grok.com.",
+      "",
+      "Default model: grok-4.7",
+      "",
+      "Available models:",
+      "  * grok-4.7 (default)",
+      "  - grok-4.7-build-fast",
+      "  - grok-4.6",
+      "  - grok 4.5",
+      "",
+    ].join("\r\n");
+    expect(parseGrokModels(output)).toEqual([
+      { id: "grok-4.7", label: "grok-4.7", isDefault: true },
+      { id: "grok-4.7-build-fast", label: "grok-4.7-build-fast" },
+      { id: "grok-4.6", label: "grok-4.6" },
+    ]);
+    expect(parseGrokModels("Default model: grok-4.7\n- grok-4.6")).toBeUndefined();
+    expect(
+      parseGrokModels("You are not authenticated.\n\nAvailable models:\n  * grok-4.6 (default)\n  - grok-4.5\n"),
+    ).toBeUndefined();
+    expect(parseGrokModels(undefined)).toBeUndefined();
   });
 
   it("returns the static Claude Code aliases and nothing for Codex", async () => {

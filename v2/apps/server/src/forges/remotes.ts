@@ -11,8 +11,12 @@ const GIT_TIMEOUT_MS = 60_000;
 /** github.com and gitlab.com answer on these names too. */
 const GITHUB_HOSTS = new Set(["github.com", "www.github.com", "ssh.github.com"]);
 const GITLAB_HOSTS = new Set(["gitlab.com", "www.gitlab.com", "altssh.gitlab.com"]);
+/** Codeberg runs Forgejo, which speaks the Gitea API, so tea drives it. */
+const GITEA_HOSTS = new Set(["codeberg.org", "gitea.com"]);
 
-export type Forge = "github" | "gitlab";
+/** A forge: where a repository is hosted, and the CLI that drives it (gh, glab or tea). */
+export type ForgeKind = "github" | "gitlab" | "gitea";
+export type Forge = ForgeKind;
 
 /** Where a project's issues live, as its Git remotes tell it. */
 export type ProjectRemotes =
@@ -27,10 +31,18 @@ export type ProjectRemotes =
       host?: string;
     };
 
-/** Hosts each CLI is signed in to, beyond github.com and gitlab.com. */
-export type KnownHosts = { github(): Promise<readonly string[]>; gitlab(): Promise<readonly string[]> };
+/** Hosts each CLI is signed in to, beyond the well-known ones. */
+export type KnownHosts = {
+  github(): Promise<readonly string[]>;
+  gitlab(): Promise<readonly string[]>;
+  gitea?(): Promise<readonly string[]>;
+};
 
-export const CLI_HOSTS: KnownHosts = { github: () => readGhHosts(), gitlab: () => readGlabHosts() };
+export const CLI_HOSTS: KnownHosts = {
+  github: () => readGhHosts(),
+  gitlab: () => readGlabHosts(),
+  gitea: () => readTeaHosts(),
+};
 
 type GitRemote = { name: string; host?: string };
 
@@ -52,15 +64,17 @@ export async function readProjectRemotes(
   ];
   const host = ordered[0]?.host;
   const needsConfig = ordered.some((remote) => remote.host?.includes(".") && !wellKnownForge(remote.host));
-  const [github, gitlab] = needsConfig
-    ? await Promise.all([known.github(), known.gitlab()]).then((lists) =>
+  const [github, gitlab, gitea] = needsConfig
+    ? await Promise.all([known.github(), known.gitlab(), known.gitea?.() ?? []]).then((lists) =>
         lists.map((list) => new Set(list.map((entry) => entry.toLowerCase()))),
       )
-    : [new Set<string>(), new Set<string>()];
+    : [new Set<string>(), new Set<string>(), new Set<string>()];
   const sources: Forge[] = [];
   const hosts: Partial<Record<Forge, string>> = {};
   for (const remote of ordered) {
-    const forge = remote.host ? forgeOf(remote.host, github ?? new Set(), gitlab ?? new Set()) : undefined;
+    const forge = remote.host
+      ? forgeOf(remote.host, github ?? new Set(), gitlab ?? new Set(), gitea ?? new Set())
+      : undefined;
     if (!forge || !remote.host) continue;
     if (!sources.includes(forge)) sources.push(forge);
     hosts[forge] ??= remote.host;
@@ -73,15 +87,21 @@ export async function readProjectRemotes(
 }
 
 function wellKnownForge(host: string): boolean {
-  return GITHUB_HOSTS.has(host) || host.endsWith(".ghe.com") || GITLAB_HOSTS.has(host);
+  return GITHUB_HOSTS.has(host) || host.endsWith(".ghe.com") || GITLAB_HOSTS.has(host) || GITEA_HOSTS.has(host);
 }
 
-function forgeOf(host: string, github: ReadonlySet<string>, gitlab: ReadonlySet<string>): Forge | undefined {
+function forgeOf(
+  host: string,
+  github: ReadonlySet<string>,
+  gitlab: ReadonlySet<string>,
+  gitea: ReadonlySet<string>,
+): Forge | undefined {
   if (!host.includes(".")) return undefined;
   if (GITHUB_HOSTS.has(host) || host.endsWith(".ghe.com") || github.has(host)) return "github";
   // A self-hosted GitLab glab is not signed in to yet is still GitLab when its name says so, so the
   // person is told to sign in rather than that ZLI cannot read it.
   if (GITLAB_HOSTS.has(host) || gitlab.has(host) || host.startsWith("gitlab.")) return "gitlab";
+  if (GITEA_HOSTS.has(host) || gitea.has(host)) return "gitea";
   return undefined;
 }
 
@@ -170,4 +190,33 @@ function glabConfigDir(env: NodeJS.ProcessEnv): string {
   if (env.GLAB_CONFIG_DIR) return env.GLAB_CONFIG_DIR;
   if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, "glab-cli");
   return join(homedir(), ".config", "glab-cli");
+}
+
+/** Servers tea is logged in to, from the `url` of each entry under `logins` in its config.yml. */
+export async function readTeaHosts(env: NodeJS.ProcessEnv = process.env): Promise<string[]> {
+  const hosts: string[] = [];
+  try {
+    const text = await readFile(join(teaConfigDir(env), "config.yml"), "utf8");
+    let inLogins = false;
+    for (const line of text.split(/\r?\n/u)) {
+      // tea writes the list items at the first column, so only a key there starts a new section.
+      if (/^[^\s#-]/u.test(line)) {
+        inLogins = /^logins:\s*$/u.test(line.trim());
+        continue;
+      }
+      if (!inLogins) continue;
+      const url = /^\s*-?\s*url:\s*["']?([^"'\s]+)/u.exec(line)?.[1];
+      const host = url ? remoteHost(url) : undefined;
+      if (host) hosts.push(host);
+    }
+  } catch {
+    // Without a config file tea has no logins.
+  }
+  return hosts;
+}
+
+function teaConfigDir(env: NodeJS.ProcessEnv): string {
+  if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, "tea");
+  if (process.platform === "win32" && env.LOCALAPPDATA) return join(env.LOCALAPPDATA, "tea");
+  return join(homedir(), ".config", "tea");
 }

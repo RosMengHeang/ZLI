@@ -14,6 +14,7 @@ export const ProviderKind = z.enum([
   "kimi",
   "qwen",
   "goose",
+  "grok",
 ]);
 export type ProviderKind = z.infer<typeof ProviderKind>;
 

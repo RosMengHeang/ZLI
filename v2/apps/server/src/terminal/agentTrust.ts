@@ -35,7 +35,8 @@ export async function trustedProject(
 
 /**
  * Answers an agent CLI's own "trust this folder?" question for a project the person trusted in ZLI.
- * Gemini and Kimi take a flag or variable for one launch. Claude Code, Codex, Copilot, and Droid read
+ * Gemini, Kimi, and Grok take a flag or variable at launch. Grok saves the trust itself and, until then,
+ * starts no servers from the project's .grok/config.toml. Claude Code, Codex, Copilot, and Droid read
  * trust only from their own settings, so the folder is added there. Trust is not permission: the
  * permission mode still decides what the agent may do without asking. When a settings file cannot be
  * read or written, the CLI asks on its own as before.
@@ -53,6 +54,8 @@ export async function agentFolderTrust(
         return { args: ["--skip-trust"], env: {} };
       case "kimi":
         return { args: [], env: { KIMI_CODE_TRUST_WORKSPACE: "1" } };
+      case "grok":
+        return { args: ["--trust"], env: {} };
       case "claude-code": {
         // Claude Code also trusts a worktree whose main checkout is trusted.
         const folders = await variants(options.projectPath, options.platform ?? process.platform);

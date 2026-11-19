@@ -102,6 +102,24 @@ describe("readAgentLogin", () => {
     expect(JSON.stringify(kimi)).not.toContain("secret");
   });
 
+  it("reads Grok's account email from GROK_HOME, falling back to XAI_API_KEY", async () => {
+    expect(await readAgentLogin("grok", { home, env: {} })).toEqual({ status: "signed-out" });
+    expect(await readAgentLogin("grok", { home, env: { XAI_API_KEY: "xai-1" } })).toEqual({
+      status: "signed-in",
+      method: "api-key",
+    });
+    const account = join(home, "accounts", "work");
+    await mkdir(account, { recursive: true });
+    await writeFile(
+      join(account, "auth.json"),
+      JSON.stringify({ "https://auth.x.ai::id": { email: "kim@example.com", refresh_token: "secret", key: "secret" } }),
+    );
+    expect(await readAgentLogin("grok", { home, env: {} })).toEqual({ status: "signed-out" });
+    const grok = await readAgentLogin("grok", { home, env: { GROK_HOME: account } });
+    expect(grok).toEqual({ status: "signed-in", method: "subscription", email: "kim@example.com" });
+    expect(JSON.stringify(grok)).not.toContain("secret");
+  });
+
   it("reads what cursor-agent status prints", () => {
     expect(parseCursorStatus("\u001b[32m✓ Login successful!\nLogged in as kim@example.com\n")).toEqual({
       status: "signed-in",

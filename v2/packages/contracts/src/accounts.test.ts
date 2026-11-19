@@ -60,6 +60,7 @@ describe("account contracts", () => {
     expect(accountKinds("droid")).toEqual(["api-key"]);
     expect(accountKinds("kimi")).toEqual(["sign-in"]);
     expect(accountKinds("goose")).toEqual([]);
+    expect(accountKinds("grok")).toEqual(["sign-in", "api-key"]);
     expect(ACCOUNT_SUPPORT.opencode).toEqual({ signIn: false, apiKey: false });
   });
 });

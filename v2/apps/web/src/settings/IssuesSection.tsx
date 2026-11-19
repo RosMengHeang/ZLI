@@ -5,6 +5,7 @@ import { connectLinear, disconnectLinear, linearStatus } from "../issues/issuesC
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { requestSettings } from "./openSettings.js";
 import { SettingsGroup, SettingsPageHeader, SettingsRow } from "./SettingsLayout.js";
 import "../issues/issues.css";
 
@@ -109,16 +110,12 @@ export function IssuesSection() {
       </SettingsGroup>
       <SettingsGroup title="GitHub and GitLab">
         <SettingsRow
-          label="GitHub"
-          description="Read with the gh CLI in each project folder. Sign in with gh auth login."
+          label="Read with each forge's CLI"
+          description="Issues come from gh or glab in each project folder, signed in with your account. See which are set up in Forges."
         >
-          <code className="settings-value is-mono">gh</code>
-        </SettingsRow>
-        <SettingsRow
-          label="GitLab"
-          description="Read with the glab CLI. For a self-hosted GitLab, sign in with glab auth login --hostname and its host name."
-        >
-          <code className="settings-value is-mono">glab</code>
+          <Button size="sm" onClick={() => requestSettings("forges")}>
+            Forges
+          </Button>
         </SettingsRow>
       </SettingsGroup>
     </>

@@ -29,8 +29,9 @@ describe("agentFolderTrust", () => {
   const trust = (provider: Parameters<typeof agentFolderTrust>[0], env: NodeJS.ProcessEnv = {}) =>
     agentFolderTrust(provider, { projectPath: project, cwd: worktree, env, home, platform: "linux", now });
 
-  it("passes Gemini's flag and Kimi's variable for one launch", async () => {
+  it("passes Gemini's and Grok's flags and Kimi's variable at launch", async () => {
     expect(await trust("gemini")).toEqual({ args: ["--skip-trust"], env: {} });
+    expect(await trust("grok")).toEqual({ args: ["--trust"], env: {} });
     expect(await trust("kimi")).toEqual({ args: [], env: { KIMI_CODE_TRUST_WORKSPACE: "1" } });
     expect(await trust("qwen")).toEqual({ args: [], env: {} });
   });

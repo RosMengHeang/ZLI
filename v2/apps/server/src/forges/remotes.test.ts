@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { ProcessResult, ProcessRunner } from "../review/PullRequestService.js";
-import { readGhHosts, readGlabHosts, readProjectRemotes, remoteHost } from "./remotes.js";
+import { readGhHosts, readGlabHosts, readProjectRemotes, readTeaHosts, remoteHost } from "./remotes.js";
 
 const ok = (stdout = ""): ProcessResult => ({ code: 0, stdout, stderr: "" });
 const noHosts = { github: async () => [], gitlab: async () => [] };
@@ -65,6 +65,16 @@ describe("readProjectRemotes", () => {
     expect(await readProjectRemotes(runner, "/repo", noHosts)).toEqual({
       unavailable: { code: "other_host", host: "bitbucket.org" },
     });
+  });
+
+  it("knows Codeberg, and Gitea or Forgejo hosts tea is signed in to", async () => {
+    expect(
+      await readProjectRemotes(runnerWith(["origin", "https://codeberg.org/acme/app.git"]), "/repo", noHosts),
+    ).toEqual({ sources: ["gitea"], hosts: { gitea: "codeberg.org" }, host: "codeberg.org" });
+    const known = { ...noHosts, gitea: async () => ["git.example.org"] };
+    expect(
+      await readProjectRemotes(runnerWith(["origin", "git@git.example.org:acme/app.git"]), "/repo", known),
+    ).toMatchObject({ sources: ["gitea"], hosts: { gitea: "git.example.org" } });
   });
 
   it("leaves local paths and SSH aliases to gh when nothing else names a forge", async () => {
@@ -152,6 +162,33 @@ describe("CLI hosts", () => {
         await readGlabHosts({ XDG_CONFIG_HOME: dir, GITLAB_HOST: "https://gitlab.other.example/", GL_HOST: " " }),
       ).toEqual(["gitlab.other.example", "gitlab.com", "git.corp.example"]);
       expect(await readGlabHosts({ GLAB_CONFIG_DIR: join(dir, "missing") })).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads the servers tea is logged in to", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zli-tea-hosts-"));
+    try {
+      await mkdir(join(dir, "tea"));
+      await writeFile(
+        join(dir, "tea", "config.yml"),
+        [
+          "logins:",
+          "- name: work",
+          "  url: https://Git.Example.org",
+          "  token: secret",
+          "  default: true",
+          "- name: codeberg",
+          "  url: https://codeberg.org/",
+          "preferences:",
+          "  editor: false",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      expect(await readTeaHosts({ XDG_CONFIG_HOME: dir })).toEqual(["git.example.org", "codeberg.org"]);
+      expect(await readTeaHosts({ XDG_CONFIG_HOME: join(dir, "missing") })).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

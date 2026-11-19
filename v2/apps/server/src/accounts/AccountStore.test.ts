@@ -3,9 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-
-import { accountLoginArgs, signInStatus } from "./accountEnv.js";
 import { AccountStore, keyHint } from "./AccountStore.js";
+import { accountLoginArgs, signInStatus } from "./accountEnv.js";
 
 const KEY = "sk-test-0123456789abcdef";
 const dirs: string[] = [];
@@ -88,6 +87,24 @@ describe("AccountStore", () => {
         env: { [name]: dir },
       });
     }
+  });
+
+  it("gives each Grok sign-in its own GROK_HOME without an updater of its own", async () => {
+    const { store, root } = await makeStore();
+    const first = (await store.save({ provider: "grok", label: "Work", kind: "sign-in" })).accounts.find(
+      (entry) => entry.label === "Work",
+    );
+    const second = (await store.save({ provider: "grok", label: "Personal", kind: "sign-in" })).accounts.find(
+      (entry) => entry.label === "Personal",
+    );
+    if (!first || !second) throw new Error("not saved");
+    for (const account of [first, second]) {
+      await expect(store.resolve("grok", account.id)).resolves.toEqual({
+        accountId: account.id,
+        env: { GROK_HOME: join(root, "accounts", account.id), GROK_DISABLE_AUTOUPDATER: "1" },
+      });
+    }
+    expect(first.id).not.toBe(second.id);
   });
 
   it("resolves API key accounts to each provider's key variable", async () => {
@@ -213,6 +230,7 @@ describe("account sign-in", () => {
     expect(accountLoginArgs("cursor-agent")).toEqual(["login"]);
     expect(accountLoginArgs("copilot")).toEqual(["login"]);
     expect(accountLoginArgs("kimi")).toEqual(["login"]);
+    expect(accountLoginArgs("grok")).toEqual(["login"]);
     expect(accountLoginArgs("claude-code")).toEqual([]);
     expect(accountLoginArgs("droid")).toBeUndefined();
     expect(accountLoginArgs("opencode")).toBeUndefined();
@@ -223,6 +241,13 @@ describe("account sign-in", () => {
     await expect(signInStatus("codex", dir)).resolves.toBe("not-checked");
     await writeFile(join(dir, "auth.json"), "{}");
     await expect(signInStatus("codex", dir)).resolves.toBe("signed-in");
+
+    const grok = await tempDir();
+    await expect(signInStatus("grok", grok)).resolves.toBe("not-checked");
+    await writeFile(join(grok, "auth.json"), JSON.stringify({ "https://auth.x.ai::id": { email: "a@b.c" } }));
+    await expect(signInStatus("grok", grok)).resolves.toBe("not-checked");
+    await writeFile(join(grok, "auth.json"), JSON.stringify({ "https://auth.x.ai::id": { refresh_token: "r" } }));
+    await expect(signInStatus("grok", grok)).resolves.toBe("signed-in");
 
     await expect(signInStatus("claude-code", dir)).resolves.toBe("not-checked");
     await writeFile(join(dir, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "a@b.c" } }));

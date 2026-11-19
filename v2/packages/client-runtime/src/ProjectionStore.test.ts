@@ -52,6 +52,31 @@ describe("ProjectionStore", () => {
     expect(store.current()?.terminals[0]?.name).toBe("John");
     expect(store.current()?.lastSequence).toBe(2);
   });
+  it("applies terminal activity, and drops it once the terminal stops", () => {
+    const store = new ProjectionStore();
+    store.replace({
+      ...projection(),
+      terminals: [
+        {
+          terminalId: id("23"),
+          worktreeId: id("22"),
+          title: "Claude",
+          status: "running",
+          lastSequence: 0,
+          kind: "agent",
+          agent: { provider: "claude-code" },
+        },
+      ],
+    });
+    expect(
+      store.apply(envelope(1, { type: "terminal.activity.changed", terminalId: id("23"), activity: "working" })),
+    ).toBe("applied");
+    expect(store.current()?.terminals[0]?.activity).toBe("working");
+    expect(store.apply(envelope(2, { type: "terminal.status.changed", terminalId: id("23"), status: "exited" }))).toBe(
+      "applied",
+    );
+    expect(store.current()?.terminals[0]).not.toHaveProperty("activity");
+  });
   it("applies durable worktree, terminal, and review events without losing sequence", () => {
     const store = new ProjectionStore();
     store.replace(projection());

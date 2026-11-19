@@ -9,6 +9,7 @@ import {
   type HuddleProjection,
   type HuddleTarget,
   huddleAgentInfo,
+  huddlesOf,
   type RuntimeProjection,
 } from "@zli-v2/contracts";
 
@@ -56,6 +57,21 @@ export function liveHuddles(projection: Pick<RuntimeProjection, "huddles">): Hud
 export function sessionAgentId(session: Pick<AgentSession, "mode" | "terminal" | "thread">): string | undefined {
   if (session.mode === "terminal") return session.terminal?.agent ? session.terminal.terminalId : undefined;
   return session.thread?.threadId;
+}
+
+/** The live huddles a session's agent is in. */
+export function sessionHuddles(
+  projection: Pick<RuntimeProjection, "huddles">,
+  session: Pick<AgentSession, "mode" | "terminal" | "thread">,
+): HuddleProjection[] {
+  const agentId = sessionAgentId(session);
+  return agentId ? huddlesOf(projection, agentId) : [];
+}
+
+/** Says which huddles these are and that a paused one is waiting on the person, for a mark's tooltip. */
+export function huddleMarkText(huddles: readonly HuddleProjection[]): string {
+  const names = huddles.map((huddle) => (huddle.paused ? `${huddle.name} (paused)` : huddle.name));
+  return names.length === 1 ? `In the huddle ${names[0]}` : `In ${names.join(", ")}`;
 }
 
 /** The session that holds an agent id, whether it is the chat on screen or an earlier one. */

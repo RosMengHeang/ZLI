@@ -194,6 +194,10 @@ function Summary({ summary: { row, window } }: { summary: SummaryPick }) {
         <>
           <span className="usage-strip-window-label">{windowLabel(window)}</span>
           <span className="usage-strip-window-percent">{formatPercent(used)}</span>
+          {/* Only the Project rail style shows this. Elsewhere the line is too tight for it. */}
+          <span className="usage-strip-bar">
+            <span style={{ width: `${used}%` }} />
+          </span>
         </>
       ) : row.reading.state === "ok" ? null : (
         <span className="usage-strip-state">{stateText[row.reading.state]}</span>

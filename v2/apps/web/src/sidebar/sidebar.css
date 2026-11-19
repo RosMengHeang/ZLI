@@ -217,6 +217,232 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
   .session-time { display: none; }
 }
 
+/* ---------- Branches style ---------- */
+/* The same flat header as the rail's panel: the scope is words with a chevron, and fill only comes with the pointer. */
+.ship-filter { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; padding: 0 var(--zli-space-2) var(--zli-space-2); }
+.ship-filter .btn { height: var(--zli-control-md); border-color: transparent; background: transparent; box-shadow: none; }
+.ship-filter .btn:hover:not(:disabled), .ship-filter .btn[aria-expanded="true"] { background: var(--zli-hover); }
+.ship-filter .btn-icon { width: var(--zli-control-md); flex: 0 0 auto; padding: 0; color: var(--zli-muted); }
+.ship-filter .project-rename { min-width: 0; height: var(--zli-control-md); flex: 1; }
+/* Two classes, because the shared button styles load after this file and would otherwise stop it shrinking. */
+.ship-filter .ship-project-trigger { min-width: 0; flex: 0 1 auto; justify-content: flex-start; gap: var(--zli-space-1); margin-right: auto; padding: 0 var(--zli-space-2); color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.ship-project-trigger > svg { flex: 0 0 auto; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.ship-project-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.ship-project-name { min-width: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+/* Status colors only: amber means an agent there is waiting, blue that one is working. */
+.ship-menu-dot { display: block; width: 6px; height: 6px; border-radius: 50%; }
+.ship-menu-dot.is-waiting { background: var(--zli-amber); }
+.ship-menu-dot.is-failed { background: var(--zli-red); }
+.ship-menu-dot.is-working { background: var(--zli-blue); }
+.ship-empty { margin-left: var(--zli-space-2-5); }
+.ship-note { margin: var(--zli-space-3) var(--zli-space-2-5) 0; overflow-wrap: anywhere; }
+/* One calm list: no stage headings. Order alone says what comes first, and finished work waits in Done at the foot. */
+.ship-scroll { display: flex; flex-direction: column; }
+.ship-scroll > .ship-done { margin-top: auto; padding-top: var(--zli-space-4); }
+.ship-stage-heading { margin: 0 0 2px; padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); font-weight: 500; line-height: 24px; }
+.ship-stage-count { margin-left: 2px; color: var(--zli-dim); font-variant-numeric: tabular-nums; font-weight: 400; }
+/* A folded group is a whole-width row, with its chevron at the end where the eye expects more. */
+.ship-fold { display: flex; width: 100%; align-items: center; gap: var(--zli-space-1); height: var(--zli-control-lg); padding: 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: pointer; font-size: var(--zli-text-base); text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.ship-fold:hover { background: var(--zli-hover); color: var(--zli-text); }
+.ship-fold:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.ship-fold > .ship-stage-count { margin-left: auto; }
+.ship-fold > svg { flex: 0 0 auto; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.ship-fold[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.ship-fold + .ship-list { margin-top: 2px; }
+.ship-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+/* Every row is two lines: what it is for and how long ago, then where it is or what it waits on. One fill marks the open one. */
+.ship-entry { position: relative; }
+.ship-head { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 7px var(--zli-space-2-5); border-radius: var(--zli-radius-md); transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.ship-head:hover, .ship-head:has(> .row-more [aria-expanded="true"]) { background: var(--zli-hover); }
+.ship-entry.is-active > .ship-head { background: var(--zli-active); }
+/* The click target covers the row and sits below its content; only the real controls take the pointer back. */
+.ship-row { position: absolute; inset: 0; padding: 0; border: 0; border-radius: var(--zli-radius-md); background: transparent; cursor: pointer; }
+.ship-row:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.ship-line, .ship-sub { position: relative; display: flex; min-width: 0; align-items: center; pointer-events: none; }
+.ship-line { min-height: 18px; gap: var(--zli-space-2); }
+.ship-sub { min-height: 16px; gap: 6px; padding-left: 20px; }
+.ship-merge, .ship-marks-toggle, .ship-huddle { pointer-events: auto; }
+/* A fixed column for status, so spinner and dot line up and every title starts at the same x. Only this column carries color. */
+.ship-status { display: grid; width: 12px; height: 12px; flex: 0 0 12px; place-items: center; color: var(--zli-blue); }
+.ship-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--zli-border-hover); }
+.ship-dot.is-waiting, .ship-dot.is-warning { background: var(--zli-amber); }
+.ship-dot.is-failed { background: var(--zli-red); }
+.ship-dot.is-ready { background: var(--zli-green); }
+/* The title is the task in the person's words. A row without one falls back to its branch, in the same voice. */
+.ship-name { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+/* Nothing is happening on a quiet branch, so it recedes until the pointer arrives. */
+.ship-head:has(.ship-dot.is-quiet) .ship-name { color: var(--zli-muted); font-weight: 450; }
+.ship-head:hover .ship-name, .ship-entry.is-active .ship-name { color: var(--zli-text); }
+.ship-time { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; line-height: 18px; }
+/* Where the branch is, leading the second line while several projects are listed. */
+.ship-project { display: flex; min-width: 0; max-width: 45%; flex: 0 1 auto; gap: 6px; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: 16px; white-space: nowrap; }
+/* The dot says the state. The words stay neutral so a list of questions does not turn into a wall of amber. */
+.ship-text { display: flex; min-width: 0; flex: 1 1 0; align-items: center; gap: 4px; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: 16px; white-space: nowrap; }
+.ship-text > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.ship-text-words { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.ship-text.is-waiting, .ship-text.is-failed, .ship-text.is-warning { color: var(--zli-muted); }
+/* Merge stays neutral until its dialog; the accent waits for the final step. */
+.ship-merge.btn { flex: 0 0 auto; height: 20px; margin: -2px 0; padding: 0 var(--zli-space-1-5); border-color: transparent; background: var(--zli-active); box-shadow: none; font-size: var(--zli-text-xs); font-weight: 500; }
+.ship-merge.btn:hover:not(:disabled) { background: var(--zli-pressed); }
+.ship-pr { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 3px; color: var(--zli-dim); font-size: var(--zli-text-sm); font-variant-numeric: tabular-nums; line-height: 16px; }
+.ship-pr > svg { color: var(--zli-dim); }
+.ship-pr.is-success > svg { color: var(--zli-green); }
+.ship-pr.is-danger > svg { color: var(--zli-red); }
+.ship-pr.is-warning > svg { color: var(--zli-amber); }
+/* The dot between parts belongs to the part after it, so a project name cut short never takes the dot with it. */
+.ship-project + :is(.ship-pr, .ship-text:not(:empty))::before, .ship-pr + .ship-text:has(.ship-text-words)::before { content: "·"; margin-right: 2px; color: var(--zli-dim); }
+/* Overlapping marks read as one group of agents on one branch. */
+/* The people icon matches the Huddle panel's. Amber means a paused huddle is waiting on the person. */
+.ship-huddle { display: inline-grid; width: 18px; height: 18px; flex: 0 0 auto; margin: -1px 0; padding: 0; place-items: center; border: 0; border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; }
+.ship-huddle:hover { background: var(--zli-pressed); color: var(--zli-text); }
+.ship-huddle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 0; }
+.ship-huddle.is-paused, .session-huddle.is-paused { color: var(--zli-amber); }
+.session-huddle { display: inline-flex; flex: 0 0 auto; align-items: center; color: var(--zli-dim); }
+/* Marks say who is on the branch. Grey at rest so the list is not a row of logos; their color comes back under the pointer. */
+.ship-marks, .ship-marks-toggle { display: inline-flex; flex: 0 0 auto; align-items: center; color: var(--zli-muted); }
+.ship-marks .provider-mark { filter: grayscale(1); opacity: .7; transition: filter var(--zli-duration-fast) var(--zli-ease), opacity var(--zli-duration-fast) var(--zli-ease); }
+.ship-head:hover .ship-marks { color: var(--zli-text); }
+.ship-head:hover .ship-marks .provider-mark { filter: none; opacity: 1; }
+.ship-marks .provider-mark + .provider-mark { margin-left: 3px; }
+.ship-more-agents { margin-left: 3px; color: var(--zli-muted); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
+.ship-marks-toggle { gap: 2px; margin: -2px -4px -2px 0; padding: 2px 3px 2px 4px; border: 0; border-radius: var(--zli-radius-xs); background: transparent; cursor: pointer; }
+.ship-marks-toggle:hover { background: var(--zli-pressed); }
+.ship-marks-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 0; }
+.ship-marks-toggle > svg { color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.ship-marks-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.ship-alert { padding: 0 0 var(--zli-space-1); }
+/* What went wrong reads as part of the row above it, starting where the name starts. The red dot already says it failed. */
+.ship-alert .sidebar-note.is-error { margin: 0 var(--zli-space-2) 0 30px; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.ship-alert .worktree-actions { margin: var(--zli-space-0-5) var(--zli-space-1) 0 24px; }
+/* An open row's agents start where its name starts, and drop the branch line the row already shows. */
+.ship-agents { display: flex; flex-direction: column; gap: 1px; margin-top: 1px; padding-bottom: var(--zli-space-1); }
+.ship-agents .session-row, .ship-agents .sub-agent-list > .session-entry > .session-row { padding-left: 30px; }
+/* Sub-agents hang under their lead's name, with indent alone saying so. */
+/* A folder's agents are the whole list, so they sit at the list's own edge, and a folder has no branch to name. */
+.ship-folder-agents { display: flex; flex-direction: column; gap: 1px; }
+.ship-folder-agents .session-row { padding-left: var(--zli-space-2); }
+.ship-folder-agents .session-row.has-branch { height: 32px; }
+.ship-folder-agents .session-branch { display: none; }
+.ship-folder-agents .session-row.has-branch ~ .row-more { top: 16px; }
+.ship-agents .session-row.has-branch { height: 32px; }
+.ship-agents .session-branch { display: none; }
+.ship-agents .session-row.has-branch ~ .row-more { top: 16px; }
+.ship-head > .row-more { top: 16px; right: 6px; }
+/* The row's one detail steps aside for its menu, in the same spot. */
+.ship-head:is(:hover, :has(> .row-more :focus-visible), :has(> .row-more [aria-expanded="true"])) > .row-more { opacity: 1; pointer-events: auto; }
+.ship-head:is(:hover, :has(> .row-more :focus-visible), :has(> .row-more [aria-expanded="true"])) > .ship-line .ship-time { visibility: hidden; }
+@media (hover: none) { .ship-line .ship-time { visibility: hidden; } }
+/* An open row's agents are a step smaller than the branch they sit under. */
+.ship-agents .session-row, .ship-agents .session-row.has-branch { height: var(--zli-control-md); }
+.ship-agents .session-title { font-size: var(--zli-text-sm); }
+.ship-agents .session-row.has-branch ~ .row-more, .ship-agents .session-entry > .row-more { top: 14px; }
+
+/* ---------- Agent rows in Branches and Project rail ---------- */
+/* Status first in a column of its own, then a small grey mark, then the title. Tree keeps its own arrangement. */
+:is(.rail-scroll, .ship-agents, .ship-folder-agents) .session-row { gap: 6px; }
+.session-lead { display: grid; width: 12px; height: 18px; flex: 0 0 12px; place-items: center; }
+.session-lead .session-status { color: var(--zli-blue); }
+.session-lead .session-status.is-waiting { color: var(--zli-amber); }
+.session-lead .session-status.is-failed { color: var(--zli-red); }
+.session-lead .session-status.is-done { color: var(--zli-green); }
+.session-lead .session-status.is-ready, .session-lead .session-status.is-ended { color: var(--zli-dim); }
+.session-lead .dot { width: 6px; height: 6px; flex-basis: 6px; }
+:is(.rail-scroll, .ship-agents, .ship-folder-agents) .session-row .provider-mark { filter: grayscale(1); opacity: .7; transition: filter var(--zli-duration-fast) var(--zli-ease), opacity var(--zli-duration-fast) var(--zli-ease); }
+:is(.rail-scroll, .ship-agents, .ship-folder-agents) .session-row:is(:hover, .is-active) .provider-mark { filter: none; opacity: 1; }
+/* A branch is a label in these rows, so it takes the UI font and the quiet line's size. */
+:is(.rail-scroll, .ship-agents, .ship-folder-agents) .session-branch .worktree-name { font-family: inherit; font-size: var(--zli-text-sm); line-height: 16px; }
+:is(.rail-scroll, .ship-agents, .ship-folder-agents) .session-branch :is(.worktree-pr, .worktree-track) { font-family: inherit; font-size: var(--zli-text-xs); }
+:is(.rail-scroll, .ship-agents, .ship-folder-agents) .session-entry.is-run .session-title { font-family: inherit; font-size: var(--zli-text-sm); }
+/* As on a Branches row, the pull request's icon carries the color and its number stays neutral. */
+:is(.rail-scroll, .ship-agents, .ship-folder-agents) .session-branch .worktree-pr { gap: 3px; color: var(--zli-dim); }
+.rail-scroll .session-branch .worktree-pr.is-success > svg { color: var(--zli-green); }
+.rail-scroll .session-branch .worktree-pr.is-warning > svg { color: var(--zli-amber); }
+.rail-scroll .session-branch .worktree-pr.is-danger > svg { color: var(--zli-red); }
+.rail-scroll .session-branch .worktree-pr.is-info > svg { color: var(--zli-blue); }
+
+/* ---------- Project rail style ---------- */
+/*
+ * No brand row: the logo tops the strip and the panel runs to the top of the window. Where the window's
+ * own buttons sit at the left, as on a Mac, titlebar-area-x is above zero, so a bar-height strip stays clear
+ * for them and still drags the window. At zero, as on Windows, the multiply and min leave no strip at all.
+ */
+.sidebar-railed { --rail-top-inset: min(var(--zli-bar-height), calc(env(titlebar-area-x, 0px) * 100)); }
+/* The strip is added to the usual width, not taken from it, so rows keep the same room as in the other styles. */
+.sidebar.sidebar-railed { width: 304px; flex-basis: 304px; }
+@media (max-width: 1240px) { .sidebar.sidebar-railed { width: 284px; flex-basis: 284px; } }
+@media (max-width: 1080px) { .sidebar.sidebar-railed { width: 264px; flex-basis: 264px; } }
+.sidebar-railed::before { content: ""; flex: 0 0 var(--rail-top-inset); -webkit-app-region: drag; }
+/* The strip and the list share the canvas, and a hairline parts them, so the sidebar is not a stack of cards beside the work. */
+.rail-layout { display: flex; min-height: 0; flex: 1; }
+.rail { display: flex; width: 48px; flex: 0 0 48px; flex-direction: column; align-items: center; gap: var(--zli-space-2); padding-bottom: var(--zli-space-2); box-shadow: inset -1px 0 0 var(--zli-border); }
+.rail-logo { display: flex; width: 100%; height: var(--zli-bar-height); flex: 0 0 var(--zli-bar-height); align-items: center; justify-content: center; -webkit-app-region: drag; }
+.rail-projects { display: flex; min-height: 0; flex: 0 1 auto; flex-direction: column; align-items: center; gap: var(--zli-space-1); overflow-y: auto; padding: var(--zli-space-0-5) var(--zli-space-1) var(--zli-space-1); scrollbar-width: none; }
+.rail-actions { display: flex; flex: 0 0 auto; flex-direction: column; align-items: center; gap: 2px; margin-top: auto; }
+/* A tile is a real project, so the letter stands for its name. It has no box of its own: fill means it is the one on show. */
+.rail-tile { position: relative; display: flex; width: 32px; height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); cursor: pointer; font-size: var(--zli-text-base); font-weight: 600; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+/* Two letters tell apart projects that share a first letter. */
+.rail-tile.is-pair { font-size: var(--zli-text-sm); }
+.rail-tile:hover { background: var(--zli-hover); color: var(--zli-text); }
+.rail-tile:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.rail-tile.is-current { background: var(--zli-active); color: var(--zli-text); }
+/* A small dot says there is news and its color what kind. How many is in the tooltip, so six projects do not make six loud numbers. */
+.rail-badge { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--zli-blue); }
+.rail-badge.is-waiting { background: var(--zli-amber); }
+.rail-badge.is-failed { background: var(--zli-red); }
+.rail-panel { display: flex; min-width: 0; flex: 1; flex-direction: column; overflow: hidden; }
+.rail-panel-head { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; height: var(--zli-bar-height); padding: 0 var(--zli-space-2); -webkit-app-region: drag; }
+.rail-panel-head :is(button, input) { -webkit-app-region: no-drag; }
+.rail-panel-head .project-rename { height: 28px; }
+.rail-panel-head .rail-project-menu { min-width: 0; flex: 0 1 auto; margin-right: auto; flex-direction: row-reverse; justify-content: flex-end; gap: var(--zli-space-1); color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 600; }
+.rail-project-menu > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.rail-project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-scroll { padding: 0 var(--zli-space-2) var(--zli-space-2); }
+.rail-scroll .sidebar-empty { padding: var(--zli-space-3) var(--zli-space-2); }
+/* One line is 32px. A second line joins it only when it has something to say, starting under the title. */
+.rail-scroll .session-list { display: flex; flex-direction: column; gap: 1px; }
+.rail-scroll .session-row { align-items: flex-start; height: auto; min-height: var(--zli-control-lg); padding: 7px var(--zli-space-2); }
+.rail-scroll .session-row.has-branch { height: auto; padding: 5px var(--zli-space-2); }
+.rail-scroll .session-copy { justify-content: flex-start; gap: 0; }
+.rail-scroll .session-row .provider-mark { margin-top: 2px; }
+/* Time lines up in one column at the right, however short the title is. */
+.rail-scroll .session-side { margin-left: auto; }
+.rail-scroll .session-title { color: var(--zli-text); font-weight: 450; line-height: 18px; }
+/* Nothing is happening on an idle agent, so it recedes until the pointer arrives. */
+.rail-scroll .session-row.is-quiet:not(.is-active, :hover) .session-title { color: var(--zli-muted); font-weight: 400; }
+/* A name reads as the row's title in the same voice, with the task quieter after it, so no chip competes for the room. */
+.rail-scroll .session-name, .ship-agents .session-name { max-width: 60%; padding: 0; background: transparent; font-size: var(--zli-text-base); font-weight: 500; line-height: 18px; }
+.rail-scroll .session-name + .session-title, .rail-scroll .session-row:is(:hover, .is-active) .session-name + .session-title, .ship-agents .session-name + .session-title, .ship-agents .session-row:is(:hover, .is-active) .session-name + .session-title { color: var(--zli-dim); font-weight: 400; }
+/* A sub-agent is indented, and in a narrow window the panel shrinks. Either way a stray letter of the task helps nobody, and the tooltip still has it. */
+.rail-scroll .sub-agent-list .session-name + .session-title, .ship-agents .sub-agent-list .session-name + .session-title { display: none; }
+.rail-scroll .sub-agent-list .session-name, .ship-agents .sub-agent-list .session-name { max-width: 100%; flex-shrink: 1; }
+@media (max-width: 1100px) { .rail-scroll .session-name + .session-title { display: none; } .rail-scroll .session-name { max-width: 100%; flex-shrink: 1; } }
+/* The dot says the state, so the words stay neutral and a list of questions is not a wall of color. */
+.session-note { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.rail-scroll .session-branch .worktree-name { color: var(--zli-dim); }
+.rail-scroll .session-time { line-height: 18px; }
+.rail-scroll .session-branch > svg { display: none; }
+.rail-scroll .session-branch .count { display: none; }
+.rail-scroll .session-background { flex: 0 0 auto; font-size: var(--zli-text-2xs); }
+.rail-scroll .session-entry > .row-more { top: 15px; }
+.rail-scroll .worktree-row { padding-left: var(--zli-space-2); }
+.rail-scroll .worktree-heading { padding-left: var(--zli-space-2); }
+/* Sub-agents hang under their lead with indent alone saying so: a guide line would be one more thing to read. */
+.rail-scroll :is(.sub-agent-list, .run-group), .ship-agents :is(.sub-agent-list, .run-group) { margin-left: var(--zli-space-4); padding-left: 0; border-left: 0; }
+.rail-scroll .sidebar-note:not(.is-error) { margin-left: var(--zli-space-2); }
+.rail-scroll .session-worktree-alert .sidebar-note.is-error { margin-left: 44px; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.rail-scroll .session-worktree-alert .worktree-actions { margin-left: 38px; }
+/* The same shelf label as a Branches stage. */
+.rail-heading { margin: var(--zli-space-4) 0 2px; padding: 0 var(--zli-space-2); font-size: var(--zli-text-sm); }
+.rail-panel-foot { display: flex; flex: 0 0 auto; flex-direction: column; padding: 0 var(--zli-space-2) var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.rail-panel-foot .usage-strip-toggle { flex: 0 0 auto; }
+.usage-strip-bar { display: none; }
+/* The panel's foot has the width, so how full the plan is can be seen and not only read. */
+.rail-panel-foot .usage-strip-bar { display: block; min-width: 24px; height: 4px; flex: 1; overflow: hidden; border-radius: 2px; background: var(--zli-active); }
+.rail-panel-foot .usage-strip-bar > span { display: block; height: 100%; border-radius: 2px; background: var(--zli-muted); }
+.rail-panel-foot .is-warning .usage-strip-bar > span { background: var(--zli-amber); }
+.rail-panel-foot .is-full .usage-strip-bar > span { background: var(--zli-red); }
+.rail-panel-foot .sidebar-usage-strip { margin: 0 0 var(--zli-space-1); }
+
 /* Best-of runs sit under the chat they started from. */
 .run-group { min-width: 0; margin: 1px 0 var(--zli-space-1) var(--zli-space-6); padding: 0 0 0 var(--zli-space-2); border: 0; border-left: 1px solid var(--zli-border); }
 .run-group-head { display: flex; align-items: center; gap: var(--zli-space-1-5); height: 24px; padding: 0 var(--zli-space-1) 0 var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); }

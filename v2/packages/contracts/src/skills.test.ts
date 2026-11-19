@@ -39,6 +39,12 @@ describe("skills contracts", () => {
   it("maps the shared folder to every agent but Claude Code", () => {
     expect(agentsReading("user", ".agents/skills")).not.toContain("claude-code");
     expect(agentsReading("project", ".agents/skills")).toHaveLength(Object.keys(AGENT_SKILL_DIRS).length - 1);
-    expect(agentsReading("user", ".claude/skills")).toEqual(["claude-code", "cursor-agent", "opencode", "goose"]);
+    expect(agentsReading("user", ".claude/skills")).toEqual([
+      "claude-code",
+      "cursor-agent",
+      "opencode",
+      "goose",
+      "grok",
+    ]);
   });
 });

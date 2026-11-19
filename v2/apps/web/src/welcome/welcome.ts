@@ -89,6 +89,7 @@ const INSTALL: Partial<Record<ListedProviderKind, Record<InstallPlatform, string
   copilot: { windows: "npm install -g @github/copilot", posix: "npm install -g @github/copilot" },
   opencode: { windows: "npm install -g opencode-ai", posix: "npm install -g opencode-ai" },
   qwen: { windows: "npm install -g @qwen-code/qwen-code", posix: "npm install -g @qwen-code/qwen-code" },
+  grok: { windows: "irm https://x.ai/cli/install.ps1 | iex", posix: "curl -fsSL https://x.ai/cli/install.sh | bash" },
 };
 
 export function installCommand(provider: ListedProviderKind, platform: InstallPlatform): string | undefined {

@@ -26,6 +26,7 @@ export const ACCOUNT_SUPPORT: Readonly<Record<ListedProviderKind, { signIn: bool
   kimi: { signIn: true, apiKey: false },
   qwen: { signIn: true, apiKey: false },
   goose: { signIn: false, apiKey: false },
+  grok: { signIn: true, apiKey: true },
 };
 
 export function accountKinds(provider: ListedProviderKind): AccountKind[] {

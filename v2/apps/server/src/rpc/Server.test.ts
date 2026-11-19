@@ -539,6 +539,7 @@ describe("authenticated local RPC server", () => {
       "kimi",
       "qwen",
       "goose",
+      "grok",
     ]);
     expect(
       providers.every((provider) => provider.status === "missing" && provider.reason === "Provider discovery failed."),

@@ -10,6 +10,7 @@ export * from "./devServers.js";
 export * from "./diagnostics.js";
 export * from "./events.js";
 export * from "./files.js";
+export * from "./forges.js";
 export * from "./gitChanges.js";
 export * from "./history.js";
 export * from "./huddles.js";

@@ -7,7 +7,7 @@ import {
   type IssueStateFilter,
   IssueSummary,
 } from "@zli-v2/contracts";
-
+import { CLI_HOSTS, type KnownHosts, readProjectRemotes } from "../forges/remotes.js";
 import {
   GH_MISSING,
   GH_SIGNED_OUT,
@@ -18,7 +18,6 @@ import {
   runProcess,
 } from "../review/PullRequestService.js";
 import { IssueError, truncate } from "./issueText.js";
-import { CLI_HOSTS, type KnownHosts, readProjectRemotes } from "./remotes.js";
 
 const GH_TIMEOUT_MS = 60_000;
 const GH_READY_MS = 5 * 60_000;

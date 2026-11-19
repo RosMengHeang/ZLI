@@ -86,6 +86,7 @@ async function mount(current: RuntimeProjection | undefined, options: MountOptio
     root.render(
       <RuntimeProvider bridge={bridge}>
         <Sidebar
+          sidebarStyle="tree"
           projection={current}
           sessions={options.sessions ?? []}
           activeSessionId={undefined}

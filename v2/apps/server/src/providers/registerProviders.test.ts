@@ -33,8 +33,9 @@ describe("createProviderRegistry", () => {
       "kimi",
       "qwen",
       "goose",
+      "grok",
     ]);
-    for (const provider of ["opencode", "gemini", "copilot", "kimi", "qwen", "goose"] as const) {
+    for (const provider of ["opencode", "gemini", "copilot", "kimi", "qwen", "goose", "grok"] as const) {
       expect(registry.get(provider)?.capabilities).toEqual({
         exactResume: false,
         structuredApproval: true,

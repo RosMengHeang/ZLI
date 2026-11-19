@@ -13,6 +13,14 @@ export const TERMINAL_DAEMON_VERSION = "zli-v2-daemon/7";
 export const TerminalStatus = z.enum(["starting", "running", "exited", "failed"]);
 export type TerminalStatus = z.infer<typeof TerminalStatus>;
 
+/**
+ * What an agent CLI in a terminal seems to be doing, read from its output: a busy agent keeps redrawing its
+ * spinner, an idle one goes quiet. A terminal reports only whether its process runs, so this is the one sign
+ * that an agent there is at work.
+ */
+export const TerminalActivity = z.enum(["working", "idle"]);
+export type TerminalActivity = z.infer<typeof TerminalActivity>;
+
 /** An agent CLI started inside the terminal instead of a plain shell. */
 export const TerminalAgentLaunch = z.object({
   provider: ListedProviderKind,
@@ -37,6 +45,8 @@ export const TerminalProjection = z.object({
   name: AgentName.optional(),
   startedBy: StartedBy.optional(),
   sessionId: SessionId.optional(),
+  /** Agent terminals only, and only while the process runs. Absent means nothing has been seen yet. */
+  activity: TerminalActivity.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),
   updatedAt: z.string().datetime({ offset: true }).optional(),
 });

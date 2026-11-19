@@ -44,6 +44,7 @@ import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { filesWorktreeFor } from "../files/filesWorktree.js";
 import { QuickOpen } from "../files/QuickOpen.js";
+import { CloneDialog } from "../forges/CloneDialog.js";
 import { HuddlePane } from "../huddle/HuddlePane.js";
 import { sessionOfAgent } from "../huddle/huddles.js";
 import { type IssueRequest, onIssueRequest } from "../issues/issueRequest.js";
@@ -249,6 +250,7 @@ function WorkspaceApp() {
   const shownDrawerHeight = Math.min(workbench.drawerHeight, drawerMax);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [worktreeDialogProject, setWorktreeDialogProject] = useState<ProjectProjection>();
+  const [cloneOpen, setCloneOpen] = useState(false);
   const [newAgentProject, setNewAgentProject] = useState<ProjectProjection | "default">();
   const [issuesProject, setIssuesProject] = useState<ProjectProjection | "default">();
   // A chat that asked for an issue to attach, set while the picker is open for it.
@@ -2454,6 +2456,7 @@ function WorkspaceApp() {
       ? [{ label: "Start from issue", icon: "issue" as const, group: "Create" as const, action: () => openIssues() }]
       : []),
     { label: "Add project", icon: "folderPlus", group: "Create", action: () => void openProject() },
+    { label: "Clone repository", icon: "download", group: "Create", action: () => setCloneOpen(true) },
     ...(bridge?.scratch
       ? [
           {
@@ -2848,6 +2851,7 @@ function WorkspaceApp() {
             onOpenHelp={() => setHelpOpen(true)}
             onOpenSettings={openSettings}
             onOpenUsage={openUsage}
+            onOpenSearch={() => setPaletteOpen(true)}
             runGroups={workbench.groups}
             runStates={runStates}
             onCompareRuns={(group) => setCompareGroupId(group.groupId)}
@@ -2934,6 +2938,7 @@ function WorkspaceApp() {
                       project={emptySelectedProject}
                       closedCount={sessions.length}
                       onOpenProject={() => void openProject()}
+                      onCloneProject={() => setCloneOpen(true)}
                       onNewAgent={() => openNewAgent()}
                       onStartChat={(text) => openNewAgent(emptySelectedProject, text)}
                       onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
@@ -3342,6 +3347,19 @@ function WorkspaceApp() {
             )}
             onKeep={() => void keepRun(keepRequest.group, keepRequest.session)}
             onCancel={() => setKeepRequest(undefined)}
+          />
+        ) : null}
+        {cloneOpen ? (
+          <CloneDialog
+            nearProject={(contextProject ?? projection?.projects[0])?.path}
+            onClose={() => setCloneOpen(false)}
+            onCloned={async (path) => {
+              setCloneOpen(false);
+              const added = await registerProjectPath(path);
+              if ("error" in added) {
+                if (!added.late) showError(added.error);
+              } else showAddedProject(added.project, { startAgent: true, existing: added.existing });
+            }}
           />
         ) : null}
         {worktreeDialogProject && (

@@ -12,6 +12,7 @@ export function GridEmptyState({
   project,
   closedCount,
   onOpenProject,
+  onCloneProject,
   onNewAgent,
   onStartChat,
   onScratchChat,
@@ -21,6 +22,8 @@ export function GridEmptyState({
   project?: ProjectProjection | undefined;
   closedCount: number;
   onOpenProject(): void;
+  /** Clones a repository from a forge and adds it; absent where cloning is not offered. */
+  onCloneProject?: (() => void) | undefined;
   onNewAgent(): void;
   /** Starts a new chat with what was typed on this screen as its first message. */
   onStartChat?: ((text: string) => void) | undefined;
@@ -44,6 +47,11 @@ export function GridEmptyState({
         <Button variant="primary" size="lg" icon="folderPlus" onClick={onOpenProject}>
           Add project
         </Button>
+        {onCloneProject ? (
+          <Button size="lg" icon="download" onClick={onCloneProject}>
+            Clone repository
+          </Button>
+        ) : null}
         {scratch}
       </EmptyState>
     );

@@ -120,6 +120,7 @@ const FALLBACK_NAMES: Record<string, string> = {
   kimi: "Kimi Code",
   qwen: "Qwen Code",
   goose: "Goose",
+  grok: "Grok",
 };
 
 function agentName(provider: string, providers: AlertProjection["providers"]): string {

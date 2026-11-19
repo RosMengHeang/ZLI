@@ -8,7 +8,7 @@ import {
   opencodeConfigContent,
   writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
-import { projectMcpFile, projectMcpFileContents, type SettingsFileProvider } from "../browser-tool/mcpSettingsFiles.js";
+import { type ProjectFileProvider, projectMcpFile, projectMcpFileContents } from "../browser-tool/mcpSettingsFiles.js";
 
 /**
  * Model ids reach cmd.exe when the CLI is an npm .cmd shim, so only characters that real
@@ -27,6 +27,7 @@ const DISPLAY_NAMES: Record<ListedProviderKind, string> = {
   kimi: "Kimi Code",
   qwen: "Qwen Code",
   goose: "Goose",
+  grok: "Grok",
 };
 
 /** Agent TUIs probe these to pick their color depth; ConPTY does not set them. */
@@ -111,6 +112,13 @@ export function buildAgentArgs(agent: TerminalAgentLaunch): string[] {
     case "goose":
       // goose session has no permission or model flags; see agentModeEnv for its mode.
       return ["session"];
+    case "grok":
+      // Grok asks before each tool call by default.
+      return [
+        ...(fullAccess ? ["--always-approve"] : []),
+        ...(readOnly ? ["--permission-mode", "plan"] : []),
+        ...(model ? ["--model", model] : []),
+      ];
   }
 }
 
@@ -133,8 +141,8 @@ export function mcpConfigFileKind(provider: ListedProviderKind): McpConfigFileKi
 
 /**
  * Per-launch flags that add MCP servers without editing the CLI's own config.
- * Cursor, Droid, Gemini, Kimi, and Qwen have no such flag and read them from a project MCP file that ZLI
- * writes in the worktree (`worktreeFile`); OpenCode reads them from OPENCODE_CONFIG_CONTENT.
+ * Cursor, Droid, Gemini, Kimi, Qwen, and Grok have no such flag and read them from a project MCP file that
+ * ZLI writes in the worktree (`worktreeFile`); OpenCode reads them from OPENCODE_CONFIG_CONTENT.
  */
 export function mcpLaunchArgs(
   provider: ListedProviderKind,
@@ -161,6 +169,7 @@ export function mcpLaunchArgs(
     case "gemini":
     case "kimi":
     case "qwen":
+    case "grok":
       return [];
   }
 }
@@ -189,7 +198,7 @@ export async function writeProjectMcpFile(
 ): Promise<boolean> {
   const projectFile = projectMcpFile(provider);
   if (!projectFile) return false;
-  const contents = specs.length > 0 ? projectMcpFileContents(provider as SettingsFileProvider, specs) : undefined;
+  const contents = specs.length > 0 ? projectMcpFileContents(provider as ProjectFileProvider, specs) : undefined;
   try {
     return await write(worktreePath, projectFile, contents);
   } catch {

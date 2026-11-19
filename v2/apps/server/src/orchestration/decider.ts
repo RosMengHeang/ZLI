@@ -146,6 +146,7 @@ export type DomainDecision = Extract<
       | "thread.request.resolved"
       | "thread.respond.requested"
       | "thread.user-input.requested"
+      | "terminal.activity.changed"
       | "devserver.detected"
       | "devserver.stopped"
       | "worktree.setup.changed"
@@ -728,6 +729,14 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       return [{ type: "legacy.rollback.completed", batchId: command.batchId }];
     case "legacy.operation.failed":
       return [{ type: "legacy.operation.failed", batchId: command.batchId, message: command.message }];
+    case "terminal.activity": {
+      const terminal = projection.terminals.find((candidate) => candidate.terminalId === command.terminalId);
+      // Output is read after the fact, so the terminal may be gone or stopped by now; there is nothing to record then.
+      if (terminal?.kind !== "agent" || terminal.status !== "running") return [];
+      // Only a change is an event, and an agent nobody has seen work yet is already idle.
+      if ((terminal.activity ?? "idle") === command.activity) return [];
+      return [{ type: "terminal.activity.changed", terminalId: command.terminalId, activity: command.activity }];
+    }
     case "devserver.detected": {
       const terminal = projection.terminals.find((candidate) => candidate.terminalId === command.terminalId);
       if (!terminal) throw new DomainError("terminal_missing", `Terminal does not exist: ${command.terminalId}`);

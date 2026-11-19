@@ -34,7 +34,7 @@ import {
   UsageLimitStop,
 } from "./provider.js";
 import { ReviewProjection } from "./review.js";
-import { TerminalProjection, TerminalStatus } from "./terminal.js";
+import { TerminalActivity, TerminalProjection, TerminalStatus } from "./terminal.js";
 
 export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("runtime.ready") }),
@@ -213,6 +213,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     lastSequence: z.number().int().nonnegative().optional(),
     errorMessage: z.string().min(1).optional(),
   }),
+  z.object({ type: z.literal("terminal.activity.changed"), terminalId: TerminalId, activity: TerminalActivity }),
   z.object({ type: z.literal("devserver.detected"), devServer: DevServerProjection.omit({ detectedAt: true }) }),
   z.object({
     type: z.literal("devserver.stopped"),

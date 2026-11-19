@@ -17,7 +17,7 @@ import {
 } from "@zli-v2/contracts";
 
 import { isPlainObject } from "../browser-tool/browserTool.js";
-import { API_KEY_ENV, CONFIG_DIR_ENV, signInStatus } from "./accountEnv.js";
+import { API_KEY_ENV, CONFIG_DIR_ENV, SIGN_IN_EXTRA_ENV, signInStatus } from "./accountEnv.js";
 
 type StoredAccount = {
   id: string;
@@ -229,7 +229,7 @@ export class AccountStore {
     if (!name) throw new AccountError("This agent does not support sign-in accounts.");
     const dir = await this.ensureDir(account.id);
     await this.syncMcp(account, dir);
-    return { [name]: dir };
+    return { [name]: dir, ...SIGN_IN_EXTRA_ENV[account.provider] };
   }
 
   /** MCP servers are extras, so a failure here never blocks the agent. */
