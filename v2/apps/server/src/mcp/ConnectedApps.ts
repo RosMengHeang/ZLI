@@ -447,7 +447,7 @@ function problemIn(text: string): string | undefined {
 
 /** A sign-in page ZLI may open: https, on Composio's own domain, so a bad answer cannot send the person elsewhere. */
 const KEYCHAIN_SLOW =
-  "Your system keychain didn't answer or refused when ZLI started, so ZLI won't save or open the Composio key unprotected. Restart ZLI to use your apps.";
+  "Your system keychain didn't answer, or wouldn't store a new key, when ZLI started, so ZLI won't save or open the Composio key unprotected. Restart ZLI to use your apps.";
 
 export function isComposioPage(link: string): boolean {
   try {
