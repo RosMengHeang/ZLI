@@ -23,7 +23,7 @@ const NO_PLAN = [
 const SIGNED_OUT = [
   /\bnot (?:logged|signed) in\b/iu,
   /\bnot authenticated\b/iu,
-  /bauthentication requireds*·s*sign in againb/iu,
+  /\bauthentication required\s*·\s*sign in again\b/iu,
   /\bcould not resolve authentication method\b/iu,
   /\bplease (?:log|sign) ?in\b/iu,
   /\brun \S*\s*\/login\b/iu,

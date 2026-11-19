@@ -132,6 +132,8 @@ describe("withSignInHint", () => {
 
   it("leaves other errors, ACP agents, and already hinted text alone", () => {
     expect(withSignInHint("codex", "Network error")).toBe("Network error");
+    const mcpError = "MCP server github: authentication required";
+    expect(withSignInHint("claude-code", mcpError)).toBe(mcpError);
     expect(withSignInHint("grok", "Not logged in")).toBe("Not logged in");
     const once = withSignInHint("codex", "Not logged in");
     expect(withSignInHint("codex", once)).toBe(once);
