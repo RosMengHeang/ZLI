@@ -1234,8 +1234,9 @@ export function Sidebar({
   // Typing in the search box lists every chat it matches, from all projects, newest first.
   const needle = query.trim().toLowerCase();
   const searching = needle.length > 0;
+  // Archived chats are searched too, so a chat moved out of the way can still be found.
   const matches = searching
-    ? sessions
+    ? [...sessions, ...archivedChats.filter((session) => !isBuddySession(session, buddyChatNames))]
         .filter((session) => !runIds.has(session.sessionId))
         .filter((session) => {
           const worktree = worktrees.find((entry) => entry.worktreeId === session.worktreeId);

@@ -3,6 +3,7 @@
 import { EnvironmentId, ProjectId, type RuntimeProjection, WorktreeId } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { setChatArchived } from "../sessions/chatArchive.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
@@ -533,6 +534,10 @@ describe("Sidebar projects", () => {
     expect(results.querySelector(".session-name")?.textContent).toBe("Login fix");
     expect(results.querySelector(".session-project")?.textContent).toBe("repo");
     expect(container.querySelector(".project-label")).toBeNull();
+    await act(async () => setChatArchived("b", true));
+    await type("docs");
+    expect(container.querySelector('[aria-label="Chats found"] .session-name')?.textContent).toBe("Docs");
+    await act(async () => setChatArchived("b", false));
     await type("nothing like it");
     expect(container.querySelector('[aria-label="Chats found"] .sidebar-heading')?.textContent).toBe("No chats found");
     await act(async () => input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
