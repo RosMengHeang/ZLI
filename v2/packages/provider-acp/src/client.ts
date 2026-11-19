@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { accessSync, constants, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
-import { growth, killProcessTree, type ProviderUsage, spawnCli } from "@zli-v2/shared";
+import { growth, killProcessTree, type ProviderUsage, spawnCli, touchesPrivateFile } from "@zli-v2/shared";
 
 import {
   ACP_AUTH_REQUIRED,
@@ -112,6 +112,8 @@ export type AcpSpawnOptions = {
 export type AcpClientOptions = {
   /** Tools that run without asking the person, by the name the agent gives them: ZLI's own trusted tools. */
   approveTool?: (name: string) => boolean;
+  /** ZLI's data folder: a permission request that reads or writes ZLI's own files there is refused. */
+  privateDir?: string;
   cwd: string;
   command: string;
   /** Arguments that put the CLI in ACP stdio mode, such as ["acp"] or ["--acp"]. */
@@ -177,6 +179,7 @@ export class AcpClient {
   private readonly completed: AcpTranscriptTurn[] = [];
   private readonly permissions = new Map<string, PendingPermission>();
   private approveTool?: (name: string) => boolean;
+  private privateDir?: string;
   private sessionId = "";
   private imageInput = false;
   private authDescription: string | undefined;
@@ -242,6 +245,7 @@ export class AcpClient {
       options.readAttachment ?? ((path) => readFile(path)),
     );
     if (options.approveTool) client.approveTool = options.approveTool;
+    if (options.privateDir) client.privateDir = options.privateDir;
     try {
       await client.handshake(
         options.model?.trim() || undefined,
@@ -634,6 +638,16 @@ export class AcpClient {
     const toolCallId = parsed.data.toolCall?.toolCallId;
     const toolTitle =
       parsed.data.toolCall?.title ?? (typeof toolCallId === "string" ? active.tools.get(toolCallId)?.title : undefined);
+    // ZLI's own files are refused before anything else, at every permission. Only calls the agent asks about
+    // pass through here: a read the agent makes without asking, or from a script, is not stopped.
+    if (this.privateDir) {
+      const earlier = typeof toolCallId === "string" ? active.tools.get(toolCallId) : undefined;
+      const touched = [parsed.data.toolCall, earlier?.rawInput, earlier?.paths];
+      if (touchesPrivateFile(this.privateDir, touched, this.cwd)) {
+        this.connection.respond(id, permissionOutcome(pickOption(options, ["reject_once", "reject_always"], "reject")));
+        return;
+      }
+    }
     if (typeof toolTitle === "string" && this.approveTool?.(toolTitle)) {
       this.connection.respond(id, permissionOutcome(pickOption(options, ["allow_once", "allow_always"], "allow")));
       return;

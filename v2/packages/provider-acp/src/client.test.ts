@@ -784,6 +784,23 @@ describe("AcpClient agent requests", () => {
     expect(events.some((event) => event.type === "approval.requested")).toBe(false);
   });
 
+  it("refuses a request that touches ZLI's own files, even with full access, and allows others", async () => {
+    const { client, agent, events } = await harness(new FakeAgent(), { privateDir: "C:\\Users\\me\\ZLI" });
+    await client.sendTurn({ text: "go" });
+    const reading = (id: number, path: string) => {
+      const request = permission(id);
+      return {
+        ...request,
+        params: { ...request.params, toolCall: { toolCallId: `call-${id}`, kind: "read", locations: [{ path }] } },
+      };
+    };
+    agent.send(reading(600, "C:\\Users\\me\\ZLI\\secrets-key.bin"));
+    agent.send(reading(601, "D:\\repo\\README.md"));
+    expect(agent.responseTo(600)?.result).toEqual({ outcome: { outcome: "selected", optionId: "no" } });
+    expect(agent.responseTo(601)?.result).toEqual({ outcome: { outcome: "selected", optionId: "always" } });
+    expect(events.some((event) => event.type === "approval.requested")).toBe(false);
+  });
+
   it("cancels a permission request that arrives with no turn running", async () => {
     const { agent } = await harness(new FakeAgent(), { permissionMode: "supervised" });
     agent.send(permission(300));

@@ -142,7 +142,12 @@ export type ProviderRegistryOptions = {
   mcpServers?: McpServerSource;
   /** Where per-chat MCP config files go when there is no browser tool. */
   mcpConfigDir?: string;
-  /** ZLI's data folder: Claude Code buddies' file tools are refused on ZLI's own files there (other agents get only the rule in their brief). */
+  /**
+   * ZLI's data folder. Claude Code buddies get deny rules for ZLI's own files there; ACP agents and Droid have
+   * permission requests for those files refused. Codex and Cursor get no guard: Codex's sandbox limits writes to
+   * the worktree outside full access but has no rule to refuse reads of one folder, and Cursor's deny rules live
+   * in a config file ZLI would have to write into the person's project or home.
+   */
   privateDir?: string;
   writeMcpConfig?: typeof writeAgentMcpConfig;
   /** Writes ZLI's project MCP file in a worktree for Cursor and Droid, which have no per-session option for servers. */
@@ -299,6 +304,7 @@ export function createProviderRegistry(
         return DroidClient.start({
           ...input,
           approveTool: isBuddyToolCall,
+          ...(options.privateDir ? { privateDir: options.privateDir } : {}),
           command: await resolveDroidCommand(),
           ...(await chatEnv(worktreeId, account)),
         });
@@ -310,6 +316,7 @@ export function createProviderRegistry(
           ...config,
           resolveCommand: () => resolveAcpCommand(config.provider),
           approveTool: isBuddyToolCall,
+          ...(options.privateDir ? { privateDir: options.privateDir } : {}),
           ...(browserTool ? { browserTool } : {}),
           ...(options.mcpServers ? { mcpServers: (context) => addedServers(context.worktreeId) } : {}),
           ...(options.metroEnv ? { metroEnv } : {}),
