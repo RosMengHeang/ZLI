@@ -569,6 +569,9 @@ span.room-person-chip { color: var(--zli-muted); }
 /* ---------- Picking up, editing, branching ---------- */
 .chat-continue { display: flex; align-items: center; gap: var(--zli-space-2); margin: var(--zli-space-2) 0; }
 .chat-continue-line { height: 1px; flex: 1; background: var(--zli-border); }
+/* Turns an edit of an older message replaced: kept for reference, out of the way. */
+.chat-replaced { display: flex; flex-direction: column; gap: inherit; opacity: 0.5; }
+.chat-replaced-label { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .chat-branched { display: flex; align-items: center; justify-content: center; gap: var(--zli-space-1-5); margin: 0 auto var(--zli-space-4); color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
 .chat-branched > svg { flex: 0 0 auto; }
 .chat-branched > span { min-width: 0; }

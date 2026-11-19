@@ -129,13 +129,25 @@ export function PlanCard({
 /* ---------- Picking up after a cut ---------- */
 
 /** The chat stopped in the middle of a task, for example when the app closed. One click carries on. */
-export function ContinueRow({ onContinue }: { onContinue(): void }) {
+export function ContinueRow({
+  onContinue,
+  onRegenerate,
+}: {
+  onContinue(): void;
+  /** Sends the person's last message again instead of picking up the cut-off reply. */
+  onRegenerate?: (() => void) | undefined;
+}) {
   return (
     <div className="chat-continue">
       <span className="chat-continue-line" aria-hidden="true" />
       <Button size="xs" variant="secondary" icon="play" onClick={onContinue}>
         Continue
       </Button>
+      {onRegenerate ? (
+        <Button size="xs" variant="ghost" icon="reload" onClick={onRegenerate}>
+          Regenerate
+        </Button>
+      ) : null}
       <span className="chat-continue-line" aria-hidden="true" />
     </div>
   );
