@@ -19,7 +19,21 @@ type Block =
   | { kind: "quote"; text: string }
   | { kind: "paragraph"; text: string };
 
-const FENCE = /^\s*```\s*([\w+#.-]*)\s*$/u;
+const FENCE = /^\s*(`{3,}|~{3,})(.*)$/u;
+const FENCE_CLOSE = /^\s*(`{3,}|~{3,})\s*$/u;
+
+function openFence(line: string): { marker: string; lang: string } | undefined {
+  const match = FENCE.exec(line);
+  const marker = match?.[1];
+  const info = match?.[2] ?? "";
+  if (!marker || (marker.startsWith("`") && info.includes("`"))) return undefined;
+  return { marker, lang: info.trim().split(/\s+/u)[0] ?? "" };
+}
+
+function closesFence(line: string, marker: string): boolean {
+  const close = FENCE_CLOSE.exec(line)?.[1];
+  return close !== undefined && close[0] === marker[0] && close.length >= marker.length;
+}
 const HEADING = /^(#{1,6})\s+(.*)$/u;
 const ITEM = /^(\s*)(?:([-*+])|(\d{1,9})[.)])\s+(.*)$/u;
 const TASK = /^\[([ xX])\]\s+(.*)$/u;
@@ -116,16 +130,16 @@ export function parseMarkdown(source: string): Block[] {
   };
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
-    const fence = FENCE.exec(line);
+    const fence = openFence(line);
     if (fence) {
       flush();
       const body: string[] = [];
       index += 1;
-      while (index < lines.length && !FENCE.test(lines[index] ?? "")) {
+      while (index < lines.length && !closesFence(lines[index] ?? "", fence.marker)) {
         body.push(lines[index] ?? "");
         index += 1;
       }
-      blocks.push({ kind: "code", lang: fence[1] ?? "", text: body.join("\n") });
+      blocks.push({ kind: "code", lang: fence.lang, text: body.join("\n") });
       continue;
     }
     const heading = HEADING.exec(line);
