@@ -60,6 +60,20 @@ describe("cloneRepository", () => {
     }
   });
 
+  it("drops trailing dots and spaces Windows would strip from the folder name", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "zli-clone-"));
+    try {
+      const runner: ProcessRunner = async () => ({ code: 0, stdout: "", stderr: "" });
+      const result = await cloneRepository({ source: "acme/app", forge: "github", parent, name: "app. . " }, runner);
+      expect(result.path).toBe(join(parent, "app"));
+      await expect(cloneRepository({ source: "acme/app", forge: "github", parent, name: ". ." }, runner)).rejects.toThrow(
+        "Give the folder a name.",
+      );
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a folder that already has files, before git runs", async () => {
     const parent = await mkdtemp(join(tmpdir(), "zli-clone-"));
     try {
