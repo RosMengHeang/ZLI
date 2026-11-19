@@ -50,7 +50,7 @@ export async function resolveCodexCommand(probe: CliProbe = createDefaultCliProb
   const codex = discovered.find((entry) => entry.provider === "codex");
   if (codex?.status === "found") return codex.path;
   throw new CodexProviderError(
-    "request_failed",
+    "cli_missing",
     codex?.status === "missing" ? codex.reason : "Codex CLI was not found on PATH or in known install locations.",
   );
 }

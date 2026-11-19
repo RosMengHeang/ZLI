@@ -99,7 +99,7 @@ export type CodexTurnResult = { providerTurnId: string };
 
 export class CodexProviderError extends Error {
   constructor(
-    readonly code: "invalid_response" | "request_failed" | "closed",
+    readonly code: "invalid_response" | "request_failed" | "closed" | "cli_missing",
     message: string,
     options?: ErrorOptions,
   ) {
