@@ -92,6 +92,7 @@ import {
   SECRETS_NO_KEYCHAIN_ENV,
   secretsKey,
 } from "./security/secretsKey.js";
+import { windowsHello } from "./security/windowsHello.js";
 import { writeJsonFile } from "./storage/writeJsonFile.js";
 import { createElectronTray } from "./tray/electronTray.js";
 import { TrayController } from "./tray/TrayController.js";
@@ -200,12 +201,18 @@ async function main(): Promise<void> {
   const browserToolPaths = await startBrowserControl(databasePath);
   // The runtime seals secrets on disk (the Composio key) with a key the OS keychain keeps.
   // Asked without blocking, and only for a few seconds: a keychain stuck on a prompt never keeps the window shut.
-  const sealing = await secretsKey(join(dirname(databasePath), "secrets-key.bin"), {
-    available: () => safeStorage.isAsyncEncryptionAvailable(),
-    encrypt: (text) => safeStorage.encryptStringAsync(text),
-    decrypt: async (sealed) => (await safeStorage.decryptStringAsync(sealed)).result,
-    weak: () => process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text",
-  });
+  // When the user has turned on Windows Hello for connected apps, this is where Hello asks, once per launch.
+  const sealing = await secretsKey(
+    join(dirname(databasePath), "secrets-key.bin"),
+    {
+      available: () => safeStorage.isAsyncEncryptionAvailable(),
+      encrypt: (text) => safeStorage.encryptStringAsync(text),
+      decrypt: async (sealed) => (await safeStorage.decryptStringAsync(sealed)).result,
+      weak: () => process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text",
+    },
+    undefined,
+    process.platform === "win32" ? windowsHello() : undefined,
+  );
   const keyFile = sealing.key ? await handOffKey(dirname(databasePath), sealing.key) : undefined;
   environment = new EnvironmentProcess({
     serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
@@ -213,7 +220,8 @@ async function main(): Promise<void> {
     extraEnv: {
       ...browserToolEnvironment(browserToolPaths),
       ...(keyFile ? { [SECRETS_KEY_FILE_ENV]: keyFile } : {}),
-      ...(sealing.slow ? { [SECRETS_KEYCHAIN_SLOW_ENV]: "1" } : {}),
+      // A cancelled Hello prompt is handled like a slow keychain: the runtime refuses to save secrets unsealed.
+      ...(sealing.slow || sealing.locked ? { [SECRETS_KEYCHAIN_SLOW_ENV]: "1" } : {}),
       ...(sealing.noKeychain ? { [SECRETS_NO_KEYCHAIN_ENV]: "1" } : {}),
       // Test and development launches must leave the user's real agent settings alone.
       ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
