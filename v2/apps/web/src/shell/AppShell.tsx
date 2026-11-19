@@ -1,5 +1,6 @@
 import {
   type Account,
+  isBuddyHome,
   type ListedProviderKind,
   MCP_CATALOG,
   type PluginAction,
@@ -387,7 +388,11 @@ function WorkspaceApp() {
   const contextWorktree =
     findWorktree(activeSession?.worktreeId) ??
     findWorktree(selectedWorktreeId) ??
-    projection?.worktrees.find((worktree) => worktree.status === "ready");
+    // Only a project the person works in: a buddy's home is the buddy's own folder (its project is not even listed).
+    projection?.worktrees.find((worktree) => {
+      const project = projection.projects.find((entry) => entry.projectId === worktree.projectId);
+      return worktree.status === "ready" && project !== undefined && !isBuddyHome(project);
+    });
   const contextProject = projection?.projects.find((project) => project.projectId === contextWorktree?.projectId);
   const selectedProject = projection?.projects.find((project) => project.projectId === selectedProjectId);
   const contextProjectId = contextProject?.projectId;
