@@ -193,10 +193,11 @@ async function main(): Promise<void> {
   });
   const browserToolPaths = await startBrowserControl(databasePath);
   // The runtime seals secrets on disk (the Composio key) with a key the OS keychain keeps.
-  const sealingKey = secretsKey(join(dirname(databasePath), "secrets-key.bin"), {
-    available: () => safeStorage.isEncryptionAvailable(),
-    encrypt: (text) => safeStorage.encryptString(text),
-    decrypt: (sealed) => safeStorage.decryptString(sealed),
+  // Asked without blocking, and only for a few seconds: a keychain stuck on a prompt never keeps the window shut.
+  const sealingKey = await secretsKey(join(dirname(databasePath), "secrets-key.bin"), {
+    available: () => safeStorage.isAsyncEncryptionAvailable(),
+    encrypt: (text) => safeStorage.encryptStringAsync(text),
+    decrypt: async (sealed) => (await safeStorage.decryptStringAsync(sealed)).result,
   });
   environment = new EnvironmentProcess({
     serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
