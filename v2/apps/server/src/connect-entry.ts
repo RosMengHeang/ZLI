@@ -6,7 +6,7 @@ import { parseHiddenTools } from "./mcp/bridge/toolFilter.js";
 import { freshAccessToken, markSignInExpired } from "./mcp/signIn/tokenFile.js";
 
 const USAGE = [
-  "Usage: zli-connect mcp --url <url> --name <name> [--token-file <path>] [--header-file <path>] [--hide-tools <path>]",
+  "Usage: zli-connect mcp --url <url> --name <name> [--token-file <path>] [--header-file <path>] [--header-env <name>] [--hide-tools <path>]",
   "       zli-connect stdio --name <name> --spec-file <path> [--hide-tools <path>]",
 ].join("\n");
 
@@ -18,13 +18,15 @@ type RemoteArgs = {
   name: string;
   tokenFile?: string;
   headerFile?: string;
+  /** Environment variable holding the headers as a JSON object. */
+  headerEnv?: string;
   hideTools?: string;
 };
 type StdioArgs = { mode: "stdio"; name: string; specFile: string; hideTools?: string };
 type ConnectArgs = RemoteArgs | StdioArgs;
 
 const FLAGS = {
-  mcp: ["--url", "--name", "--token-file", "--header-file", "--hide-tools"],
+  mcp: ["--url", "--name", "--token-file", "--header-file", "--header-env", "--hide-tools"],
   stdio: ["--name", "--spec-file", "--hide-tools"],
 } as const;
 
@@ -61,12 +63,14 @@ function parseConnectArgs(argv: readonly string[]): ConnectArgs {
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new UsageError(`Not an http(s) URL: ${url}`);
   const tokenFile = values.get("--token-file");
   const headerFile = values.get("--header-file");
+  const headerEnv = values.get("--header-env");
   return {
     mode: "mcp",
     url,
     name,
     ...(tokenFile ? { tokenFile } : {}),
     ...(headerFile ? { headerFile } : {}),
+    ...(headerEnv ? { headerEnv } : {}),
     ...hidden,
   };
 }
@@ -84,6 +88,24 @@ function parseHeaderFile(contents: string): Record<string, string> {
 }
 
 class SetupError extends Error {}
+
+/** Headers handed over in an environment variable, as a JSON object of names to values. */
+function headersFromEnv(variable: string, name: string): Record<string, string> {
+  const raw = process.env[variable];
+  if (!raw) throw new SetupError(`The headers for ${name} were not passed in ${variable}.`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new SetupError(`The headers for ${name} in ${variable} are not valid JSON.`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new SetupError(`The headers for ${name} in ${variable} are not valid.`);
+  }
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parsed)) if (typeof value === "string") headers[key] = value;
+  return headers;
+}
 
 async function readPrivateFile<T>(path: string, what: string, name: string, parse: (text: string) => T): Promise<T> {
   try {
@@ -116,7 +138,10 @@ async function main(argv: readonly string[]): Promise<number> {
       process.stdin.destroy();
       return code;
     }
-    const headers = args.headerFile ? await readPrivateFile(args.headerFile, "header file", name, parseHeaderFile) : {};
+    const headers = {
+      ...(args.headerFile ? await readPrivateFile(args.headerFile, "header file", name, parseHeaderFile) : {}),
+      ...(args.headerEnv ? headersFromEnv(args.headerEnv, name) : {}),
+    };
     const tokenFile = args.tokenFile;
     await runMcpBridge({
       url: args.url,

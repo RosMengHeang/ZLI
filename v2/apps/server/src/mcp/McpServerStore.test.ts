@@ -6,7 +6,16 @@ import { McpServerList } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { McpProbe } from "./McpProbe.js";
-import { McpRequestError, McpServerStore, mcpLaunchSpec, projectPathKey, serverInProject } from "./McpServerStore.js";
+import type { ConnectedApps } from "./ConnectedApps.js";
+import {
+  CONNECT_HEADERS_ENV,
+  liftSecretEnv,
+  McpRequestError,
+  McpServerStore,
+  mcpLaunchSpec,
+  projectPathKey,
+  serverInProject,
+} from "./McpServerStore.js";
 import { McpSignIns } from "./signIn/McpSignIns.js";
 
 const temps: string[] = [];
@@ -263,6 +272,35 @@ describe("McpServerStore", () => {
 
 describe("McpServerStore launch rules", () => {
   const connectTool = { command: "/apps/ZLI", script: "/apps/zli-connect.js" };
+
+  it("hands each worktree's relay token to its agent only, never to a file in the shared folder", async () => {
+    const path = await storePath();
+    const relay = (worktreeId?: string) => ({
+      name: "composio",
+      enabled: true,
+      transport: "http" as const,
+      url: "http://127.0.0.1:4000/mcp",
+      headers: { Authorization: `Bearer token-${worktreeId ?? "shared"}` },
+      oauth: false,
+    });
+    const apps = { server: relay } as unknown as ConnectedApps;
+    const store = new McpServerStore({ path, connectTool, apps, extraServers: () => [relay()] });
+    await store.load();
+    const specs = store.specs({ worktreeId: "wt-a" });
+    const spec = specs.find((candidate) => candidate.name === "composio");
+    expect(spec).toMatchObject({
+      args: expect.arrayContaining(["--header-env", CONNECT_HEADERS_ENV]),
+      env: { [CONNECT_HEADERS_ENV]: JSON.stringify({ Authorization: "Bearer token-wt-a" }) },
+    });
+    expect(JSON.stringify(spec)).not.toContain("--header-file");
+    const bridgeDir = join(dirname(path), "mcp-headers");
+    const files = await readdir(bridgeDir).catch(() => []);
+    for (const file of files) expect(await readFile(join(bridgeDir, file), "utf8")).not.toContain("token-");
+
+    const lifted = liftSecretEnv(specs);
+    expect(lifted.env).toEqual({ [CONNECT_HEADERS_ENV]: JSON.stringify({ Authorization: "Bearer token-wt-a" }) });
+    expect(JSON.stringify(lifted.specs)).not.toContain("token-wt-a");
+  });
 
   it("keeps the new fields out of saved servers that do not use them", async () => {
     const path = await storePath();

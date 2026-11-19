@@ -16,6 +16,7 @@ import {
   writeAgentMcpConfig,
   zliMcpServerSpecs,
 } from "../browser-tool/browserTool.js";
+import { liftSecretEnv } from "../mcp/McpServerStore.js";
 import { type WorktreeFileWriter, writeProjectMcpFile } from "../terminal/agentLaunch.js";
 import { agentFolderTrust } from "../terminal/agentTrust.js";
 import {
@@ -195,10 +196,13 @@ export function createProviderRegistry(
       return {};
     }
   };
-  const chatEnv = async (worktreeId: string | undefined, account?: ProviderAccount) => {
+  // Servers for an agent that reads them from a file: the relay token moves to the agent's own environment.
+  const fileServers = async (worktreeId: string | undefined) => liftSecretEnv(await allServers(worktreeId));
+  const chatEnv = async (worktreeId: string | undefined, account?: ProviderAccount, secrets?: Record<string, string>) => {
     const merged = {
       ...(browserTool ? agentEnv(browserTool, worktreeId, env) : {}),
       ...(await metroEnv(worktreeId)),
+      ...secrets,
       ...account?.env,
     };
     return Object.keys(merged).length > 0 ? { env: merged } : {};
@@ -208,8 +212,7 @@ export function createProviderRegistry(
     const merged = { ...(browserTool ? agentEnv(browserTool, worktreeId, env) : {}), ...account?.env };
     return Object.keys(merged).length > 0 ? { env: merged } : {};
   };
-  const claudeMcpConfig = async (worktreeId: string | undefined) => {
-    const specs = await allServers(worktreeId);
+  const claudeMcpConfig = async (worktreeId: string | undefined, specs: readonly McpServerSpec[]) => {
     if (!mcpConfigDir || specs.length === 0) return {};
     try {
       return { mcpConfig: await writeMcpConfig(mcpConfigDir, "claude", worktreeId, specs) };
@@ -231,9 +234,9 @@ export function createProviderRegistry(
     }
   };
   // Resolves true when the worktree's project MCP file is ZLI's and holds this chat's servers.
-  const worktreeMcpFile = async (provider: "cursor-agent" | "droid", cwd: string, worktreeId: string | undefined) =>
+  const worktreeMcpFile = async (provider: "cursor-agent" | "droid", cwd: string, specs: readonly McpServerSpec[]) =>
     options.writeWorktreeFile
-      ? writeProjectMcpFile(provider, await allServers(worktreeId), cwd, options.writeWorktreeFile)
+      ? writeProjectMcpFile(provider, specs, cwd, options.writeWorktreeFile)
       : false;
   // One app server serves every Codex thread, so servers from Settings join per thread and edits
   // reach the next thread without restarting it.
@@ -267,12 +270,13 @@ export function createProviderRegistry(
       createClient: async ({ worktreeId, account, trustedProjectPath, title, ...input }) => {
         await trustFolder("claude-code", { cwd: input.cwd, account, trustedProjectPath });
         const autoCompactTokens = options.claudeAutoCompactTokens?.();
+        const servers = await fileServers(worktreeId);
         return ClaudeCodeClient.start({
           ...input,
           approveTool: isBuddyToolCall,
           command: await resolveClaudeCommand(),
-          ...(await chatEnv(worktreeId, account)),
-          ...(await claudeMcpConfig(worktreeId)),
+          ...(await chatEnv(worktreeId, account, servers.env)),
+          ...(await claudeMcpConfig(worktreeId, servers.specs)),
           ...(await claudeInstructions()),
           ...(title ? { name: title } : {}),
           ...(autoCompactTokens !== undefined ? { autoCompactTokens } : {}),
@@ -283,11 +287,12 @@ export function createProviderRegistry(
     new CursorAgentProviderAdapter({
       createClient: async ({ worktreeId, account, ...input }) => {
         // Approval only for ZLI's own file, so servers a repository brings in .cursor/mcp.json are never approved for the person.
-        const approveMcps = await worktreeMcpFile("cursor-agent", input.cwd, worktreeId);
+        const servers = await fileServers(worktreeId);
+        const approveMcps = await worktreeMcpFile("cursor-agent", input.cwd, servers.specs);
         return CursorAgentClient.start({
           ...input,
           command: await resolveCursorCommand(),
-          ...(await chatEnv(worktreeId, account)),
+          ...(await chatEnv(worktreeId, account, servers.env)),
           ...(approveMcps ? { approveMcps } : {}),
         });
       },
@@ -295,12 +300,13 @@ export function createProviderRegistry(
     new DroidProviderAdapter({
       createClient: async ({ worktreeId, account, trustedProjectPath, ...input }) => {
         await trustFolder("droid", { cwd: input.cwd, account, trustedProjectPath });
-        await worktreeMcpFile("droid", input.cwd, worktreeId);
+        const servers = await fileServers(worktreeId);
+        await worktreeMcpFile("droid", input.cwd, servers.specs);
         return DroidClient.start({
           ...input,
           approveTool: isBuddyToolCall,
           command: await resolveDroidCommand(),
-          ...(await chatEnv(worktreeId, account)),
+          ...(await chatEnv(worktreeId, account, servers.env)),
         });
       },
     }),

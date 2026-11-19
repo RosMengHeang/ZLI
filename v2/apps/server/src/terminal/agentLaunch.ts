@@ -9,6 +9,7 @@ import {
   writeAgentMcpConfig,
 } from "../browser-tool/browserTool.js";
 import { type ProjectFileProvider, projectMcpFile, projectMcpFileContents } from "../browser-tool/mcpSettingsFiles.js";
+import { liftSecretEnv } from "../mcp/McpServerStore.js";
 
 /**
  * Model ids reach cmd.exe when the CLI is an npm .cmd shim, so only characters that real
@@ -221,9 +222,14 @@ export type AgentMcpLaunchOptions = {
 /** Flags and environment that give one agent launch its MCP servers. A config file that cannot be written leaves its flag out. */
 export async function agentMcpLaunch(
   provider: ListedProviderKind,
-  specs: readonly McpServerSpec[],
+  all: readonly McpServerSpec[],
   options: AgentMcpLaunchOptions,
 ): Promise<{ args: string[]; env: Record<string, string> }> {
+  // Codex needs the relay token in its server settings, since it gives MCP servers only the environment
+  // they list; OpenCode already gets its settings through the environment. Every other agent reads its
+  // settings from a file, so the token goes to the agent's environment instead.
+  const lifted = provider === "codex" || provider === "opencode" ? { specs: [...all], env: {} } : liftSecretEnv(all);
+  const specs = lifted.specs;
   const kind = mcpConfigFileKind(provider);
   let configFile: string | undefined;
   if (kind && options.configDir && specs.length > 0) {
@@ -242,7 +248,7 @@ export async function agentMcpLaunch(
     options.worktreePath && options.writeWorktreeFile
       ? await writeProjectMcpFile(provider, specs, options.worktreePath, options.writeWorktreeFile)
       : false;
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = { ...lifted.env };
   if (provider === "opencode" && specs.length > 0) {
     const content = opencodeConfigContent(specs, (options.env ?? process.env).OPENCODE_CONFIG_CONTENT);
     if (content) env.OPENCODE_CONFIG_CONTENT = content;
