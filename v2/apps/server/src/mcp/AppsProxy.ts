@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 
 import { appsCallReads } from "./appsPolicy.js";
@@ -249,7 +249,10 @@ export class AppsProxy {
       response.end();
       return;
     }
-    Readable.fromWeb(upstreamResponse.body as WebReadableStream).pipe(response);
+    // Composio can repeat a request header back in an error, so the key is cut out of everything the agent reads.
+    Readable.fromWeb(upstreamResponse.body as WebReadableStream)
+      .pipe(keyScrubber(secretsOf(upstream)))
+      .pipe(response);
   }
 
   /** The worktree a token was made for ("" for the shared one), or undefined for no valid token. */
@@ -300,10 +303,47 @@ function failedInside(said: string): boolean {
 }
 
 function withoutKey(text: string, upstream: AppsUpstream): string {
-  return Object.values(upstream.headers).reduce(
-    (clean, value) => (value.length >= 8 ? clean.split(value).join("[key]") : clean),
-    text,
-  );
+  return secretsOf(upstream).reduce((clean, value) => clean.split(value).join("[key]"), text);
+}
+
+/** The header values long enough to be a key; shorter ones would match ordinary text. */
+function secretsOf(upstream: AppsUpstream): string[] {
+  return Object.values(upstream.headers).filter((value) => value.length >= 8);
+}
+
+/**
+ * Replaces each secret in a byte stream, even one split across chunks: the last few bytes of each chunk wait for
+ * the next one, so a key cut in two is still found. Keys are ASCII, so matching on bytes is exact.
+ */
+export function keyScrubber(secrets: readonly string[]): Transform {
+  const needles = secrets.map((secret) => Buffer.from(secret, "utf8"));
+  const hold = Math.max(0, ...needles.map((needle) => needle.length - 1));
+  const mask = Buffer.from("[key]");
+  let pending = Buffer.alloc(0);
+  const clean = (bytes: Buffer): Buffer => {
+    let out = bytes;
+    for (const needle of needles) {
+      const parts: Buffer[] = [];
+      let from = 0;
+      for (let at = out.indexOf(needle); at !== -1; at = out.indexOf(needle, from)) {
+        parts.push(out.subarray(from, at), mask);
+        from = at + needle.length;
+      }
+      if (parts.length) out = Buffer.concat([...parts, out.subarray(from)]);
+    }
+    return out;
+  };
+  return new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      const joined = clean(Buffer.concat([pending, chunk]));
+      const keep = Math.min(hold, joined.length);
+      pending = joined.subarray(joined.length - keep);
+      done(null, joined.subarray(0, joined.length - keep));
+    },
+    flush(done) {
+      done(null, clean(pending));
+    },
+  });
 }
 
 function digest(value: string): string {
