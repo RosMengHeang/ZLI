@@ -68,6 +68,28 @@ describe("parseMarkdown", () => {
       { kind: "code", lang: "", text: "| a | b |\n| - | - |" },
     ]);
   });
+
+  it("opens a block on three or more backticks or tildes", () => {
+    expect(parseMarkdown("~~~py\nx = 1\n~~~\n\n`````\ny\n`````")).toEqual([
+      { kind: "code", lang: "py", text: "x = 1" },
+      { kind: "code", lang: "", text: "y" },
+    ]);
+  });
+
+  it("closes a block only on a bare fence of the same kind and at least the same length", () => {
+    expect(parseMarkdown("````md\n```js\na()\n```\n~~~\n````\nAfter")).toEqual([
+      { kind: "code", lang: "md", text: "```js\na()\n```\n~~~" },
+      { kind: "paragraph", text: "After" },
+    ]);
+    expect(parseMarkdown("```\n```js\nb()\n```")).toEqual([{ kind: "code", lang: "", text: "```js\nb()" }]);
+  });
+
+  it("shows an unclosed block as code while the reply is still streaming", () => {
+    expect(parseMarkdown("Intro\n```ts\nconst a = 1;")).toEqual([
+      { kind: "paragraph", text: "Intro" },
+      { kind: "code", lang: "ts", text: "const a = 1;" },
+    ]);
+  });
 });
 
 describe("tableCells", () => {
