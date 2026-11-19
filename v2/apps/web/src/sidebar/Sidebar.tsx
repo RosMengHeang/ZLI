@@ -48,7 +48,7 @@ import { Menu, type MenuAction, MenuButton, type MenuItem, type MenuRequest } fr
 import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
 import { AgentStack, chatAgents } from "./AgentStack.js";
-import { activityGroups } from "./activity.js";
+import { type ActivityChat, activityGroups } from "./activity.js";
 import { BranchesView } from "./BranchesView.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectRail } from "./ProjectRail.js";
@@ -202,6 +202,7 @@ type Props = {
 };
 
 const noGroups: readonly RunGroup[] = [];
+const noWorktrees: readonly WorktreeProjection[] = [];
 const noAncestors: ReadonlySet<string> = new Set();
 const SCOPE_KEY = "zli.sidebar.scope";
 const noStates: ReadonlyMap<string, RunState> = new Map();
@@ -308,8 +309,33 @@ export function Sidebar({
     (left, right) => Number(layout.pinned(right.projectId)) - Number(layout.pinned(left.projectId)),
   );
   const worktrees = projection?.worktrees ?? [];
+  // Built once per projection, so search and the rows look a chat's worktree and project up without a scan each.
+  const worktreeById = useMemo(
+    () => new Map((projection?.worktrees ?? []).map((worktree) => [worktree.worktreeId, worktree])),
+    [projection?.worktrees],
+  );
+  const worktreesByProject = useMemo(() => {
+    const byProject = new Map<string, WorktreeProjection[]>();
+    for (const worktree of projection?.worktrees ?? [])
+      byProject.set(worktree.projectId, [...(byProject.get(worktree.projectId) ?? []), worktree]);
+    return byProject;
+  }, [projection?.worktrees]);
+  const projectById = useMemo(
+    () => new Map((projection?.projects ?? []).map((project) => [project.projectId, project])),
+    [projection?.projects],
+  );
   const threads = projection?.threads ?? [];
   const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
+  // The open chat as it was when opened. The activity list keeps it there, so it does not move while being read.
+  const heldChat = useRef<ActivityChat | undefined>(undefined);
+  if (heldChat.current?.sessionId !== activeSession?.sessionId) {
+    heldChat.current = activeSession && {
+      sessionId: activeSession.sessionId,
+      status: activeSession.status,
+      updatedAt: activeSession.updatedAt,
+      createdAt: activeSession.createdAt,
+    };
+  }
   const runIds = new Set(runGroups.flatMap((group) => group.sessionIds));
   const groupsBySource = new Map<string, RunGroup[]>();
   for (const group of runGroups) {
@@ -1227,8 +1253,8 @@ export function Sidebar({
   );
 
   const projectOf = (session: AgentSession) => {
-    const worktree = worktrees.find((entry) => entry.worktreeId === session.worktreeId);
-    return projects.find((entry) => entry.projectId === worktree?.projectId);
+    const projectId = worktreeById.get(session.worktreeId)?.projectId;
+    return projectId === undefined ? undefined : projectById.get(projectId);
   };
 
   // Typing in the search box lists every chat it matches, from all projects, newest first.
@@ -1239,7 +1265,7 @@ export function Sidebar({
     ? [...sessions, ...archivedChats.filter((session) => !isBuddySession(session, buddyChatNames))]
         .filter((session) => !runIds.has(session.sessionId))
         .filter((session) => {
-          const worktree = worktrees.find((entry) => entry.worktreeId === session.worktreeId);
+          const worktree = worktreeById.get(session.worktreeId);
           return [
             sessionTitle(session, projection?.messages, projection?.providers),
             sessionAgentName(session),
@@ -1265,7 +1291,7 @@ export function Sidebar({
             const projectId = projectOf(session)?.projectId;
             return renderSession(
               session,
-              worktrees.filter((worktree) => worktree.projectId === projectId),
+              (projectId && worktreesByProject.get(projectId)) || noWorktrees,
               undefined,
               undefined,
               false,
@@ -1440,7 +1466,12 @@ export function Sidebar({
       (session) =>
         !parents.has(session.sessionId) && (!scopeProject || projectOf(session)?.projectId === scopeProject.projectId),
     );
-    const groups = activityGroups(chats, new Date(now), (sessionId) => layout.chatPinned(sessionId));
+    const groups = activityGroups(
+      chats,
+      new Date(now),
+      (sessionId) => layout.chatPinned(sessionId),
+      heldChat.current,
+    );
     if (groups.length === 0)
       return (
         <p className="sidebar-results-empty">

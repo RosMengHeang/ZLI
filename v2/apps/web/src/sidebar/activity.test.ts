@@ -26,4 +26,18 @@ describe("activityGroups", () => {
     ]);
     expect(activityGroups([], now, () => false)).toEqual([]);
   });
+
+  it("keeps the open chat where it was opened while it updates, and moves it once the person leaves", () => {
+    const now = new Date(2026, 10, 17, 15, 0);
+    const chats = [
+      { sessionId: "open", status: "working", updatedAt: new Date(2026, 10, 17, 14, 59).toISOString() },
+      { sessionId: "other", status: "ready", updatedAt: new Date(2026, 10, 17, 14, 30).toISOString() },
+      { sessionId: "older", status: "ready", updatedAt: new Date(2026, 10, 17, 14, 50).toISOString() },
+    ];
+    const held = { sessionId: "open", status: "ready", updatedAt: new Date(2026, 10, 17, 14, 40).toISOString() };
+    const order = (groups: ReturnType<typeof activityGroups<(typeof chats)[number]>>) =>
+      groups.flatMap((group) => group.chats.map((chat) => chat.sessionId));
+    expect(order(activityGroups(chats, now, () => false, held))).toEqual(["older", "open", "other"]);
+    expect(order(activityGroups(chats, now, () => false))).toEqual(["open", "older", "other"]);
+  });
 });
