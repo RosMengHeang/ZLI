@@ -92,7 +92,7 @@
 .md-code-head { display: flex; align-items: center; gap: var(--zli-space-1); height: 30px; padding: 0 var(--zli-space-1) 0 var(--zli-space-3); border-bottom: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .md-code-lang { flex: 1; min-width: 0; overflow: hidden; font-family: var(--zli-mono); text-overflow: ellipsis; white-space: nowrap; }
 /* Height is fixed because a frame with scripts off cannot report its content size; people can drag it taller. */
-.md-preview { display: block; width: 100%; height: 260px; min-height: 120px; max-height: 80vh; border: 0; background: #fff; resize: vertical; }
+.md-preview { display: block; width: 100%; height: 260px; min-height: 120px; max-height: 80vh; border: 0; background: var(--zli-surface); resize: vertical; }
 .markdown .md-preview-note { margin: 0; white-space: normal; padding: var(--zli-space-1) var(--zli-space-3); border-top: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .markdown .md-link { color: var(--zli-blue); text-decoration: underline; text-underline-offset: 2px; }
 .markdown blockquote { margin: 0 0 var(--zli-space-2-5); padding-left: var(--zli-space-3); border-left: 2px solid var(--zli-border-strong); color: var(--zli-muted); }
