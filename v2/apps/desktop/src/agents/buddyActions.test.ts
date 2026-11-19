@@ -1,7 +1,12 @@
-import type { BuddyProjection, RuntimeProjection, TaskProjection } from "@zli-v2/contracts";
+import {
+  AGENT_CONTROL_ACTIONS,
+  type BuddyProjection,
+  type RuntimeProjection,
+  type TaskProjection,
+} from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { createBuddyActions, suitedBuddy } from "./buddyActions.js";
+import { BUDDY_ACTIONS, createBuddyActions, suitedBuddy } from "./buddyActions.js";
 
 const at = "2026-11-15T09:00:00.000Z";
 const buddy = (buddyId: string, name: string, title?: string, order = 0): BuddyProjection => ({
@@ -65,6 +70,10 @@ function host() {
 }
 
 describe("buddy actions", () => {
+  it("routes every buddy tool, so none falls through to the browser and is refused", () => {
+    for (const action of BUDDY_ACTIONS) expect(AGENT_CONTROL_ACTIONS, action).toContain(action);
+  });
+
   it("picks the buddy whose title suits the goal, never the caller or the Primary", () => {
     expect(suitedBuddy(state, "Write tests for the login page", "b1")?.name).toBe("Tess");
     expect(suitedBuddy(state, "Update the README", "b1")?.name).toBe("Dot");

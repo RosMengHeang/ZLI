@@ -107,7 +107,8 @@ export function BuddiesPane(props: BuddiesPaneProps) {
       />
       <div className="buddies-detail">
         {selected ? (
-          <BuddyPage {...props} buddy={selected} run={run} error={errorLine} />
+          // Keyed by buddy: what one buddy's Settings were editing never carries over to the next.
+          <BuddyPage key={selected.buddyId} {...props} buddy={selected} run={run} error={errorLine} />
         ) : (
           <div className="buddies-home">
             <header className="buddies-home-head">

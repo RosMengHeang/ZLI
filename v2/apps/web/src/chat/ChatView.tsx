@@ -923,6 +923,13 @@ export function ChatView({
         setError(`Say what the job is after @${asked.names[0]}.`);
         return false;
       }
+      // A job carries only its goal: rather than drop pasted images or files, the send waits and keeps them.
+      if (attachments.length > 0) {
+        setError(
+          `A job for @${asked.names[0]} can't take attached files yet. Remove them, or describe what's in them.`,
+        );
+        return false;
+      }
       for (const name of asked.names) {
         const buddy = team.find((candidate) => agentNameKey(candidate.name) === agentNameKey(name));
         if (!buddy) continue;

@@ -177,6 +177,7 @@ describe("zli MCP server", () => {
       "review_verdict",
       "list_buddies",
       "task_status",
+      "goal_done",
     ]);
     expect(await listNames("off")).toEqual([]);
   });

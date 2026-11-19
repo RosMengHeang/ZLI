@@ -188,6 +188,56 @@ describe("TaskReactor", () => {
     expect(state.tasks?.map((task) => task.status)).toEqual(["preparing", "preparing", "queued"]);
   });
 
+  it("runs one Primary job at a time in a project's checkout, so its tools always find the right job", async () => {
+    const { engine, projectId, settle } = await setup();
+    const state0 = await engine.projection();
+    // The first buddy made is the Primary; it works in the project's checkout.
+    expect(state0.buddies?.find((buddy) => buddy.buddyId === "b1")?.role).toBe("primary");
+    const project = state0.projects.find((entry) => entry.projectId === projectId);
+    await send(engine, {
+      type: "worktree.import",
+      worktreeId: stableId("checkout"),
+      projectId,
+      path: project?.path ?? "",
+      branch: "main",
+      kind: "checkout",
+    } as RuntimeCommand);
+    for (const taskId of ["p1", "p2"])
+      await send(engine, {
+        type: "task.assign",
+        task: { taskId, buddyId: "b1", projectId, kind: "job", goal: `Job ${taskId}`, origin: { kind: "chat" } },
+      });
+    const state = await settle();
+    expect(state.tasks?.map((task) => [task.taskId, task.status])).toEqual([
+      ["p1", "working"],
+      ["p2", "queued"],
+    ]);
+  });
+
+  it("makes a failed worktree again once, and again on Try again, instead of failing the job at once", async () => {
+    const { engine, projectId, settle } = await setup();
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "w1", buddyId: "b2", projectId, kind: "job", goal: "Fix it", origin: { kind: "chat" } },
+    });
+    let state = await settle();
+    const worktreeId = state.tasks?.[0]?.worktreeId ?? state.worktrees.at(-1)?.worktreeId ?? "";
+    const fail = () =>
+      send(engine, { type: "worktree.status", worktreeId, status: "failed" } as RuntimeCommand).then(settle);
+    // A first failure: made again, the job still preparing.
+    state = await fail();
+    expect(state.worktrees.find((entry) => entry.worktreeId === worktreeId)?.status).toBe("queued");
+    expect(state.tasks?.[0]?.status).toBe("preparing");
+    // Failing again in the same attempt ends the job.
+    state = await fail();
+    expect(state.tasks?.[0]?.status).toBe("failed");
+    // Try again makes it once more.
+    await send(engine, { type: "task.retry", taskId: "w1" });
+    state = await settle();
+    expect(state.worktrees.find((entry) => entry.worktreeId === worktreeId)?.status).toBe("queued");
+    expect(state.tasks?.[0]?.status).toBe("preparing");
+  });
+
   it("stops a job whose agent runs one turn past the limit, and says why", async () => {
     let clock = Date.now();
     const { engine, projectId, settle, runtime } = await setup({ now: () => new Date(clock), checkEveryMs: 5 });

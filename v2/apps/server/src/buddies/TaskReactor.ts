@@ -153,6 +153,9 @@ export class TaskReactor {
     }
   }
 
+  /** Job attempts that already asked for their failed worktree to be made again. */
+  private readonly worktreeRetries = new Set<string>();
+
   private async runOnce(): Promise<void> {
     const reactions = this.reactions.splice(0);
     for (const envelope of reactions) await this.react(envelope);
@@ -174,6 +177,13 @@ export class TaskReactor {
     const queued = tasks
       .filter((task) => task.status === "queued")
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    // A folder two jobs would share (a buddy's home for web jobs, a project's checkout for the Primary) takes one
+    // job at a time: its tools find the calling job by its folder, so a second one there could report as the first.
+    const places = new Set<string>();
+    for (const task of tasks) {
+      const place = isActiveTask(task) ? sharedPlace(state, task) : undefined;
+      if (place) places.add(place);
+    }
     for (const task of queued) {
       if (total >= MAX_ACTIVE_JOBS) return;
       const buddy = findBuddy(state, task.buddyId);
@@ -185,6 +195,9 @@ export class TaskReactor {
       if (active >= buddy.maxActiveJobs) continue;
       // Past its weekly budget, a buddy's new jobs wait until the person raises it or the week moves on.
       if (overBudget(state, buddy, this.now())) continue;
+      const place = sharedPlace(state, task);
+      if (place && places.has(place)) continue;
+      if (place) places.add(place);
       perBuddy.set(task.buddyId, active + 1);
       total += 1;
       await this.dispatch(
@@ -256,6 +269,19 @@ export class TaskReactor {
       if (receipt.status === "rejected")
         await this.fail(task, receipt.error?.message ?? "Its worktree could not be made.");
       return;
+    }
+    // A failed worktree is made again once per attempt, so Try again (or a passing hiccup) can recover; failing
+    // again in the same attempt ends the job.
+    if (worktree.status === "failed" && place.create) {
+      const attempt = `${task.taskId}:${task.updatedAt}`;
+      if (!this.worktreeRetries.has(attempt)) {
+        this.worktreeRetries.add(attempt);
+        await this.dispatch(
+          { type: "worktree.retry", worktreeId: worktree.worktreeId } as RuntimeCommand,
+          `task:${task.taskId}:worktree-retry:${task.updatedAt}`,
+        );
+        return;
+      }
     }
     if (worktree.status === "failed" || worktree.status === "cancelled" || worktree.status === "cancelling") {
       await this.fail(task, "Its worktree could not be made.");
@@ -831,4 +857,22 @@ export class TaskReactor {
 /** Whether a change request came from a reviewer buddy, not the person. */
 function isReviewNote(note: string): boolean {
   return note.includes(" checked your work and has notes:\n");
+}
+
+/**
+ * The folder a job shares with others of its kind, or undefined for a job with its own worktree: a buddy's home
+ * for its web jobs, a project's checkout for the Primary's jobs there. A review reads its parent's worktree and
+ * is told apart from it by kind, so it shares nothing here.
+ */
+function sharedPlace(state: RuntimeProjection, task: TaskProjection): string | undefined {
+  if (task.kind === "review") return undefined;
+  const project = state.projects.find((candidate) => candidate.projectId === task.projectId);
+  if (!project) return undefined;
+  if (isBuddyHome(project)) return `home:${task.buddyId}`;
+  if (findBuddy(state, task.buddyId)?.role !== "primary") return undefined;
+  // As in placement: the Primary works in the project's checkout only when there is a ready one.
+  const checkout = state.worktrees.some(
+    (worktree) => worktree.projectId === task.projectId && worktree.kind === "checkout" && worktree.status === "ready",
+  );
+  return checkout ? `checkout:${task.projectId}` : undefined;
 }
