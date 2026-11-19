@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { keepNotes, screenNote } from "./memoryGuard.js";
+import { keepNotes, MAX_NOTE_TEXT, screenNote } from "./memoryGuard.js";
 
 describe("screenNote", () => {
+  it("keeps a note up to the length limit and refuses a longer one", () => {
+    expect(screenNote("a".repeat(MAX_NOTE_TEXT))).toMatchObject({ ok: true });
+    // Spaces collapse before the count, so padding does not push a short note over.
+    expect(screenNote(`Prefers tabs.${" ".repeat(MAX_NOTE_TEXT)}`)).toEqual({ ok: true, text: "Prefers tabs." });
+    expect(screenNote("a".repeat(MAX_NOTE_TEXT + 1))).toMatchObject({ ok: false });
+  });
+
   it("keeps plain facts about the person and the project, cleaned", () => {
     expect(screenNote("  Prefers small PRs.​ ")).toEqual({ ok: true, text: "Prefers small PRs." });
     expect(screenNote("Run pnpm test:unit before pushing; the e2e suite needs Docker.")).toMatchObject({ ok: true });

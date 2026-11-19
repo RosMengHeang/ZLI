@@ -303,12 +303,15 @@ export function chatBrief(options: {
     lines.push(
       "",
       "Your conversation so far:",
-      ...options.history.map(
+      ...options.history.slice(-MAX_HISTORY).map(
         (message) => `${senderName(state, message)}: ${message.text.replace(/\s+/gu, " ").slice(0, 400)}`,
       ),
     );
   return lines.join("\n");
 }
+
+/** The most chat messages a brief carries, newest kept, so a long chat does not keep growing the prompt. */
+export const MAX_HISTORY = 16;
 
 /** The newest messages are in the chat already; recall reaches past them. */
 const RECENT_SKIPPED = 12;
