@@ -1280,6 +1280,49 @@ describe("ChatView context meter", () => {
     expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", text: "Continue where you left off." });
   });
 
+  it("sends Continue once when it is clicked twice before the chat catches up", async () => {
+    const turnId = thread.activeTurnId as string;
+    const failed = {
+      ...thread,
+      status: "failed",
+      providerSessionId: "conv-1",
+      errorMessage: "Connection lost",
+    } as ThreadProjection;
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [failed],
+        messages: [
+          { messageId: "m1", threadId, turnId, role: "user", text: "Build the page" },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    await act(async () => button(container, "Continue")?.click());
+    await act(async () => button(container, "Continue")?.click());
+    const resends = dispatched.filter(
+      (request) => request.command.type === "thread.queue" && request.command.text === "Continue where you left off.",
+    );
+    expect(resends).toHaveLength(1);
+  });
+
+  it("offers Edit only on the last message, not on older ones", async () => {
+    const turnId = thread.activeTurnId as string;
+    const idle = { ...thread, status: "idle" } as ThreadProjection;
+    const { container } = await render(
+      projectionWith({
+        threads: [idle],
+        messages: [
+          { messageId: "m1", threadId, turnId: "t-old", role: "user", text: "Make it red" },
+          { messageId: "m2", threadId, turnId: "t-old", role: "assistant", text: "Red now." },
+          { messageId: "m3", threadId, turnId, role: "user", text: "Make it blue" },
+          { messageId: "m4", threadId, turnId, role: "assistant", text: "Done." },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    const edits = [...container.querySelectorAll('button[aria-label="Edit message"]')];
+    expect(edits).toHaveLength(1);
+    expect(edits[0]?.closest(".chat-log > *, [data-message-id]")?.textContent ?? "").toContain("Make it blue");
+  });
+
   it("puts a reply's suggested next steps right under it, not above the message box", async () => {
     const turnId = thread.activeTurnId as string;
     const idle = { ...thread, status: "idle" } as ThreadProjection;

@@ -1052,7 +1052,12 @@ export function ChatView({
   );
   // A chat cut off mid-task, as when the app closed while the agent worked: its last word is the person's,
   // or a step never finished. A chat stopped at the usage limit has its own note above the message box.
+  // Continue hides once clicked, until the chat moves on: the queued message reaches the projection a
+  // moment after the click, and a second click before then would send it twice.
+  const chatPoint = `${thread.status}:${timeline.length}`;
+  const [continuedAt, setContinuedAt] = useState<string>();
   const cutOff =
+    continuedAt !== chatPoint &&
     resumable &&
     !thread.usageLimit &&
     !working &&
@@ -1316,7 +1321,16 @@ export function ChatView({
                   onOpenFile={fileLinks ? openFile : undefined}
                 />
               ) : null}
-              {cutOff ? <ContinueRow onContinue={() => void sendToHost("Continue where you left off.", [])} /> : null}
+              {cutOff ? (
+                <ContinueRow
+                  onContinue={() => {
+                    setContinuedAt(chatPoint);
+                    void sendToHost("Continue where you left off.", []).then((sent) => {
+                      if (!sent) setContinuedAt(undefined);
+                    });
+                  }}
+                />
+              ) : null}
               {earlyMessages.map((message, index) => (
                 <ChatMessage
                   key={message.messageId}
