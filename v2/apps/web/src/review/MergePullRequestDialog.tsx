@@ -1,4 +1,5 @@
 import type {
+  ForgeInfo,
   PullRequestInfo,
   PullRequestMergeMethod,
   PullRequestMergeResult,
@@ -13,6 +14,7 @@ import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
 import { Switch } from "../ui/Switch.js";
+import { forgeWords } from "./forgeWords.js";
 import { checksSummary } from "./PullRequestSection.js";
 import { mergePullRequest, setAutoMerge } from "./pullRequestClient.js";
 
@@ -38,24 +40,31 @@ function savedMethod(): PullRequestMergeMethod {
 }
 
 /**
- * Merges the branch's open pull request on GitHub with the method the person picks. When GitHub is
- * likely to refuse, or just refused, it also offers to turn on auto-merge with that method instead.
+ * Merges the branch's open pull or merge request on its forge with the method the person picks. On GitHub, when
+ * the merge is likely to be refused, or just was, it also offers to turn on auto-merge with that method instead.
  */
 export function MergePullRequestDialog({
   worktree,
   pullRequest,
+  forge,
   onClose,
   onMerged,
   onAutoMerge,
 }: {
   worktree: WorktreeProjection;
   pullRequest: PullRequestInfo;
+  forge?: ForgeInfo | undefined;
   onClose(): void;
   onMerged(result: PullRequestMergeResult): void;
   onAutoMerge(result: PullRequestUpdateResult): void;
 }) {
   const { dispatch } = useRuntime();
-  const [method, setMethod] = useState<PullRequestMergeMethod>(savedMethod);
+  const words = forgeWords(forge);
+  const methods = words.capabilities.mergeMethods;
+  const [method, setMethod] = useState<PullRequestMergeMethod>(() => {
+    const saved = savedMethod();
+    return methods.includes(saved) ? saved : (methods[0] ?? "merge");
+  });
   const [deleteBranch, setDeleteBranch] = useState(true);
   const [pending, setPending] = useState<"merge" | "auto">();
   const [error, setError] = useState<string>();
@@ -64,16 +73,16 @@ export function MergePullRequestDialog({
   const summary = checks.length > 0 ? checksSummary(checks) : undefined;
   const warning =
     pullRequest.reviewDecision === "CHANGES_REQUESTED"
-      ? "A reviewer requested changes on this pull request."
+      ? `A reviewer requested changes on this ${words.noun}.`
       : summary && (summary.tone === "danger" || summary.tone === "warning")
-        ? `${summary.text}. GitHub may refuse the merge until they pass.`
+        ? `${summary.text}. ${words.label} may refuse the merge until they pass.`
         : undefined;
   const mayBeBlocked =
     !!error ||
     pullRequest.reviewDecision === "REVIEW_REQUIRED" ||
     pullRequest.reviewDecision === "CHANGES_REQUESTED" ||
     (summary !== undefined && (summary.tone === "danger" || summary.tone === "warning"));
-  const offerAutoMerge = mayBeBlocked && !pullRequest.autoMerge;
+  const offerAutoMerge = mayBeBlocked && !pullRequest.autoMerge && words.capabilities.autoMerge;
 
   const rememberMethod = () => {
     try {
@@ -115,12 +124,12 @@ export function MergePullRequestDialog({
     // biome-ignore lint/a11y/noStaticElementInteractions: Escape from anywhere inside the dialog closes it.
     <div onKeyDown={closeOnEscape}>
       <Dialog
-        label="Merge pull request"
+        label={`Merge ${words.noun}`}
         className="pr-dialog"
-        title={`Merge pull request #${pullRequest.number}`}
+        title={`Merge ${words.noun} ${words.sign}${pullRequest.number}`}
         subtitle={
           <>
-            <span className="is-mono">{worktree.branch}</span> on GitHub
+            <span className="is-mono">{worktree.branch}</span> on {words.label}
           </>
         }
         onClose={() => {
@@ -136,7 +145,7 @@ export function MergePullRequestDialog({
                 {pullRequest.autoMerge.method
                   ? ` (${mergeMethods[pullRequest.autoMerge.method].label.toLowerCase()})`
                   : ""}
-                . GitHub merges this pull request once the required checks and reviews pass.
+                . {words.label} merges this {words.noun} once the required checks and reviews pass.
               </span>
             </div>
           ) : null}
@@ -150,10 +159,12 @@ export function MergePullRequestDialog({
             label="Merge method"
             value={method}
             onChange={setMethod}
-            options={(Object.keys(mergeMethods) as PullRequestMergeMethod[]).map((value) => ({
-              value,
-              label: mergeMethods[value].label,
-            }))}
+            options={(Object.keys(mergeMethods) as PullRequestMergeMethod[])
+              .filter((value) => methods.includes(value))
+              .map((value) => ({
+                value,
+                label: mergeMethods[value].label,
+              }))}
           />
           <p className="field-hint">{mergeMethods[method].detail}</p>
           <Switch
@@ -176,7 +187,13 @@ export function MergePullRequestDialog({
           ) : null}
         </div>
         <div className="dialog-footer">
-          <span className="dialog-footer-note">Runs gh pr merge --{method}.</span>
+          <span className="dialog-footer-note">
+            {words.kind === "gitlab"
+              ? `Runs glab mr merge${method === "merge" ? "" : ` --${method}`}.`
+              : words.kind === "gitea"
+                ? `Runs tea pulls merge --style ${method}.`
+                : `Runs gh pr merge --${method}.`}
+          </span>
           <Button variant="ghost" disabled={running} onClick={onClose}>
             Cancel
           </Button>

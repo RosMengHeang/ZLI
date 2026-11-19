@@ -9,9 +9,12 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import type { SessionMode } from "../sessions/sessions.js";
+import { ConnectorLogo } from "../settings/connectorLogos.js";
+import { requestSettings } from "../settings/openSettings.js";
 import { Badge, type BadgeTone } from "../ui/Badge.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { forgeWords, isSetupProblem } from "./forgeWords.js";
 import { openExternalLink, useCopyFeedback } from "./links.js";
 import { PullRequestComments } from "./PullRequestComments.js";
 import { PullRequestDialog } from "./PullRequestDialog.js";
@@ -21,6 +24,10 @@ import { SendToAgentDialog } from "./SendToAgentDialog.js";
 
 const MergePullRequestDialog = lazy(() =>
   import("./MergePullRequestDialog.js").then((module) => ({ default: module.MergePullRequestDialog })),
+);
+
+const PublishDialog = lazy(() =>
+  import("../forges/PublishDialog.js").then((module) => ({ default: module.PublishDialog })),
 );
 
 const ReviewPullRequestDialog = lazy(() =>
@@ -65,6 +72,7 @@ export function PullRequestSection({
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [turningOff, setTurningOff] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const [linkError, setLinkError] = useState<string>();
   const [copyState, copy] = useCopyFeedback();
   const commitAfterClose = useRef(false);
@@ -109,27 +117,103 @@ export function PullRequestSection({
   };
   const problem = linkError ?? error ?? status?.problem?.message;
   const canCreate = !!status && !status.problem && !error && pullRequest?.state !== "OPEN";
+  const words = forgeWords(status?.forge);
+  const { capabilities } = words;
 
   if (status?.problem?.code === "no_origin" && !linkError && !error) {
-    return <p className="review-pr-quiet">Pull requests show here once this repository is on GitHub.</p>;
+    return (
+      <fieldset className="review-pr">
+        <legend className="sr-only">{words.Noun}</legend>
+        <div className="review-pr-setup">
+          <span className="review-pr-setup-icon" aria-hidden="true">
+            <Icon name="upload" size={14} />
+          </span>
+          <div className="review-pr-setup-copy">
+            <span className="review-pr-setup-title">Not on a forge yet</span>
+            <span className="review-pr-setup-detail">
+              Publish it to GitHub, GitLab or Gitea to open pull requests from here.
+            </span>
+          </div>
+          <div className="review-pr-setup-actions">
+            <Button size="sm" variant="primary" onClick={() => setPublishOpen(true)}>
+              Publish
+            </Button>
+          </div>
+        </div>
+        {publishOpen ? (
+          <Suspense fallback={null}>
+            <PublishDialog
+              worktree={worktree}
+              onClose={() => setPublishOpen(false)}
+              onPublished={() => void refreshPullRequest(dispatch, worktreeId, true)}
+            />
+          </Suspense>
+        ) : null}
+      </fieldset>
+    );
+  }
+  // Setup problems get their own card with the way out, instead of a CLI error in the row.
+  if (status && isSetupProblem(status.problem) && !linkError && !error) {
+    const unknown = status.problem?.code === "unknown_forge";
+    return (
+      <fieldset className="review-pr">
+        <legend className="sr-only">{words.Noun}</legend>
+        <div className="review-pr-setup" role="status">
+          {unknown ? (
+            <span className="review-pr-setup-icon" aria-hidden="true">
+              <Icon name="globe" size={14} />
+            </span>
+          ) : (
+            <ConnectorLogo id={words.kind} title={words.label} size={20} />
+          )}
+          <div className="review-pr-setup-copy">
+            <span className="review-pr-setup-title">
+              {unknown ? "Unknown forge" : `${words.label} isn't connected`}
+            </span>
+            <span className="review-pr-setup-detail">{status.problem?.message}</span>
+          </div>
+          <div className="review-pr-setup-actions">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="reload"
+              aria-label="Check again"
+              tooltip="Check again"
+              loading={checking}
+              onClick={() => void refreshPullRequest(dispatch, worktreeId, true)}
+            />
+            <Button size="sm" onClick={() => requestSettings("forges")}>
+              Forges
+            </Button>
+          </div>
+        </div>
+      </fieldset>
+    );
   }
   return (
     <fieldset className="review-pr">
-      <legend className="sr-only">Pull request</legend>
+      <legend className="sr-only">{words.Noun}</legend>
       {checking && !status ? (
         <span className="review-pr-state" role="status">
           <span className="spinner" aria-hidden="true" />
-          Checking GitHub for a pull request
+          Checking for a {words.noun}
         </span>
       ) : problem ? (
-        <span className="review-pr-state is-problem" role="alert">
+        <span className="review-pr-state is-problem" role="alert" title={problem}>
           <Icon name="alert" size={13} />
           <span>{problem}</span>
         </span>
       ) : pullRequest ? (
         <span className="review-pr-state">
-          <Icon name="pullRequest" size={13} />
-          <span className="review-pr-number">#{pullRequest.number}</span>
+          {status?.forge ? (
+            <ConnectorLogo id={words.kind} title={words.label} size={14} />
+          ) : (
+            <Icon name="pullRequest" size={13} />
+          )}
+          <span className="review-pr-number">
+            {words.sign}
+            {pullRequest.number}
+          </span>
           <Badge
             tone={pullRequest.isDraft && pullRequest.state === "OPEN" ? "quiet" : stateTone[pullRequest.state]}
             dot
@@ -153,15 +237,23 @@ export function PullRequestSection({
         </span>
       ) : (
         <span className="review-pr-state">
-          <Icon name="pullRequest" size={13} />
-          <span>No pull request for this branch yet</span>
+          {status?.forge ? (
+            <ConnectorLogo id={words.kind} title={words.label} size={14} />
+          ) : (
+            <Icon name="pullRequest" size={13} />
+          )}
+          <span>No {words.noun} for this branch yet</span>
         </span>
       )}
       {pullRequest ? (
         <>
           <IconButton
             label={
-              copyState === "copied" ? "Link copied" : copyState === "failed" ? "Copy failed" : "Copy pull request link"
+              copyState === "copied"
+                ? "Link copied"
+                : copyState === "failed"
+                  ? "Copy failed"
+                  : `Copy ${words.noun} link`
             }
             icon={copyState === "copied" ? "check" : "copy"}
             size="sm"
@@ -174,9 +266,9 @@ export function PullRequestSection({
               void openExternalLink(bridge, pullRequest.url).then((failure) => failure && setLinkError(failure))
             }
           >
-            View PR
+            View {words.short}
           </Button>
-          {pullRequest.state === "OPEN" ? (
+          {pullRequest.state === "OPEN" && capabilities.reviewThreads ? (
             <Button
               variant="ghost"
               size="sm"
@@ -187,12 +279,12 @@ export function PullRequestSection({
               Review comments
             </Button>
           ) : null}
-          {pullRequest.state === "OPEN" ? (
+          {pullRequest.state === "OPEN" && capabilities.review ? (
             <Button size="sm" icon="check" onClick={() => setReviewOpen(true)}>
               Review
             </Button>
           ) : null}
-          {pullRequest.state === "OPEN" && pullRequest.autoMerge ? (
+          {pullRequest.state === "OPEN" && pullRequest.autoMerge && capabilities.autoMerge ? (
             <Button
               variant="ghost"
               size="sm"
@@ -206,7 +298,7 @@ export function PullRequestSection({
           ) : null}
           {pullRequest.state === "OPEN" && !pullRequest.isDraft ? (
             <Button size="sm" icon="merge" onClick={() => setMergeOpen(true)}>
-              Merge PR
+              Merge {words.short}
             </Button>
           ) : null}
         </>
@@ -223,13 +315,13 @@ export function PullRequestSection({
         </Button>
       ) : canCreate ? (
         <Button size="sm" icon="pullRequest" onClick={() => setDialogOpen(true)}>
-          Create PR
+          Create {words.short}
         </Button>
       ) : null}
-      {pullRequest?.checks ? (
+      {pullRequest?.checks && capabilities.checks ? (
         <PullRequestChecks worktree={worktree} pullRequest={pullRequest} onShowAgent={onShowAgent} />
       ) : null}
-      {commentsOpen && pullRequest?.state === "OPEN" ? (
+      {commentsOpen && pullRequest?.state === "OPEN" && capabilities.reviewThreads ? (
         <PullRequestComments key={worktreeId} worktree={worktree} checkKey={checkKey} onShowAgent={onShowAgent} />
       ) : null}
       {mergeOpen && pullRequest?.state === "OPEN" ? (
@@ -237,6 +329,7 @@ export function PullRequestSection({
           <MergePullRequestDialog
             worktree={worktree}
             pullRequest={pullRequest}
+            forge={status?.forge}
             onClose={() => setMergeOpen(false)}
             onMerged={(result) => {
               setMergeOpen(false);
@@ -268,6 +361,7 @@ export function PullRequestSection({
           <PullRequestDialog
             worktree={worktree}
             base={base}
+            forge={status?.forge}
             onClose={() => setDialogOpen(false)}
             onCreated={(created) => recordPullRequest(worktreeId, created)}
             onCommitFirst={() => {

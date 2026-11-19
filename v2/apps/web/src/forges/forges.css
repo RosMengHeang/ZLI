@@ -1,0 +1,51 @@
+/* ---------- Settings → Forges ---------- */
+.forge-list { display: flex; flex-direction: column; margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-raised); list-style: none; }
+.forge-row { display: flex; align-items: center; gap: var(--zli-space-3); min-height: 64px; padding: var(--zli-space-3) var(--zli-space-4); }
+.forge-row + .forge-row { border-top: 1px solid var(--zli-border); }
+.forge-row > .connector-logo { flex: 0 0 auto; }
+.forge-row:is(.is-missing, .is-outdated) > .connector-logo { opacity: .55; filter: grayscale(.6); }
+.forge-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.forge-title { display: flex; align-items: baseline; gap: var(--zli-space-2); }
+.forge-name { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; }
+.forge-version { color: var(--zli-dim); font-family: var(--zli-font-mono); font-size: var(--zli-text-xs); }
+.forge-detail { margin: 0; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.forge-detail.is-error { color: var(--zli-red-ink); white-space: normal; }
+.forge-row.is-error .forge-detail { white-space: normal; }
+.forge-side { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); }
+.forge-side .btn { font-family: inherit; }
+.forge-state { display: inline-flex; align-items: center; gap: 6px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; white-space: nowrap; }
+.forge-state-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--zli-dim); }
+.forge-state.is-ready { color: var(--zli-green-ink); }
+.forge-state.is-ready .forge-state-dot { background: var(--zli-green); box-shadow: 0 0 0 3px var(--zli-green-soft); }
+.forge-state:is(.is-signed_out, .is-outdated) { color: var(--zli-amber-ink); }
+.forge-state:is(.is-signed_out, .is-outdated) .forge-state-dot { background: var(--zli-amber); }
+.forge-state.is-error { color: var(--zli-red-ink); }
+.forge-state.is-error .forge-state-dot { background: var(--zli-red); }
+.forge-footnote { margin: var(--zli-space-1) 0 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+@media (max-width: 640px) {
+  .forge-row { flex-wrap: wrap; }
+  .forge-side { width: 100%; justify-content: flex-end; }
+}
+
+/* ---------- Clone repository ---------- */
+.clone-form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
+.clone-field { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.clone-label { color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
+.clone-source { position: relative; display: flex; align-items: center; }
+.clone-source > :is(.connector-logo, svg) { position: absolute; left: 10px; pointer-events: none; color: var(--zli-dim); }
+.clone-source > .input { width: 100%; padding-left: 34px; font-family: var(--zli-font-mono); font-size: var(--zli-text-sm); }
+.clone-parent { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
+.clone-path { min-width: 0; flex: 1; overflow: hidden; padding: 6px 10px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-font-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.clone-path-name { color: var(--zli-text); }
+.clone-path-empty { color: var(--zli-dim); font-family: inherit; }
+
+/* ---------- Publish repository ---------- */
+.publish-forges { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--zli-space-2); }
+.publish-forge { display: flex; align-items: center; justify-content: center; gap: var(--zli-space-2); height: 44px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-sm); font-weight: 500; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
+.publish-forge:hover { background: var(--zli-hover); }
+.publish-forge.is-on { border-color: var(--zli-accent-line); background: var(--zli-accent-soft); color: var(--zli-text); }
+.publish-forge:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.publish-names { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--zli-space-3); }
+@media (max-width: 520px) { .publish-names, .publish-forges { grid-template-columns: minmax(0, 1fr); } }
+.publish-fieldset { margin: 0; padding: 0; border: 0; }
+.publish-fieldset > legend { padding: 0; margin-bottom: 6px; }

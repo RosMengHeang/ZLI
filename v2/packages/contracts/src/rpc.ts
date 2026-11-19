@@ -8,6 +8,7 @@ import { DevServerProjection } from "./devServers.js";
 import { DesktopAppInfo, DiagnosticLog } from "./diagnostics.js";
 import { RuntimeEventEnvelope } from "./events.js";
 import { FileCommand } from "./files.js";
+import { ForgeCommand } from "./forges.js";
 import { GitChangesCommand } from "./gitChanges.js";
 import { HistoryCommand } from "./history.js";
 import { HuddleCommand } from "./huddles.js";
@@ -322,6 +323,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   ...CheckpointCommand.options,
   ...McpCommand.options,
   ...IssueCommand.options,
+  ...ForgeCommand.options,
   ...SkillCommand.options,
   ...PluginCommand.options,
   ...AccountCommand.options,

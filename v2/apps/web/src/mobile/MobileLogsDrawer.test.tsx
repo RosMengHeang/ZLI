@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 
+import type { MobileDevice } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import type { MobileDevice } from "@zli-v2/contracts";
 
 import { MobileLogsDrawer } from "./MobileLogsDrawer.js";
 

@@ -1,4 +1,5 @@
 import {
+  type ForgeInfo,
   GitBranchesResult,
   type GitLocalBranch,
   GitPullResult,
@@ -27,13 +28,17 @@ import {
 } from "@zli-v2/contracts";
 import { spawnCli } from "@zli-v2/shared";
 
+import { type ForgeDriver, ForgeError, GITHUB_CAPABILITIES } from "../forges/ForgeDriver.js";
+import { GiteaDriver } from "../forges/GiteaDriver.js";
+import { GitLabDriver } from "../forges/GitLabDriver.js";
+import { CLI_HOSTS, type KnownHosts, readProjectRemotes } from "../forges/remotes.js";
 import { assertRef } from "./ReviewService.js";
 
 export type ProcessResult = { code: number; stdout: string; stderr: string };
 
 /** Runs `git`, `gh`, or `glab` without a shell. Resolves for any exit code; rejects when the program cannot start. */
 export type ProcessRunner = (
-  command: "git" | "gh" | "glab",
+  command: "git" | "gh" | "glab" | "tea",
   args: readonly string[],
   options: { cwd: string; timeoutMs: number; maxOutputBytes?: number; input?: string },
 ) => Promise<ProcessResult>;
@@ -110,11 +115,120 @@ const NO_PULL_REQUEST = "This branch has no pull request yet.";
 const UNREADABLE_PULL_REQUEST = "GitHub CLI returned a pull request ZLI could not read.";
 const NOT_ACTIONS = "ZLI can read logs only for GitHub Actions checks. Open the check on GitHub to see why it failed.";
 
+/** The forge a worktree's origin is on: GitHub through the code in this file, the others through a driver. */
+type ForgeTarget =
+  | { kind: "github"; host?: string | undefined }
+  | { kind: "driver"; driver: ForgeDriver; host?: string | undefined }
+  | { kind: "unknown"; host?: string | undefined };
+
+export type PullRequestServiceOptions = {
+  knownHosts?: KnownHosts;
+  drivers?: Partial<Record<"gitlab" | "gitea", ForgeDriver>>;
+};
+
+function unknownForge(host: string | undefined): string {
+  if (!host) return "Origin isn't on a forge ZLI knows. Pull requests need a remote on GitHub, GitLab or Gitea.";
+  return `ZLI can't tell which forge ${host} is. If it's a self-hosted GitLab or Gitea, sign glab or tea in to it.`;
+}
+
+function forgeInfo(target: ForgeTarget): ForgeInfo | undefined {
+  const host = target.host ? { host: target.host } : {};
+  if (target.kind === "github") {
+    return { kind: "github", label: "GitHub", requestNoun: "pull request", capabilities: GITHUB_CAPABILITIES, ...host };
+  }
+  if (target.kind === "driver") {
+    const { info } = target.driver;
+    return {
+      ...info,
+      capabilities: { ...info.capabilities, mergeMethods: [...info.capabilities.mergeMethods] },
+      ...host,
+    };
+  }
+  return undefined;
+}
+
 export class PullRequestService {
   /** Status is checked often, so a working GitHub CLI is trusted for a while instead of asked every time. */
   private ghReadyUntil = 0;
+  private readonly knownHosts: KnownHosts;
+  private readonly drivers: Record<"gitlab" | "gitea", ForgeDriver>;
 
-  constructor(private readonly runner: ProcessRunner = runProcess) {}
+  constructor(
+    private readonly runner: ProcessRunner = runProcess,
+    options: PullRequestServiceOptions = {},
+  ) {
+    this.knownHosts = options.knownHosts ?? CLI_HOSTS;
+    this.drivers = {
+      gitlab: options.drivers?.gitlab ?? new GitLabDriver(runner),
+      gitea: options.drivers?.gitea ?? new GiteaDriver(runner),
+    };
+  }
+
+  /**
+   * Which forge the worktree's remotes point to. Anything ZLI cannot place but that may still be GitHub (a local
+   * path, an SSH alias, no remote at all) stays with gh, as before forges existed.
+   */
+  private async forgeTarget(cwd: string): Promise<ForgeTarget> {
+    let remotes: Awaited<ReturnType<typeof readProjectRemotes>>;
+    try {
+      remotes = await readProjectRemotes(this.runner, cwd, this.knownHosts);
+    } catch {
+      return { kind: "github" };
+    }
+    if (remotes.unavailable) {
+      return remotes.unavailable.code === "other_host"
+        ? { kind: "unknown", host: remotes.unavailable.host }
+        : { kind: "github" };
+    }
+    const source = remotes.sources[0];
+    if (source === "gitlab" || source === "gitea") {
+      return { kind: "driver", driver: this.drivers[source], host: remotes.hosts[source] };
+    }
+    return { kind: "github", host: remotes.hosts.github };
+  }
+
+  /** Throws unless the worktree is on GitHub, for what only the GitHub CLI does in ZLI so far. */
+  private async requireGitHub(cwd: string, what: string): Promise<void> {
+    const target = await this.forgeTarget(cwd);
+    if (target.kind === "github") return;
+    if (target.kind === "unknown") throw new PullRequestError(unknownForge(target.host));
+    const { label } = target.driver.info;
+    throw new PullRequestError(`ZLI can't ${what} on ${label} yet. Open it on ${label} instead.`);
+  }
+
+  /** Runs driver work and turns its failures into messages shown as they are. */
+  private async drive<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      if (error instanceof ForgeError) throw new PullRequestError(error.message);
+      throw error;
+    }
+  }
+
+  /** The open request from the branch, through a driver; `ready` also refuses drafts. */
+  private async openOnDriver(
+    driver: ForgeDriver,
+    cwd: string,
+    options: { ready?: boolean } = {},
+  ): Promise<{ branch: string; open: PullRequestInfo }> {
+    const branch = await this.currentBranch(cwd);
+    if (!branch) throw new PullRequestError(DETACHED);
+    const problem = await driver.problem(cwd);
+    if (problem) throw new PullRequestError(problem.message);
+    const { label, requestNoun, kind } = driver.info;
+    const open = await this.drive(() => driver.view(cwd, branch));
+    if (!open) throw new PullRequestError(`This branch has no ${requestNoun} yet.`);
+    const noun = `${requestNoun.charAt(0).toUpperCase()}${requestNoun.slice(1)}`;
+    const name = `${noun} ${kind === "gitlab" ? "!" : "#"}${open.number}`;
+    if (open.state !== "OPEN") {
+      throw new PullRequestError(`${name} is already ${open.state === "MERGED" ? "merged" : "closed"}.`);
+    }
+    if (options.ready && open.isDraft) {
+      throw new PullRequestError(`${name} is a draft. Mark it ready on ${label} first.`);
+    }
+    return { branch, open };
+  }
 
   async status(input: PullRequestInput, requestedBase?: string): Promise<PullRequestStatusResult> {
     const cwd = input.worktreePath;
@@ -144,16 +258,36 @@ export class PullRequestService {
       ...(upstream ? { upstream } : {}),
     };
 
+    const target = await this.forgeTarget(cwd);
+    if (target.kind === "unknown") return result({ code: "unknown_forge", message: unknownForge(target.host) }, extra);
+    const forge = forgeInfo(target);
+    const known = forge ? { ...extra, forge } : extra;
+    if (target.kind === "driver") {
+      const driverProblem = await target.driver.problem(cwd);
+      if (driverProblem) return result(driverProblem, known);
+      try {
+        const pullRequest = await target.driver.view(cwd, branch);
+        return result(undefined, pullRequest ? { ...known, pullRequest } : known);
+      } catch (error) {
+        if (!(error instanceof ForgeError)) throw error;
+        return result({ code: "cli_failed", message: error.message }, known);
+      }
+    }
+
     const problem = await this.ghProblem(cwd);
-    if (problem) return result(problem, extra);
+    if (problem) return result(problem, known);
     const view = await this.gh(["pr", "view", branch, "--json", PR_FIELDS], cwd);
     if (view.code === 0) {
       const pullRequest = parsePullRequest(view.stdout);
-      if (pullRequest) return result(undefined, { ...extra, pullRequest });
-      return result({ code: "gh_failed", message: UNREADABLE_PULL_REQUEST }, extra);
+      if (pullRequest) return result(undefined, { ...known, pullRequest });
+      return result({ code: "gh_failed", message: UNREADABLE_PULL_REQUEST }, known);
     }
-    if (/no (open )?pull requests? found/iu.test(view.stderr)) return result(undefined, extra);
-    return result({ code: "gh_failed", message: ghFailure("could not look up the pull request", view) }, extra);
+    if (/no (open )?pull requests? found/iu.test(view.stderr)) return result(undefined, known);
+    // A local path or SSH alias stays with gh in case it is GitHub; when gh says it is not, no forge knows it.
+    if (/none of the git remotes|not a known github host|no git remotes/iu.test(view.stderr)) {
+      return result({ code: "unknown_forge", message: unknownForge(target.host) }, extra);
+    }
+    return result({ code: "gh_failed", message: ghFailure("could not look up the pull request", view) }, known);
   }
 
   async push(input: PullRequestInput): Promise<PullRequestPushResult> {
@@ -184,6 +318,17 @@ export class PullRequestService {
     }
     const branch = await this.currentBranch(cwd);
     if (!branch) throw new PullRequestError(DETACHED);
+    const target = await this.forgeTarget(cwd);
+    if (target.kind === "unknown") throw new PullRequestError(unknownForge(target.host));
+    if (target.kind === "driver") {
+      const { driver } = target;
+      const driverProblem = await driver.problem(cwd);
+      if (driverProblem) throw new PullRequestError(driverProblem.message);
+      const pullRequest = await this.drive(() =>
+        driver.create(cwd, { branch, title, body: request.body, base: request.base, draft: request.draft }),
+      );
+      return PullRequestCreateResult.parse({ pullRequest });
+    }
     const problem = await this.ghProblem(cwd);
     if (problem) throw new PullRequestError(problem.message);
     const args = ["pr", "create", "--head", branch, "--base", request.base, "--title", title, "--body", request.body];
@@ -211,6 +356,7 @@ export class PullRequestService {
     const job = actionsJob(url);
     if (!job) throw new PullRequestError(NOT_ACTIONS);
     const cwd = input.worktreePath;
+    await this.requireGitHub(cwd, "read check logs");
     const problem = await this.ghProblem(cwd);
     if (problem) throw new PullRequestError(problem.message);
     const result = await this.gh(["run", "view", "--repo", job.repo, "--job", job.jobId, "--log-failed"], cwd, {
@@ -229,6 +375,7 @@ export class PullRequestService {
   /** Unresolved review threads and written review summaries of the branch's pull request. */
   async comments(input: PullRequestInput): Promise<PullRequestCommentsResult> {
     const cwd = input.worktreePath;
+    await this.requireGitHub(cwd, "read review threads");
     const pullRequest = await this.pullRequestLink(cwd);
     const args = graphqlArgs(pullRequest.host, REVIEW_THREADS_QUERY, [
       ["-f", "owner", pullRequest.owner],
@@ -251,22 +398,34 @@ export class PullRequestService {
     request: { method: PullRequestMergeMethod; deleteBranch: boolean },
   ): Promise<PullRequestMergeResult> {
     const cwd = input.worktreePath;
+    const target = await this.forgeTarget(cwd);
+    if (target.kind === "unknown") throw new PullRequestError(unknownForge(target.host));
+    if (target.kind === "driver") {
+      const { driver } = target;
+      const { branch, open } = await this.openOnDriver(driver, cwd, { ready: true });
+      await this.drive(() => driver.merge(cwd, open.number, request.method));
+      const branchDeleted = request.deleteBranch ? await this.deleteRemoteBranch(cwd, branch) : false;
+      const after = await this.drive(() => driver.view(cwd, branch));
+      const pullRequest = after ?? { ...open, state: "MERGED" as const };
+      return PullRequestMergeResult.parse({ pullRequest, branchDeleted });
+    }
     const { branch, open } = await this.openPullRequest(cwd, { ready: true });
     const merged = await this.gh(["pr", "merge", String(open.number), `--${request.method}`], cwd, {
       timeoutMs: PUSH_TIMEOUT_MS,
     });
     if (merged.code !== 0) throw new PullRequestError(mergeFailure(open.number, merged));
-    let branchDeleted = false;
-    if (request.deleteBranch) {
-      const deleted = await this.runner("git", ["push", "origin", "--delete", branch], {
-        cwd,
-        timeoutMs: PUSH_TIMEOUT_MS,
-      });
-      // A repository set to delete merged branches may have removed it already.
-      branchDeleted = deleted.code === 0 || /remote ref does not exist/iu.test(deleted.stderr);
-    }
+    const branchDeleted = request.deleteBranch ? await this.deleteRemoteBranch(cwd, branch) : false;
     const pullRequest = (await this.view(cwd, String(open.number))) ?? { ...open, state: "MERGED" as const };
     return PullRequestMergeResult.parse({ pullRequest, branchDeleted });
+  }
+
+  /** Removes the merged branch from origin. A repository set to delete merged branches may have done so already. */
+  private async deleteRemoteBranch(cwd: string, branch: string): Promise<boolean> {
+    const deleted = await this.runner("git", ["push", "origin", "--delete", branch], {
+      cwd,
+      timeoutMs: PUSH_TIMEOUT_MS,
+    });
+    return deleted.code === 0 || /remote ref does not exist/iu.test(deleted.stderr);
   }
 
   /** Submits a review of the branch's pull request as the signed-in GitHub account. */
@@ -282,6 +441,7 @@ export class PullRequestService {
     if (!body && request.event === "COMMENT")
       throw new PullRequestError("Write the comment before sending the review.");
     const cwd = input.worktreePath;
+    await this.requireGitHub(cwd, "send reviews");
     const { open } = await this.openPullRequest(cwd);
     const args = ["pr", "review", String(open.number), REVIEW_FLAGS[request.event]];
     if (body) args.push("--body", body);
@@ -295,6 +455,15 @@ export class PullRequestService {
     const body = text.trim();
     if (!body || body.includes("\0")) throw new PullRequestError("Write the comment first.");
     const cwd = input.worktreePath;
+    const target = await this.forgeTarget(cwd);
+    if (target.kind === "unknown") throw new PullRequestError(unknownForge(target.host));
+    if (target.kind === "driver") {
+      const { driver } = target;
+      const { branch, open } = await this.openOnDriver(driver, cwd);
+      await this.drive(() => driver.comment(cwd, open.number, body));
+      const after = await this.drive(() => driver.view(cwd, branch));
+      return PullRequestUpdateResult.parse({ pullRequest: after ?? open });
+    }
     const { open } = await this.openPullRequest(cwd);
     const commented = await this.gh(["pr", "comment", String(open.number), "--body", body], cwd);
     if (commented.code !== 0) {
@@ -309,6 +478,7 @@ export class PullRequestService {
     if (!body || body.includes("\0")) throw new PullRequestError("Write the reply first.");
     assertThreadId(request.threadId);
     const cwd = input.worktreePath;
+    await this.requireGitHub(cwd, "reply to review threads");
     const pullRequest = await this.pullRequestLink(cwd);
     const result = await this.gh(
       graphqlArgs(pullRequest.host, REPLY_MUTATION, [
@@ -332,6 +502,7 @@ export class PullRequestService {
   ): Promise<PullRequestResolveResult> {
     assertThreadId(request.threadId);
     const cwd = input.worktreePath;
+    await this.requireGitHub(cwd, "resolve review threads");
     const pullRequest = await this.pullRequestLink(cwd);
     const mutation = request.resolved ? "resolveReviewThread" : "unresolveReviewThread";
     const result = await this.gh(
@@ -360,6 +531,7 @@ export class PullRequestService {
   ): Promise<PullRequestUpdateResult> {
     if (request.enabled && !request.method) throw new PullRequestError("Choose a merge method for auto-merge.");
     const cwd = input.worktreePath;
+    await this.requireGitHub(cwd, "turn on auto-merge");
     const { open } = await this.openPullRequest(cwd, { ready: request.enabled });
     const number = String(open.number);
     const args = request.enabled
