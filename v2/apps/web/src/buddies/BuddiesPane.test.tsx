@@ -447,6 +447,21 @@ describe("BuddyList", () => {
     expect(onSelect).toHaveBeenCalledWith((commands.at(-1) as { buddy: { buddyId: string } }).buddy.buddyId);
   });
 
+  it("moves a buddy one place down when dropped on the row below it", async () => {
+    const { commands } = await render(
+      projection({ buddies: [buddy("b1", "Primary", 0, "primary"), buddy("b2", "Builder", 1), buddy("b3", "Tester", 2)] }),
+    );
+    const item = (name: string) =>
+      [...document.querySelectorAll<HTMLElement>(".buddies-row")].find((entry) => entry.textContent?.includes(name));
+    await act(async () => {
+      item("Builder")?.dispatchEvent(new Event("dragstart", { bubbles: true }));
+    });
+    await act(async () => {
+      item("Tester")?.dispatchEvent(new Event("drop", { bubbles: true }));
+    });
+    expect(commands.at(-1)).toEqual({ type: "buddy.reorder", buddyIds: ["b1", "b3", "b2"] });
+  });
+
   it("removes a buddy from its right-click menu after asking", async () => {
     const { commands, onSelect } = await render(
       projection({ buddies: [buddy("b2", "Builder", 0), buddy("b3", "Tester", 1)] }),
