@@ -280,3 +280,22 @@ export function freeName(wanted: string, buddies: readonly Pick<BuddyProjection,
   }
   return wanted;
 }
+
+/**
+ * The team order with one buddy moved a place up (-1) or down (1). The primary buddy stays first and
+ * cannot be moved, so nothing moves above it. Undefined when the move is not possible.
+ */
+export function moveBuddy(
+  team: readonly Pick<BuddyProjection, "buddyId" | "role">[],
+  buddyId: string,
+  by: -1 | 1,
+): string[] | undefined {
+  const ids = team.map((buddy) => buddy.buddyId);
+  const from = ids.indexOf(buddyId);
+  const to = from + by;
+  if (from < 0 || to < 0 || to >= ids.length) return undefined;
+  if (team[from]?.role === "primary" || team[to]?.role === "primary") return undefined;
+  ids.splice(from, 1);
+  ids.splice(to, 0, buddyId);
+  return ids;
+}

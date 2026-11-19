@@ -1,6 +1,26 @@
 import { guessProject } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
+import { moveBuddy } from "./team.js";
+
+describe("moveBuddy", () => {
+  const team = [
+    { buddyId: "p", role: "primary" as const },
+    { buddyId: "a", role: "buddy" as const },
+    { buddyId: "b", role: "buddy" as const },
+  ];
+  it("moves a buddy one place up or down", () => {
+    expect(moveBuddy(team, "b", -1)).toEqual(["p", "b", "a"]);
+    expect(moveBuddy(team, "a", 1)).toEqual(["p", "b", "a"]);
+  });
+  it("keeps the primary first and stops at the ends", () => {
+    expect(moveBuddy(team, "a", -1)).toBeUndefined();
+    expect(moveBuddy(team, "p", 1)).toBeUndefined();
+    expect(moveBuddy(team, "b", 1)).toBeUndefined();
+    expect(moveBuddy(team, "missing", 1)).toBeUndefined();
+  });
+});
+
 const projects = [
   { projectId: "p-shop", name: "shop-web", path: "D:/code/shop-web" },
   { projectId: "p-tax", name: "Taxzy CLI", path: "D:/Taxzy_CLI" },
