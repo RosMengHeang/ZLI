@@ -4,6 +4,7 @@ import {
   type GoalProjection,
   goalTasks,
   isBusyTask,
+  isTeam,
   MAX_GOAL_ROUNDS,
   type RuntimeCommand,
   type RuntimeEventEnvelope,
@@ -85,6 +86,11 @@ export class GoalReactor {
     const tasks = goalTasks(state, goal.goalId);
     // Running, waiting to run, or waiting on the person: the lead never plans around work in flight.
     if (tasks.some(isBusyTask)) return;
+    // A team plans once; after the plan goes, its jobs, reviews and the merge move it on, not the lead.
+    if (isTeam(goal) && goal.team.phase !== "planning") {
+      if (goal.team.phase === "summing_up") await this.sumUp(state, goal);
+      return;
+    }
     // Only planning turns since the person last said keep going count toward giving up.
     const current = new Set(
       Array.from({ length: goal.rounds }, (_, index) => roundTaskId(goal.goalId, index + 1, goal.resumes)),
@@ -112,14 +118,17 @@ export class GoalReactor {
       return;
     }
     // A planning turn that handed nothing out and did not finish the goal would only plan the same again.
-    if (lastPlan && !handedOut(state, goal, lastPlan.taskId)) {
+    // A team's lead hands in a plan instead, which moves the team out of planning.
+    if (lastPlan && (isTeam(goal) || !handedOut(state, goal, lastPlan.taskId))) {
       const ended = lastPlan.status === "ready" || lastPlan.status === "closed" || lastPlan.status === "shipped";
       if (ended) {
         await this.dispatch(
           {
             type: "goal.needs",
             goalId: goal.goalId,
-            text: "The lead handed nothing out and did not call the goal done. Tell it what to do next",
+            text: isTeam(goal)
+              ? "The lead did not hand in a plan. Tell it what to do next"
+              : "The lead handed nothing out and did not call the goal done. Tell it what to do next",
           },
           `goal:${goal.goalId}:idle:${lastPlan.taskId}`,
         );
@@ -129,6 +138,32 @@ export class GoalReactor {
     await this.dispatch(
       { type: "goal.round", goalId: goal.goalId, taskId: roundTaskId(goal.goalId, goal.rounds + 1, goal.resumes) },
       `goal:${goal.goalId}:round:${goal.rounds + 1}:${goal.resumes}`,
+    );
+  }
+
+  /**
+   * Once a team's work is on one branch, its lead gets one more turn to write the summary. If that turn ends
+   * without goal_done, what the lead said last stands in for it, so the team never hangs on a missing call.
+   */
+  private async sumUp(state: RuntimeProjection, goal: GoalProjection): Promise<void> {
+    const taskId = summaryTaskId(goal.goalId, goal.resumes);
+    const turn = (state.tasks ?? []).find((task) => task.taskId === taskId);
+    if (!turn) {
+      await this.dispatch(
+        { type: "goal.round", goalId: goal.goalId, taskId },
+        `team:${goal.goalId}:summary:${goal.resumes}`,
+      );
+      return;
+    }
+    if (isBusyTask(turn)) return;
+    const said = turn.finished?.summary ?? turn.result?.summary;
+    await this.dispatch(
+      {
+        type: "goal.finish",
+        goalId: goal.goalId,
+        summary: (said ?? "The team finished. The combined diff is on the team branch.").slice(0, 2_000),
+      },
+      `team:${goal.goalId}:summary-done:${goal.resumes}`,
     );
   }
 
@@ -153,6 +188,11 @@ export class GoalReactor {
 /** The job id of a goal's planning turn, the same after a restart. */
 export function roundTaskId(goalId: string, round: number, resumes: number): string {
   return stableId(`goal-round:${goalId}:${round}:${resumes}`);
+}
+
+/** The job id of a team lead's summary turn, the same after a restart. */
+export function summaryTaskId(goalId: string, resumes: number): string {
+  return stableId(`team-summary:${goalId}:${resumes}`);
 }
 
 /** Whether a planning turn gave out any job. */

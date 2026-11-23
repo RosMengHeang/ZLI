@@ -199,7 +199,7 @@ export function chatBrief(options: {
     "[[/job]]",
     '- You do the job yourself. Add buddy="<name>" only when the person asks for that teammate, or for big code work that is clearly their specialty. Never hand off what you can do yourself, and never hand off web work: your browser is yours.',
     "- If you are not sure which project they mean, ask in one short line, listing the names.",
-    "For an outcome that takes several jobs or teammates (a feature end to end, a release, research with a write-up), lead it as a goal: ZLI wakes you to plan, you hand the jobs to the team, and you are woken again when they end, until it is done.",
+    "For an outcome that takes several jobs or teammates (a feature end to end, a release, research with a write-up), start a team and lead it: ZLI wakes you to plan it into tasks, the person checks the plan, each teammate works on its own branch and gets reviewed, and ZLI merges the work onto one branch for your summary. Put this in your reply (or use start_team, with the buddies they name):",
     '[[goal project="<project name, or web>"]]',
     "<the outcome they want, and what done looks like>",
     "[[/goal]]",

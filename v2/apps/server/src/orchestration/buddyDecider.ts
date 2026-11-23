@@ -3,15 +3,23 @@ import {
   type BuddyProjection,
   buddyNamed,
   findBuddy,
+  firstSentence,
+  type GoalProjection,
   isBuddyHome,
   isOpenTask,
+  isTeam,
   MAX_BUDDIES,
+  MAX_GOAL,
   MAX_HANDOFF_DEPTH,
   MAX_OPEN_JOBS,
+  MAX_TEAM_TASKS,
   type RuntimeProjection,
   screenNote,
   type TaskProjection,
   type TaskStatus,
+  type TeamPlanTask,
+  type TeamState,
+  teamDefaults,
 } from "@zli-v2/contracts";
 
 import { type DomainDecision, DomainError } from "./decider.js";
@@ -409,8 +417,144 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
           "goal_limit",
           `The team already has ${live.length} goals going. Finish or stop one before adding another.`,
         );
-      return [{ type: "goal.created", goal: { ...command.goal, projectId } }];
+      const { team, ...made } = command.goal;
+      if (!team) return [{ type: "goal.created", goal: { ...made, projectId } }];
+      for (const buddyId of team.buddyIds ?? []) {
+        const member = requireBuddy(projection, buddyId);
+        if (member.archived) throw new DomainError("buddy_missing", `${member.name} was removed from the team.`);
+      }
+      const defaults = teamDefaults(projection.buddySettings);
+      return [
+        {
+          type: "goal.created",
+          goal: {
+            ...made,
+            projectId,
+            team: {
+              autoStart: team.autoStart ?? defaults.autoStart,
+              reviewRounds: defaults.reviewRounds,
+              buddyIds: [...new Set(team.buddyIds ?? [])],
+            },
+          },
+        },
+      ];
     }
+    case "goal.plan.submit": {
+      const goal = requireTeam(projection, command.goalId);
+      if (goal.status === "done" || goal.status === "stopped")
+        throw new DomainError("goal_closed", "This team has ended.");
+      if (goal.team.phase !== "planning" && goal.team.phase !== "plan_ready")
+        throw new DomainError("plan_started", "The plan already went. Add tasks from the team page instead.");
+      const plan = command.plan.map((item) => withBuddy(projection, goal, item));
+      const submitted: DomainDecision = {
+        type: "goal.plan.submitted",
+        goalId: goal.goalId,
+        plan,
+        ...(command.notes ? { notes: command.notes } : {}),
+      };
+      if (goal.team.autoStart) return [submitted, ...approvePlan(projection, goal, plan)];
+      return [submitted, { type: "goal.needed", goalId: goal.goalId, text: "Check the plan and press Go" }];
+    }
+    case "goal.plan.approve": {
+      const goal = requireTeam(projection, command.goalId);
+      if (goal.team.phase !== "plan_ready") throw new DomainError("plan_started", "There is no plan waiting for Go.");
+      return approvePlan(
+        projection,
+        goal,
+        command.plan.map((item) => withBuddy(projection, goal, item)),
+      );
+    }
+    case "goal.task.add": {
+      const goal = requireTeam(projection, command.goalId);
+      if (goal.team.phase !== "working")
+        throw new DomainError("plan_started", "Tasks can be added while the team is working.");
+      if (goal.team.plan.length >= MAX_TEAM_TASKS)
+        throw new DomainError("plan_full", `A team plan holds up to ${MAX_TEAM_TASKS} tasks.`);
+      if (goal.team.plan.some((item) => item.planTaskId === command.task.planTaskId)) return [];
+      const item = withBuddy(projection, goal, command.task);
+      const task = { ...item, taskId: item.planTaskId };
+      return [
+        { type: "goal.task.added", goalId: goal.goalId, task },
+        teamJob(projection, goal, task, goal.team.baseRef),
+      ];
+    }
+    case "goal.task.accept": {
+      const goal = requireTeam(projection, command.goalId);
+      const item = goal.team.plan.find((entry) => entry.taskId === command.taskId);
+      if (!item) throw new DomainError("task_missing", "That task is not in the plan.");
+      if (item.accepted) return [];
+      return [{ type: "goal.task.accepted", goalId: goal.goalId, taskId: command.taskId }];
+    }
+    case "goal.task.drop": {
+      const goal = requireTeam(projection, command.goalId);
+      if (goal.team.phase !== "planning" && goal.team.phase !== "plan_ready" && goal.team.phase !== "working")
+        throw new DomainError("plan_started", "The team is already combining its work.");
+      const item = goal.team.plan.find(
+        (entry) => entry.taskId === command.taskId || entry.planTaskId === command.taskId,
+      );
+      if (!item) return [];
+      const events: DomainDecision[] = [];
+      const task = item.taskId ? findTask(projection, item.taskId) : undefined;
+      if (task && isOpenTask(task)) events.push({ type: "task.cancelled", taskId: task.taskId });
+      events.push({ type: "goal.task.dropped", goalId: goal.goalId, taskId: command.taskId });
+      return events;
+    }
+    case "goal.combine": {
+      const goal = requireTeam(projection, command.goalId);
+      if (goal.team.phase !== "working") return [];
+      return [{ type: "goal.combining", goalId: goal.goalId, branch: command.branch, worktreeId: command.worktreeId }];
+    }
+    case "goal.merge": {
+      const goal = requireTeam(projection, command.goalId);
+      if (goal.team.phase !== "combining" || goal.team.combine?.merged.includes(command.taskId)) return [];
+      return [{ type: "goal.merged", goalId: goal.goalId, taskId: command.taskId }];
+    }
+    case "goal.conflict": {
+      const goal = requireTeam(projection, command.goalId);
+      const combine = goal.team.combine;
+      if (goal.team.phase !== "combining" || !combine) return [];
+      if (combine.conflict?.resolveTaskId === command.resolveTaskId || findTask(projection, command.resolveTaskId))
+        return [];
+      const task = requireTask(projection, command.taskId);
+      const buddy = requireBuddy(projection, command.buddyId);
+      const files = command.files.length > 0 ? command.files.slice(0, 20).join(", ") : "the files git names";
+      const brief = `Merge the branch ${task.branch ?? "of the task"} into this branch (the team branch ${combine.branch}) and fix the conflicts in ${files}. Keep both sides working, run the tests, and commit the merge. The task was: ${firstSentence(task.goal, 200)}`;
+      return [
+        {
+          type: "goal.conflicted",
+          goalId: goal.goalId,
+          taskId: command.taskId,
+          files: command.files,
+          resolveTaskId: command.resolveTaskId,
+        },
+        {
+          type: "task.assigned",
+          task: {
+            taskId: command.resolveTaskId,
+            buddyId: buddy.buddyId,
+            projectId: goal.projectId,
+            kind: "job",
+            goal: brief.slice(0, MAX_GOAL),
+            origin: { kind: "primary", goalId: goal.goalId },
+            baseRef: combine.branch,
+            quiet: true,
+          },
+          handoffDepth: 0,
+        },
+      ];
+    }
+    case "goal.combine.done": {
+      const goal = requireTeam(projection, command.goalId);
+      if (goal.team.phase !== "combining") return [];
+      return [{ type: "goal.combined", goalId: goal.goalId, diff: command.diff }];
+    }
+    case "goal.pr": {
+      const goal = requireTeam(projection, command.goalId);
+      if (goal.team.prUrl === command.prUrl) return [];
+      return [{ type: "goal.pr.set", goalId: goal.goalId, prUrl: command.prUrl }];
+    }
+    case "buddies.team":
+      return [{ type: "buddies.team.changed", team: command.team }];
     case "goal.stop": {
       const goal = requireGoal(projection, command.goalId);
       if (goal.status === "done" || goal.status === "stopped") return [];
@@ -474,6 +618,82 @@ function requireGoal(projection: RuntimeProjection, goalId: string) {
   const goal = findGoal(projection, goalId);
   if (!goal) throw new DomainError("goal_missing", `No goal with id ${goalId}.`);
   return goal;
+}
+
+function requireTeam(projection: RuntimeProjection, goalId: string): GoalProjection & { team: TeamState } {
+  const goal = requireGoal(projection, goalId);
+  if (!isTeam(goal)) throw new DomainError("goal_missing", "That goal is not a team.");
+  return goal;
+}
+
+/** A plan task with its buddy: the one named, else someone on the team other than its lead, else the lead. */
+function withBuddy(
+  projection: RuntimeProjection,
+  goal: GoalProjection & { team: TeamState },
+  item: Omit<TeamPlanTask, "taskId" | "accepted">,
+): TeamPlanTask {
+  if (item.buddyId) {
+    const buddy = requireBuddy(projection, item.buddyId);
+    if (buddy.archived) throw new DomainError("buddy_missing", `${buddy.name} was removed from the team.`);
+    return item;
+  }
+  const live = (projection.buddies ?? []).filter((buddy) => !buddy.archived);
+  const picked = live.filter((buddy) => goal.team.buddyIds.includes(buddy.buddyId));
+  const doer =
+    picked.find((buddy) => buddy.buddyId !== goal.buddyId) ??
+    live.find((buddy) => buddy.buddyId !== goal.buddyId && buddy.role !== "primary") ??
+    findBuddy(projection, goal.buddyId);
+  return doer ? { ...item, buddyId: doer.buddyId } : item;
+}
+
+/** Go: every task gets its job, all from the branch the project is on now. */
+function approvePlan(
+  projection: RuntimeProjection,
+  goal: GoalProjection & { team: TeamState },
+  plan: readonly TeamPlanTask[],
+): DomainDecision[] {
+  const checkout = projection.worktrees.find(
+    (worktree) => worktree.projectId === goal.projectId && worktree.kind === "checkout",
+  );
+  const baseRef = checkout?.branch || undefined;
+  const items = plan.map((item) => ({ ...item, taskId: item.taskId ?? item.planTaskId }));
+  for (const item of items)
+    if (findTask(projection, item.taskId))
+      throw new DomainError("task_exists", "A task in this plan already has a job. Edit the plan and try again.");
+  return [
+    { type: "goal.plan.approved", goalId: goal.goalId, plan: items, ...(baseRef ? { baseRef } : {}) },
+    ...items.map((item) => teamJob(projection, goal, item, baseRef)),
+  ];
+}
+
+/** The buddy job for one plan task. */
+function teamJob(
+  projection: RuntimeProjection,
+  goal: GoalProjection & { team: TeamState },
+  item: TeamPlanTask & { taskId: string },
+  baseRef: string | undefined,
+): DomainDecision {
+  const buddyId = item.buddyId ?? goal.buddyId;
+  const buddy = requireBuddy(projection, buddyId);
+  if (buddy.archived) throw new DomainError("buddy_missing", `${buddy.name} was removed from the team.`);
+  const text = [item.title, item.notes, `This is one task of a team goal: ${firstSentence(goal.text, 300)}`]
+    .filter(Boolean)
+    .join("\n\n");
+  return {
+    type: "task.assigned",
+    task: {
+      taskId: item.taskId,
+      buddyId,
+      projectId: goal.projectId,
+      kind: "job",
+      goal: text.slice(0, MAX_GOAL),
+      origin: { kind: "primary", goalId: goal.goalId },
+      ...(baseRef ? { baseRef } : {}),
+      // The team page follows its tasks; a finished one is not the person's to ship.
+      quiet: true,
+    },
+    handoffDepth: 0,
+  };
 }
 
 function requireBuddy(projection: RuntimeProjection, buddyId: string): BuddyProjection {

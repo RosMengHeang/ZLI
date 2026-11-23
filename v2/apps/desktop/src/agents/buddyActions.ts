@@ -5,7 +5,10 @@ import {
   isActiveTask,
   isBuddyHome,
   isOpenTask,
+  isTeam,
+  MAX_TEAM_TASKS,
   type ProjectProjection,
+  primaryBuddy,
   RoutineTrigger,
   type RuntimeProjection,
   type TaskProjection,
@@ -27,6 +30,8 @@ export const BUDDY_ACTIONS = [
   "buddyrevise",
   "buddyroutine",
   "buddygoaldone",
+  "buddyteamplan",
+  "buddystartteam",
 ] as const;
 export type BuddyAction = (typeof BUDDY_ACTIONS)[number];
 
@@ -68,6 +73,19 @@ const Inputs = {
     label: Text(100).optional(),
   }),
   buddygoaldone: z.object({ summary: Text(2_000) }),
+  buddyteamplan: z.object({
+    tasks: z
+      .array(z.object({ title: Text(200), buddy: Text(40).optional(), notes: Text(2_000).optional() }))
+      .min(1, "Give the plan at least one task.")
+      .max(MAX_TEAM_TASKS, `A plan holds up to ${MAX_TEAM_TASKS} tasks.`),
+    notes: Text(2_000).optional(),
+  }),
+  buddystartteam: z.object({
+    goal: Text(4_000),
+    buddies: z.array(Text(40)).max(12).optional(),
+    autoStart: z.boolean().optional(),
+    project: Text(200).optional(),
+  }),
 } satisfies Record<BuddyAction, z.ZodType>;
 
 function parse<A extends BuddyAction>(action: A, raw: unknown): z.infer<(typeof Inputs)[A]> {
@@ -336,6 +354,11 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
     buddyassign: async (raw) => {
       const input = parse("buddyassign", raw);
       const { state, project, job } = primaryContext(raw);
+      const team = job?.origin.goalId
+        ? (state.goals ?? []).find((goal) => goal.goalId === job.origin.goalId)
+        : undefined;
+      if (team && isTeam(team) && job?.origin.kind === "goal")
+        throw new BrowserControlError("You are planning a team. Hand in the tasks with team_plan instead.", 409);
       const buddy = buddyFor(state, input.buddy);
       const taskId = host.newId();
       await host.run({
@@ -434,6 +457,60 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
         );
       await host.run({ type: "goal.finish", goalId, summary: input.summary });
       return { done: true, note: "The goal is marked done. Call task_done with one line, then end your turn." };
+    },
+    buddyteamplan: async (raw) => {
+      const input = parse("buddyteamplan", raw);
+      const { state, task } = callerJob(raw);
+      const goal = (state.goals ?? []).find((entry) => entry.goalId === task.origin.goalId);
+      if (task.origin.kind !== "goal" || !goal || !isTeam(goal))
+        throw new BrowserControlError("team_plan is for a team lead's planning turn.", 409);
+      const plan = input.tasks.map((item) => ({
+        planTaskId: host.newId(),
+        title: item.title,
+        ...(item.buddy ? { buddyId: buddyFor(state, item.buddy).buddyId } : {}),
+        ...(item.notes ? { notes: item.notes } : {}),
+      }));
+      await host.run({
+        type: "goal.plan.submit",
+        goalId: goal.goalId,
+        plan,
+        ...(input.notes ? { notes: input.notes } : {}),
+      });
+      return {
+        planned: plan.length,
+        note: goal.team.autoStart
+          ? "The plan is going: each task starts as a buddy job. Call task_done with one line, then end your turn."
+          : "The person checks the plan and presses Go. Call task_done with one line, then end your turn.",
+      };
+    },
+    buddystartteam: async (raw) => {
+      const input = parse("buddystartteam", raw);
+      const state = host.projection();
+      const lead = primaryBuddy(state);
+      if (!lead) throw new BrowserControlError("There is no Primary buddy to lead the team.", 404);
+      const { project } = host.caller((raw ?? {}) as Record<string, unknown>, state);
+      const where = projectFor(state, input.project, project);
+      const buddyIds = (input.buddies ?? []).map((name) => buddyFor(state, name).buddyId);
+      const goalId = host.newId();
+      await host.run({
+        type: "goal.create",
+        goal: {
+          goalId,
+          buddyId: lead.buddyId,
+          text: input.goal,
+          projectId: where.projectId,
+          team: {
+            ...(buddyIds.length > 0 ? { buddyIds } : {}),
+            ...(input.autoStart !== undefined ? { autoStart: input.autoStart } : {}),
+          },
+        },
+      });
+      return {
+        started: true,
+        goalId,
+        lead: lead.name,
+        note: `The team is set up in ${where.name}. You plan it on your next turn, as a job; the person follows it on the team page. Tell the person in one line, then carry on.`,
+      };
     },
   };
 }

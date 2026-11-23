@@ -27,7 +27,7 @@
 .buddy-info-hero { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-1); margin-top: calc(-1 * var(--zli-space-2)); text-align: center; }
 .buddy-info-hero h2 { margin: var(--zli-space-2) 0 0; color: var(--zli-text); font-size: var(--zli-text-lg, 18px); font-weight: 600; }
 .buddy-info-hero span { color: var(--zli-muted); font-size: var(--zli-text-xs); }
-.buddy-tabs.segmented { align-self: center; border: 0; background: transparent; }
+.buddy-tabs.segmented { align-self: center; border: 0; background: transparent; box-shadow: none; }
 .buddy-tabs .segmented-item { padding: 4px 12px; border-radius: 15px; color: var(--zli-muted); }
 .buddy-tabs .segmented-item[aria-pressed="true"] { background: var(--zli-raised); color: var(--zli-text); }
 .buddy-view-info .buddy-profile { gap: var(--zli-space-4); }

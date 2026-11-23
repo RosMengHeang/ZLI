@@ -4,12 +4,12 @@ import type { BuddyProjection, RuntimeProjection, TaskProjection } from "@zli-v2
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readDraft } from "../chat/drafts.js";
-import { buttonNamed, typeInput } from "../huddle/testHuddles.js";
 import { cleanupRuntimeRenders, renderWithRuntime, typeInto } from "../review/testRuntime.js";
 import { DEFAULT_SETTINGS, readAppSettings, updateAppSettings } from "../settings/appSettings.js";
 import { BuddiesPane, useTeammatesToBuddies } from "./BuddiesPane.js";
 import { buddyTranscript } from "./BuddyChat.js";
 import { SidebarBuddies } from "./SidebarBuddies.js";
+import { buttonNamed, typeInput } from "./testDom.js";
 
 afterEach(async () => {
   await cleanupRuntimeRenders();

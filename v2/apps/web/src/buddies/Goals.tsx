@@ -41,17 +41,20 @@ export function isPlanTurn(task: TaskProjection, goals: readonly GoalProjection[
 }
 
 /**
- * One box for a goal: say the outcome, and a lead plans it and hands the jobs to the team. Nobody has to pick
- * who does what; the lead and where it works can be changed before it starts.
+ * One box for a goal: say the outcome, and a team starts on it. Its lead plans it and hands the tasks to the team.
+ * Nobody has to pick who does what; the lead and where it works can be changed before it starts.
  */
 export function GoalComposer({
   projection,
   run,
   projectId,
+  onCreated,
 }: {
   projection: RuntimeProjection;
   run: Run;
   projectId: string | undefined;
+  /** Opens the new team's page. */
+  onCreated?: ((goalId: string) => void) | undefined;
 }) {
   const team = buddiesInOrder(projection);
   const [text, setText] = useState("");
@@ -68,12 +71,16 @@ export function GoalComposer({
     const goal = text.trim();
     if (!goal || !leadId || busy) return;
     setBusy(true);
+    const goalId = makeCommandId();
     const ok = await run({
       type: "goal.create",
-      goal: { goalId: makeCommandId(), buddyId: leadId, text: goal, ...(where === WEB ? {} : { projectId: where }) },
+      goal: { goalId, buddyId: leadId, text: goal, ...(where === WEB ? {} : { projectId: where }), team: {} },
     });
     setBusy(false);
-    if (ok) setText("");
+    if (ok) {
+      setText("");
+      onCreated?.(goalId);
+    }
   };
   return (
     <form
@@ -212,7 +219,13 @@ export function GoalCard({
       ) : null}
       {goal.status === "needs_you" && goal.needs ? <p className="goal-card-needs">{goal.needs}.</p> : null}
       {goal.summary ? <p className="goal-card-summary">{goal.summary}</p> : null}
-      {goal.status === "working" || goal.status === "needs_you" ? (
+      {goal.team ? (
+        <footer className="goal-card-actions">
+          <Button size="sm" variant="secondary" icon="users" onClick={() => onSelect(`team:${goal.goalId}`)}>
+            Open team
+          </Button>
+        </footer>
+      ) : goal.status === "working" || goal.status === "needs_you" ? (
         <footer className="goal-card-actions">
           {goal.status === "needs_you" ? (
             <Button size="sm" variant="primary" onClick={() => void run({ type: "goal.resume", goalId: goal.goalId })}>
