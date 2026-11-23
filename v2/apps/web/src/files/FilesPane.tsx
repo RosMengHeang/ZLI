@@ -9,6 +9,7 @@ import {
   type WorktreeProjection,
 } from "@zli-v2/contracts";
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import type { CodeReference } from "../chat/codeReferences.js";
 import { formatLocation } from "../review/diffLines.js";
@@ -18,7 +19,7 @@ import { useAppSettings } from "../settings/appSettings.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { Menu, type MenuRequest } from "../ui/Menu.js";
+import { Menu, MenuButton, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
 import { type CodeEditorHandle, createCodeEditor, languageLabel } from "./codeEditor.js";
 import { type DiffSource, FileDiffPanel, latestTurnFor } from "./FileDiffPanel.js";
@@ -66,7 +67,9 @@ function noteTarget(path: string, handle: CodeEditorHandle): NoteDraft {
 
 export type FilesFocus =
   | { kind: "open"; path: string; line?: number | undefined; column?: number | undefined; nonce: number }
-  | { kind: "search"; nonce: number };
+  | { kind: "search"; nonce: number }
+  /** Shows the file list, to open another file. */
+  | { kind: "browse"; nonce: number };
 
 const selectCheckpoints = (projection: RuntimeProjection | undefined) => projection?.checkpoints;
 
@@ -107,6 +110,8 @@ export function FilesPane({
   onOpenProject,
   onOpenDiff,
   onQuickOpen,
+  tabsHost,
+  onLastClosed,
 }: {
   worktree: WorktreeProjection | undefined;
   focus?: FilesFocus | undefined;
@@ -118,6 +123,10 @@ export function FilesPane({
   onOpenProject?: ((projectId: string) => Promise<void>) | undefined;
   onOpenDiff(path: string): void;
   onQuickOpen(): void;
+  /** Where the open files' tabs go instead of above the editor, such as the right panel's tab strip. */
+  tabsHost?: HTMLElement | null | undefined;
+  /** The person closed the last open file. In the right panel, Files closes with it. */
+  onLastClosed?: (() => void) | undefined;
 }) {
   if (worktree?.status !== "ready") {
     const project = worktree ? projects.find((entry) => entry.projectId === worktree.projectId) : undefined;
@@ -161,6 +170,8 @@ export function FilesPane({
       askAgent={askAgent}
       onOpenDiff={onOpenDiff}
       onQuickOpen={onQuickOpen}
+      tabsHost={tabsHost}
+      onLastClosed={onLastClosed}
     />
   );
 }
@@ -203,12 +214,16 @@ function FilesWorkspace({
   askAgent,
   onOpenDiff,
   onQuickOpen,
+  tabsHost,
+  onLastClosed,
 }: {
   worktree: WorktreeProjection;
   focus: FilesFocus | undefined;
   askAgent: AskAgentTarget | undefined;
   onOpenDiff(path: string): void;
   onQuickOpen(): void;
+  tabsHost?: HTMLElement | null | undefined;
+  onLastClosed?: (() => void) | undefined;
 }) {
   const { dispatch } = useRuntime();
   const quickOpenShortcut = useShortcut("quickOpen");
@@ -242,7 +257,8 @@ function FilesWorkspace({
   const [closeRequest, setCloseRequest] = useState<string>();
   const [noteDraft, setNoteDraft] = useState<NoteDraft>();
   const [paneWidth, setPaneWidth] = useState<number>();
-  const wide = paneWidth === undefined || paneWidth >= SPLIT_MIN_WIDTH;
+  // In the right panel's strip the file list is a tab of its own, so the list and a file take turns there.
+  const wide = !tabsHost && (paneWidth === undefined || paneWidth >= SPLIT_MIN_WIDTH);
   const [browseOpen, setBrowseOpen] = useState(session.tabs.length === 0);
   const [layout, updateLayout] = useFilesLayout();
   /** Code picked for an open Markdown tab; every other tab shows the preview. */
@@ -394,6 +410,9 @@ function FilesWorkspace({
       // A file opened from a chat or terminal shows its preview, even when its tab was left on Code.
       dropCodeTab(focus.path);
       openPath(focus);
+    } else if (focus.kind === "browse") {
+      setMode("tree");
+      showFileList();
     } else {
       setMode("search");
       updateLayout({ treeHidden: false });
@@ -527,8 +546,16 @@ function FilesWorkspace({
     const next = tabs.filter((candidate) => candidate !== path);
     setTabs(next);
     if (activePath === path) setActivePath(next[Math.min(position, next.length - 1)]);
-    if (next.length === 0) setBrowseOpen(true);
+    if (next.length === 0) {
+      setBrowseOpen(true);
+      // The pane can close right after this, before its effects copy the tabs back to the session.
+      session.tabs = next;
+      session.activePath = undefined;
+      onLastClosed?.();
+    }
   };
+  /** Shows the file list, to open another file. */
+  const showFileList = () => (wide ? updateLayout({ treeHidden: false }) : setBrowseOpen(true));
 
   const toggleFolder = (path: string) =>
     setExpanded((current) => {
@@ -575,6 +602,7 @@ function FilesWorkspace({
     [activePath, checkpoints, worktreeId],
   );
   const showDiff = activePath !== undefined && diffPath === activePath;
+  const compact = !!tabsHost;
   const canDiff = activeStatus !== undefined || activeTurn !== undefined;
   const activeKind = activePath ? previewKind(activePath) : undefined;
   const activeIsText = active?.status === "ready" && active.file.content !== undefined;
@@ -762,39 +790,59 @@ function FilesWorkspace({
     </div>
   ) : null;
 
+  const browsing = compact && showTree;
+  const fileTabs =
+    tabs.length > 0 || browsing ? (
+      <div className="file-tabs" role="tablist" aria-label="Open files">
+        {tabs.map((path) => (
+          <div className={`file-tab${path === activePath && !browsing ? " is-active" : ""}`} key={path} title={path}>
+            <button
+              className="file-tab-label"
+              type="button"
+              role="tab"
+              aria-selected={path === activePath && !browsing}
+              onClick={() => openPath({ path })}
+              onAuxClick={(event) => {
+                if (event.button === 1) closeTab(path);
+              }}
+            >
+              <span className={`file-tab-name${statuses.get(path) === "deleted" ? " is-deleted" : ""}`}>
+                {baseName(path)}
+              </span>
+              {dirty.has(path) ? <span className="file-tab-dirty" role="img" aria-label="Unsaved changes" /> : null}
+            </button>
+            <button
+              className="file-tab-close"
+              type="button"
+              aria-label={`Close ${baseName(path)}`}
+              onClick={() => closeTab(path)}
+            >
+              <Icon name="x" size={11} />
+            </button>
+          </div>
+        ))}
+        {browsing ? (
+          <div className="file-tab is-active is-browse" title={worktree.path}>
+            <button className="file-tab-label" type="button" role="tab" aria-selected="true">
+              <Icon name="folderTree" size={13} />
+              <span className="file-tab-name">Files</span>
+            </button>
+            <button
+              className="file-tab-close"
+              type="button"
+              aria-label="Close Files"
+              onClick={() => (tabs.length > 0 ? setBrowseOpen(false) : onLastClosed?.())}
+            >
+              <Icon name="x" size={11} />
+            </button>
+          </div>
+        ) : null}
+      </div>
+    ) : null;
+
   const editor = showEditor ? (
     <div className="files-editor">
-      {tabs.length > 0 ? (
-        <div className="file-tabs" role="tablist" aria-label="Open files">
-          {tabs.map((path) => (
-            <div className={`file-tab${path === activePath ? " is-active" : ""}`} key={path} title={path}>
-              <button
-                className="file-tab-label"
-                type="button"
-                role="tab"
-                aria-selected={path === activePath}
-                onClick={() => openPath({ path })}
-                onAuxClick={(event) => {
-                  if (event.button === 1) closeTab(path);
-                }}
-              >
-                <span className={`file-tab-name${statuses.get(path) === "deleted" ? " is-deleted" : ""}`}>
-                  {baseName(path)}
-                </span>
-                {dirty.has(path) ? <span className="file-tab-dirty" role="img" aria-label="Unsaved changes" /> : null}
-              </button>
-              <button
-                className="file-tab-close"
-                type="button"
-                aria-label={`Close ${baseName(path)}`}
-                onClick={() => closeTab(path)}
-              >
-                <Icon name="x" size={11} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
+      {tabsHost ? null : fileTabs}
       {!activePath ? (
         <EmptyState
           icon="file"
@@ -967,8 +1015,91 @@ function FilesWorkspace({
       />
     ) : null;
 
+  // In the right panel the open files are tabs in its strip, so one quiet bar is enough: where the file is, and the
+  // few things done most. The rest waits in the ... menu.
+  const barPath = browsing ? undefined : activePath;
+  const moreItems = (): MenuItem[] => [
+    { label: "Go to file", icon: "search", shortcut: quickOpenShortcut, run: onQuickOpen },
+    ...(barPath
+      ? [
+          {
+            label: askAgent ? `Ask ${askAgent.name} about this` : "Ask an agent about this",
+            icon: "message" as const,
+            disabled: !askAgent,
+            run: () => askAbout(barPath, true),
+          },
+          ...(activeIsText && !showDiff && viewMode !== "preview"
+            ? [{ label: "Add review note", icon: "squarePen" as const, run: () => startNote(barPath) }]
+            : []),
+        ]
+      : []),
+    {
+      label: "Reload file list",
+      icon: "reload",
+      run: () => {
+        void context.refresh(worktreeId, 0).catch(() => undefined);
+        void checkActiveFile();
+      },
+    },
+  ];
+  // While the file list shows, its tab says enough: the bar and the foot are for an open file.
+  const bar = barPath ? (
+    <div className="files-bar">
+      <span className="files-crumbs" title={barPath}>
+        {dirName(barPath) ? (
+          <>
+            <span className="files-crumb is-dir">{dirName(barPath)}</span>
+            <Icon name="chevronRight" size={11} />
+          </>
+        ) : null}
+        <span className="files-crumb is-current">{baseName(barPath)}</span>
+      </span>
+      <LineCounts additions={activeChange?.additions} deletions={activeChange?.deletions} />
+      <span className="file-path-spacer" />
+      {active?.status === "ready" && activeIsText && (dirty.has(barPath) || active.saving) ? (
+        <Button
+          variant="primary"
+          size="xs"
+          disabled={active.saving}
+          tooltip="Save"
+          shortcut="Mod+S"
+          onClick={() => void save(barPath)}
+        >
+          {active.saving ? "Saving" : "Save"}
+        </Button>
+      ) : null}
+      {canDiff || showDiff ? (
+        <IconButton
+          icon="diff"
+          size="sm"
+          label={showDiff ? "Show the file" : "Show what changed"}
+          pressed={showDiff}
+          onClick={() => setDiffPath(showDiff ? undefined : barPath)}
+        />
+      ) : null}
+      {viewMode && !showDiff ? (
+        <ViewModeTabs mode={viewMode} idBase={viewTabsId} panelId={filePanelId} onChange={changeViewMode} />
+      ) : null}
+    </div>
+  ) : null;
+  // The foot: what the file is, then opening it in an editor and the rest of the actions.
+  const foot = barPath ? (
+    <div className="files-foot">
+      {active?.status === "ready" && active.file.content !== undefined ? (
+        <span className="files-foot-meta">
+          {languageLabel(barPath)} · {active.file.lineEnding === "crlf" ? "CRLF" : "LF"}
+        </span>
+      ) : null}
+      <span className="file-path-spacer" />
+      <OpenInButton worktreeId={worktreeId} onError={setOpenInError} />
+      <MenuButton label="More file actions" items={moreItems} />
+    </div>
+  ) : null;
+
   return (
-    <div className="tool-pane files-pane" ref={rootRef}>
+    <div className={`tool-pane files-pane${compact ? " is-compact" : ""}`} ref={rootRef}>
+      {tabsHost && fileTabs ? createPortal(fileTabs, tabsHost) : null}
+      {compact ? bar : null}
       <PaneHeader icon="folderTree" title="Files" detail={worktree.branch}>
         <OpenInButton worktreeId={worktreeId} onError={setOpenInError} />
         <IconButton icon="search" size="sm" label="Go to file" shortcut={quickOpenShortcut} onClick={onQuickOpen} />
@@ -1013,6 +1144,7 @@ function FilesWorkspace({
           </>
         )}
       </div>
+      {compact ? foot : null}
     </div>
   );
 }

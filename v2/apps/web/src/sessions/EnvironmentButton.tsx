@@ -1,4 +1,4 @@
-import type { GitBranchesResult, ReviewProjection, WorktreeProjection } from "@zli-v2/contracts";
+import type { GitBranchesResult, ProjectProjection, ReviewProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { type FocusEvent, type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -12,13 +12,23 @@ import { pushBranch, switchBranch } from "../review/pullRequestClient.js";
 import { recordPullRequest, refreshPullRequest, usePullRequestEntry } from "../review/pullRequestStore.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
+import {
+  OverviewCards,
+  type OverviewGit,
+  type OverviewSource,
+  RunningBody,
+  useOverviewData,
+} from "../shell/OverviewCards.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { SearchList, type SearchListItem } from "../ui/SearchList.js";
+import type { AgentSession } from "./sessions.js";
 
 /** Git answers a commit or a first read through the projection; past this the popover stops waiting. */
 export const GIT_ANSWER_TIMEOUT_MS = 60_000;
 const EDGE = 8;
+/** How long a failed branch switch stays explained under the branch row. */
+const BRANCH_ERROR_MS = 8_000;
 const GAP = 6;
 
 export type CommitPlan =
@@ -79,6 +89,7 @@ export function EnvironmentButton({
   onOpenChanges,
   onOpenPullRequest,
   card,
+  onOpenUrl,
 }: {
   worktree: WorktreeProjection;
   review: ReviewProjection | undefined;
@@ -91,7 +102,21 @@ export function EnvironmentButton({
    * Shows the environment as a card pinned inside the tile instead of a popover. Chat mode uses it, so the
    * folder, branch, pull request, and changes stay in view while the person talks to the agent.
    */
-  card?: { open: boolean; host: HTMLElement | null; onOpenChange(open: boolean): void } | undefined;
+  card?:
+    | {
+        open: boolean;
+        host: HTMLElement | null;
+        onOpenChange(open: boolean): void;
+        /** The tile is narrow; the card still floats over the chat. */
+        overlay?: boolean | undefined;
+        /** What the Context and Running groups read: the chat, its project, and the account it runs under. */
+        session?: AgentSession | undefined;
+        project?: ProjectProjection | undefined;
+        accountName?: string | undefined;
+      }
+    | undefined;
+  /** Opens a local address from the Running group, in the browser panel. */
+  onOpenUrl?: ((url: string) => void) | undefined;
 }) {
   const { dispatch, bridge } = useRuntime();
   const [popoverOpen, setOpen] = useState(false);
@@ -107,6 +132,13 @@ export function EnvironmentButton({
   const [phase, setPhase] = useState<"committing" | "pushing">();
   const [reading, setReading] = useState(false);
   const [error, setError] = useState<string>();
+  /** Why the last branch switch failed. It sits under the branch row and goes away by itself. */
+  const [branchError, setBranchError] = useState<string>();
+  useEffect(() => {
+    if (!branchError) return;
+    const timer = window.setTimeout(() => setBranchError(undefined), BRANCH_ERROR_MS);
+    return () => window.clearTimeout(timer);
+  }, [branchError]);
   const [notice, setNotice] = useState<string>();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -484,10 +516,10 @@ export function EnvironmentButton({
 
   const switchTo = async (name: string) => {
     setError(undefined);
+    setBranchError(undefined);
     setNotice(undefined);
     try {
       branchState.apply(await switchBranch(dispatch, worktreeId, name));
-      setNotice(`Switched to ${name}.`);
       void refreshPullRequest(dispatch, worktreeId, true);
       if (review) {
         void dispatch({
@@ -497,7 +529,7 @@ export function EnvironmentButton({
         }).catch(() => undefined);
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : `${name} could not be checked out.`);
+      setBranchError(cause instanceof Error ? cause.message : `${name} could not be checked out.`);
     }
   };
 
@@ -529,7 +561,10 @@ export function EnvironmentButton({
       aria-haspopup="listbox"
       aria-expanded={branchList}
       aria-label={`Branch ${branchName}. Switch branch`}
-      onClick={() => setBranchList((value) => !value)}
+      onClick={() => {
+        setBranchError(undefined);
+        setBranchList((value) => !value);
+      }}
     >
       <Icon name="branch" size={14} />
       <span className="env-row-label is-mono">{branchName}</span>
@@ -549,49 +584,20 @@ export function EnvironmentButton({
     });
   };
   const mergeable = pullRequest?.state === "OPEN" && !pullRequest.isDraft;
-  const checkTone = failing ? "is-failed" : running ? "is-pending" : "is-passed";
-  const cardPullRequest = pullRequest ? (
-    <div className={`env-pr-card is-${pullRequestState.toLowerCase()}`}>
-      <Icon name={pullRequest.state === "MERGED" ? "merge" : "pullRequest"} size={15} />
-      <button
-        type="button"
-        className="env-pr-title"
-        title={onOpenPullRequest ? `Show #${pullRequest.number}` : `Open #${pullRequest.number} on GitHub`}
-        onClick={onOpenPullRequest ?? openOnGitHub}
+  // Beside the pull request in the Changes card.
+  const mergeButton =
+    pullRequest && mergeable ? (
+      <Button
+        variant="secondary"
+        size="xs"
+        icon="merge"
+        disabled={!!pullRequest.autoMerge}
+        title={pullRequest.autoMerge ? "Auto-merge is on. GitHub merges it once checks pass." : undefined}
+        onClick={() => setMerging(true)}
       >
-        {pullRequest.title ?? `Pull request #${pullRequest.number}`}
-      </button>
-      <div className="env-pr-meta">
-        <span className="is-mono">#{pullRequest.number}</span>
-        {checks.length > 0 ? (
-          <span
-            className={`env-checks ${checkTone}`}
-            title={failing ? `${failing} checks failing` : running ? `${running} checks running` : "Checks pass"}
-          >
-            <Icon name={failing ? "alert" : running ? "loader" : "check"} size={12} />
-            {failing ? `${failing} failing` : running ? `${running} running` : null}
-          </span>
-        ) : null}
-        {mergeable ? null : (
-          <span className={`env-pr-state is-${pullRequestState.toLowerCase()}`}>{pullRequestState}</span>
-        )}
-        {mergeable ? (
-          <Button
-            variant="primary"
-            size="xs"
-            className="env-pr-merge"
-            icon="merge"
-            disabled={!!pullRequest.autoMerge}
-            title={pullRequest.autoMerge ? "Auto-merge is on. GitHub merges it once checks pass." : undefined}
-            onClick={() => setMerging(true)}
-          >
-            {pullRequest.autoMerge ? "Auto-merge on" : "Merge"}
-          </Button>
-        ) : null}
-      </div>
-    </div>
-  ) : null;
-
+        {pullRequest.autoMerge ? "Auto-merge on" : "Merge"}
+      </Button>
+    ) : undefined;
   // Commit and push: the row says what is waiting, and opening it says exactly what the button will do.
   const ahead = upstream && !upstream.gone ? upstream.ahead : 0;
   const fileCount = files.length;
@@ -697,16 +703,24 @@ export function EnvironmentButton({
   const cardBody = noGit ? (
     noGitLine
   ) : (
-    <>
-      <div className="env-card-group">
-        {cardBranchRow}
-        {cardPullRequest}
-      </div>
-      <div className="env-card-group">
-        {cardCommit}
-        {changesRow}
-      </div>
-    </>
+    <div className="env-card-group">
+      {cardBranchRow}
+      {branchError ? (
+        <p className="inline-error env-line env-branch-error" role="alert">
+          <Icon name="alert" size={13} />
+          <span>{branchError}</span>
+          <IconButton
+            icon="x"
+            size="xs"
+            iconSize={12}
+            label="Dismiss"
+            tooltip="Dismiss"
+            onClick={() => setBranchError(undefined)}
+          />
+        </p>
+      ) : null}
+      {cardCommit}
+    </div>
   );
   const folderLabel = worktree.path.split(/[\\/]/u).filter(Boolean).at(-1) ?? worktree.path;
 
@@ -753,19 +767,62 @@ export function EnvironmentButton({
         : null}
       {open && card?.host
         ? createPortal(
-            <section className="env-card" aria-label="Environment">
-              <div className="env-card-group">
-                <div className="env-row env-card-folder" title={worktree.path}>
-                  <Icon name="folder" size={15} />
-                  <span className="env-row-label">{folderLabel}</span>
-                  <span className={`env-card-kind${local ? "" : " is-worktree"}`}>
-                    <Icon name={local ? "monitor" : "folderTree"} size={11} />
-                    {local ? "Local" : "Worktree"}
-                  </span>
+            <section className="env-card" aria-label="Chat overview">
+              {card.overlay ? (
+                <IconButton
+                  className="env-card-close"
+                  label="Close"
+                  tooltip="Close the computer column"
+                  icon="x"
+                  size="sm"
+                  iconSize={14}
+                  onClick={() => {
+                    card.onOpenChange(false);
+                    triggerRef.current?.focus();
+                  }}
+                />
+              ) : null}
+              {/* The environment as it always looked: the folder, what runs, the branch, and Commit & push. */}
+              <section className="env-panel" aria-label="Environment">
+                <div className="env-card-group">
+                  <div className="env-row env-card-folder" title={worktree.path}>
+                    <Icon name="folder" size={15} />
+                    <span className="env-row-label">{folderLabel}</span>
+                    <span className={`env-card-kind${local ? "" : " is-worktree"}`}>
+                      <Icon name={local ? "monitor" : "folderTree"} size={11} />
+                      {local ? "Local" : "Worktree"}
+                    </span>
+                  </div>
+                  <OpenInButton worktreeId={worktreeId} onError={setError} row />
                 </div>
-                <OpenInButton worktreeId={worktreeId} onError={setError} row />
-              </div>
-              {cardBody}
+                <EnvironmentRunning
+                  source={{
+                    worktree,
+                    review,
+                    project: card.project,
+                    session: card.session,
+                    accountName: card.accountName,
+                  }}
+                  onOpenUrl={onOpenUrl}
+                />
+                {cardBody}
+              </section>
+              {/* Then the changes (with the pull request and Merge) and the context, as cards of their own. */}
+              <EnvironmentCards
+                source={{
+                  worktree,
+                  review,
+                  project: card.project,
+                  session: card.session,
+                  accountName: card.accountName,
+                }}
+                git={noGit ? undefined : { pullRequestAction: mergeButton, reading }}
+                onOpen={(pane) => {
+                  if (pane === "review") onOpenChanges();
+                  else if (onOpenPullRequest) onOpenPullRequest();
+                  else openOnGitHub();
+                }}
+              />
             </section>,
             card.host,
           )
@@ -821,10 +878,11 @@ export function EnvironmentButton({
             setBranchMenuOpen(false);
             triggerRef.current?.focus();
           }}
-          onChanged={(result, text, done) => {
+          onChanged={(result, _text, done) => {
             branchState.apply(result);
             setError(undefined);
-            setNotice(text);
+            // The branch row shows the change; no message under Commit for it.
+            setNotice(undefined);
             if (done) {
               setBranchMenuOpen(false);
               triggerRef.current?.focus();
@@ -842,4 +900,56 @@ export function EnvironmentButton({
       ) : null}
     </>
   );
+}
+
+/**
+ * What runs for the chat, such as a dev server or an app an agent started, shown only while something runs. Read
+ * here, not in the button, so usage and server checks do not re-render the whole card.
+ */
+function EnvironmentRunning({
+  source,
+  onOpenUrl,
+}: {
+  source: OverviewSource;
+  onOpenUrl: ((url: string) => void) | undefined;
+}) {
+  const { bridge, dispatch } = useRuntime();
+  const { running } = useOverviewData(source);
+  if (running.length === 0) return null;
+  const openOutside = (url: string) => {
+    if (bridge) void openExternalLink(bridge, url);
+  };
+  return (
+    <div className="env-card-group env-card-extra">
+      <p className="env-card-label">Running</p>
+      <RunningBody
+        entries={running}
+        onOpenUrl={onOpenUrl ?? openOutside}
+        onStop={(terminalId) =>
+          dispatch({ protocolVersion: 1, commandId: makeCommandId(), command: { type: "terminal.stop", terminalId } })
+        }
+      />
+    </div>
+  );
+}
+
+/** The Changes and Context cards, in the overview's newer card style, under the environment. */
+function EnvironmentCards({
+  source,
+  git,
+  onOpen,
+}: {
+  source: OverviewSource;
+  git: OverviewGit | undefined;
+  onOpen(pane: "review" | "pullRequest"): void;
+}) {
+  // The environment, what runs, checks, and MCPs are left out: the environment card above covers the first two.
+  const {
+    environment: _environment,
+    checks: _checks,
+    mcps: _mcps,
+    running: _running,
+    ...rest
+  } = useOverviewData(source);
+  return <OverviewCards data={{ ...rest, mcps: [], running: [] }} git={git} onOpen={onOpen} />;
 }

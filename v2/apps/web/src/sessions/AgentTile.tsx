@@ -1,26 +1,27 @@
-import { huddlesOf, type RpcResponse, type RuntimeProjection, type WorktreeProjection } from "@zli-v2/contracts";
+import type { RpcResponse, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
+import { ChatBackdrop } from "../chat/ChatBackdrop.js";
 import { ChatStart, ChatView, type GuestRequest, type StartRunsRequest } from "../chat/ChatView.js";
 import { type DraftChange, DraftChat, type DraftMessage } from "../chat/DraftChat.js";
 import { useFileLinks } from "../files/FileIndex.js";
-import { HUDDLE_AGENT_DRAG_TYPE, sessionAgentId, typingHeldCount } from "../huddle/huddles.js";
-import { HuddleHeldPill, useHuddleEntries } from "../huddle/TileHuddle.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { setupProgress, worktreeSetup } from "../setup/setup.js";
 import { LazyTerminalView } from "../terminal/LazyTerminalView.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { MenuButton, type MenuEntry } from "../ui/Menu.js";
+import { Menu, type MenuEntry, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { EmptyState } from "../ui/Pane.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { StopButton } from "../ui/StopButton.js";
 import type { RunPosition } from "./bestOf.js";
 import { customChatTitle, setChatTitle, useChatTitlesVersion } from "./chatTitles.js";
+import { COMPUTER_OVERLAY_WIDTH, setComputerColumnShown, useComputerColumnShown } from "./computerColumn.js";
 import { EnvironmentButton } from "./EnvironmentButton.js";
 import type { ChatPlace } from "./launch.js";
+import { RunsCard } from "./RunsCard.js";
 import {
   type AgentSession,
   chatStatusLabel,
@@ -69,24 +70,23 @@ export function AgentTile({
   onDraftSend,
   onOpenConnectors,
   run,
+  runsCard,
   onStartRuns,
   onBringIn,
+  onDiscardGuest,
   onOpenAgent,
   onBranch,
   onNewChatWithPrompt,
   onAskAside,
   onCloseAside,
-  sideChatSlot,
   accountLabel,
   onNewChat,
   canCarryContext = false,
-  newChatRequest,
-  newChatShortcut,
   onOpenChat,
   tall = false,
   onRename,
   startedBy,
-  onOpenHuddle,
+  onOpenUrl,
 }: {
   projection: RuntimeProjection;
   session: AgentSession;
@@ -123,9 +123,13 @@ export function AgentTile({
   onOpenConnectors?: ((connectorId?: string) => void) | undefined;
   /** Where this agent sits in a best-of run that is still being compared. */
   run?: RunPosition | undefined;
+  /** Best-of runs started from this chat: how many finished, and a way to compare them. */
+  runsCard?: { done: number; count: number; onCompare(): void } | undefined;
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
   /** Starts another agent inside this tile's chat. */
   onBringIn?: ((request: GuestRequest) => Promise<{ threadId: string } | { error: string }>) | undefined;
+  /** Lets an agent that worked on its own copy go, with its worktree and branch. */
+  onDiscardGuest?: ((threadId: string) => Promise<void>) | undefined;
   /** Shows another agent's own tile, found by its thread or terminal id. */
   onOpenAgent?: ((agentId: string) => void) | undefined;
   onBranch?: ((branch: { from: string; context: string }) => void) | undefined;
@@ -134,61 +138,59 @@ export function AgentTile({
     | ((question: string, context: string | undefined) => Promise<{ threadId: string } | { error: string }>)
     | undefined;
   onCloseAside?: ((threadId: string) => void) | undefined;
-  /** The right panel is showing the side chat: the side question is drawn there instead of on the message box. */
-  sideChatSlot?: HTMLElement | undefined;
   /** Shown only when the agent runs under a saved account rather than the usual login. */
   accountLabel?: string | undefined;
-  /** Starts another chat in this tile. Absent where a chat cannot start, such as a worktree still being set up. */
-  onNewChat?: ((withContext: boolean) => Promise<string | undefined>) | undefined;
+  /**
+   * Opens a separate chat on this branch whose first message carries the end of this one. Absent where a
+   * chat cannot start, such as a worktree still being set up.
+   */
+  onNewChat?: (() => Promise<string | undefined>) | undefined;
   /** The current chat has messages a new chat can bring along. */
   canCarryContext?: boolean | undefined;
-  /** Changes when the New chat shortcut asks this tile to open its menu. */
-  newChatRequest?: number | undefined;
-  newChatShortcut?: string | undefined;
   /** Shows one of this session's earlier chats in the tile. */
   onOpenChat?: ((threadId: string) => void) | undefined;
   /** Spans two grid rows to fill the space a short last row leaves. */
   tall?: boolean | undefined;
-  /** Opens the dialog that names or renames the agent. Absent until the agent has started. */
+  /** Opens the dialog that names or renames a terminal agent. Absent until the agent has started. */
   onRename?: (() => void) | undefined;
   /** The agent that started this one, for a sub-agent whose starter is still around. */
   startedBy?: { label: string; onOpen(): void } | undefined;
-  /** Opens the Huddle panel on a huddle. Without it the tile shows no huddle controls. */
-  onOpenHuddle?: ((huddleId: string) => void) | undefined;
+  /** Opens a local address the chat runs, in the browser panel. */
+  onOpenUrl?: ((url: string) => void) | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [envCardOpen, setEnvCardOpen] = useState(false);
   const [cardHost, setCardHost] = useState<HTMLDivElement | null>(null);
-  // The environment card floats over the chat, so a click elsewhere or Escape puts it away. Clicks in the
-  // menus it opens (branches, editors) and on its own button are its own.
+  // The computer column sits beside the chat and shows unless the person closed it, the right panel open or not.
+  // A tile too narrow for both opens it over the chat instead, only when asked, so a busy board is not covered.
+  const [tileElement, setTileElement] = useState<HTMLElement | null>(null);
+  const narrowTile = useNarrowTile(tileElement, COMPUTER_OVERLAY_WIDTH);
+  const columnShown = useComputerColumnShown();
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  const envCardOpen = narrowTile ? overlayOpen : columnShown;
+  const setEnvCardOpen = (open: boolean) => (narrowTile ? setOverlayOpen(open) : setComputerColumnShown(open));
   useEffect(() => {
-    if (!envCardOpen || !cardHost) return;
-    const own = (target: EventTarget | null) =>
-      target instanceof Element &&
-      (cardHost.contains(target) ||
-        target.closest(
-          '[aria-label="Environment"], .popover, .picker-menu, .search-list, [role="menu"], [role="listbox"], [role="dialog"]',
-        ) !== null);
-    const onPointerDown = (event: PointerEvent) => {
-      if (!own(event.target)) setEnvCardOpen(false);
-    };
+    if (!narrowTile) setOverlayOpen(false);
+  }, [narrowTile]);
+  // Over the chat, Escape inside the column puts it away.
+  useEffect(() => {
+    if (!narrowTile || !overlayOpen || !cardHost) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setEnvCardOpen(false);
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (!(event.target instanceof Node) || !cardHost.contains(event.target)) return;
+      event.preventDefault();
+      setOverlayOpen(false);
     };
-    document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [envCardOpen, cardHost]);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [narrowTile, overlayOpen, cardHost]);
   const displayName = providerDisplayName(session.provider, projection.providers);
   useChatTitlesVersion();
   const title = sessionTitle(session, projection.messages, projection.providers);
   const chatKey = session.thread ? (session.thread.sessionId ?? session.thread.threadId) : undefined;
   const [editingTitle, setEditingTitle] = useState(false);
+  const [headerMenu, setHeaderMenu] = useState<MenuRequest>();
   const agentName = sessionAgentName(session);
   const branch = worktree?.branch ?? "worktree";
   const terminal = session.terminal;
@@ -225,38 +227,25 @@ export function AgentTile({
   };
 
   const canStartChat = mode === "chat" && thread !== undefined && onNewChat !== undefined;
-  const newChatButton = useRef<HTMLButtonElement>(null);
-  const seenRequest = useRef(newChatRequest);
-  useEffect(() => {
-    if (newChatRequest === seenRequest.current) return;
-    seenRequest.current = newChatRequest;
-    // The New chat items open at the top of the tile's menu; a tile that cannot start a chat leaves it shut.
-    if (canStartChat) newChatButton.current?.click();
-  }, [newChatRequest, canStartChat]);
-  const newChat = async (withContext: boolean) => {
+  const newChat = async () => {
     if (!onNewChat) return;
     setError(undefined);
-    const failure = await onNewChat(withContext);
+    const failure = await onNewChat();
     if (failure) setError(failure);
   };
   const chats = mode === "chat" ? sessionChats(session, projection.messages, projection.providers) : [];
-  const newChatItems: MenuEntry[] = [
-    {
-      id: "blank",
-      label: "Blank chat",
-      icon: "squarePen",
-      detail: "Starts with no earlier messages",
-      run: () => void newChat(false),
-    },
-    {
-      id: "context",
-      label: "Start with recent context",
-      icon: "message",
-      detail: canCarryContext ? "Brings the end of this chat along" : "This chat has no messages to bring yet",
-      disabled: !canCarryContext,
-      run: () => void newChat(true),
-    },
-  ];
+  // Shown only once the chat has messages to bring along.
+  const newChatItems: MenuEntry[] = canCarryContext
+    ? [
+        {
+          id: "context",
+          label: "Continue in new chat",
+          icon: "message",
+          detail: "A new chat that starts with the end of this one",
+          run: () => void newChat(),
+        },
+      ]
+    : [];
   const historyItems: MenuEntry[] = chats.map((chat) => ({
     id: chat.threadId,
     label: chat.title,
@@ -271,19 +260,8 @@ export function AgentTile({
   const status = session.status;
   const statusBusy = status === "working" || status === "starting" || status === "preparing";
   const mark = <ProviderMark provider={session.provider} size={18} />;
-  const huddleAgentId = onOpenHuddle ? sessionAgentId(session) : undefined;
-  const memberOf = huddleAgentId ? huddlesOf(projection, huddleAgentId) : [];
-  const heldForTyping = huddleAgentId && mode === "terminal" ? typingHeldCount(projection, huddleAgentId) : 0;
-  // The tile's rarer actions share one menu, so the header keeps only what is used all the time.
-  const huddleEntries = useHuddleEntries({
-    projection,
-    agentId: huddleAgentId,
-    agentLabel: agentName ?? title,
-    onOpen: (huddleId) => onOpenHuddle?.(huddleId),
-    onError: setError,
-  });
-  // The header keeps only the title, the environment, and one menu, so the chat list, the starter, the
-  // huddles, and the board controls all live in that menu. Each run is joined by a rule.
+  // The header keeps only the title, the environment, and one menu, so the chat list, the starter, and the
+  // board controls all live in that menu. Each run is joined by a rule.
   const chatEntries: MenuEntry[] = canStartChat ? newChatItems : [];
   const historyEntries: MenuEntry[] = onOpenChat && chats.length > 1 ? historyItems : [];
   const placeEntries: MenuEntry[] = [
@@ -297,15 +275,6 @@ export function AgentTile({
             run: startedBy.onOpen,
           },
         ]
-      : []),
-    ...(onOpenHuddle
-      ? memberOf.map((huddle) => ({
-          id: `open-${huddle.huddleId}`,
-          label: `Open ${huddle.name}`,
-          icon: "users" as const,
-          detail: "Huddle",
-          run: () => onOpenHuddle(huddle.huddleId),
-        }))
       : []),
   ];
   const boardEntries: MenuEntry[] = canMaximize
@@ -321,7 +290,6 @@ export function AgentTile({
   const tileItems: MenuEntry[] = [
     ...(mode === "chat" && chatKey
       ? [
-          { id: "rename-chat", label: "Rename chat", icon: "pencil" as const, run: () => setEditingTitle(true) },
           ...(customChatTitle(chatKey)
             ? [
                 {
@@ -335,7 +303,7 @@ export function AgentTile({
             : []),
         ]
       : []),
-    ...(onRename
+    ...(onRename && mode !== "chat"
       ? [
           agentName
             ? {
@@ -355,10 +323,7 @@ export function AgentTile({
         ]
       : []),
   ];
-  const huddleItems: MenuEntry[] = huddleEntries.map((entry) =>
-    entry === "separator" || entry.id === "new" ? entry : { ...entry, label: `Huddle: ${entry.label}` },
-  );
-  const moreItems: MenuEntry[] = [chatEntries, historyEntries, tileItems, placeEntries, huddleItems, boardEntries]
+  const moreItems: MenuEntry[] = [chatEntries, historyEntries, tileItems, placeEntries, boardEntries]
     .filter((group) => group.length > 0)
     .flatMap((group, index) => (index === 0 ? group : ["separator" as const, ...group]));
   const failed = status === "failed";
@@ -369,25 +334,31 @@ export function AgentTile({
 
   return (
     <section
+      ref={setTileElement}
       className={`agent-tile${active ? " is-active" : ""}${tall ? " is-tall" : ""}`}
       data-session-id={session.sessionId}
       aria-label={agentName ? `${agentName}, ${title}, ${displayName}` : `${title}, ${displayName}`}
       onFocusCapture={onFocus}
       onMouseDown={onFocus}
     >
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: dragging the header onto the Huddle panel is a mouse shortcut; the Add to huddle menu does the same from the keyboard. */}
+      {mode === "chat" ? <ChatBackdrop /> : null}
+      {/* The tile's other actions (continue in a new chat, earlier chats, maximize) open on a right-click here,
+          so the header keeps only the title and its two buttons. */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: a right-click shortcut; the same actions are in the command palette and have keyboard shortcuts. */}
       <header
         className="tile-header"
-        draggable={huddleAgentId ? true : undefined}
-        onDragStart={
-          huddleAgentId
-            ? (event) => {
-                event.dataTransfer.setData(HUDDLE_AGENT_DRAG_TYPE, huddleAgentId);
-                event.dataTransfer.setData("text/plain", agentName ?? title);
-                event.dataTransfer.effectAllowed = "copy";
-              }
-            : undefined
-        }
+        onContextMenu={(event) => {
+          if (moreItems.length === 0 || (event.target as HTMLElement).closest("input, textarea")) return;
+          event.preventDefault();
+          const bar = event.currentTarget.getBoundingClientRect();
+          const fromKeyboard = event.clientX === 0 && event.clientY === 0;
+          setHeaderMenu({
+            x: fromKeyboard ? bar.left : event.clientX,
+            y: fromKeyboard ? bar.bottom : event.clientY,
+            label: "Chat actions",
+            items: menuItemsOf(moreItems),
+          });
+        }}
       >
         {/* A chat's tile shows the conversation, not the agent: the agent can change under it, and the
             message box already says which one answers. */}
@@ -406,9 +377,9 @@ export function AgentTile({
           <button
             type="button"
             className="tile-title is-editable"
-            title={`${titleHint}\nClick to rename`}
+            title={`${titleHint}\nDouble-click to rename`}
             aria-label={`Rename chat: ${title}`}
-            onClick={() => setEditingTitle(true)}
+            onDoubleClick={() => setEditingTitle(true)}
           >
             {title}
           </button>
@@ -449,29 +420,23 @@ export function AgentTile({
               noGit={noGit}
               onOpenChanges={() => onOpenDiff()}
               onOpenPullRequest={onOpenPullRequest}
+              onOpenUrl={onOpenUrl}
               card={
                 mode === "chat"
                   ? {
                       open: envCardOpen,
                       host: cardHost,
+                      overlay: narrowTile,
                       onOpenChange: setEnvCardOpen,
+                      session,
+                      project: projection.projects.find((entry) => entry.projectId === worktree.projectId),
+                      accountName: accountLabel,
                     }
                   : undefined
               }
             />
           ) : null}
-          {moreItems.length > 0 ? (
-            <MenuButton
-              ref={newChatButton}
-              label="More actions"
-              tooltip={chatEntries.length > 0 ? "New chat, chats, and more" : "More"}
-              shortcut={chatEntries.length > 0 ? newChatShortcut : undefined}
-              icon="more"
-              size="sm"
-              iconSize={14}
-              items={moreItems}
-            />
-          ) : null}
+
           {canStop && mode !== "chat" ? (
             <StopButton
               className="tile-stop"
@@ -490,152 +455,157 @@ export function AgentTile({
           {closable ? <IconButton label="Close tile" icon="x" size="sm" iconSize={14} onClick={onClose} /> : null}
         </span>
       </header>
+      {headerMenu ? <Menu request={headerMenu} onClose={() => setHeaderMenu(undefined)} /> : null}
       <div className="tile-body">
-        {mode === "chat" ? <div className="env-card-host" ref={setCardHost} /> : null}
-        {!terminal && !thread && session.pending ? (
-          session.pending.errorMessage ? (
-            <EmptyState
-              icon="alert"
-              tone="danger"
-              title={`${displayName} could not start`}
-              detail={session.pending.errorMessage}
-            >
-              <Button icon="reload" onClick={onRetryPending}>
-                Try again
-              </Button>
-              <Button variant="ghost" onClick={onDismissPending}>
-                Dismiss
-              </Button>
-            </EmptyState>
-          ) : setup ? (
-            <EmptyState
-              media={<span className="spinner" aria-hidden="true" />}
-              title={`Setting up ${branch}`}
-              detail={`${displayName} starts when setup finishes. ${setupProgress(setup)}`}
-            >
-              {setup.status === "waiting" ? (
-                <Button variant="primary" icon="check" onClick={onReviewSetup}>
-                  Review setup
+        <div className="tile-main">
+          {!terminal && !thread && session.pending ? (
+            session.pending.errorMessage ? (
+              <EmptyState
+                icon="alert"
+                tone="danger"
+                title={`${displayName} could not start`}
+                detail={session.pending.errorMessage}
+              >
+                <Button icon="reload" onClick={onRetryPending}>
+                  Try again
                 </Button>
-              ) : null}
-              {setup.terminalId ? (
-                <Button icon="terminal" onClick={onShowSetupOutput}>
-                  Show output
+                <Button variant="ghost" onClick={onDismissPending}>
+                  Dismiss
                 </Button>
-              ) : null}
-            </EmptyState>
-          ) : session.pending.mode === "chat" &&
-            session.pending.draft &&
-            worktree?.status === "ready" &&
-            onDraftChange &&
-            onDraftMove &&
-            onDraftSend ? (
-            <DraftChat
-              projection={projection}
-              launch={session.pending}
-              worktree={worktree}
-              active={active}
-              onChange={onDraftChange}
-              onMove={onDraftMove}
-              onAddFolder={onAddFolder}
-              onSend={onDraftSend}
-            />
-          ) : session.pending.mode === "chat" && worktree?.status === "ready" ? (
-            // The chat opens at once; the agent starts behind it.
-            <div className="tile-chat-start">
-              <ChatStart
-                provider={session.provider}
-                folder={projection.projects.find((project) => project.projectId === worktree.projectId)?.name}
-              />
-            </div>
-          ) : (
-            <EmptyState
-              media={<span className="spinner" aria-hidden="true" />}
-              title={`Preparing ${branch}`}
-              detail={`${displayName} starts as soon as the worktree is ready${worktree ? ` (${worktree.status})` : ""}.`}
-            />
-          )
-        ) : mode === "terminal" ? (
-          terminal && bridge ? (
-            <div className="tile-terminal">
-              <LazyTerminalView
-                key={terminal.terminalId}
-                bridge={bridge}
-                terminalId={terminal.terminalId}
-                running={terminal.status === "running"}
-                send={send}
-                label={`${displayName} terminal`}
-                className="agent-terminal-output"
-                autoFocus={active}
-                onFocus={onFocus}
-                fileLinks={fileLinks}
-              />
-              {huddleAgentId && terminalLive ? (
-                <HuddleHeldPill count={heldForTyping} agentId={huddleAgentId} onError={setError} />
-              ) : null}
-              {!terminalLive ? (
-                <div className={`tile-ended${terminal.status === "failed" ? " is-failed" : ""}`} role="status">
-                  <Icon name={terminal.status === "failed" ? "alert" : "square"} size={12} />
-                  <span className="tile-ended-message">
-                    {terminal.status === "failed"
-                      ? (terminal.errorMessage ?? `${displayName} failed to start.`)
-                      : `${displayName} exited.`}
-                  </span>
-                  <Button size="sm" icon="reload" loading={busy} onClick={() => void start("terminal")}>
-                    Restart
+              </EmptyState>
+            ) : setup ? (
+              <EmptyState
+                media={<span className="spinner" aria-hidden="true" />}
+                title={`Setting up ${branch}`}
+                detail={`${displayName} starts when setup finishes. ${setupProgress(setup)}`}
+              >
+                {setup.status === "waiting" ? (
+                  <Button variant="primary" icon="check" onClick={onReviewSetup}>
+                    Review setup
                   </Button>
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+                {setup.terminalId ? (
+                  <Button icon="terminal" onClick={onShowSetupOutput}>
+                    Show output
+                  </Button>
+                ) : null}
+              </EmptyState>
+            ) : session.pending.mode === "chat" &&
+              session.pending.draft &&
+              worktree?.status === "ready" &&
+              onDraftChange &&
+              onDraftMove &&
+              onDraftSend ? (
+              <DraftChat
+                projection={projection}
+                launch={session.pending}
+                worktree={worktree}
+                active={active}
+                onChange={onDraftChange}
+                onMove={onDraftMove}
+                onAddFolder={onAddFolder}
+                onSend={onDraftSend}
+              />
+            ) : session.pending.mode === "chat" && worktree?.status === "ready" ? (
+              // The chat opens at once; the agent starts behind it.
+              <div className="tile-chat-start">
+                <ChatStart
+                  provider={session.provider}
+                  folder={projection.projects.find((project) => project.projectId === worktree.projectId)?.name}
+                />
+              </div>
+            ) : (
+              <EmptyState
+                media={<span className="spinner" aria-hidden="true" />}
+                title={`Preparing ${branch}`}
+                detail={`${displayName} starts as soon as the worktree is ready${worktree ? ` (${worktree.status})` : ""}.`}
+              />
+            )
+          ) : mode === "terminal" ? (
+            terminal && bridge ? (
+              <div className="tile-terminal">
+                <LazyTerminalView
+                  key={terminal.terminalId}
+                  bridge={bridge}
+                  terminalId={terminal.terminalId}
+                  running={terminal.status === "running"}
+                  send={send}
+                  label={`${displayName} terminal`}
+                  className="agent-terminal-output"
+                  autoFocus={active}
+                  onFocus={onFocus}
+                  fileLinks={fileLinks}
+                />
+                {!terminalLive ? (
+                  <div className={`tile-ended${terminal.status === "failed" ? " is-failed" : ""}`} role="status">
+                    <Icon name={terminal.status === "failed" ? "alert" : "square"} size={12} />
+                    <span className="tile-ended-message">
+                      {terminal.status === "failed"
+                        ? (terminal.errorMessage ?? `${displayName} failed to start.`)
+                        : `${displayName} exited.`}
+                    </span>
+                    <Button size="sm" icon="reload" loading={busy} onClick={() => void start("terminal")}>
+                      Restart
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <EmptyState
+                media={mark}
+                title={`Run ${displayName} in a terminal`}
+                detail={`Starts the ${displayName} CLI in ${branch}.`}
+              >
+                <Button variant="primary" icon="play" loading={busy} onClick={() => void start("terminal")}>
+                  {busy ? "Starting" : "Start in terminal"}
+                </Button>
+              </EmptyState>
+            )
+          ) : thread ? (
+            <>
+              {runsCard ? <RunsCard {...runsCard} /> : null}
+              <ChatView
+                key={thread.threadId}
+                projection={projection}
+                thread={thread}
+                worktree={worktree}
+                onOpenDiff={onOpenDiff}
+                onRestart={() => void start("chat")}
+                onSwitchAgent={onSwitchAgent}
+                onMoveChat={onMoveChat}
+                onAddFolder={onAddFolder}
+                onOpenConnectors={onOpenConnectors}
+                onStartRuns={onStartRuns}
+                onBringIn={onBringIn}
+                onDiscardGuest={onDiscardGuest}
+                onOpenAgent={onOpenAgent}
+                onBranch={onBranch}
+                onNewChatWithPrompt={onNewChatWithPrompt}
+                onAskAside={onAskAside}
+                onCloseAside={onCloseAside}
+                active={active}
+              />
+            </>
           ) : (
             <EmptyState
               media={mark}
-              title={`Run ${displayName} in a terminal`}
-              detail={`Starts the ${displayName} CLI in ${branch}.`}
+              title={`Chat with ${displayName}`}
+              detail={`A chat with a work log and diffs, in ${branch}.`}
             >
-              <Button variant="primary" icon="play" loading={busy} onClick={() => void start("terminal")}>
-                {busy ? "Starting" : "Start in terminal"}
+              <Button variant="primary" icon="message" loading={busy} onClick={() => void start("chat")}>
+                {busy ? "Starting" : "Start chat"}
               </Button>
             </EmptyState>
-          )
-        ) : thread ? (
-          <ChatView
-            key={thread.threadId}
-            projection={projection}
-            thread={thread}
-            worktree={worktree}
-            onOpenDiff={onOpenDiff}
-            onRestart={() => void start("chat")}
-            onSwitchAgent={onSwitchAgent}
-            onMoveChat={onMoveChat}
-            onAddFolder={onAddFolder}
-            onOpenConnectors={onOpenConnectors}
-            onStartRuns={onStartRuns}
-            onBringIn={onBringIn}
-            onOpenAgent={onOpenAgent}
-            onBranch={onBranch}
-            onNewChatWithPrompt={onNewChatWithPrompt}
-            onAskAside={onAskAside}
-            onCloseAside={onCloseAside}
-            sideChatSlot={sideChatSlot}
-            active={active}
-          />
-        ) : (
-          <EmptyState
-            media={mark}
-            title={`Chat with ${displayName}`}
-            detail={`A chat with a work log and diffs, in ${branch}.`}
-          >
-            <Button variant="primary" icon="message" loading={busy} onClick={() => void start("chat")}>
-              {busy ? "Starting" : "Start chat"}
-            </Button>
-          </EmptyState>
-        )}
-        {error ? (
-          <p className="inline-error tile-error" role="alert">
-            <Icon name="alert" size={13} />
-            <span>{error}</span>
-          </p>
+          )}
+          {error ? (
+            <p className="inline-error tile-error" role="alert">
+              <Icon name="alert" size={13} />
+              <span>{error}</span>
+            </p>
+          ) : null}
+        </div>
+        {mode === "chat" ? (
+          <div className={`env-card-host${narrowTile ? " is-overlay" : ""}`} ref={setCardHost} />
         ) : null}
       </div>
     </section>
@@ -673,5 +643,36 @@ function ChatTitleEditor({ title, onDone }: { title: string; onDone(title: strin
       }}
       onBlur={() => finish(value)}
     />
+  );
+}
+
+/** True while the element is narrower than `width`. Without ResizeObserver the tile counts as wide. */
+function useNarrowTile(element: HTMLElement | null, width: number): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const measure = () => setNarrow(element.getBoundingClientRect().width < width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, width]);
+  return narrow;
+}
+/** The header's actions as a right-click menu: the same items, with the separators between their runs. */
+function menuItemsOf(entries: readonly MenuEntry[]): MenuItem[] {
+  return entries.map((entry) =>
+    entry === "separator"
+      ? { separator: true as const }
+      : {
+          id: entry.id,
+          label: entry.label,
+          icon: entry.icon,
+          disabled: entry.disabled,
+          checked: entry.checked,
+          title: entry.title ?? entry.detail,
+          shortcut: entry.shortcut,
+          run: entry.run,
+        },
   );
 }

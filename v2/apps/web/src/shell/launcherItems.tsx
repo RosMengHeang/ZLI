@@ -1,9 +1,26 @@
 import type { PullRequestInfo, ReviewProjection } from "@zli-v2/contracts";
+import type { ReactNode } from "react";
 
 import { checksSummary } from "../chat/ChatExtras.js";
 import { changeTotals } from "../review/changes.js";
-import type { LauncherItem } from "./PanelLauncher.js";
+import type { IconName } from "../ui/Icon.js";
 import { sidePaneDetail, sidePaneIcon, sidePaneLabel, type ToolbarPane } from "./Topbar.js";
+
+/** How a panel's live state reads: the colour of its dot on the rail says whether it wants a look. */
+export type LiveTone = "accent" | "green" | "red" | "muted";
+
+export type LauncherItem = {
+  id: string;
+  label: string;
+  /** What the panel is for. */
+  detail: string;
+  icon: IconName;
+  /** What is going on in the panel right now: changes waiting, a server up, checks failing. */
+  live?: { text: ReactNode; tone: LiveTone } | undefined;
+  /** How many things wait in the panel, shown on its icon in the right panel's rail. */
+  count?: number | undefined;
+  run(): void;
+};
 
 /** What the panel picker knows about the worktree in view, all of it already in the runtime. */
 export type LauncherState = {
@@ -18,18 +35,13 @@ export type LauncherState = {
   /** Servers the worktree's terminals run, newest first. */
   devServers: readonly { url: string }[];
   pullRequest: PullRequestInfo | undefined;
-  activeHuddles: number;
-  /** A chat is in view, so a side question can be asked about it. */
-  sideChat: boolean;
 };
 
 export type LauncherActions = {
-  open(pane: ToolbarPane | "pullRequest" | "sideChat"): void;
+  open(pane: ToolbarPane | "pullRequest"): void;
   openTerminal(): void;
   openDevServer(url: string): void;
 };
-
-const HOTKEY: Record<ToolbarPane, string> = { files: "f", review: "c", browser: "b", mobile: "m", huddle: "h" };
 
 const host = (url: string) => {
   try {
@@ -47,7 +59,6 @@ export function launcherItems(state: LauncherState, actions: LauncherActions): L
     label: sidePaneLabel[id],
     detail: sidePaneDetail[id],
     icon: sidePaneIcon[id],
-    hotkey: HOTKEY[id],
     live,
     run: run ?? (() => actions.open(id)),
   });
@@ -60,7 +71,6 @@ export function launcherItems(state: LauncherState, actions: LauncherActions): L
       label: "Pull request",
       detail: "Checks, reviews, and merging",
       icon: "pullRequest",
-      hotkey: "p",
       live: pullRequestLine(state.pullRequest),
       run: () => actions.open("pullRequest"),
     });
@@ -69,15 +79,10 @@ export function launcherItems(state: LauncherState, actions: LauncherActions): L
     items.push({
       id: "terminal",
       label: "Terminal",
-      detail: "A shell in the worktree, at the bottom",
+      detail: sidePaneDetail.terminal,
       icon: "terminal",
-      hotkey: "t",
       ...(state.runningTerminals > 0 ? { count: state.runningTerminals } : {}),
-      live: state.drawerOpen
-        ? { text: "Open at the bottom", tone: "muted" }
-        : state.runningTerminals > 0
-          ? { text: `${state.runningTerminals} running`, tone: "green" }
-          : undefined,
+      live: state.runningTerminals > 0 ? { text: `${state.runningTerminals} running`, tone: "green" } : undefined,
       run: actions.openTerminal,
     });
   }
@@ -89,29 +94,6 @@ export function launcherItems(state: LauncherState, actions: LauncherActions): L
     ),
   );
   if (state.mobileAvailable) items.push(pane("mobile"));
-  items.push(
-    pane(
-      "huddle",
-      state.activeHuddles > 0
-        ? {
-            text: state.activeHuddles === 1 ? "1 huddle going" : `${state.activeHuddles} huddles going`,
-            tone: "accent",
-          }
-        : undefined,
-      undefined,
-      state.activeHuddles,
-    ),
-  );
-  if (state.sideChat) {
-    items.push({
-      id: "sideChat",
-      label: "Side chat",
-      detail: "Ask about this chat. The answer stays out of it",
-      icon: "message",
-      hotkey: "s",
-      run: () => actions.open("sideChat"),
-    });
-  }
   return items;
 }
 
@@ -127,7 +109,8 @@ function changesLine(state: LauncherState): LauncherItem["live"] {
     return {
       text: (
         <>
-          {files} to review <span className="panel-launcher-add">+{additions}</span>{" "}
+          <span className="panel-launcher-count">{files}</span> to review{" "}
+          <span className="panel-launcher-add">+{additions}</span>{" "}
           <span className="panel-launcher-del">−{deletions}</span>
         </>
       ),

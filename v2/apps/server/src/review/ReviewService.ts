@@ -105,9 +105,19 @@ export class ReviewService {
     return ReviewProjection.parse({ ...review, diff });
   }
 
-  async merge(input: ReviewServiceInput & { targetRef: string }): Promise<ReviewProjectionValue> {
+  async merge(
+    input: ReviewServiceInput & { targetRef: string; commitMessage?: string },
+  ): Promise<ReviewProjectionValue> {
     assertRef(input.branch);
     assertRef(input.targetRef);
+    // Work left uncommitted in the worktree goes into its branch first, so the merge carries it.
+    if (input.commitMessage?.trim()) {
+      const pending = await this.git.run(["status", "--porcelain=v1"], { cwd: input.worktreePath });
+      if (pending.stdout.trim().length > 0) {
+        await this.git.run(["add", "--all", "--", "."], { cwd: input.worktreePath });
+        await this.git.run(["commit", "-m", input.commitMessage.trim()], { cwd: input.worktreePath });
+      }
+    }
     const targetStatus = await this.git.run(["status", "--porcelain=v1"], { cwd: input.repositoryPath });
     if (targetStatus.stdout.trim().length > 0) throw new Error("Target repository has uncommitted changes.");
     const targetBranch = await this.git.run(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: input.repositoryPath });

@@ -38,7 +38,7 @@ export class ReviewReactor {
         this.start(event.worktreeId, () => this.runCommit(event.worktreeId, event.message));
         return;
       case "review.merge.requested":
-        this.start(event.worktreeId, () => this.runMerge(event.worktreeId, event.targetRef));
+        this.start(event.worktreeId, () => this.runMerge(event.worktreeId, event.targetRef, event.commitMessage));
         return;
       case "review.abortMerge.requested":
         this.start(event.worktreeId, () => this.runAbortMerge(event.worktreeId));
@@ -86,9 +86,27 @@ export class ReviewReactor {
     await this.dispatchUpdated(await this.service.diff({ ...input, path }));
   }
 
-  private async runMerge(worktreeId: string, targetRef: string): Promise<void> {
+  private async runMerge(worktreeId: string, targetRef: string, commitMessage: string | undefined): Promise<void> {
     const input = await this.input(worktreeId, await this.baseRef(worktreeId));
-    await this.dispatchUpdated(await this.service.merge({ ...input, targetRef }));
+    // The target branch may be checked out in another worktree of the project, such as a chat's own one: the
+    // merge runs there, since Git keeps a branch in one working copy at a time.
+    const projection = await this.engine.projection();
+    const source = projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
+    const holder = projection.worktrees.find(
+      (candidate) =>
+        candidate.worktreeId !== worktreeId &&
+        candidate.projectId === source?.projectId &&
+        candidate.status === "ready" &&
+        candidate.branch === targetRef,
+    );
+    await this.dispatchUpdated(
+      await this.service.merge({
+        ...input,
+        ...(holder ? { repositoryPath: holder.path } : {}),
+        targetRef,
+        ...(commitMessage ? { commitMessage } : {}),
+      }),
+    );
   }
 
   private async runAbortMerge(worktreeId: string): Promise<void> {

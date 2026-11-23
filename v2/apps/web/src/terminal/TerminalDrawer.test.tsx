@@ -16,7 +16,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { FileIndexProvider, type OpenFileRequest } from "../files/FileIndex.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
-import { drawerTerminals, TerminalDrawer } from "./TerminalDrawer.js";
+import { markPanelTerminal } from "./panelTerminals.js";
+import { drawerTerminals, MAX_TERMINALS, nextTerminalTitle, TerminalDrawer } from "./TerminalDrawer.js";
 
 type FakeLink = {
   text: string;
@@ -188,6 +189,7 @@ async function render(
   terminals: TerminalProjection[],
   sessionId?: string,
   onOpenFile?: (request: OpenFileRequest) => void,
+  options: { autoStart?: boolean; onClose?: () => void; place?: "bottom" | "side"; tabsHost?: HTMLElement } = {},
 ) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -201,7 +203,10 @@ async function render(
       height={280}
       maxHeight={600}
       onHeightChange={() => undefined}
-      onClose={() => undefined}
+      autoStart={options.autoStart ?? true}
+      onClose={options.onClose ?? (() => undefined)}
+      place={options.place}
+      tabsHost={options.tabsHost}
     />
   );
   await act(async () => {
@@ -390,11 +395,13 @@ describe("TerminalDrawer", () => {
     expect(attaches.every(([, afterSequence]) => afterSequence === 0)).toBe(true);
   });
 
-  it("shows shell terminals side by side and leaves agent CLIs to their tiles", async () => {
+  it("shows each shell as a tab, one at a time, and leaves agent CLIs and exited shells out", async () => {
+    const thirdId = TerminalId.parse("00000000-0000-4000-8000-000000000024");
     const { bridge, attaches } = makeBridge();
     const container = await render(bridge, [
       { terminalId: firstId, worktreeId, title: "Terminal 1", status: "exited", lastSequence: 0 },
       { terminalId: secondId, worktreeId, title: "Terminal 2", status: "running", lastSequence: 0 },
+      { terminalId: thirdId, worktreeId, title: "Terminal 3", status: "running", lastSequence: 0 },
       {
         terminalId: TerminalId.parse("00000000-0000-4000-8000-000000000023"),
         worktreeId,
@@ -405,24 +412,57 @@ describe("TerminalDrawer", () => {
         agent: { provider: "claude-code" },
       },
     ]);
-    const titles = [...container.querySelectorAll(".drawer-pane-title")].map((title) => title.textContent);
-    expect(titles).toEqual(["Terminal 1", "Terminal 2"]);
-    expect(new Set(attaches.map(([terminalId]) => terminalId))).toEqual(new Set([firstId, secondId]));
-    expect(container.textContent).toContain("Exited");
+    const tabs = () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    expect(tabs().map((tab) => tab.textContent)).toEqual(["Terminal 2", "Terminal 3"]);
+    expect(new Set(attaches.map(([terminalId]) => terminalId))).toEqual(new Set([secondId, thirdId]));
+    // The newest shell shows; the other waits behind its tab.
+    const shown = () =>
+      [...container.querySelectorAll<HTMLElement>(".drawer-pane:not([hidden])")].map((pane) => pane.id);
+    expect(shown()).toEqual([`drawer-pane-${thirdId}`]);
+    await act(async () => tabs()[0]?.click());
+    expect(shown()).toEqual([`drawer-pane-${secondId}`]);
+    expect(tabs()[0]?.getAttribute("aria-selected")).toBe("true");
   });
 
-  it("keeps each session's shells apart and tags new splits with the session", async () => {
+  it("keeps the right panel's shells apart from the drawer's, each its own tab in the panel's strip", async () => {
+    const { bridge, dispatched } = makeBridge();
+    // A shell id no other test uses: which shells belong to the panel is remembered for the whole run.
+    const sideId = TerminalId.parse("00000000-0000-4000-8000-000000000031");
+    markPanelTerminal(sideId);
+    const shells: TerminalProjection[] = [
+      { terminalId: firstId, worktreeId, title: "Terminal 1", status: "running", lastSequence: 0 },
+      { terminalId: sideId, worktreeId, title: "Terminal 1", status: "running", lastSequence: 0 },
+    ];
+    const bottom = await render(bridge, shells);
+    expect([...bottom.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute("aria-controls"))).toEqual([
+      `drawer-pane-${firstId}`,
+    ]);
+    document.body.replaceChildren();
+
+    const strip = document.createElement("div");
+    document.body.append(strip);
+    const side = await render(bridge, shells, undefined, undefined, { place: "side", tabsHost: strip });
+    expect([...strip.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute("aria-controls"))).toEqual([
+      `drawer-pane-${sideId}`,
+    ]);
+    expect(side.querySelector(".drawer-tabs")?.closest("header")?.hidden).toBe(true);
+    // A new shell beside the chat counts only the panel's own: the drawer's Terminal 1 does not take its number.
+    await act(async () => strip.querySelector<HTMLButtonElement>('[aria-label="Stop Terminal 1"]')?.click());
+    expect(dispatched.some((request) => request.command.type === "terminal.stop")).toBe(true);
+  });
+
+  it("keeps a worktree's shells together across chats and opens new ones with the next free name", async () => {
     const sessionId = "00000000-0000-4000-8000-000000000201";
     const otherSession = "00000000-0000-4000-8000-000000000202";
     const { bridge, dispatched } = makeBridge();
     const container = await render(
       bridge,
       [
-        { terminalId: firstId, worktreeId, title: "Mine", status: "running", lastSequence: 0, sessionId },
+        { terminalId: firstId, worktreeId, title: "Terminal 1", status: "running", lastSequence: 0, sessionId },
         {
           terminalId: secondId,
           worktreeId,
-          title: "Theirs",
+          title: "Terminal 4",
           status: "running",
           lastSequence: 0,
           sessionId: otherSession,
@@ -430,74 +470,81 @@ describe("TerminalDrawer", () => {
       ] as TerminalProjection[],
       sessionId,
     );
-    const titles = [...container.querySelectorAll(".drawer-pane-title")].map((title) => title.textContent);
-    expect(titles).toEqual(["Mine"]);
-    await act(async () => button(container, "Split")?.click());
+    expect([...container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
+      "Terminal 1",
+      "Terminal 4",
+    ]);
+    // Shells were already open, so opening the drawer started none.
+    expect(dispatched.filter((request) => request.command.type === "terminal.create")).toHaveLength(0);
+    await act(async () => button(container, "New terminal")?.click());
     expect(dispatched.at(-1)?.command).toMatchObject({
       type: "terminal.create",
       worktreeId,
       sessionId,
-      title: "Terminal 2",
+      title: "Terminal 5",
     });
   });
 
-  it("stops a running shell when its pane closes and hides the pane once the shell has exited", async () => {
+  it("stops a running shell from its tab, and closing the last one closes the drawer", async () => {
     const { bridge, dispatched } = makeBridge();
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    const show = async (status: TerminalProjection["status"]) => {
-      const projection = projectionWith([
-        { terminalId: firstId, worktreeId, title: "Terminal 1", status, lastSequence: 0 },
-      ]);
-      await act(async () => {
-        root.render(
-          <RuntimeProvider bridge={bridge}>
-            <TerminalDrawer
-              projection={projection}
-              worktree={projection.worktrees[0]}
-              sessionId={undefined}
-              height={280}
-              maxHeight={600}
-              onHeightChange={() => undefined}
-              onClose={() => undefined}
-            />
-          </RuntimeProvider>,
-        );
-      });
-    };
-    await show("running");
+    const onClose = vi.fn();
+    const container = await render(
+      bridge,
+      [{ terminalId: firstId, worktreeId, title: "Terminal 1", status: "running", lastSequence: 0 }],
+      undefined,
+      undefined,
+      { onClose },
+    );
     await act(async () => button(container, "Stop Terminal 1")?.click());
     expect(dispatched.at(-1)?.command).toEqual({ type: "terminal.stop", terminalId: firstId });
-    expect(container.querySelectorAll(".drawer-pane")).toHaveLength(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
     expect(container.querySelector(".drawer-pane-state")?.textContent).toBe("Stopping");
-
-    await act(async () => button(container, "Stop Terminal 1")?.click());
-    expect(dispatched.filter((request) => request.command.type === "terminal.stop")).toHaveLength(2);
-
-    await show("exited");
-    expect(container.querySelectorAll(".drawer-pane")).toHaveLength(0);
-    expect(container.textContent).toContain("No shell in");
-    await act(async () => root.unmount());
-    container.remove();
   });
 
-  it("offers to start a shell when the worktree has none", async () => {
+  it("starts a shell by itself when it opens on a worktree with none", async () => {
     const { bridge, dispatched } = makeBridge();
-    const container = await render(bridge, []);
+    await render(bridge, []);
+    const creates = dispatched.filter((request) => request.command.type === "terminal.create");
+    expect(creates).toHaveLength(1);
+    expect(creates[0]?.command).toMatchObject({ worktreeId, cwd: "C:/repo", title: "Terminal 1" });
+  });
+
+  it("offers to start a shell when something else opened it on a worktree with none", async () => {
+    const { bridge, dispatched } = makeBridge();
+    const container = await render(bridge, [], undefined, undefined, { autoStart: false });
+    expect(dispatched.filter((request) => request.command.type === "terminal.create")).toHaveLength(0);
     expect(container.querySelector(".terminal-drawer")?.classList.contains("is-compact")).toBe(true);
     expect(container.querySelector('[role="separator"]')).toBeNull();
     await act(async () => button(container, "Start terminal")?.click());
     expect(dispatched.at(-1)?.command).toMatchObject({ type: "terminal.create", worktreeId, cwd: "C:/repo" });
   });
 
-  it("filters terminals by worktree and session", () => {
+  it("stops at ten shells", async () => {
+    const { bridge } = makeBridge();
+    const many = Array.from({ length: MAX_TERMINALS }, (_, index) => ({
+      terminalId: TerminalId.parse(`00000000-0000-4000-8000-0000000003${String(index).padStart(2, "0")}`),
+      worktreeId,
+      title: `Terminal ${index + 1}`,
+      status: "running" as const,
+      lastSequence: 0,
+    }));
+    const container = await render(bridge, many);
+    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(MAX_TERMINALS);
+    expect(button(container, "New terminal")?.disabled).toBe(true);
+  });
+
+  it("lists a worktree's shells and names the next one", () => {
     const shared = { worktreeId, title: "t", status: "running" as const };
     const terminals = [
       { ...shared, terminalId: firstId },
       { ...shared, terminalId: secondId, kind: "agent" as const },
+      { ...shared, terminalId: TerminalId.parse("00000000-0000-4000-8000-000000000025"), status: "exited" as const },
     ] as TerminalProjection[];
-    expect(drawerTerminals(terminals, worktreeId, undefined).map((terminal) => terminal.terminalId)).toEqual([firstId]);
-    expect(drawerTerminals(terminals, undefined, undefined)).toEqual([]);
+    expect(drawerTerminals(terminals, worktreeId).map((terminal) => terminal.terminalId)).toEqual([firstId]);
+    expect(drawerTerminals(terminals, undefined)).toEqual([]);
+    expect(nextTerminalTitle([])).toBe("Terminal 1");
+    expect(nextTerminalTitle([{ ...shared, terminalId: firstId, title: "Terminal 3" }] as TerminalProjection[])).toBe(
+      "Terminal 4",
+    );
   });
 });
