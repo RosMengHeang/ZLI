@@ -871,8 +871,11 @@ export function Sidebar({
       !live && !failure && runIndex === undefined && isUnread && session.thread ? session.thread : undefined;
     // One line, title and time, unless the chat has something to say now; Appearance can show every second line.
     // A chat in a worktree of its own keeps its branch line: where it works is part of what it is.
+    // In the project view a chat is one line, title and time, and its mark on the left says what it is doing.
     const twoLine =
-      runIndex === undefined && (!compactChats || !!live || !!failure || !!lastWord || !!note || !!branchLine);
+      runIndex === undefined &&
+      !(sidebarView === "projects" && !withProject) &&
+      (!compactChats || !!live || !!failure || !!lastWord || !!note || !!branchLine);
     return (
       <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
         <button
@@ -918,6 +921,8 @@ export function Sidebar({
                   {layout.chatPinned(session.sessionId) ? (
                     <Icon name="pin" size={11} className="session-pin" aria-label="Pinned" />
                   ) : null}
+                  {/* One line keeps the agent's own name, before the title, as the second line would. */}
+                  {!twoLine && agentName ? <span className="session-name">{agentName}</span> : null}
                   <span className="session-title">{title}</span>
                   {guests.length > 0 ? (
                     <span
@@ -1275,16 +1280,9 @@ export function Sidebar({
           onClick={() => onSelectSession(session)}
           onContextMenu={(event) => openContextMenu(event, "Agent actions", menu)}
         >
-          <span className={`activity-mark is-${session.status}`} aria-hidden="true">
-            {busy ? (
-              <Icon name="loader" size={14} className="activity-spin" />
-            ) : session.status === "waiting" ? (
-              <span className="activity-dot" />
-            ) : session.status === "failed" ? (
-              <Icon name="alert" size={14} />
-            ) : (
-              <AgentStack providers={chatAgents(session, subAgents)} size={14} />
-            )}
+          <span className={`activity-mark is-${session.status}${busy ? " is-busy" : ""}`} aria-hidden="true">
+            <AgentStack providers={chatAgents(session, subAgents)} size={14} />
+            {session.status === "waiting" || session.status === "failed" ? <span className="activity-badge" /> : null}
           </span>
           <span className="activity-copy">
             <span className="activity-title">

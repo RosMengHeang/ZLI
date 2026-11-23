@@ -895,3 +895,19 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .sidebar.has-backdrop:not(.is-floating) { border-right: 1px solid var(--zli-border); }
 /* One even wash, lighter than the chat's: sidebar text runs edge to edge, so there is no reading column to clear. */
 .sidebar.has-backdrop > .chat-backdrop .chat-backdrop-veil { background: color-mix(in srgb, var(--zli-surface) 40%, transparent); }
+
+/* Working: three bars rising in turn, in the accent; the other states keep their dot. */
+.session-bars { display: inline-flex; height: 10px; align-items: flex-end; gap: 1.5px; }
+.session-bars > span { width: 2px; height: 4px; border-radius: 1px; background: var(--zli-blue); animation: session-bars 1s ease-in-out infinite; }
+.session-bars > span:nth-child(2) { animation-delay: .15s; }
+.session-bars > span:nth-child(3) { animation-delay: .3s; }
+@keyframes session-bars { 0%, 100% { height: 4px; opacity: .55; } 50% { height: 10px; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .session-bars > span { height: 7px; animation: none; } }
+/* Recent: the agent's logo always shows. A thin ring turns around it while it works; a dot on its corner says it
+   waits or failed. */
+.activity-mark { position: relative; }
+.activity-mark.is-busy::after { position: absolute; inset: -3px; border: 1.5px solid transparent; border-top-color: var(--zli-blue); border-right-color: var(--zli-blue); border-radius: 50%; content: ""; animation: zli-spin 900ms linear infinite; }
+.activity-badge { position: absolute; top: -1px; right: -2px; width: 6px; height: 6px; border: 1.5px solid var(--zli-sidebar, var(--zli-surface)); border-radius: 50%; background: var(--zli-amber); box-sizing: content-box; }
+.activity-mark.is-failed .activity-badge { background: var(--zli-red); }
+.activity-mark.is-failed, .activity-mark.is-working, .activity-mark.is-starting { color: var(--zli-muted); }
+@media (prefers-reduced-motion: reduce) { .activity-mark.is-busy::after { animation: none; } }

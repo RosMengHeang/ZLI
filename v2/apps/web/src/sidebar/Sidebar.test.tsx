@@ -327,10 +327,10 @@ describe("Sidebar projects", () => {
       ]),
       { sessions: [agent(featureId)] },
     );
-    // The chat is one card that names its worktree's branch on a quiet second line.
+    // Under its folder the chat is one line, title and time; its worktree's branch is in the tooltip.
     const row = container.querySelector(".session-row");
-    expect(row?.classList.contains("is-two-line")).toBe(true);
-    expect(row?.querySelector(".session-branch .worktree-name")?.textContent).toBe("feat/login");
+    expect(row?.classList.contains("is-one-line")).toBe(true);
+    expect(row?.getAttribute("title")).toContain("feat/login");
     expect(row?.querySelector(".worktree-status")).toBeNull();
     expect(container.querySelector(".worktree-toggle")).toBeNull();
   });
@@ -357,9 +357,10 @@ describe("Sidebar projects", () => {
         ],
       },
     );
-    const branches = [...container.querySelectorAll(".session-branch .worktree-name")].map((name) => name.textContent);
-    expect(branches).toEqual(["feat/login", "feat/login"]);
-    expect(container.querySelectorAll(".session-via")).toHaveLength(2);
+    // One line each under the folder; a chat in its own worktree names the branch in its tooltip.
+    const rows = [...container.querySelectorAll(".session-row")];
+    expect(rows.every((row) => row.classList.contains("is-one-line"))).toBe(true);
+    expect(rows.filter((row) => row.getAttribute("title")?.includes("feat/login"))).toHaveLength(2);
     expect(container.querySelectorAll(".session-row")).toHaveLength(4);
   });
 
@@ -387,7 +388,9 @@ describe("Sidebar projects", () => {
       },
     );
     const rows = [...container.querySelectorAll(".session-row")];
-    expect(rows.map((row) => row.className.includes("is-one-line"))).toEqual([true, false]);
+    // Under its folder every chat is one line; the failed one says so with its red mark.
+    expect(rows.map((row) => row.className.includes("is-one-line"))).toEqual([true, true]);
+    expect(rows[1]?.querySelector(".session-dot.is-failed")).not.toBeNull();
     expect(rows[0]?.querySelector(".session-sub")).toBeNull();
     expect(rows[0]?.querySelector(".session-time")).not.toBeNull();
   });
@@ -420,7 +423,8 @@ describe("Sidebar projects", () => {
     const rows = [...container.querySelectorAll(".session-row.is-activity")];
     expect(rows.map((row) => row.querySelector(".activity-branch")?.textContent)).toEqual(["feat/login", "main"]);
     expect(rows[0]?.querySelector(".activity-project")?.textContent).toBe("repo");
-    expect(rows[0]?.querySelector(".activity-spin")).not.toBeNull();
+    // A working chat keeps its agent's logo, with a ring turning around it.
+    expect(rows[0]?.querySelector(".activity-mark.is-busy .provider-mark")).not.toBeNull();
     expect(container.querySelector(".project-label")).toBeNull();
 
     // The sort switch goes back to the project tree.
@@ -601,7 +605,7 @@ describe("Sidebar projects", () => {
       { sessions: [agent(featureId)], onWorktreeAction },
     );
     const entry = container.querySelector(".session-entry") as HTMLElement;
-    expect(entry.querySelector(".session-branch .worktree-status")?.textContent).toBe("Failed");
+    expect(entry.querySelector(".session-row")?.getAttribute("title")).toContain("feat");
     expect(entry.textContent).toContain("Branch already exists.");
     await act(async () => button(entry, "Retry").click());
     expect(onWorktreeAction).toHaveBeenCalledWith(expect.objectContaining({ worktreeId: featureId }), "retry");
