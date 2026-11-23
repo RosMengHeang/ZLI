@@ -1432,9 +1432,10 @@ describe("MobilePane", () => {
     await click(button(container, "Device: Pixel 8"));
     await click(pickerOption("Connect a phone"));
     expect(button(container, "Setup").getAttribute("aria-pressed")).toBe("true");
-    expect(container.textContent).toContain("Connect over Wi-Fi");
+    expect(container.querySelector('.mobile-setup-tabs [aria-pressed="true"]')?.textContent).toBe("Phone");
+    expect(container.textContent).toContain("Your phone");
 
-    await click(button(container, "Connect to an address"));
+    await click(button(container, "Address"));
     const address = [...container.querySelectorAll<HTMLInputElement>(".mobile-avd-form input")].find(
       (input) => input.placeholder === "192.168.1.20:39457",
     );
@@ -1576,7 +1577,7 @@ describe("MobilePane", () => {
     expect(container.textContent).toContain("KVM is not available. Turn on virtualization.");
     expect(container.textContent).toContain("Android platform tools (adb)");
     expect(container.textContent).not.toContain("- Hardware acceleration");
-    expect(container.textContent).toContain("iPhone simulators need a Mac with Xcode.");
+    expect(container.textContent).not.toContain("iPhone simulators need a Mac with Xcode.");
 
     await click(button(container, "Review the install"));
     expect(container.textContent).toContain("/home/me/.zli/android-sdk");
@@ -1627,19 +1628,25 @@ describe("MobilePane", () => {
     expect(headings(container)).toEqual(["Set up the Android emulator"]);
     expect(container.querySelector(".mobile-setup-card")?.textContent).toContain("Android Emulator");
     expect(container.textContent).toContain("Or connect an Android phone with USB debugging turned on.");
-    expect(container.querySelector(".mobile-setup-ios-note")?.textContent).toBe(
-      "iPhone simulators need a Mac with Xcode. To use one on your network, add it in Settings > Mobile.",
-    );
+    expect(container.querySelector(".mobile-setup-ios-note")).toBeNull();
 
     const primary = [...container.querySelectorAll<HTMLButtonElement>(".mobile-setup-card .btn-primary")];
     expect(primary.map((candidate) => candidate.textContent)).toEqual(["Review the install"]);
-    await click(primary[0] as HTMLButtonElement);
+    // The iPhone tab says what Windows can do for iOS, in one line.
+    await click(button(container, "iPhone"));
+    expect(container.querySelector(".mobile-setup-ios-note")?.textContent).toBe(
+      "iPhone simulators need a Mac with Xcode. To use one on your network, add it in Settings > Mobile.",
+    );
+    await click(button(container, "Emulator"));
+    await click(
+      [...container.querySelectorAll<HTMLButtonElement>(".mobile-setup-card .btn-primary")][0] as HTMLButtonElement,
+    );
     expect(fake.mobile.setupPlan).toHaveBeenCalled();
     expect(container.textContent).toContain("I accept the Android SDK License");
     expect(container.textContent).toContain("about 307 MB");
   });
 
-  it("shows Android and iOS side by side on a Mac", async () => {
+  it("shows Android and iOS on their own tabs on a Mac", async () => {
     const status = emptyStatus();
     const fake = createMobile({
       devices: [],
@@ -1650,7 +1657,9 @@ describe("MobilePane", () => {
       },
     });
     const container = await render(bridgeWith(fake.mobile));
-    expect(headings(container)).toEqual(["Set up the Android emulator", "iOS"]);
+    expect(headings(container)).toEqual(["Set up the Android emulator"]);
+    await click(button(container, "iPhone"));
+    expect(headings(container)).toEqual(["iOS"]);
     expect(container.textContent).toContain("idb, for taps and typing");
     expect(container.querySelector(".mobile-setup-ios-note")).toBeNull();
   });

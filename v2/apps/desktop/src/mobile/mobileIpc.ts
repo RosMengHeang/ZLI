@@ -15,6 +15,7 @@ import {
   MobileSimulatorDeleteInput,
   MobileWifiConnectInput,
   MobileWifiPairInput,
+  MobileWifiQrPairInput,
 } from "@zli-v2/contracts";
 import { PANEL_VIEWER } from "./DeviceManager.js";
 import type { MobileDev } from "./dev/index.js";
@@ -91,6 +92,11 @@ export function mobileIpcHandlers(deps: {
     },
     "zli:mobile:wifi-pair": (input) => service().wireless.pair(MobileWifiPairInput.parse(input)),
     "zli:mobile:wifi-connect": (input) => service().wireless.connect(MobileWifiConnectInput.parse(input)),
+    "zli:mobile:wifi-pair-qr": (input) => service().wireless.pairQr(MobileWifiQrPairInput.parse(input)),
+    "zli:mobile:wifi-pair-qr-cancel": async () => {
+      service().wireless.cancelQr();
+      return { accepted: true };
+    },
     "zli:mobile:wifi-disconnect": async (input) => {
       await service().wireless.disconnect(deviceId(input));
       return { accepted: true };
