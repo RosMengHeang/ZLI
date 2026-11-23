@@ -36,7 +36,7 @@ describe("McpServerStore", () => {
       headers: { Authorization: "Bearer secret-header" },
       oauth: false,
     };
-    const store = new McpServerStore({ toolLoading: "upfront", path, box });
+    const store = new McpServerStore({ path, box });
     await store.load();
     await store.save([github, remote]);
 
@@ -47,12 +47,12 @@ describe("McpServerStore", () => {
     if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect(store.list().secrets).toEqual({ sealed: true, unreadable: [] });
 
-    const reloaded = new McpServerStore({ toolLoading: "upfront", path, box });
+    const reloaded = new McpServerStore({ path, box });
     await reloaded.load();
     expect(reloaded.list().servers).toEqual([github, remote]);
 
     // Another computer's key cannot open them: the values come back empty and the server is named.
-    const elsewhere = new McpServerStore({ toolLoading: "upfront", path, box: SecretBox.withKey(Buffer.alloc(32, 9)) });
+    const elsewhere = new McpServerStore({ path, box: SecretBox.withKey(Buffer.alloc(32, 9)) });
     await elsewhere.load();
     expect(elsewhere.list().secrets?.unreadable).toEqual(["github", "notion"]);
     expect(elsewhere.list().servers[0]).toMatchObject({ env: { TOKEN: "" } });
@@ -61,7 +61,7 @@ describe("McpServerStore", () => {
   it("seals a list saved before sealing the first time it loads", async () => {
     const path = await storePath();
     await writeFile(path, JSON.stringify({ version: 1, servers: [github] }));
-    const store = new McpServerStore({ toolLoading: "upfront", path, box: SecretBox.withKey(Buffer.alloc(32, 7)) });
+    const store = new McpServerStore({ path, box: SecretBox.withKey(Buffer.alloc(32, 7)) });
     await store.load();
     expect(store.list().servers).toEqual([github]);
     expect(await readFile(path, "utf8")).toContain("sealed:v1:");
