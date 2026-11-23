@@ -183,3 +183,17 @@
 }
 .mcp-projects-popover .mcp-project-list { padding-left: 0; }
 .mcp-projects-note { margin: var(--zli-space-1) 0 0; color: var(--zli-dim); font-size: var(--zli-text-2xs); line-height: var(--zli-leading-normal); }
+
+/* What Integrations keeps safe, at the top of Installed: one quiet line each, colour only in the marks. */
+.mcp-safety { display: flex; flex-direction: column; gap: var(--zli-space-2); margin: 0; padding: var(--zli-space-3) var(--zli-space-3-5, 14px); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-raised); list-style: none; }
+.mcp-safety > li { display: flex; align-items: flex-start; gap: var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.mcp-safety > li > svg { flex: 0 0 auto; margin-top: 3px; color: var(--zli-dim); }
+.mcp-safety > li.is-ok > svg { color: var(--zli-green); }
+.mcp-safety > li.is-warning > svg { color: var(--zli-amber); }
+/* Before a command server is added: it runs with your access. */
+.mcp-trust { display: flex; align-items: flex-start; gap: var(--zli-space-2); margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.mcp-trust > svg { flex: 0 0 auto; margin-top: 2px; color: var(--zli-amber); }
+/* Keys and header values show as dots until asked. */
+.textarea.is-masked { -webkit-text-security: disc; }
+.mcp-reveal { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; margin-top: 4px; padding: 2px 4px; border: 0; border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-dim); cursor: default; font: inherit; font-size: var(--zli-text-xs); }
+.mcp-reveal:hover { background: var(--zli-hover); color: var(--zli-text); }
