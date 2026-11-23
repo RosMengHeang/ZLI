@@ -91,13 +91,16 @@ describe("AccountSignIns", () => {
   });
 
   it("finishes once the credentials land, even when the login keeps running", async () => {
-    vi.useFakeTimers();
+    // setImmediate stays real, so the credentials check (real file reads) can finish between timer steps.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
     try {
       const { signIns, child, dir } = setup();
       await signIns.start("work");
       writeFileSync(join(dir, "auth.json"), "{}");
-      await vi.advanceTimersByTimeAsync(1_100);
-      await vi.advanceTimersByTimeAsync(3_100);
+      for (let step = 0; step < 40 && signIns.status("work")?.state !== "done"; step += 1) {
+        await vi.advanceTimersByTimeAsync(500);
+        await new Promise((resolve) => setImmediate(resolve));
+      }
       expect(signIns.status("work")?.state).toBe("done");
       expect(child.killed).toBe(true);
     } finally {
