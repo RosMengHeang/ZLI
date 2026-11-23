@@ -60,6 +60,25 @@ function missing(): Error {
   return Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" });
 }
 
+describe("PullRequestService.lookup", () => {
+  it("reads each linked pull request and leaves out one GitHub cannot read", async () => {
+    const { runner, calls } = fakeRunner(({ command, args }) => {
+      if (command !== "gh" || args[0] !== "pr") return undefined;
+      return args[2] === "https://github.com/acme/app/pull/12" ? ok(PR_JSON) : fail("could not resolve to a PullRequest");
+    });
+    const result = await new PullRequestService(runner).lookup(INPUT, [
+      "https://github.com/acme/app/pull/12",
+      "https://github.com/acme/app/pull/404",
+    ]);
+    expect(result.pullRequests.map((pullRequest) => pullRequest.number)).toEqual([12]);
+    // Each link goes to gh as its own argument, from the worktree.
+    expect(calls.filter((call) => call.command === "gh").map((call) => call.args.slice(0, 3))).toEqual([
+      ["pr", "view", "https://github.com/acme/app/pull/12"],
+      ["pr", "view", "https://github.com/acme/app/pull/404"],
+    ]);
+  });
+});
+
 describe("PullRequestService.status", () => {
   it("offers defaults from the commits since the origin default branch", async () => {
     const { runner } = fakeRunner();

@@ -8,6 +8,7 @@ import { trackDescription, trackText, useBranches } from "../review/branches.js"
 import { changeTotals, stageStateOf } from "../review/changes.js";
 import { openExternalLink } from "../review/links.js";
 import { MergePullRequestDialog } from "../review/MergePullRequestDialog.js";
+import { ChatPullRequestStack } from "../review/PullRequestStack.js";
 import { pushBranch, switchBranch } from "../review/pullRequestClient.js";
 import { recordPullRequest, refreshPullRequest, usePullRequestEntry } from "../review/pullRequestStore.js";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -719,6 +720,8 @@ export function EnvironmentButton({
           />
         </p>
       ) : null}
+      {/* A chat that opened several pull requests lists them all here, not only its own branch's. */}
+      <ChatPullRequestStack session={card?.session} />
       {cardCommit}
     </div>
   );

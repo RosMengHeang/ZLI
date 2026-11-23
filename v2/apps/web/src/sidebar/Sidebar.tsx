@@ -48,6 +48,7 @@ import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { assignChatBuddies } from "../teammates/chatBuddies.js";
+import { ChatPullRequestMark } from "../review/PullRequestStack.js";
 import { lookOf } from "../teammates/pixelBuddies.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -1304,6 +1305,7 @@ export function Sidebar({
                 <span className="activity-agent">{agentName}</span>
               ) : null}
               <span className="session-title">{title}</span>
+              <ChatPullRequestMark session={session} />
             </span>
             <span className="activity-meta">
               {project ? (
