@@ -145,6 +145,7 @@ export class WorktreeReactor {
       branch: intent.worktree.branch,
       ...(intent.baseRef ? { baseRef: intent.baseRef } : {}),
       ...(intent.checkoutExistingBranch ? { checkoutExistingBranch: true } : {}),
+      ...(intent.fromRemote ? { fromRemote: true } : {}),
       ...(prepare ? { bootstrap: prepare } : {}),
       onState: reportState,
     });

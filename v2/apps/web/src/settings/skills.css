@@ -1,0 +1,182 @@
+/* Settings → Skills: one bar with tabs and actions, then a quiet list, like a library. */
+
+.skill-count {
+  margin-left: var(--zli-space-1-5);
+  color: var(--zli-dim);
+  font-size: var(--zli-text-xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+/* The bar: tabs on the left, search and the two ways to add on the right, all one control height. */
+.skill-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--zli-space-2) var(--zli-space-3);
+  margin-bottom: var(--zli-space-3);
+}
+.skill-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--zli-border);
+  border-radius: var(--zli-radius-md);
+  background: var(--zli-surface);
+}
+.skill-tab {
+  display: inline-flex;
+  height: calc(var(--zli-control-sm, 28px) - 4px);
+  align-items: center;
+  padding: 0 var(--zli-space-2-5);
+  border: 0;
+  border-radius: calc(var(--zli-radius-md) - 2px);
+  background: transparent;
+  color: var(--zli-muted);
+  cursor: default;
+  font: inherit;
+  font-size: var(--zli-text-sm);
+  white-space: nowrap;
+}
+.skill-tab:hover { color: var(--zli-text); }
+.skill-tab[aria-selected="true"] { background: var(--zli-active); color: var(--zli-text); }
+.skill-tab .skill-count { margin-left: var(--zli-space-1-5); }
+.skill-bar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2); }
+.skill-search { width: 180px; margin: 0; }
+
+.skill-form-slot { margin-bottom: var(--zli-space-3); }
+
+.skill-panel { display: flex; flex-direction: column; gap: var(--zli-space-2-5); }
+.skill-panel-head { display: flex; align-items: center; gap: var(--zli-space-2); }
+.skill-panel-project { display: inline-flex; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-text); font-size: var(--zli-text-sm); }
+.skill-note { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+
+/* The list: one box, one row per skill, thin rules between. */
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--zli-border);
+  border-radius: var(--zli-radius-lg);
+  background: color-mix(in srgb, var(--zli-raised) 45%, var(--zli-surface));
+  list-style: none;
+}
+.skill-card {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: var(--zli-space-3);
+  padding: var(--zli-space-3);
+  transition: background-color var(--zli-duration-fast) var(--zli-ease);
+}
+.skill-card + .skill-card { border-top: 1px solid var(--zli-border); }
+.skill-card:hover { background: var(--zli-hover); }
+.skill-card.is-off .skill-card-main, .skill-card.is-off .skill-card-avatar { opacity: .5; }
+
+.skill-card-avatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--zli-active);
+  color: var(--zli-text);
+  font-family: var(--zli-mono);
+  font-size: var(--zli-text-xs);
+  font-weight: 600;
+}
+.skill-card-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.skill-card-line { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
+.skill-card-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--zli-text);
+  font-family: var(--zli-mono);
+  font-size: var(--zli-text-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-card-chips { display: inline-flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1); }
+.skill-card-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--zli-muted);
+  font-size: var(--zli-text-sm);
+  line-height: var(--zli-leading-normal);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.skill-card-note { color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.skill-card-note.is-warning { color: var(--zli-amber); }
+.skill-card-path {
+  display: block;
+  overflow: hidden;
+  color: var(--zli-dim);
+  font-family: var(--zli-mono);
+  font-size: var(--zli-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Edit and delete wait for the pointer; the switch is always there. */
+.skill-card-actions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); min-height: 28px; }
+.skill-card-ask { color: var(--zli-text); font-size: var(--zli-text-xs); }
+.skill-card-menu { display: inline-flex; gap: 2px; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.skill-card:hover .skill-card-menu, .skill-card-menu:focus-within { opacity: 1; }
+@media (hover: none) {
+  .skill-card-menu { opacity: 1; }
+}
+
+.skill-list-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--zli-space-2);
+  margin: 0;
+  padding: var(--zli-space-3);
+  border: 1px dashed var(--zli-border);
+  border-radius: var(--zli-radius-lg);
+  color: var(--zli-muted);
+  font-size: var(--zli-text-sm);
+}
+
+/* No skills at all: one centered note with two equal buttons. */
+.skill-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--zli-space-2);
+  padding: var(--zli-space-6) var(--zli-space-4);
+  border: 1px dashed var(--zli-border);
+  border-radius: var(--zli-radius-lg);
+  text-align: center;
+}
+.skill-empty p { margin: 0; }
+.skill-empty-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; background: var(--zli-active); color: var(--zli-muted); }
+.skill-empty-lead { color: var(--zli-text); font-weight: 500; }
+.skill-empty-copy { max-width: 46ch; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.skill-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--zli-space-2); padding-top: var(--zli-space-2); }
+
+.skill-form-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; }
+.skill-form .segmented { align-self: flex-start; max-width: 100%; flex-wrap: wrap; }
+.skill-form-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--zli-space-3); }
+.skill-form-instructions { min-height: 240px; font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); resize: vertical; }
+
+/* .skill-candidates and .skill-candidate live in settings.css, shared with plugins and MCP import. */
+.skill-candidate-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.skill-candidate-copy strong { overflow: hidden; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.skill-candidate-detail { color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+
+@media (max-width: 640px) {
+  .skill-form-pair { grid-template-columns: minmax(0, 1fr); }
+  .skill-bar-actions { width: 100%; }
+  .skill-search { flex: 1; width: auto; }
+  .skill-card-line { flex-wrap: wrap; }
+}

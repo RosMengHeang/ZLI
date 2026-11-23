@@ -2,6 +2,7 @@ import { MAX_AGENT_NAME_LENGTH, type RuntimeProjection, type WorktreeProjection 
 import { useId, useRef, useState } from "react";
 
 import type { AgentSession } from "../sessions/sessions.js";
+import { readAppSettings } from "../settings/appSettings.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
@@ -71,7 +72,8 @@ export function DeleteAgentDialog({
   onDelete(removeWorktree: boolean): void;
   onCancel(): void;
 }) {
-  const [removeWorktree, setRemoveWorktree] = useState(false);
+  // Settings → Worktrees can tick this from the start.
+  const [removeWorktree, setRemoveWorktree] = useState(() => readAppSettings().worktrees.removeWithAgent);
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <Dialog
@@ -118,6 +120,8 @@ export function KeepRunDialog({
   count,
   branch,
   discarded,
+  brought = [],
+  stacked = false,
   onKeep,
   onCancel,
 }: {
@@ -126,24 +130,41 @@ export function KeepRunDialog({
   branch: string;
   /** The other runs: their agent name and the worktree branch deleted with them, if any. */
   discarded: { title: string; branch: string | undefined }[];
+  /** Files copied into the kept run first, each with the run it comes from. */
+  brought?: { path: string; from: string }[];
+  /** Opened over the Compare dialog, which stays open behind it. */
+  stacked?: boolean;
   onKeep(): void;
   onCancel(): void;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const others = discarded.length === 1 ? "the other run" : `the other ${discarded.length} runs`;
   const removed = discarded.flatMap((run) => (run.branch ? [run.branch] : []));
+  const copies =
+    brought.length === 0 ? "" : `, copies ${brought.length === 1 ? "1 file" : `${brought.length} files`} into it,`;
   return (
     <Dialog
       label="Keep this run"
       size="sm"
       title={`Keep run ${index} of ${count}?`}
-      subtitle={`Keeps the agent in ${branch} and deletes ${others}, with their chat history. This cannot be undone.`}
+      subtitle={`Keeps the agent in ${branch}${copies} and deletes ${others}, with their chat history. This cannot be undone.`}
       scrimLabel="Cancel"
       showClose={false}
       initialFocusRef={cancelRef}
+      stacked={stacked}
       onClose={onCancel}
     >
       <div className="dialog-body">
+        {brought.length > 0 ? (
+          <ul className="keep-run-list" aria-label="Files to bring in">
+            {brought.map((file) => (
+              <li key={file.path}>
+                <code>{file.path}</code>
+                <span>from {file.from}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <ul className="keep-run-list" aria-label="Runs to delete">
           {discarded.map((run, position) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: the list is fixed while the dialog is open.

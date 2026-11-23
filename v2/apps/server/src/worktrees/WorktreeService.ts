@@ -25,6 +25,8 @@ export type WorktreeCreateRequest = {
   branch: string;
   baseRef?: string;
   checkoutExistingBranch?: boolean;
+  /** Fetch the base branch and start from its remote copy. Uses the local branch when that cannot be done. */
+  fromRemote?: boolean;
   includeFile?: string;
   bootstrap?: (context: { worktreePath: string; signal: AbortSignal }) => Promise<void>;
   onState?: (state: WorktreeState) => void;
@@ -169,6 +171,49 @@ export class WorktreeService {
     return branch;
   }
 
+  /**
+   * The freshly fetched remote copy of `base` (the checked-out branch when omitted): its tracked upstream when it
+   * has one, otherwise the same-named branch on origin. Undefined when there is no remote branch or the fetch
+   * fails, so the caller keeps the local branch and an offline machine can still make worktrees.
+   */
+  private async remoteBase(
+    repoPath: string,
+    base: string | undefined,
+    signal: AbortSignal,
+  ): Promise<string | undefined> {
+    const read = async (args: string[]) => {
+      try {
+        return (await this.git.run(args, { cwd: repoPath, timeoutMs: 10_000, signal })).stdout.trim();
+      } catch {
+        return "";
+      }
+    };
+    const branch = base ?? (await read(["symbolic-ref", "--short", "HEAD"]));
+    if (!branch || branch === "HEAD") return undefined;
+    const upstream = await read(["rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`]);
+    const remotes = (await read(["remote"])).split(/\s+/u).filter(Boolean);
+    const remote = upstream ? remotes.find((name) => upstream.startsWith(`${name}/`)) : undefined;
+    const target = remote
+      ? { remote, branch: upstream.slice(remote.length + 1) }
+      : remotes.includes("origin")
+        ? { remote: "origin", branch }
+        : undefined;
+    if (!target) return undefined;
+    try {
+      assertSafeRef(target.branch);
+      await this.git.run(["fetch", "--no-tags", target.remote, target.branch], {
+        cwd: repoPath,
+        timeoutMs: 60_000,
+        signal,
+      });
+    } catch {
+      if (signal.aborted) throw new WorktreeError("cancelled", "Worktree creation was cancelled.");
+      return undefined;
+    }
+    const ref = `${target.remote}/${target.branch}`;
+    return (await read(["rev-parse", "--verify", "--quiet", `refs/remotes/${ref}`])) ? ref : undefined;
+  }
+
   private async runCreate(
     request: WorktreeCreateRequest,
     controller: AbortController,
@@ -184,6 +229,11 @@ export class WorktreeService {
 
     try {
       if (controller.signal.aborted) throw new WorktreeError("cancelled", "Worktree creation was cancelled.");
+      let baseRef = request.baseRef;
+      if (request.fromRemote && !request.checkoutExistingBranch) {
+        notify("fetching");
+        baseRef = (await this.remoteBase(repoPath, baseRef, controller.signal)) ?? baseRef;
+      }
       notify("creating");
       await mkdir(dirname(worktreePath), { recursive: true });
       const args = ["worktree", "add"];
@@ -191,7 +241,7 @@ export class WorktreeService {
         args.push(worktreePath, request.branch);
       } else {
         args.push("--no-track", "-b", request.branch, worktreePath);
-        if (request.baseRef) args.push(request.baseRef);
+        if (baseRef) args.push(baseRef);
       }
       await this.git.run(args, { cwd: repoPath, signal: controller.signal });
       created = true;

@@ -72,40 +72,43 @@ export function IntegrationsSection({
         Connect services, add MCP servers, and install plugins. Every agent ZLI starts can use them, in terminals and
         chats, from the next time it starts.
       </SettingsPageHeader>
-      <div className="integrations-tabs" role="tablist" aria-label="Integrations" onKeyDown={onTabKey}>
-        {views.map((entry) => (
-          <button
-            key={entry.id}
-            ref={(element) => {
-              tabRefs.current[entry.id] = element;
-            }}
-            className="integrations-tab"
-            type="button"
-            role="tab"
-            id={`${ids}-${entry.id}`}
-            aria-selected={view === entry.id}
-            aria-controls={`${ids}-panel`}
-            tabIndex={view === entry.id ? 0 : -1}
-            onClick={() => select(entry.id)}
-          >
-            {entry.label}
-          </button>
-        ))}
+      {/* The view switch on the left; Browse's search sits at the right of the same row. */}
+      <div className="integrations-bar">
+        <div className="integrations-tabs" role="tablist" aria-label="Integrations" onKeyDown={onTabKey}>
+          {views.map((entry) => (
+            <button
+              key={entry.id}
+              ref={(element) => {
+                tabRefs.current[entry.id] = element;
+              }}
+              className="integrations-tab"
+              type="button"
+              role="tab"
+              id={`${ids}-${entry.id}`}
+              aria-selected={view === entry.id}
+              aria-controls={`${ids}-panel`}
+              tabIndex={view === entry.id ? 0 : -1}
+              onClick={() => select(entry.id)}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+        {view === "browse" ? (
+          <input
+            className="input input-sm integrations-search"
+            type="search"
+            value={query}
+            placeholder="Search connectors and plugins"
+            aria-label="Search integrations"
+            spellCheck={false}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        ) : null}
       </div>
       <div className="integrations-panel" role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-${view}`}>
         {view === "browse" ? (
           <>
-            <div className="connector-toolbar">
-              <input
-                className="input input-sm"
-                type="search"
-                value={query}
-                placeholder="Search connectors and plugins"
-                aria-label="Search integrations"
-                spellCheck={false}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
             <div className="connector-filters" role="toolbar" aria-label="Show">
               {kinds.map((item) => (
                 <button

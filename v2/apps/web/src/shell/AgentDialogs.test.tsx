@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RenameAgentDialog } from "./AgentDialogs.js";
+import { KeepRunDialog, RenameAgentDialog } from "./AgentDialogs.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -83,5 +83,34 @@ describe("RenameAgentDialog", () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toBe(
       "Another agent in this project is already called Ann.",
     );
+  });
+});
+
+describe("KeepRunDialog", () => {
+  it("lists the files brought in from other runs before the runs it deletes", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const onKeep = vi.fn();
+    await act(async () => {
+      root.render(
+        <KeepRunDialog
+          index={1}
+          count={2}
+          branch="main-run1"
+          discarded={[{ title: "Run 2, Claude", branch: "main-run2" }]}
+          brought={[{ path: "src/form.css", from: "run 2" }]}
+          onKeep={onKeep}
+          onCancel={() => undefined}
+        />,
+      );
+    });
+    expect(document.body.textContent).toContain("Keeps the agent in main-run1, copies 1 file into it, and deletes");
+    expect(document.querySelector('[aria-label="Files to bring in"]')?.textContent).toBe("src/form.cssfrom run 2");
+    await act(async () => {
+      [...document.querySelectorAll("button")].find((button) => button.textContent === "Keep this one")?.click();
+    });
+    expect(onKeep).toHaveBeenCalledOnce();
   });
 });
