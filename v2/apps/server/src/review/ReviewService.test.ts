@@ -399,6 +399,9 @@ describe("ReviewService", () => {
       await expect(fixture.git.run(["status", "--porcelain=v1"], { cwd: fixture.worktreePath })).resolves.toMatchObject(
         { stdout: "" },
       );
+      // Abort looks for the folder the merge stopped in: the target, not the feature worktree.
+      expect(await service.mergeInProgress(fixture.repositoryPath)).toBe(true);
+      expect(await service.mergeInProgress(fixture.worktreePath)).toBe(false);
       await expect(
         service.abortMerge({
           worktreeId: WORKTREE_ID,
@@ -411,6 +414,7 @@ describe("ReviewService", () => {
       await expect(
         fixture.git.run(["status", "--porcelain=v1"], { cwd: fixture.repositoryPath }),
       ).resolves.toMatchObject({ stdout: "" });
+      expect(await service.mergeInProgress(fixture.repositoryPath)).toBe(false);
     } finally {
       await rm(fixture.directory, { recursive: true, force: true });
     }

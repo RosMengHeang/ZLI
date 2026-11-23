@@ -111,7 +111,29 @@ export class ReviewReactor {
 
   private async runAbortMerge(worktreeId: string): Promise<void> {
     const input = await this.input(worktreeId, await this.baseRef(worktreeId));
-    await this.dispatchUpdated(await this.service.abortMerge(input));
+    // The merge may have run in another worktree that holds the target branch; abort it where it stopped. The
+    // project folder comes first, as before, then the project's other worktrees.
+    const projection = await this.engine.projection();
+    const source = projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
+    const places = [
+      input.repositoryPath,
+      ...projection.worktrees
+        .filter(
+          (candidate) =>
+            candidate.worktreeId !== worktreeId &&
+            candidate.projectId === source?.projectId &&
+            candidate.status === "ready",
+        )
+        .map((candidate) => candidate.path),
+    ];
+    let repositoryPath = input.repositoryPath;
+    for (const place of places) {
+      if (await this.service.mergeInProgress(place)) {
+        repositoryPath = place;
+        break;
+      }
+    }
+    await this.dispatchUpdated(await this.service.abortMerge({ ...input, repositoryPath }));
   }
 
   private async input(worktreeId: string, baseRef: string): Promise<ReviewServiceInput> {
