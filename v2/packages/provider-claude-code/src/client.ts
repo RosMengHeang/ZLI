@@ -15,6 +15,7 @@ import {
   type ClaudeResultUsage,
   classifyClaudeMessage,
   claudeCacheRequest,
+  claudeCompactedTokens,
   claudeContextTokens,
   claudeThinking,
   claudeToolBlocks,
@@ -350,6 +351,9 @@ export class ClaudeCodeClient {
     this.handleThinking(raw);
     const contextTokens = claudeContextTokens(raw);
     if (contextTokens !== undefined && this.active) this.active.contextTokens = contextTokens;
+    // After a compaction the turn's context is what the summary left, not the last request's prompt.
+    const compacted = claudeCompactedTokens(raw);
+    if (compacted !== undefined && this.active) this.active.contextTokens = compacted;
     const cacheRequest = claudeCacheRequest(raw);
     if (cacheRequest) {
       this.lastRequestAt = this.now();

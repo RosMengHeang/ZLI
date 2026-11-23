@@ -78,6 +78,17 @@ export async function resolveDroidCommand(probe: CliProbe = createDefaultCliProb
 /**
  * Chat-mode launch for every ACP agent. Gemini CLI before 0.33.0 only knew
  * --experimental-acp; current releases deprecate it in favor of --acp.
+ *
+ * Compaction, as Orca drives the same agents: the agent's own command goes as an ordinary prompt.
+ *
+ *   agent                    command     focus text   way
+ *   claude-code              /compact    yes          native (its own adapter)
+ *   codex                    /compact    no           native, as thread/compact/start (its own adapter)
+ *   copilot, kimi            /compact    yes          native
+ *   qwen                     /compress   yes          native
+ *   grok, goose, opencode    /compact    no           native
+ *   gemini, cursor-agent,    none        yes (ZLI's)  summary: ZLI asks for a summary, then starts a
+ *   droid                                             fresh session seeded with it
  */
 export const ACP_PROVIDERS: ReadonlyArray<Omit<AcpProviderConfig, "resolveCommand">> = [
   {
@@ -85,6 +96,7 @@ export const ACP_PROVIDERS: ReadonlyArray<Omit<AcpProviderConfig, "resolveComman
     displayName: "OpenCode",
     acpArgs: ["acp"],
     authHint: "Sign in to OpenCode in a terminal first (run `opencode auth login`).",
+    compaction: { command: "/compact", instructions: false },
   },
   {
     provider: "gemini",
@@ -97,30 +109,35 @@ export const ACP_PROVIDERS: ReadonlyArray<Omit<AcpProviderConfig, "resolveComman
     displayName: "GitHub Copilot",
     acpArgs: ["--acp", "--stdio"],
     authHint: "Sign in to GitHub Copilot in a terminal first (run `copilot`, then `/login`).",
+    compaction: { command: "/compact", instructions: true },
   },
   {
     provider: "kimi",
     displayName: "Kimi Code",
     acpArgs: ["acp"],
     authHint: "Sign in to Kimi Code in a terminal first (run `kimi login`).",
+    compaction: { command: "/compact", instructions: true },
   },
   {
     provider: "qwen",
     displayName: "Qwen Code",
     acpArgs: ["--acp"],
     authHint: "Sign in to Qwen Code in a terminal first (run `qwen` and complete the login).",
+    compaction: { command: "/compress", instructions: true },
   },
   {
     provider: "goose",
     displayName: "Goose",
     acpArgs: ["acp"],
     authHint: "Configure a Goose provider in a terminal first (run `goose configure`).",
+    compaction: { command: "/compact", instructions: false },
   },
   {
     provider: "grok",
     displayName: "Grok",
     acpArgs: ["agent", "stdio"],
     authHint: "Sign in to Grok in a terminal first (run `grok login`).",
+    compaction: { command: "/compact", instructions: false },
   },
 ];
 

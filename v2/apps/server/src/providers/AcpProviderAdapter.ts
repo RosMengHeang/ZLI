@@ -45,7 +45,15 @@ export type AcpProviderConfig = {
   /** MCP servers added in Settings, read when each session starts. */
   mcpServers?: McpServerSource;
   metroEnv?: MetroEnvSource;
+  /** The agent's own compact command, which ZLI sends as an ordinary prompt. Missing: no native compaction. */
+  compaction?: AcpCompaction;
 };
+
+/**
+ * How an ACP agent compacts its own session. `command` is the agent's name for it ("/compress" for Qwen Code),
+ * and `instructions` says whether text after it steers the summary.
+ */
+export type AcpCompaction = { command: string; instructions: boolean };
 
 type AcpSessionClient = Pick<
   AcpClient,
@@ -63,13 +71,7 @@ const GENERIC_TITLES = new Set(["Read file", "Edit files", "Search", "List files
 /** One adapter per ACP agent CLI. Each session is one long-lived `<cli> <acpArgs>` process. */
 export class AcpProviderAdapter implements ProviderAdapter {
   readonly provider: AcpProviderKind;
-  readonly capabilities: ProviderCapabilities = {
-    exactResume: false,
-    structuredApproval: true,
-    structuredUserInput: false,
-    conversationRollback: false,
-    modelSwitch: "in-session",
-  };
+  readonly capabilities: ProviderCapabilities;
 
   private readonly sessions = new Map<
     string,
@@ -83,6 +85,15 @@ export class AcpProviderAdapter implements ProviderAdapter {
     options: { createClient?: (input: ClientStart) => Promise<AcpSessionClient> } = {},
   ) {
     this.provider = config.provider;
+    this.capabilities = {
+      exactResume: false,
+      structuredApproval: true,
+      structuredUserInput: false,
+      conversationRollback: false,
+      modelSwitch: "in-session",
+      ...(config.compaction ? { compaction: "native" as const } : {}),
+      ...(config.compaction?.instructions ? { compactionInstructions: true } : {}),
+    };
     this.createClient =
       options.createClient ??
       (async ({ worktreeId, account, trustedProjectPath, ...input }) => {
@@ -151,7 +162,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
       ?.filter((attachment) => isImageMimeType(attachment.mimeType))
       .map((attachment) => ({ mimeType: attachment.mimeType, path: attachment.path }));
     const result = await context.client.sendTurn({
-      text: input.text,
+      text: acpCompactText(input.text, this.config.compaction) ?? input.text,
       ...(input.model ? { model: input.model } : {}),
       ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
@@ -296,6 +307,17 @@ export function acpActivity(tool: AcpToolUpdate, cwd: string): ProviderActivity 
   const title = tool.title?.replace(/\s+/gu, " ").trim();
   if (!title || !(GENERIC_TITLES.has(activity.title) || activity.title === tool.name)) return activity;
   return { ...activity, title: title.length > MAX_TITLE ? `${title.slice(0, MAX_TITLE - 1)}…` : title };
+}
+
+/**
+ * ZLI's "/compact [focus]" in the agent's own words, or undefined when the text is not a compact command or
+ * the agent has none. Focus text goes along only where the agent takes it.
+ */
+export function acpCompactText(text: string, compaction: AcpCompaction | undefined): string | undefined {
+  const match = /^\/compact(?:\s+([\s\S]*))?$/iu.exec(text.trim());
+  if (!match || !compaction) return undefined;
+  const focus = compaction.instructions ? match[1]?.trim() : undefined;
+  return focus ? `${compaction.command} ${focus}` : compaction.command;
 }
 
 /** A client may name the exact ACP option, such as allow_always, instead of a plain approve or reject. */

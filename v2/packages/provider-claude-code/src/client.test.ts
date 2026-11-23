@@ -946,6 +946,25 @@ describe("ClaudeCodeClient usage", () => {
     ]);
   });
 
+  it("reports the context a /compact left, from Claude Code's compact_boundary", async () => {
+    const { client, peer, events } = await startedClient();
+    const turn = await client.sendTurn({ text: "/compact" });
+    peer.emit({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "manual", pre_tokens: 150_000, post_tokens: 12_000 },
+    });
+    peer.emit({ type: "result", subtype: "success", result: "", usage: { output_tokens: 900 } });
+
+    expect(events.filter((event) => event.type === "usage.updated")).toEqual([
+      {
+        type: "usage.updated",
+        providerTurnId: turn.providerTurnId,
+        usage: { outputTokens: 900, contextTokens: 12_000 },
+      },
+    ]);
+  });
+
   it("reports when the prompt cache runs out, from the last main request and the tier a request wrote", async () => {
     let clock = 1_000_000;
     const peer = new FakePeer();
