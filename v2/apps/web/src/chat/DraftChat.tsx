@@ -1,15 +1,16 @@
 import type { PermissionMode, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
 import { useState } from "react";
 
+import { useAccounts } from "../accounts/accounts.js";
 import { agentUsable, chatAgentStatus } from "../agent/agentStatus.js";
 import { providerDisplayName } from "../agent/providers.js";
+import { useKnownPlanLimits } from "../limits/limits.js";
 import type { ChatPlace } from "../sessions/launch.js";
 import type { PendingLaunch } from "../sessions/sessions.js";
 import { Icon } from "../ui/Icon.js";
 import { AgentUnavailableNotice } from "./AgentUnavailableNotice.js";
-import { accountPlan, otherAgents } from "./agentModels.js";
+import { accountChoices, accountPlan, otherAgents, ownLogin } from "./agentModels.js";
 import { chatBranch } from "./branches.js";
-import { StartSuggestions } from "./ChatExtras.js";
 import { ChatStart } from "./ChatView.js";
 import { Composer, type ComposerAttachment } from "./Composer.js";
 import { fastFor, reasoningLevels } from "./reasoning.js";
@@ -19,6 +20,8 @@ import { WorkspaceBar } from "./WorkspaceBar.js";
 export type DraftChange = {
   provider?: string;
   model?: string | undefined;
+  /** The login the picked agent runs under. Missing for the agent's default one. */
+  accountId?: string | undefined;
   permissionMode?: PermissionMode;
   isolate?: boolean;
 };
@@ -64,6 +67,21 @@ export function DraftChat({
   const discovery = projection.providers?.find((entry) => entry.provider === provider);
   // A draft on a saved account runs with that account, so only an install problem holds it back.
   const status = chatAgentStatus(discovery, launch.accountId);
+  const { accounts } = useAccounts();
+  const readings = useKnownPlanLimits();
+  const login = ownLogin(
+    accounts,
+    readings,
+    provider,
+    launch.accountId,
+    discovery?.status === "found" ? discovery.login?.email : undefined,
+  );
+  const others = accountChoices(otherAgents(projection.providers, ""), {
+    accounts,
+    readings,
+    providers: projection.providers,
+    current: { provider, accountId: login?.id },
+  });
   const models = discovery?.status === "found" ? discovery.models : undefined;
   const reasoning = reasoningLevels(models, launch.model, NO_CAPABILITIES, discovery);
   const startingEffort = reasoning.levels.find((level) => level.toLowerCase() === "low");
@@ -74,7 +92,6 @@ export function DraftChat({
   const project = projection.projects.find((candidate) => candidate.projectId === worktree.projectId);
   const name = providerDisplayName(provider, projection.providers);
   const [branch] = useState(() => chatBranch(launch.sessionId));
-  const [insertRequest, setInsertRequest] = useState<{ text: string; nonce: number; replace?: boolean }>();
   // Counts "Start from an issue" clicks; the message box opens the picker and attaches the issue it gets.
   const [issueRequest, setIssueRequest] = useState(0);
 
@@ -96,12 +113,6 @@ export function DraftChat({
             folder={project?.name}
             onStartFromIssue={project ? () => setIssueRequest((count) => count + 1) : undefined}
           />
-          {branch ? null : (
-            <StartSuggestions
-              folder={project?.name}
-              onPick={(text) => setInsertRequest({ text, nonce: Date.now(), replace: true })}
-            />
-          )}
         </div>
       </div>
       <div className="chat-dock">
@@ -112,7 +123,6 @@ export function DraftChat({
             </p>
           ) : null}
           <Composer
-            insertRequest={insertRequest}
             displayName={name}
             provider={provider}
             branch={worktree.branch}
@@ -140,9 +150,10 @@ export function DraftChat({
             modelLocked={false}
             onModelChange={(model) => onChange({ model })}
             agentName={name}
-            agentPlan={discovery?.status === "found" ? accountPlan(discovery.login) : undefined}
-            otherAgents={otherAgents(projection.providers, provider)}
-            onAgentChange={(next, model) => onChange({ provider: next, model })}
+            agentPlan={login?.plan ?? (discovery?.status === "found" ? accountPlan(discovery.login) : undefined)}
+            agentAccount={login}
+            otherAgents={others}
+            onAgentChange={(next, model, accountId) => onChange({ provider: next, model, accountId })}
             reasoningLevels={reasoning.levels}
             defaultReasoning={startingEffort ?? reasoning.defaultLevel}
             reasoningEffort={reasoningEffort}
@@ -152,6 +163,7 @@ export function DraftChat({
             permissionMode={launch.permissionMode ?? "supervised"}
             onPermissionModeChange={(permissionMode) => onChange({ permissionMode })}
             projectId={worktree.projectId}
+            worktreeId={worktree.worktreeId}
             onSubmit={async (text, attachments) => {
               setError(undefined);
               const failure = await onSend({

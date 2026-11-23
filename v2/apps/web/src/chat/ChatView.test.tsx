@@ -94,6 +94,16 @@ async function render(
   return { container, dispatched, onOpenDiff };
 }
 
+/** Types into the message box, so Send shows even while the agent is working. */
+async function typeDraft(container: HTMLElement, text: string) {
+  const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    setter?.call(textarea, text);
+    textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 const button = (container: HTMLElement, name: string) =>
   [...container.querySelectorAll("button")].find(
     (candidate) => candidate.textContent?.trim() === name || candidate.getAttribute("aria-label") === name,
@@ -189,7 +199,7 @@ describe("ChatView", () => {
     expect(agentNames()).toEqual(["Droid", "Claude Code"]);
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
-        .find((option) => option.dataset.agent === "claude-code")
+        .find((option) => option.dataset.agent === "claude-code:")
         ?.focus(),
     );
     await act(async () =>
@@ -224,8 +234,9 @@ describe("ChatView", () => {
     expect(notice?.textContent).toContain("Codex is not signed in");
     expect(notice?.querySelector("code")?.textContent).toBe("codex login");
     expect(button(container, "Check again")).toBeDefined();
-    expect(button(container, "Accounts")).toBeDefined();
+    expect(button(container, "Providers")).toBeDefined();
     // The message box still takes typing, but nothing can be sent until the agent can run.
+    await typeDraft(container, "Fix the login bug");
     expect(container.querySelector<HTMLButtonElement>(".send-button")?.disabled).toBe(true);
   });
 
@@ -249,6 +260,7 @@ describe("ChatView", () => {
     expect(notice?.textContent).toContain("Codex has no active plan");
     expect(notice?.textContent).toContain("“Upgrade to Plus to use Codex.”");
     expect(button(container, "Try again")).toBeDefined();
+    await typeDraft(container, "Fix the login bug");
     expect(container.querySelector<HTMLButtonElement>(".send-button")?.disabled).toBe(true);
   });
 
@@ -570,7 +582,7 @@ describe("ChatView", () => {
     expect(sent.context).toContain("## Droid\n\nIts cached copy is a day old.");
   });
 
-  it("attaches files, a window, or an issue from the paperclip", async () => {
+  it("attaches files, a window, or an issue from the + menu", async () => {
     const sources = vi.fn(async () => []);
     const { container } = await render(
       projectionWith({ threads: [{ ...thread, status: "idle" }] }),
@@ -580,15 +592,16 @@ describe("ChatView", () => {
       { capture: { sources, take: vi.fn() } },
     );
     expect(button(container, "Add files and more")).toBeUndefined();
-    const attach = button(container, "Attach");
+    const attach = button(container, "Add");
     expect(attach?.getAttribute("aria-haspopup")).toBe("menu");
     const items = () => [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')];
     await act(async () => attach?.click());
-    expect(items().map((item) => item.querySelector(".menu-item-label")?.textContent)).toEqual([
-      "Files",
-      "A window",
-      "An issue",
-    ]);
+    // The attach items lead the menu; the other agents and Best of N follow them.
+    expect(
+      items()
+        .slice(0, 3)
+        .map((item) => item.querySelector(".menu-item-label")?.textContent),
+    ).toEqual(["Files", "A window", "An issue"]);
     // An issue is picked by the app shell, which hears the request and opens its issue picker.
     const asked = vi.fn();
     const stop = onIssueRequest(asked);
@@ -756,6 +769,31 @@ describe("ChatView", () => {
     expect(message?.querySelector("p")?.textContent).toBe("Read this");
   });
 
+  it("shows what # and $ attached as tags under the words, and opens a block on click", async () => {
+    const text = [
+      "Why did it fail",
+      '<zli-context kind="mentions">\n@src/app.ts\n\nUse the review skill.\n</zli-context>',
+      '<zli-context kind="terminal" label="npm test · last 80 lines">\n### Context: terminal "npm test", last 80 lines\n\n```\nFAIL b\n```\n</zli-context>',
+    ].join("\n\n");
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        messages: [{ messageId: "m1", threadId, role: "user", text }] as RuntimeProjection["messages"],
+      }),
+    );
+    const message = container.querySelector(".chat-message-user");
+    expect(message?.querySelector("p")?.textContent).toBe("Why did it fail");
+    expect([...(message?.querySelectorAll(".chat-attachments li") ?? [])].map((item) => item.textContent)).toEqual([
+      "app.ts",
+    ]);
+    const tags = [...(message?.querySelectorAll(".chat-context-tag") ?? [])];
+    expect(tags.map((tag) => tag.textContent)).toEqual(["npm test · last 80 lines", "review"]);
+    expect(message?.querySelector(".chat-context-text")).toBeNull();
+    await act(async () => (tags[0] as HTMLButtonElement).click());
+    expect(tags[0]?.getAttribute("aria-expanded")).toBe("true");
+    expect(message?.querySelector(".chat-context-text")?.textContent).toBe("```\nFAIL b\n```");
+  });
+
   it("folds the steps of earlier turns into one line that opens, and keeps the latest turn's steps in view", async () => {
     const { container } = await render(
       projectionWith({
@@ -921,6 +959,9 @@ describe("ChatView", () => {
       "Then update the docs",
       "Also bump the version",
     ]);
+    // While the agent works, Stop stands alone until there is something to queue.
+    expect(button(container, "Queue message")).toBeUndefined();
+    await typeDraft(container, "And the changelog");
     expect(button(container, "Queue message")).toBeDefined();
     await act(async () => button(container, "Send now: Also bump the version")?.click());
     expect(dispatched.at(-1)?.command).toEqual({ type: "thread.steer", threadId, queueId: "q2" });
@@ -1167,7 +1208,7 @@ describe("ChatView focus", () => {
 });
 
 describe("ChatView context meter", () => {
-  it("shows how full the context window was after the last turn", async () => {
+  it("leaves the context ring out of the message box: the computer card shows context", async () => {
     const { container } = await render(
       projectionWith({
         threads: [{ ...thread, status: "idle" }],
@@ -1182,9 +1223,7 @@ describe("ChatView context meter", () => {
         ],
       }),
     );
-    const meter = container.querySelector(".composer-context");
-    expect(meter?.getAttribute("aria-label")).toBe("85% of context used, 170k of 200k tokens");
-    expect(meter?.classList.contains("is-full")).toBe(false);
+    expect(container.querySelector(".composer-context")).toBeNull();
   });
 
   it("pins the agent's plan over the message box and keeps it out of the steps", async () => {
@@ -1280,5 +1319,201 @@ describe("ChatView context meter", () => {
     const box = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
     expect(box?.value).toBe("Make it blue");
     expect(container.querySelector(".chat-note.is-editing")?.textContent).toContain("Editing your last message");
+  });
+});
+
+describe("ChatView compacting", () => {
+  const idle = { ...thread, status: "idle", activeTurnId: undefined } as ThreadProjection;
+  const native = { ...idle, provider: "claude-code", capabilities: { compaction: "native" } } as ThreadProjection;
+  const providers = [
+    { provider: "droid", displayName: "Droid", status: "found", path: "droid" },
+    { provider: "claude-code", displayName: "Claude Code", status: "found", path: "claude" },
+  ] as RuntimeProjection["providers"];
+  const fullContext = [
+    {
+      usageId: `${threadId}:t1`,
+      threadId,
+      turnId: "t1",
+      provider: "claude-code",
+      recordedAt: "2026-11-21T10:01:00.000Z",
+      usage: { contextTokens: 180_000, contextWindow: 200_000 },
+    },
+  ] as NonNullable<RuntimeProjection["usage"]>;
+  const said = [
+    { messageId: "m1", threadId, role: "user", text: "Fix the login" },
+    { messageId: "m2", threadId, turnId: "t1", role: "assistant", text: "Fixed." },
+  ] as NonNullable<RuntimeProjection["messages"]>;
+
+  it("compacts by itself once a turn leaves the context nearly full, with the agent's own /compact", async () => {
+    const { dispatched } = await render(
+      projectionWith({ threads: [native], providers, messages: said, usage: fullContext }),
+    );
+    expect(dispatched.filter((entry) => entry.command.type === "thread.queue").map((entry) => entry.command)).toEqual([
+      { type: "thread.queue", queueId: expect.any(String), threadId, text: "/compact" },
+    ]);
+  });
+
+  it("asks an agent that takes a focus to keep the work in hand when it compacts by itself", async () => {
+    const focused = {
+      ...native,
+      capabilities: { compaction: "native", compactionInstructions: true },
+    } as ThreadProjection;
+    const { dispatched } = await render(
+      projectionWith({ threads: [focused], providers, messages: said, usage: fullContext }),
+    );
+    expect(dispatched.filter((entry) => entry.command.type === "thread.queue").map((entry) => entry.command)).toEqual([
+      {
+        type: "thread.queue",
+        queueId: expect.any(String),
+        threadId,
+        text: "/compact Keep the current task, decisions made, files changed and open questions.",
+      },
+    ]);
+  });
+
+  it("refuses a typed /compact while a turn runs, with a plain note", async () => {
+    const { container, dispatched } = await render(
+      projectionWith({ threads: [{ ...native, status: "working" }], providers, messages: said }),
+    );
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, "/compact keep the API decisions");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      textarea?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(dispatched.filter((entry) => entry.command.type === "thread.queue")).toEqual([]);
+    expect(container.querySelector(".chat-note.is-error")?.textContent).toContain(
+      "Wait for the current turn to finish before compacting.",
+    );
+  });
+
+  it("keeps a native compaction's reply out of the chat and says when there was nothing to compact", async () => {
+    const { container } = await render(
+      projectionWith({
+        threads: [native],
+        providers,
+        messages: [
+          ...said,
+          { messageId: "m3", threadId, role: "user", text: "/compact" },
+          { messageId: "m4", threadId, turnId: "t2", role: "assistant", text: "Nothing to compact." },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    expect(container.querySelector(".chat-compaction")?.textContent).toBe("Nothing to compact");
+    // The divider has no full stop; the agent's own reply does, and it stays out of the chat.
+    expect(container.textContent).not.toContain("Nothing to compact.");
+  });
+
+  it("does not compact while a turn runs", async () => {
+    const { dispatched } = await render(
+      projectionWith({ threads: [{ ...native, status: "working" }], providers, messages: said, usage: fullContext }),
+    );
+    expect(dispatched.filter((entry) => entry.command.type === "thread.queue")).toEqual([]);
+  });
+
+  it("shows a quiet divider instead of the /compact message, with what it saved", async () => {
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [native],
+        providers,
+        messages: [
+          ...said,
+          { messageId: "m3", threadId, role: "user", text: "/compact" },
+        ] as RuntimeProjection["messages"],
+        turns: [
+          { threadId, turnId: "t1", startedAt: "2026-11-21T10:00:00.000Z" },
+          { threadId, turnId: "t2", startedAt: "2026-11-21T10:05:00.000Z" },
+        ] as RuntimeProjection["turns"],
+        usage: [
+          ...fullContext,
+          {
+            usageId: `${threadId}:t2`,
+            threadId,
+            turnId: "t2",
+            provider: "claude-code",
+            recordedAt: "2026-11-21T10:05:30.000Z",
+            usage: { contextTokens: 20_000, contextWindow: 200_000 },
+          },
+        ] as RuntimeProjection["usage"],
+      }),
+    );
+    expect(container.querySelector(".chat-compaction")?.textContent).toBe("Compacted · saved ~160k tokens");
+    expect([...container.querySelectorAll(".chat-message-user")].map((row) => row.textContent)).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("/compact")]),
+    );
+    expect(dispatched.filter((entry) => entry.command.type === "thread.queue")).toEqual([]);
+  });
+
+  it("asks an agent without a compact command for a summary, then moves the chat to a fresh session", async () => {
+    const onSwitchAgent = vi.fn(async () => undefined);
+    const first = await render(
+      projectionWith({ threads: [idle], messages: said, usage: fullContext }),
+      vi.fn(),
+      () => undefined,
+      false,
+      {},
+      onSwitchAgent,
+    );
+    const asked = first.dispatched.find((entry) => entry.command.type === "thread.queue")?.command;
+    expect(asked).toMatchObject({ type: "thread.queue", threadId });
+    expect(String(asked?.text)).toMatch(/^Compact this conversation:/u);
+    expect(onSwitchAgent).not.toHaveBeenCalled();
+    document.body.replaceChildren();
+
+    const { container } = await render(
+      projectionWith({
+        threads: [idle],
+        messages: [
+          ...said,
+          { messageId: "m3", threadId, role: "user", text: String(asked?.text) },
+          { messageId: "m4", threadId, turnId: "t2", role: "assistant", text: "## Goal\n\nFix the login." },
+        ] as RuntimeProjection["messages"],
+      }),
+      vi.fn(),
+      () => undefined,
+      false,
+      {},
+      onSwitchAgent,
+    );
+    expect(onSwitchAgent).toHaveBeenCalledWith("droid", undefined);
+    expect(container.querySelector(".chat-compaction")?.textContent).toBe("Compacting…");
+    expect(container.textContent).not.toContain("Fix the login.");
+  });
+
+  it("seeds the fresh session with the summary, and shows it under the divider", async () => {
+    const fresh = {
+      ...idle,
+      threadId: "00000000-0000-4000-8000-000000000402",
+      continues: threadId,
+    } as ThreadProjection;
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [fresh, { ...idle, status: "stopped" }],
+        messages: [
+          ...said,
+          { messageId: "m3", threadId, role: "user", text: "Compact this conversation: write a summary." },
+          { messageId: "m4", threadId, turnId: "t2", role: "assistant", text: "Login fixed in auth.ts." },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    expect(container.querySelector(".chat-switch-text")?.textContent).toBe("Compacted");
+    expect(container.querySelector(".chat-compaction ~ .chat-switch")).toBeNull();
+    await act(async () => button(container, "Show summary")?.click());
+    expect(container.querySelector(".chat-compaction-summary")?.textContent).toContain("Login fixed in auth.ts.");
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, "Now the signup page");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button(container, "Send")?.click());
+    const sent = dispatched.at(-1)?.command;
+    expect(sent).toMatchObject({ type: "thread.queue", threadId: fresh.threadId, text: "Now the signup page" });
+    expect(String(sent?.context)).toContain("<summary>\nLogin fixed in auth.ts.\n</summary>");
+    expect(String(sent?.context)).not.toContain("Fix the login");
   });
 });

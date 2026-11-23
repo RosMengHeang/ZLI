@@ -64,7 +64,6 @@ const noop = () => undefined;
 type MountOptions = {
   sessions?: AgentSession[];
   onSelectSession?: (session: AgentSession) => void;
-  onStopSession?: (session: AgentSession) => void;
   onDeleteSession?: (session: AgentSession) => void;
   onRenameSession?: (session: AgentSession) => void;
   onWorktreeAction?: (worktree: { worktreeId: string }, action: WorktreeAction) => void;
@@ -76,6 +75,8 @@ type MountOptions = {
   selectedProjectId?: string;
   projectAgentActions?: (projectId: string) => ProjectAgentActions;
   onOpenSettings?: (section?: string) => void;
+
+  onOpenUsage?: (section?: string) => void;
 };
 
 async function mount(current: RuntimeProjection | undefined, options: MountOptions = {}) {
@@ -95,7 +96,6 @@ async function mount(current: RuntimeProjection | undefined, options: MountOptio
           currentProjectId={options.currentProjectId}
           selectedProjectId={options.selectedProjectId}
           onSelectSession={options.onSelectSession ?? noop}
-          onStopSession={options.onStopSession ?? noop}
           onDeleteSession={options.onDeleteSession ?? noop}
           onRenameSession={options.onRenameSession}
           onSelectWorktree={noop}
@@ -106,9 +106,8 @@ async function mount(current: RuntimeProjection | undefined, options: MountOptio
           onWorktreeAction={options.onWorktreeAction ?? noop}
           onReviewSetup={noop}
           onShowSetupOutput={noop}
-          onOpenHelp={noop}
           onOpenSettings={options.onOpenSettings ?? noop}
-          onOpenUsage={noop}
+          onOpenUsage={options.onOpenUsage ?? noop}
           projectAgentActions={options.projectAgentActions}
         />
       </RuntimeProvider>,
@@ -609,8 +608,7 @@ describe("Sidebar projects", () => {
     expect(entry.querySelector(".session-row")).not.toBeNull();
   });
 
-  it("keeps an agent's stop and delete in its ... menu", async () => {
-    const onStopSession = vi.fn();
+  it("keeps an agent's delete in its ... menu, with no stop", async () => {
     const onDeleteSession = vi.fn();
     const session: AgentSession = {
       ...agent(featureId),
@@ -631,7 +629,7 @@ describe("Sidebar projects", () => {
           status: "ready",
         },
       ]),
-      { sessions: [session], onStopSession, onDeleteSession },
+      { sessions: [session], onDeleteSession },
     );
     expect(container.querySelector(".session-entry [data-tooltip='Stop agent']")).toBeNull();
     const menuButton = container.querySelector<HTMLButtonElement>(".session-entry .row-more button");
@@ -639,6 +637,7 @@ describe("Sidebar projects", () => {
     await act(async () => menuButton?.click());
     const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((item) => item.textContent);
     expect(items).toContain("Delete agent");
+    expect(items).not.toContain("Stop agent");
     await act(async () => button(document.body, "Delete agent").click());
     expect(onDeleteSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-1" }));
   });
@@ -910,20 +909,22 @@ describe("parseSidebarCollapsed", () => {
 });
 
 describe("Sidebar footer", () => {
-  it("names Settings beside the icons while plan limits are off", async () => {
+  it("keeps Usage and a Settings icon in the footer, and no Help, while no plan reports limits", async () => {
     const onOpenSettings = vi.fn();
-    const { container } = await mount(projection([]), { onOpenSettings });
+    const onOpenUsage = vi.fn();
+    const { container } = await mount(projection([]), { onOpenSettings, onOpenUsage });
     const footer = container.querySelector(".sidebar-footer");
     if (!footer) throw new Error("No footer");
-    const settings = [...footer.querySelectorAll("button")].filter(
-      (entry) => entry.textContent?.trim() === "Settings" || entry.getAttribute("aria-label") === "Settings",
-    );
+    const buttons = [...footer.querySelectorAll("button")];
+    const usage = buttons.find((entry) => entry.textContent?.trim() === "Usage");
+    const settings = buttons.filter((entry) => entry.getAttribute("aria-label") === "Settings");
     expect(settings).toHaveLength(1);
-    expect(settings[0]?.textContent?.trim()).toBe("Settings");
+    expect(buttons.some((entry) => entry.getAttribute("aria-label") === "Help")).toBe(false);
+    await act(async () => usage?.click());
+    expect(onOpenUsage).toHaveBeenCalled();
     await act(async () => settings[0]?.click());
     expect(onOpenSettings).toHaveBeenCalledWith();
     expect(footer.querySelector('[role="status"]')?.textContent).toBe("Runtime connected");
-    expect(footer.textContent).not.toContain("Local runtime");
   });
 
   it("says it is waiting until the runtime connects", async () => {

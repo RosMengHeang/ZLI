@@ -188,8 +188,28 @@ export function customThemeFrom(from: Theme, name: string, custom?: CustomTheme)
   return { id: newCustomThemeId(), name, basedOn, seed, overrides: {} };
 }
 
+/** The choice that follows the computer: Dark (pure black) in dark mode, Light otherwise. */
+export const SYSTEM_THEME = "system";
+
+const DARK_QUERY = "(prefers-color-scheme: dark)";
+
+export function systemPrefersDark(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia(DARK_QUERY).matches
+    : true;
+}
+
+/** Calls `listener` when the computer switches between dark and light mode. */
+export function subscribeSystemScheme(listener: () => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => undefined;
+  const query = window.matchMedia(DARK_QUERY);
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+}
+
 /** The theme an id names, falling back to the default when it is missing or was deleted. */
 export function resolveTheme(id: string, customThemes: readonly CustomTheme[]): Theme {
+  if (id === SYSTEM_THEME) return THEMES[systemPrefersDark() ? "onyx" : "daylight"];
   if (isThemeId(id)) return THEMES[id];
   const custom = customThemes.find((theme) => theme.id === id);
   return custom ? buildCustomTheme(custom) : THEMES[DEFAULT_THEME];

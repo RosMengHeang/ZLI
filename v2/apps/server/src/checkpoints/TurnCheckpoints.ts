@@ -137,7 +137,7 @@ export class TurnCheckpoints {
   async run(command: CheckpointCommand): Promise<unknown> {
     switch (command.type) {
       case "checkpoint.diff":
-        return this.diff(command.checkpointId, command.path);
+        return this.diff(command.checkpointId, command.path, command.throughCheckpointId);
       case "checkpoint.restore":
         return this.restore(command.checkpointId);
       case "checkpoint.fork":
@@ -145,9 +145,18 @@ export class TurnCheckpoints {
     }
   }
 
-  async diff(checkpointId: string, path: string): Promise<CheckpointDiffResult> {
+  async diff(checkpointId: string, path: string, throughCheckpointId?: string): Promise<CheckpointDiffResult> {
     const { checkpoint, worktreePath } = await this.lookup(checkpointId);
-    const file = checkpoint.files.find((candidate) => candidate.path === path);
+    const through =
+      throughCheckpointId && throughCheckpointId !== checkpointId
+        ? (await this.lookup(throughCheckpointId)).checkpoint
+        : checkpoint;
+    if (through.worktreeId !== checkpoint.worktreeId) {
+      throw new CheckpointError("Those turns ran in different worktrees.");
+    }
+    const file = [checkpoint, through]
+      .flatMap((entry) => entry.files)
+      .find((candidate) => candidate.path === path || candidate.oldPath === path);
     if (!file) throw new CheckpointError("That file did not change in this turn.");
     const paths = file.oldPath ? [file.oldPath, file.path] : [file.path];
     const result = await this.readTrees(() =>
@@ -159,7 +168,7 @@ export class TurnCheckpoints {
           "--unified=3",
           "--find-renames",
           checkpoint.startTree,
-          checkpoint.endTree,
+          through.endTree,
           "--",
           ...paths,
         ],

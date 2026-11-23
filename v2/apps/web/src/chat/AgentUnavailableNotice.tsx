@@ -63,7 +63,7 @@ export function AgentUnavailableNotice({
         <span className="chat-ended-detail">
           {problem ? <>Its last run said: “{problem.message}” </> : null}
           {status.kind === "missing" ? (
-            "Install it, then check again. Settings > Accounts has the install command."
+            "Install it, then check again. Settings > Providers has the install command."
           ) : status.kind === "no-plan" ? (
             "Add a plan or credits to this account, or sign in with another, then try again."
           ) : command ? (
@@ -91,7 +91,7 @@ export function AgentUnavailableNotice({
         />
       ) : null}
       <Button size="sm" variant="ghost" onClick={() => requestSettings("accounts")}>
-        Accounts
+        Providers
       </Button>
       <Button size="sm" disabled={checking} onClick={check}>
         {checking ? "Checking…" : status.kind === "no-plan" ? "Try again" : "Check again"}
