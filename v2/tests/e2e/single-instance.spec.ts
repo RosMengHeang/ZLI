@@ -9,10 +9,11 @@ import {
   closeApp,
   closeDesktop,
   createGitFixture,
-  type DesktopFixture,
   desktopCommand,
+  type DesktopFixture,
   launchDesktop,
   openCreateWorktree,
+  startTerminal,
   stopDesktopDaemon,
 } from "./desktop-fixtures.js";
 
@@ -34,7 +35,7 @@ test("a second launch on the same data quits and leaves the first one running", 
     await worktree.click();
     const terminalToggle = page.getByRole("button", { name: "Terminal", exact: true });
     if ((await terminalToggle.getAttribute("aria-pressed")) !== "true") await terminalToggle.click();
-    await page.getByRole("button", { name: "Start terminal" }).click();
+    await startTerminal(page);
     const output = page.getByRole("log", { name: "Terminal output" });
     // Keys typed before the shell prints its prompt are lost.
     await expect(output).toHaveText(/[$>#%]\s*$/u, { timeout: 20_000 });

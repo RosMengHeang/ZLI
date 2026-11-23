@@ -28,9 +28,11 @@ test("queues messages while an agent is busy, removes them, and steers with Send
     const composer = page.getByRole("textbox", { name: "Message Codex" });
     const queue = page.getByRole("region", { name: "Queued messages" });
     const queueButton = page.getByRole("button", { name: "Queue message", exact: true });
-    await expect(queueButton).toBeVisible({ timeout: 30_000 });
+    // While a turn runs, Stop holds Send's place; Queue shows once there is something to queue.
+    await expect(page.getByRole("button", { name: "Stop Codex" })).toBeVisible({ timeout: 30_000 });
 
     await composer.fill("Update the docs");
+    await expect(queueButton).toBeVisible();
     await queueButton.click();
     await expect(queue.locator(".chat-queue-text")).toHaveText(["Update the docs"]);
     await composer.fill("Bump the version");

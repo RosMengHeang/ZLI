@@ -6,6 +6,7 @@ import {
   type DesktopFixture,
   launchDesktop,
   openCreateWorktree,
+  startTerminal,
 } from "./desktop-fixtures.js";
 
 const pids: number[] = [];
@@ -63,9 +64,10 @@ test("removing a project with a shell open ends the shell without waiting out a 
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
     await settings.getByRole("tab", { name: "Projects" }).click();
-    await settings.getByRole("button", { name: "Remove repo" }).click();
-    const started = Date.now();
+    await settings.locator(".project-open").first().click();
     await settings.getByRole("button", { name: "Remove", exact: true }).click();
+    const started = Date.now();
+    await settings.locator(".project-remove-actions").getByRole("button", { name: "Remove", exact: true }).click();
     await expect(settings).toContainText("Removed repo from ZLI.", { timeout: 15_000 });
     // The app gives running shells 8 seconds to exit before it removes the project anyway.
     expect(Date.now() - started).toBeLessThan(6_000);
@@ -86,7 +88,7 @@ async function startDrawerShell(page: Page, branch: string) {
 
   const terminalToggle = page.getByRole("button", { name: "Terminal", exact: true });
   if ((await terminalToggle.getAttribute("aria-pressed")) !== "true") await terminalToggle.click();
-  await page.getByRole("button", { name: "Start terminal" }).click();
+  await startTerminal(page);
   const output = page.getByRole("log", { name: "Terminal output" });
   await expect(output).toHaveText(/[$>#%]\s*$/u, { timeout: 20_000 });
   await page.locator(".terminal-output .xterm-helper-textarea").focus();

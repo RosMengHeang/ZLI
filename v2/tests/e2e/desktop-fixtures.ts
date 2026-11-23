@@ -467,7 +467,7 @@ export async function git(cwd: string, args: string[]): Promise<string> {
 
 /**
  * Shows or hides a side panel the way a person does: the right-panel switch in the top bar closes what is
- * open; once open, the panel's icon strip switches to any panel.
+ * open. Once open, a panel opened before has a tab in the strip; any other is added from the strip's plus.
  */
 export async function togglePanel(page: Page, name: string): Promise<void> {
   const toggle = page.locator(".topbar-tools").getByRole("button", { name: "Right panel", exact: true });
@@ -477,7 +477,30 @@ export async function togglePanel(page: Page, name: string): Promise<void> {
     return;
   }
   if (!(await panel.isVisible())) await toggle.click();
-  await panel.getByRole("tablist", { name: "Panels" }).getByRole("tab", { name, exact: true }).click();
+  await expect(panel).toBeVisible();
+  const tab = panel.getByRole("tablist", { name: "Panels" }).getByRole("tab", { name, exact: true });
+  if (await tab.isVisible()) {
+    await tab.click();
+    return;
+  }
+  await panel.getByRole("button", { name: "Add a panel" }).click();
+  await page
+    .getByRole("menu", { name: "Add a panel" })
+    .getByRole("menuitem")
+    .filter({ has: page.locator(".menu-item-label", { hasText: new RegExp(`^${name}$`, "u") }) })
+    .click();
+}
+
+/**
+ * Makes sure the terminal drawer has a running shell. Opening the drawer starts one by itself; Start terminal
+ * shows only when it did not.
+ */
+export async function startTerminal(page: Page): Promise<void> {
+  const start = page.getByRole("button", { name: "Start terminal" });
+  const shell = page.locator(".terminal-drawer:not(.is-side) .drawer-pane");
+  await expect.poll(async () => (await start.isVisible()) || (await shell.count()) > 0, { timeout: 30_000 }).toBe(true);
+  if (await start.isVisible()) await start.click();
+  await expect(shell.first()).toBeAttached({ timeout: 30_000 });
 }
 
 /**

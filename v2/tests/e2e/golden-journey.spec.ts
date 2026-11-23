@@ -14,6 +14,7 @@ import {
   launchDesktop,
   openCreateWorktree,
   openNewAgentOptions,
+  startTerminal,
   togglePanel,
 } from "./desktop-fixtures.js";
 
@@ -63,7 +64,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     // The drawer's open state is remembered between launches, so only open it when it is closed.
     const terminalToggle = page.getByRole("button", { name: "Terminal", exact: true });
     if ((await terminalToggle.getAttribute("aria-pressed")) !== "true") await terminalToggle.click();
-    await page.getByRole("button", { name: "Start terminal" }).click();
+    await startTerminal(page);
     await expect
       .poll(
         async () =>

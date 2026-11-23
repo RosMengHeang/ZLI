@@ -6,10 +6,11 @@ import { expect, test } from "@playwright/test";
 import {
   captureProcessTree,
   closeDesktop,
-  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   launchDesktop,
+  openCreateWorktree,
+  startTerminal,
 } from "./desktop-fixtures.js";
 
 test("leaves no ZLI process running after it quits with a terminal open", async () => {
@@ -29,7 +30,7 @@ test("leaves no ZLI process running after it quits with a terminal open", async 
     await worktree.click();
     const terminalToggle = page.getByRole("button", { name: "Terminal", exact: true });
     if ((await terminalToggle.getAttribute("aria-pressed")) !== "true") await terminalToggle.click();
-    await page.getByRole("button", { name: "Start terminal" }).click();
+    await startTerminal(page);
     await expect
       .poll(async () =>
         page.evaluate(async () => (await window.zli?.runtime.getProjection())?.terminals.at(-1)?.status),

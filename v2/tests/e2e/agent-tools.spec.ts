@@ -120,7 +120,7 @@ async function twoProjects(page: Page, root: string, repo: string, zli: Zli): Pr
 async function openAgentMessages(page: Page) {
   await page.getByRole("button", { name: "Settings" }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await settings.getByRole("tab", { name: "Agent messages" }).click();
+  await settings.getByRole("tab", { name: "Agents", exact: true }).click();
   return settings;
 }
 type Agents = { project: string; agents: Array<{ id: string; sameWorktree: boolean; branch: string }> };

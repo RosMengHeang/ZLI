@@ -5,11 +5,12 @@ import { expect, test } from "@playwright/test";
 
 import {
   closeDesktop,
-  openCreateWorktree,
   createGitFixture,
   type DesktopFixture,
   freePort,
   launchDesktop,
+  openCreateWorktree,
+  startTerminal,
 } from "./desktop-fixtures.js";
 
 test("finds a dev server in terminal output and opens it in the browser panel", async () => {
@@ -45,7 +46,7 @@ test("finds a dev server in terminal output and opens it in the browser panel", 
 
     const terminalToggle = page.getByRole("button", { name: "Terminal", exact: true });
     if ((await terminalToggle.getAttribute("aria-pressed")) !== "true") await terminalToggle.click();
-    await page.getByRole("button", { name: "Start terminal" }).click();
+    await startTerminal(page);
     const output = page.getByRole("log", { name: "Terminal output" });
     // Keys typed before the shell prints its prompt are lost, which Windows PowerShell does slowly.
     await expect(output).toHaveText(/[$>#%]\s*$/u, { timeout: 20_000 });

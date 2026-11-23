@@ -155,3 +155,6 @@
 .env-branch-error > .btn-icon { flex: 0 0 auto; margin: -3px -4px 0 0; }
 /* As a drawer the column is one floating card: the environment inside it sits flat, so no card floats in a card. */
 .env-card-host.is-overlay .env-panel { border-color: var(--zli-border); box-shadow: none; animation: none; }
+/* The computer column sits beside the chat, never over it: while it shows, the chat's log and message box keep
+   clear of its width, so nothing in the chat hides under it. As a drawer on a narrow tile it floats over instead. */
+.tile-body:has(> .env-card-host:not(.is-overlay):not(:empty)) :is(.chat-log, .chat-dock) { padding-right: var(--env-column-width); }

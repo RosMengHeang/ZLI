@@ -25,7 +25,7 @@ test("runs a chat under an API key account picked in the New agent dialog", asyn
 
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
-    await settings.getByRole("tab", { name: "Accounts" }).click();
+    await settings.getByRole("tab", { name: "Providers" }).click();
     const codex = settings.getByRole("region", { name: "Codex accounts" });
     await codex.getByRole("button", { name: "Add Codex account" }).click();
     const form = settings.getByRole("form", { name: "New Codex account" });

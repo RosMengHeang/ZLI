@@ -27,8 +27,8 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
     await expect(page.locator(".chat-message-assistant").first()).toBeVisible({ timeout: 30_000 });
 
     // Bring in: the other agent joins under its buddy's name, and the message box calls it.
-    await page.getByRole("button", { name: "Other agents" }).last().click();
-    await page.getByRole("menuitem", { name: /^Bring in an agent/u }).click();
+    await page.getByRole("button", { name: "Add", exact: true }).last().click();
+    await page.getByRole("menuitem", { name: /^Ask an agent/u }).click();
     await page.getByRole("menuitem", { name: /Codex/u }).click();
     const composer = page.getByRole("textbox", { name: /^Message / });
     await expect(composer).toHaveValue(/^@[A-Z][a-z]+ $/u);
@@ -52,8 +52,8 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
     if (process.env.ZLI_E2E_SHOT) await page.screenshot({ path: process.env.ZLI_E2E_SHOT });
 
     // A buddy joins from the same menu, under its own name, and reads its standing instructions first.
-    await page.getByRole("button", { name: "Other agents" }).last().click();
-    await page.getByRole("menuitem", { name: /^Bring in an agent/u }).click();
+    await page.getByRole("button", { name: "Add", exact: true }).last().click();
+    await page.getByRole("menuitem", { name: /^Ask an agent/u }).click();
     await page.getByRole("menuitem", { name: "Builder", exact: true }).click();
     await expect(composer).toHaveValue("@Builder ");
     await expect(room).toContainText("Builder");
