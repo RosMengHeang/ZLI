@@ -246,35 +246,58 @@ describe("AppShell", () => {
     expect(button(container, "Right panel")?.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("opens the right panel on a picker, and a panel's key opens it", async () => {
+  it("opens the right panel on a list of panels when none is open yet, and opens nothing by itself", async () => {
     const container = await render(makeBridge(projection));
     await act(async () => button(container, "Right panel")?.click());
-    expect(container.querySelector(".panel-launcher")?.textContent).toContain("Nothing waiting");
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true }));
-    });
-    expect(container.querySelector('[aria-label="Files panel"]')).not.toBeNull();
+    expect(container.querySelector(".panel-start")).not.toBeNull();
+    expect(container.querySelectorAll('.panel-strip [role="tab"]')).toHaveLength(0);
+    const changes = [...container.querySelectorAll<HTMLButtonElement>(".panel-start-item")].find((item) =>
+      item.textContent?.includes("Changes"),
+    );
+    await act(async () => changes?.click());
+    expect(container.querySelector('[aria-label="Changes panel"]')).not.toBeNull();
+    expect(container.querySelector('.panel-strip [aria-selected="true"]')?.getAttribute("aria-label")).toBe("Changes");
     await act(async () => button(container, "Right panel")?.click());
     expect(container.querySelector(".tool-panel")).toBeNull();
   });
 
-  it("shows every panel as an icon in the strip, switches from it, and reopens on the last one", async () => {
+  it("adds panels from the plus, switches between their tabs, and reopens on the last one", async () => {
     const container = await render(makeBridge(projection));
     await act(async () => button(container, "Right panel")?.click());
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true }));
-    });
-    const strip = () => [...container.querySelectorAll('.panel-tabs [role="tab"]')];
-    expect(strip().map((tab) => tab.getAttribute("aria-label"))).toEqual(
-      expect.arrayContaining(["Changes", "Files", "Browser"]),
+    const add = async (label: string) => {
+      await act(async () => button(container, "Add a panel")?.click());
+      const item = [...container.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')].find(
+        (candidate) => candidate.querySelector(".menu-item-label")?.textContent === label,
+      );
+      await act(async () => item?.click());
+    };
+    await add("Files");
+    await add("Browser");
+    const strip = () => [...container.querySelectorAll<HTMLButtonElement>('.panel-strip [role="tab"]')];
+    expect(strip().map((tab) => tab.getAttribute("aria-label"))).toEqual(["Files", "Browser"]);
+    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    await act(async () => strip()[0]?.click());
+    expect(container.querySelector('[aria-label="Files panel"]')).not.toBeNull();
+    await act(async () => strip()[1]?.click());
+    await act(async () => button(container, "Right panel")?.click());
+    await act(async () => button(container, "Right panel")?.click());
+    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    await act(async () => button(container, "Close Browser")?.click());
+    expect(container.querySelector('[aria-label="Files panel"]')).not.toBeNull();
+    expect(strip().map((tab) => tab.getAttribute("aria-label"))).toEqual(["Files"]);
+  });
+
+  it("opens a terminal in the right panel apart from the drawer at the bottom", async () => {
+    const container = await render(makeBridge(projection));
+    await act(async () => button(container, "Right panel")?.click());
+    const terminal = [...container.querySelectorAll<HTMLButtonElement>(".panel-start-item")].find((item) =>
+      item.textContent?.includes("Terminal"),
     );
-    expect(container.querySelector('.panel-tabs [aria-selected="true"]')?.textContent).toBe("Files");
-    const browser = strip().find((tab) => tab.getAttribute("aria-label") === "Browser") as HTMLButtonElement;
-    await act(async () => browser.click());
-    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
-    await act(async () => button(container, "Right panel")?.click());
-    await act(async () => button(container, "Right panel")?.click());
-    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    await act(async () => terminal?.click());
+    expect(container.querySelector('[aria-label="Side terminal"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Terminal panel"]')).toBeNull();
+    await act(async () => button(container, "Close Terminal")?.click());
+    expect(container.querySelector(".tool-panel")).toBeNull();
   });
 
   it("opens the Browser panel when an agent opens a page", async () => {
@@ -503,7 +526,7 @@ describe("AppShell", () => {
     );
   });
 
-  it("starts a new chat in a tile and opens an earlier one from its history", async () => {
+  it("continues a chat in a new one and opens an earlier one from its history", async () => {
     const dispatched: unknown[] = [];
     const olderId = "00000000-0000-4000-8000-000000000402";
     const latestId = "00000000-0000-4000-8000-000000000403";
@@ -547,13 +570,17 @@ describe("AppShell", () => {
       );
 
     await act(async () => {
-      button(container, "More actions")?.click();
+      container
+        .querySelector(".tile-header")
+        ?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 20 }));
     });
     expect(menuItem("Add a test")?.getAttribute("aria-checked")).toBe("true");
-    // The chat list, new chat, and rename all share the header's one menu.
-    expect(menuItem("Blank chat")).toBeDefined();
-    expect(menuItem("Rename chat")).toBeDefined();
-    expect(container.querySelectorAll('.tile-header button[aria-haspopup="menu"]')).toHaveLength(1);
+    // The chat list and "Continue in new chat" share the header's right-click menu; the title renames on double-click.
+    expect(menuItem("Continue in new chat")).toBeDefined();
+    expect(menuItem("Blank chat")).toBeUndefined();
+    expect(menuItem("Rename chat")).toBeUndefined();
+    // The header has no "..." button: its actions open on a right-click.
+    expect(container.querySelectorAll('.tile-header button[aria-haspopup="menu"]')).toHaveLength(0);
     await act(async () => {
       menuItem("Fix the login form")?.click();
     });
@@ -563,13 +590,17 @@ describe("AppShell", () => {
     expect(container.querySelector(".agent-tile textarea")).not.toBeNull();
 
     await act(async () => {
-      button(container, "More actions")?.click();
+      container
+        .querySelector(".tile-header")
+        ?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 20 }));
     });
-    expect(menuItem("Start with recent context")?.getAttribute("aria-disabled")).toBeNull();
     await act(async () => {
-      menuItem("Blank chat")?.click();
+      menuItem("Continue in new chat")?.click();
     });
+    // A separate chat starts beside this one; the old chat keeps running and keeps its history.
     await vi.waitFor(() => expect(commands(dispatched).some((command) => command.type === "thread.start")).toBe(true));
+    const started = commands(dispatched).find((command) => command.type === "thread.start");
+    expect(started?.sessionId).not.toBe(agentSessionId);
     expect(commands(dispatched).filter((command) => command.type === "thread.stop")).toHaveLength(1);
   });
 
@@ -1100,10 +1131,11 @@ describe("Settings", () => {
     updateAppSettings((current) => ({ ...current, defaults: { permissionMode: "full-access" } }));
     const container = await render(makeBridge(discovered));
     const settings = await openSettings(container, "Projects");
+    await act(async () => settings.querySelector<HTMLButtonElement>(".project-open")?.click());
     expect(picker(settings, "Permissions").getAttribute("aria-label")).toBe("Permissions: Default");
     await choose(settings, "Permissions", "Edit files");
     expect(document.querySelector('[role="listbox"]')).toBeNull();
-    expect(button(settings, "Reset all to Default")).not.toBeUndefined();
+    expect(button(settings, "Reset")).not.toBeUndefined();
 
     await press(window, { key: "Escape", code: "Escape" });
     await openNewAgentOptions(container);
@@ -1125,17 +1157,20 @@ describe("Settings", () => {
     const list = settings.querySelector('[aria-label="Projects"]');
     expect(list?.textContent).toContain("repo");
     expect(list?.textContent).toContain("C:/repo");
-    await act(async () => button(settings, "Remove repo")?.click());
+    await act(async () => settings.querySelector<HTMLButtonElement>(".project-open")?.click());
+    await act(async () => button(settings, "Remove")?.click());
     expect(settings.textContent).toContain("Remove repo from ZLI?");
     expect(settings.textContent).toContain("1 agent and its chat are deleted from ZLI.");
     expect(settings.textContent).toContain("The folder and its files stay on disk.");
     expect(document.activeElement?.textContent).toBe("Keep");
     await act(async () => button(settings, "Keep")?.click());
-    expect(button(settings, "Remove")).toBeUndefined();
+    expect(settings.textContent).not.toContain("Remove repo from ZLI?");
     expect(commands(dispatched).some((command) => command.type === "project.archive")).toBe(false);
 
-    await act(async () => button(settings, "Remove repo")?.click());
     await act(async () => button(settings, "Remove")?.click());
+    await act(async () =>
+      [...settings.querySelectorAll<HTMLButtonElement>(".project-remove-actions button")].at(-1)?.click(),
+    );
     const sent = commands(dispatched);
     expect(sent).toContainEqual({ type: "session.delete", sessionId: agentSessionId });
     expect(sent.at(-1)).toEqual({ type: "project.archive", projectId });
@@ -1168,14 +1203,23 @@ describe("Settings", () => {
     };
     const container = await render(bridge);
     const settings = await openSettings(container, "Projects");
-    await act(async () => button(settings, "Remove repo")?.click());
+    await act(async () => settings.querySelector<HTMLButtonElement>(".project-open")?.click());
     await act(async () => button(settings, "Remove")?.click());
+    await act(async () =>
+      [...settings.querySelectorAll<HTMLButtonElement>(".project-remove-actions button")].at(-1)?.click(),
+    );
     expect(settings.querySelector('[role="alert"]')?.textContent).toBe(
       "Stop the agents and terminals in this project first.",
     );
     expect(button(settings, "Remove")).not.toBeUndefined();
   });
 });
+
+// With the sidebar open, a new version shows in the sidebar's update card instead of the title bar.
+const cardButton = (container: HTMLElement, label: string) =>
+  [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Updates"] button')].find(
+    (entry) => entry.textContent === label,
+  );
 
 describe("Updates", () => {
   const ready: UpdateStatus = {
@@ -1239,10 +1283,10 @@ describe("Updates", () => {
   };
   const dialog = (name: string) => document.querySelector<HTMLElement>(`[role="dialog"][aria-label="${name}"]`);
 
-  it("restarts into a downloaded update from the title bar, asking first while an agent works", async () => {
+  it("restarts into a downloaded update from the sidebar, asking first while an agent works", async () => {
     const { bridge, calls } = withUpdates(makeBridge(working), ready);
     const container = await render(bridge);
-    const pill = button(container, "Restart to update to v0.2.0");
+    const pill = cardButton(container, "Restart");
     expect(pill).not.toBeUndefined();
 
     await act(async () => {
@@ -1262,7 +1306,7 @@ describe("Updates", () => {
     const { bridge, calls } = withUpdates(makeBridge(withAgent), ready);
     const container = await render(bridge);
     await act(async () => {
-      button(container, "Restart to update to v0.2.0")?.click();
+      cardButton(container, "Restart")?.click();
     });
     expect(dialog("Restart to update")).toBeNull();
     expect(calls).toEqual(["install"]);
@@ -1286,7 +1330,7 @@ describe("Updates", () => {
       });
     });
     await act(async () => {
-      button(container, "Update available: v0.3.0")?.click();
+      cardButton(container, "Download")?.click();
     });
     expect(calls).toEqual(["open-release"]);
   });

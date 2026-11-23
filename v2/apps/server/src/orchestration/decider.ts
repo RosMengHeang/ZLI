@@ -65,6 +65,10 @@ export type DomainErrorCode =
   | "routine_missing"
   | "goal_missing"
   | "goal_limit"
+  | "goal_closed"
+  | "plan_started"
+  | "plan_full"
+  | "task_exists"
   | "unsupported_command";
 
 export class DomainError extends Error {
@@ -227,6 +231,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           workspaceRoot: command.workspaceRoot,
           ...(command.baseRef ? { baseRef: command.baseRef } : {}),
           ...(command.checkoutExistingBranch ? { checkoutExistingBranch: true } : {}),
+          ...(command.fromRemote && !command.checkoutExistingBranch ? { fromRemote: true } : {}),
           worktree: {
             worktreeId: command.worktreeId,
             projectId: command.projectId,
@@ -682,7 +687,14 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     case "review.merge":
       assertWorktree(projection, command.worktreeId);
       assertSafeRef(command.targetRef);
-      return [{ type: "review.merge.requested", worktreeId: command.worktreeId, targetRef: command.targetRef }];
+      return [
+        {
+          type: "review.merge.requested",
+          worktreeId: command.worktreeId,
+          targetRef: command.targetRef,
+          ...(command.commitMessage !== undefined ? { commitMessage: command.commitMessage } : {}),
+        },
+      ];
     case "review.abortMerge":
       assertWorktree(projection, command.worktreeId);
       return [{ type: "review.abortMerge.requested", worktreeId: command.worktreeId }];

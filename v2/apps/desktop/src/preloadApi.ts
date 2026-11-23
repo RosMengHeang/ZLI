@@ -54,6 +54,7 @@ import {
   MobileStreamInfo,
   MobileWifiConnectInput,
   MobileWifiPairInput,
+  MobileWifiQrPairInput,
   MobileWifiResult,
   OpenInApp,
   OpenInRequest,
@@ -114,6 +115,12 @@ function createMobileApi(ipc: PreloadIpc) {
     /** Pairs with a phone's Wireless debugging code, then connects to it. */
     pairWifi: async (input: MobileWifiPairInput) =>
       MobileWifiResult.parse(await ipc.invoke("zli:mobile:wifi-pair", MobileWifiPairInput.parse(input))),
+    /** Waits for a phone to scan the pairing QR code, then pairs and connects to it. */
+    pairWifiQr: async (input: MobileWifiQrPairInput) =>
+      MobileWifiResult.parse(await ipc.invoke("zli:mobile:wifi-pair-qr", MobileWifiQrPairInput.parse(input))),
+    cancelWifiQr: async () => {
+      await ipc.invoke("zli:mobile:wifi-pair-qr-cancel");
+    },
     connectWifi: async (input: MobileWifiConnectInput) =>
       MobileWifiResult.parse(await ipc.invoke("zli:mobile:wifi-connect", MobileWifiConnectInput.parse(input))),
     /** Only for a phone connected over Wi-Fi. */
@@ -444,6 +451,12 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
               .filter(([id, icon]) => typeof icon === "string" && icon.startsWith("data:image/png;base64,") && id)
               .slice(0, 200),
           ),
+        }),
+      /** Fires when a notification uses one of ZLI's own sounds, which the window plays. */
+      onPlaySound: (listener: (event: { tone: string; volume: number }) => void) =>
+        ipc.on("zli:notifications:play-sound", (_event, value) => {
+          const { tone, volume } = (value ?? {}) as { tone?: unknown; volume?: unknown };
+          if (typeof tone === "string" && typeof volume === "number") listener({ tone, volume });
         }),
       /** Fires when the person clicks a notification, with the session to select. */
       onActivate: (listener: (event: { sessionId: string }) => void) =>

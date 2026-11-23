@@ -61,6 +61,7 @@ import {
   TerminalProjection,
   TerminalStreamMessage,
 } from "./terminal.js";
+import { UsageCommand } from "./usage.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -79,6 +80,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     branch: z.string().min(1),
     baseRef: z.string().min(1).optional(),
     checkoutExistingBranch: z.boolean().optional(),
+    /** Fetch the base branch first and start from its remote copy, falling back to the local branch. */
+    fromRemote: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("worktree.import"),
@@ -285,7 +288,13 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("review.refresh"), worktreeId: WorktreeId, baseRef: z.string().min(1) }),
   z.object({ type: z.literal("review.diff"), worktreeId: WorktreeId, path: z.string().min(1).max(4_000) }),
   z.object({ type: z.literal("review.commit"), worktreeId: WorktreeId, message: z.string().min(1).max(10_000) }),
-  z.object({ type: z.literal("review.merge"), worktreeId: WorktreeId, targetRef: z.string().min(1) }),
+  z.object({
+    type: z.literal("review.merge"),
+    worktreeId: WorktreeId,
+    targetRef: z.string().min(1),
+    /** Commits the worktree's uncommitted changes with this message before merging its branch. */
+    commitMessage: z.string().min(1).max(10_000).optional(),
+  }),
   z.object({ type: z.literal("review.abortMerge"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.archive"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.updated"), review: ReviewProjection }),
@@ -319,6 +328,11 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   /** A shell printed a local server address. The runtime records it for the terminal's worktree. */
   z.object({ type: z.literal("devserver.detected"), terminalId: TerminalId, url: z.string().min(1).max(2_000) }),
   z.object({ type: z.literal("devserver.stopped"), terminalId: TerminalId, port: DevServerProjection.shape.port }),
+  /**
+   * Which local servers the agents of these chats started from their shell tools and are still up. Answered
+   * directly from the chats' steps and a port check; nothing is recorded.
+   */
+  z.object({ type: z.literal("devserver.agentServers"), threadIds: z.array(ThreadId).min(1).max(20) }),
   ThreadAttachmentReadCommand,
   ...FileCommand.options,
   ...PullRequestCommand.options,
@@ -331,6 +345,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   ...PluginCommand.options,
   ...AccountCommand.options,
   ...LimitsCommand.options,
+  ...UsageCommand.options,
   ...AgentSettingsCommand.options,
   ...HistoryCommand.options,
   ...HuddleCommand.options,

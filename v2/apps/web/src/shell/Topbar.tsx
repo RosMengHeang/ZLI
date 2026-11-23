@@ -9,21 +9,20 @@ import { ariaShortcut, shortcutText } from "../ui/shortcuts.js";
 import { useShortcuts } from "./keybindings.js";
 
 /**
- * The side panels. A pull request opens from its agent, so it is not in the picker; the picker itself is the
- * launcher, what the right panel shows before a panel is chosen.
+ * The side panels. A pull request opens from its agent, so it has no key. "start" is the empty panel that lists
+ * the others before one is open. The terminal here is the panel's own, apart from the drawer at the bottom.
  */
-export type SidePane = "files" | "browser" | "mobile" | "review" | "huddle" | "pullRequest" | "sideChat" | "launcher";
-export type ToolbarPane = Exclude<SidePane, "pullRequest" | "sideChat" | "launcher">;
+export type SidePane = "files" | "browser" | "mobile" | "review" | "terminal" | "pullRequest" | "start";
+export type ToolbarPane = Exclude<SidePane, "pullRequest" | "start">;
 
 export const sidePaneLabel: Record<SidePane, string> = {
   files: "Files",
   browser: "Browser",
   mobile: "Mobile",
   review: "Changes",
-  huddle: "Huddle",
+  terminal: "Terminal",
   pullRequest: "Pull request",
-  sideChat: "Side chat",
-  launcher: "Panels",
+  start: "Panels",
 };
 
 export const sidePaneIcon: Record<ToolbarPane, IconName> = {
@@ -31,7 +30,7 @@ export const sidePaneIcon: Record<ToolbarPane, IconName> = {
   browser: "globe",
   mobile: "smartphone",
   review: "diff",
-  huddle: "users",
+  terminal: "terminal",
 };
 
 /** What each panel is for, said under its name in the panel picker. */
@@ -40,7 +39,7 @@ export const sidePaneDetail: Record<ToolbarPane, string> = {
   browser: "A browser beside the chat, for the app you are building",
   mobile: "Phone emulators and simulators",
   review: "Review, stage, and commit the agent's changes",
-  huddle: "Agents talking to each other in one thread",
+  terminal: "A shell beside the chat, apart from the one at the bottom",
 };
 
 export const sidePaneShortcut = {
@@ -48,8 +47,7 @@ export const sidePaneShortcut = {
   browser: "toggleBrowser",
   mobile: "toggleMobile",
   review: "toggleChanges",
-  huddle: "toggleHuddle",
-} as const satisfies Record<ToolbarPane, ShortcutId>;
+} as const satisfies Partial<Record<ToolbarPane, ShortcutId>>;
 
 export function Topbar({
   sidebarOpen,

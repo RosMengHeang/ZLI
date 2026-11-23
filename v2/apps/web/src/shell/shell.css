@@ -92,65 +92,98 @@
 }
 
 /* ---------- The panel picker ---------- */
-/* The right panel before a panel is chosen. It reads as a glance at the worktree, not a menu: the branch on top,
-   then one row per panel whose second line says what is happening in it now. A dot on the icon marks a row with
-   something in it, coloured by what it wants: blue to review, green running, red broken. Rows with nothing going
-   on stay grey, so the eye lands on the live ones first. The list sits in the upper third, where the eye starts. */
-.panel-launcher { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; padding: clamp(24px, 16vh, 140px) var(--zli-space-4) var(--zli-space-6); }
-.panel-launcher-head, .panel-launcher-list, .panel-launcher-foot { width: 100%; max-width: 360px; margin-inline: auto; }
-.panel-launcher-head { margin-bottom: var(--zli-space-3); padding: 0 var(--zli-space-2); }
-.panel-launcher-head h2 { margin: 0; overflow: hidden; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.panel-launcher-head p { margin: 3px 0 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
-.panel-launcher-list { display: flex; flex-direction: column; gap: 1px; margin-block: 0; padding: 0; list-style: none; }
-.panel-launcher-item { display: flex; width: 100%; align-items: center; gap: var(--zli-space-2-5); padding: 6px var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
-.panel-launcher-item:hover { background: var(--zli-hover); }
-.panel-launcher-item:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
-.panel-launcher-icon { position: relative; display: inline-grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: var(--zli-radius-md); background: var(--zli-hover); color: var(--zli-dim); transition: color var(--zli-duration-fast) var(--zli-ease); }
-.panel-launcher-item:hover .panel-launcher-icon { color: var(--zli-text); }
-/* The live dot: on the icon's corner, ringed in the panel colour so it reads at any size. */
-.panel-launcher-item:is(.is-accent, .is-green, .is-red) .panel-launcher-icon { color: var(--zli-text); }
-.panel-launcher-item:is(.is-accent, .is-green, .is-red) .panel-launcher-icon::after { position: absolute; top: -2px; right: -2px; width: 7px; height: 7px; border: 2px solid var(--zli-surface); border-radius: 50%; background: var(--dot); content: ""; }
-.panel-launcher-item.is-accent { --dot: var(--zli-accent); }
-.panel-launcher-item.is-green { --dot: var(--zli-green); }
-.panel-launcher-item.is-red { --dot: var(--zli-red); }
-.panel-launcher-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
-.panel-launcher-label { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; line-height: 18px; }
-.panel-launcher-detail { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
-.panel-launcher-item.is-accent .panel-launcher-detail { color: var(--zli-muted); }
-.panel-launcher-item.is-green .panel-launcher-detail { color: var(--zli-green); }
-.panel-launcher-item.is-red .panel-launcher-detail { color: var(--zli-red); }
-.panel-launcher-add { color: var(--zli-green); font-family: var(--zli-mono); font-size: 11px; }
-.panel-launcher-del { color: var(--zli-red); font-family: var(--zli-mono); font-size: 11px; }
-.panel-launcher-key { display: inline-grid; min-width: 20px; height: 20px; flex: 0 0 auto; place-items: center; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; opacity: .7; transition: opacity var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
-.panel-launcher-item:hover .panel-launcher-key { color: var(--zli-text); opacity: 1; }
-.panel-launcher-foot { margin-top: var(--zli-space-3); padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); }
-.panel-launcher-foot kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xs); font-family: var(--zli-mono); font-size: 10.5px; }
-
-/* ---------- The right panel's strip ---------- */
-/* One icon per panel, always in the same order. The open one sits on a soft pill with its name; any panel with
-   something waiting shows a count beside its icon. */
-.panel-tabs { position: relative; display: flex; height: 36px; flex: 0 0 auto; align-items: center; gap: 2px; padding: 0 6px; border-bottom: 1px solid var(--zli-border); }
-.panel-strip { display: flex; min-width: 0; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
-.panel-strip-tab {
-  display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; height: 28px; min-width: 30px; justify-content: center; padding: 0 8px; border: 0; border-radius: var(--zli-radius-md);
-  background: transparent; color: var(--zli-dim); cursor: default; font: inherit; font-size: var(--zli-text-sm);
-  transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
-}
-.panel-strip-tab:hover { background: var(--zli-hover); color: var(--zli-text); }
-.panel-strip-tab.is-active { background: var(--zli-active, var(--zli-hover)); color: var(--zli-text); font-weight: 500; }
-.panel-strip-tab:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
-.panel-strip-count { color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
-.panel-strip-tab.is-active .panel-strip-count { color: var(--zli-text); }
+/* ---------- The right panel ---------- */
+/* The panel hosts one tool at a time. Its header is a strip of the panels opened so far, one closable tab each,
+   and a plus that lists every panel. Files puts its open files in the strip right after its own tab. */
+.tool-panel { container: panel / inline-size; }
+.panel-tabs { position: relative; display: flex; height: 36px; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); padding: 0 var(--zli-space-1-5); border-bottom: 1px solid var(--zli-border); }
+.panel-body { display: flex; min-height: 0; flex: 1; }
+.panel-main { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
+.panel-strip-wrap { display: flex; min-width: 0; flex: 1; align-items: center; gap: 2px; }
+.panel-strip { display: flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
+/* The strip sits in the window's drag area, which swallows the wheel; the strip itself is not draggable so it scrolls.
+   Its edges fade while there is more to scroll to. */
+.app-shell .panel-tabs .panel-strip { -webkit-app-region: no-drag; }
+.panel-strip.is-clipped-start { mask-image: linear-gradient(to right, transparent, #000 20px); }
+.panel-strip.is-clipped-end { mask-image: linear-gradient(to left, transparent, #000 20px); }
+.panel-strip.is-clipped-start.is-clipped-end { mask-image: linear-gradient(to right, transparent, #000 20px, #000 calc(100% - 20px), transparent); }
+.panel-strip-tab { position: relative; display: flex; min-width: 0; height: 26px; flex: 0 1 auto; align-items: center; border-radius: var(--zli-radius-md); color: var(--zli-dim); transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.panel-strip-tab:hover { background: var(--zli-hover); color: var(--zli-muted); }
+.panel-strip-tab.is-active { background: var(--zli-active, var(--zli-hover)); color: var(--zli-text); }
+.panel-strip-pick { display: flex; min-width: 0; height: 100%; align-items: center; gap: 6px; padding: 0 4px 0 8px; border: 0; background: transparent; color: inherit; cursor: default; font: inherit; font-size: var(--zli-text-xs); font-weight: 500; white-space: nowrap; }
+.panel-strip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-strip-tab, .panel-strip-slot .file-tab { min-width: 64px; }
+.panel-strip-tab.is-active, .panel-strip-slot.is-active .file-tab.is-active { flex-shrink: 0; }
+.panel-strip-slot .file-tab-label { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
+.panel-strip-slot .file-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-strip-count { color: var(--zli-dim); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
+.panel-strip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dot, var(--zli-accent)); }
+.panel-strip-tab.is-accent { --dot: var(--zli-accent); }
+.panel-strip-tab.is-green { --dot: var(--zli-green); }
+.panel-strip-tab.is-red { --dot: var(--zli-red); }
+.panel-strip-close { display: inline-grid; width: 18px; height: 18px; margin-right: 4px; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-dim); cursor: default; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.panel-strip-tab:hover .panel-strip-close, .panel-strip-tab.is-active .panel-strip-close, .panel-strip-close:focus-visible { opacity: 1; }
+.panel-strip-close:hover { background: var(--zli-border); color: var(--zli-text); }
+.panel-strip-pick:focus-visible, .panel-strip-close:focus-visible, .panel-strip-plus:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; border-radius: var(--zli-radius-md); }
+/* Files and the terminal put their own tabs (open files, shells) in a slot after their tab. While the slot holds
+   any, the panel's own tab steps aside, and the picked one only looks picked while that panel is showing. */
+.panel-strip-slot { display: contents; }
+.panel-strip-tab:has(+ .panel-strip-slot > *) { display: none; }
+.panel-strip-slot .file-tabs { display: contents; }
+.panel-strip-slot .file-tab { height: 26px; flex: 0 1 auto; min-width: 64px; max-width: 180px; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); }
+.panel-strip-slot .file-tab:hover { background: var(--zli-hover); color: var(--zli-muted); }
+.panel-strip-slot.is-active .file-tab.is-active { background: var(--zli-active, var(--zli-hover)); color: var(--zli-text); }
+.panel-strip-slot .file-tab.is-active::after, .panel-strip-slot .file-tab.is-active::before { display: none; }
+.panel-strip-slot .file-tab-label { display: flex; align-items: center; gap: 6px; font-size: var(--zli-text-xs); font-weight: 500; }
+.panel-strip-slot:not(.is-active) .panel-strip-tab.is-active { background: transparent; color: var(--zli-dim); }
+.panel-strip-slot .panel-strip-tab.is-shell .panel-strip-pick { max-width: 160px; }
+.panel-strip-slot .panel-strip-tab.is-shell .panel-strip-label { overflow: hidden; text-overflow: ellipsis; }
+.panel-strip-tab.is-shell .status-dot { width: 6px; height: 6px; }
+.panel-strip-add { position: relative; flex: 0 0 auto; }
+.panel-strip-plus { display: inline-grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); cursor: default; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.panel-strip-plus:hover, .panel-strip-plus[aria-expanded="true"] { background: var(--zli-hover); color: var(--zli-text); }
+.panel-tabs .menu.panel-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: 280px; max-width: none; animation: panel-menu-in var(--zli-duration-fast) var(--zli-ease); }
+.panel-strip-add:has(.panel-menu) { z-index: 20; }
+.panel-menu .panel-menu-item { height: 30px; }
+.panel-menu-icon { position: relative; display: inline-grid; width: 16px; flex: 0 0 auto; place-items: center; color: var(--zli-muted); }
+.panel-menu-item:is(.is-accent, .is-green, .is-red) .panel-menu-icon::after, .panel-start-item:is(.is-accent, .is-green, .is-red) .panel-menu-icon::after { position: absolute; top: -3px; right: -4px; width: 6px; height: 6px; border: 1.5px solid var(--zli-overlay); border-radius: 50%; background: var(--dot); content: ""; }
+:is(.panel-menu-item, .panel-start-item).is-accent { --dot: var(--zli-accent); }
+:is(.panel-menu-item, .panel-start-item).is-green { --dot: var(--zli-green); }
+:is(.panel-menu-item, .panel-start-item).is-red { --dot: var(--zli-red); }
+.panel-menu-live { min-width: 0; max-width: 130px; flex: 0 1 auto; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.panel-menu-item.is-green .panel-menu-live { color: var(--zli-green); }
+.panel-menu-item.is-red .panel-menu-live { color: var(--zli-red); }
+.panel-menu-key { min-width: 14px; flex: 0 0 auto; margin-left: auto; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; text-align: right; }
+@keyframes panel-menu-in { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .panel-tabs .menu.panel-menu { animation: none; } }
+/* The empty panel: a short list, one row per panel with its key, so nothing opens by itself. */
+.panel-start { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; padding: 12vh var(--zli-space-4) var(--zli-space-4); }
+.panel-start-title { margin: 0 auto var(--zli-space-2); width: 100%; max-width: 300px; padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
+.panel-start-grid { display: flex; width: 100%; max-width: 300px; flex-direction: column; gap: 1px; margin: 0 auto; padding: 0; list-style: none; }
+.panel-start-item { display: flex; width: 100%; min-height: 32px; flex-direction: column; justify-content: center; gap: 1px; padding: var(--zli-space-1-5) var(--zli-space-2); border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.panel-start-item:hover, .panel-start-item:focus-visible { background: var(--zli-hover); color: var(--zli-text); outline: none; }
+.panel-start-head { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2-5); }
+.panel-start-icon { position: relative; display: inline-grid; width: 16px; flex: 0 0 auto; place-items: center; color: var(--zli-dim); }
+.panel-start-item:hover .panel-start-icon { color: var(--zli-muted); }
+.panel-start-item:is(.is-accent, .is-green, .is-red) .panel-start-icon::after { position: absolute; top: -3px; right: -4px; width: 6px; height: 6px; border: 1.5px solid var(--zli-surface); border-radius: 50%; background: var(--dot); content: ""; }
+.panel-start-name { min-width: 0; flex: 1; overflow: hidden; font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.panel-start-key { flex: 0 0 auto; color: var(--zli-dim); font-family: var(--zli-mono); font-size: 11px; }
+.panel-start-detail { padding-left: calc(16px + var(--zli-space-2-5)); overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.panel-start-item:not(:is(.is-accent, .is-green, .is-red)) .panel-start-detail { display: none; }
+.panel-start-item.is-green .panel-start-detail { color: var(--zli-green); }
+.panel-start-item.is-red .panel-start-detail { color: var(--zli-red); }
+/* A live line's numbers: the file count plain, lines added green, lines removed red. */
+.panel-launcher-count { color: var(--zli-text); font-weight: 500; }
+.panel-launcher-add { color: var(--zli-green); font-family: var(--zli-mono); font-variant-numeric: tabular-nums; }
+.panel-launcher-del { color: var(--zli-red); font-family: var(--zli-mono); font-variant-numeric: tabular-nums; }
+/* Files and the terminal stay mounted behind other tabs. */
+.panel-keep { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.panel-keep[hidden] { display: none; }
+/* The panel's own terminal fills it, with no resize handle and no header: its shells are tabs in the strip. */
+.terminal-drawer.is-side:not(.is-compact) > .drawer-header { display: none; }
+.panel-main .terminal-drawer.is-side { min-height: 0; flex: 1; margin: 0; border: 0; border-radius: 0; }
 
 /* The side chat as a panel: the side question fills it, the log growing above the box. */
-.side-chat-panel { display: flex; min-height: 0; flex: 1; flex-direction: column; }
-.side-chat-slot { display: flex; min-height: 0; flex: 1; flex-direction: column; }
-.side-chat-slot > .side-chat { display: flex; min-height: 0; flex: 1; flex-direction: column; }
-.side-chat-slot .side-chat-head { height: auto; padding: var(--zli-space-3) var(--zli-space-3) var(--zli-space-1); }
-.side-chat-slot .side-chat-log { max-height: none; flex: 1; padding-top: var(--zli-space-2); }
-.side-chat-slot .side-chat-form { margin-top: auto; }
-.side-chat-panel-empty { margin: auto; padding: var(--zli-space-6); color: var(--zli-dim); font-size: var(--zli-text-sm); text-align: center; }
-.side-chat-panel[hidden] { display: none; }
 
 /* Inside the tabbed right panel the tab already names the panel, so a pane's own title stays for screen readers
    only; its branch, counts, and actions keep their place. */
@@ -164,9 +197,9 @@
  * The top bar's tools float over the top-right corner, and the header under them keeps their width clear.
  */
 .main-workspace { position: relative; }
-.app-shell .topbar { position: absolute; top: 0; right: 0; z-index: 5; padding-left: var(--zli-space-2); background: transparent; }
-/* Laid over the chat's header, a thin line keeps the chat's own actions apart from the app's panel switches. */
-.app-shell .topbar-tools::before { width: 1px; height: 16px; flex: 0 0 auto; margin-right: var(--zli-space-1-5); background: var(--zli-border-strong); content: ""; }
+.app-shell .topbar { position: absolute; top: 0; right: 0; z-index: 5; padding-left: 0; background: transparent; }
+/* Laid over the chat's header, the app's switches sit right after the chat's computer button, as one group of three. */
+
 /* The project and branch already show on the message box; the dev server chip stays with the tools. */
 .app-shell :is(.topbar-project, .topbar-separator, .topbar-branch, .topbar-spacer) { display: none; }
 .app-shell.is-columns .sidebar { border-right: 1px solid var(--zli-border-strong); }
@@ -186,7 +219,10 @@
 .app-shell .agent-grid-region { position: relative; }
 .app-shell .agent-grid-region::before { position: absolute; top: 0; right: 0; left: 0; height: var(--zli-bar-height); content: ""; pointer-events: none; -webkit-app-region: drag; }
 .app-shell .agent-grid-region :is(button, a, input, select, textarea, [role="menu"], [role="tab"]) { -webkit-app-region: no-drag; }
-.app-shell:not(.has-panel) .tile-header, .app-shell .panel-tabs { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-1-5)); }
+.app-shell:not(.has-panel) .tile-header { padding-right: calc(var(--zli-topbar-width, 0px) + 2px); }
+/* Classic: the chat sits one gutter in from the window edge, which the switches already cover. */
+.app-shell:not(.has-panel):not(.is-columns) .tile-header { padding-right: calc(var(--zli-topbar-width, 0px) - var(--zli-gutter) + 2px); }
+.app-shell .panel-tabs { padding-right: calc(var(--zli-topbar-width, 0px) + var(--zli-space-1-5)); }
 /* The resizer keeps a 7px grip but draws as the 1px seam between the chat and the panel. */
 .app-shell.is-columns .panel-resizer { flex-basis: 7px; margin: 0 -3px; border-inline: 3px solid transparent; background: var(--zli-border-strong); background-clip: padding-box; }
 /* With the sidebar hidden, Show sidebar sits at the left end of the header row, before the chat's title. */
@@ -244,3 +280,7 @@
 .pr-page-head-branch { min-width: 0; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .pr-page-detail > .pr-page-head { max-width: none; }
 .pr-page-head { position: sticky; top: 0; z-index: 1; background: var(--zli-surface); }
+/* Arrows at the strip's ends while tabs sit past them; a click scrolls most of a strip's width. */
+.panel-strip-arrow { display: inline-grid; width: 20px; height: 26px; flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-dim); cursor: default; -webkit-app-region: no-drag; }
+.panel-strip-arrow:hover { background: var(--zli-hover); color: var(--zli-text); }
+.panel-strip-arrow:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }

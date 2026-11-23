@@ -55,6 +55,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     workspaceRoot: z.string().min(1),
     baseRef: z.string().min(1).optional(),
     checkoutExistingBranch: z.boolean().optional(),
+    fromRemote: z.boolean().optional(),
   }),
   z.object({ type: z.literal("worktree.imported"), worktree: WorktreeProjection }),
   z.object({
@@ -177,7 +178,12 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     worktreeId: WorktreeId,
     message: z.string().min(1).max(10_000),
   }),
-  z.object({ type: z.literal("review.merge.requested"), worktreeId: WorktreeId, targetRef: z.string().min(1) }),
+  z.object({
+    type: z.literal("review.merge.requested"),
+    worktreeId: WorktreeId,
+    targetRef: z.string().min(1),
+    commitMessage: z.string().min(1).max(10_000).optional(),
+  }),
   z.object({ type: z.literal("review.abortMerge.requested"), worktreeId: WorktreeId }),
   z.object({ type: z.literal("review.updated"), review: ReviewProjection }),
   z.object({ type: z.literal("review.archived"), worktreeId: WorktreeId }),
