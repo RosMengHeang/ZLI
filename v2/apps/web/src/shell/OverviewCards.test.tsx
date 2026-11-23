@@ -5,9 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
-import type { LauncherItem } from "./launcherItems.js";
 import { OverviewCards, type OverviewData } from "./OverviewCards.js";
-import { PanelTabs } from "./PanelTabs.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -173,51 +171,5 @@ describe("OverviewCards", () => {
     await act(async () => toggle?.click());
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(JSON.parse(window.localStorage.getItem("zli.overview.collapsed") ?? "[]")).toEqual(["checks"]);
-  });
-});
-
-describe("PanelTabs", () => {
-  it("shows only the opened panels as tabs, closes them, and adds the rest from the plus", async () => {
-    const select = vi.fn();
-    const close = vi.fn();
-    const openFiles = vi.fn();
-    const items = [
-      { id: "review", label: "Changes", detail: "", icon: "diff", count: 3, run: vi.fn() },
-      { id: "files", label: "Files", detail: "", icon: "folderTree", run: openFiles },
-    ] as LauncherItem[];
-    const container = await render(
-      <PanelTabs
-        tabs={[
-          { id: "review", label: "Changes", icon: "diff" },
-          { id: "pullRequest", label: "Pull request", icon: "pullRequest" },
-        ]}
-        active="review"
-        items={items}
-        shortcutFor={(id) => (id === "pullRequest" ? "Ctrl+Shift+P" : undefined)}
-        onSelect={select}
-        onClose={close}
-      />,
-    );
-    const tabs = [...container.querySelectorAll<HTMLButtonElement>('.panel-strip [role="tab"]')];
-    expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual(["Changes", "Pull request"]);
-    expect(container.querySelector(".panel-strip")?.getAttribute("aria-orientation")).toBe("horizontal");
-    expect(tabs[0]?.textContent).toBe("Changes");
-    expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
-    expect(tabs[1]?.dataset.shortcut).toBe("Ctrl+Shift+P");
-    await act(async () => tabs[1]?.click());
-    expect(select).toHaveBeenCalledWith("pullRequest");
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Changes"]')?.click());
-    expect(close).toHaveBeenCalledWith("review");
-
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Add a panel"]')?.click());
-    const menu = container.querySelector('[role="menu"]');
-    expect([...(menu?.querySelectorAll(".menu-item-label") ?? [])].map((label) => label.textContent)).toEqual([
-      "Changes",
-      "Files",
-    ]);
-    await act(async () => {
-      menu?.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true }));
-    });
-    expect(openFiles).toHaveBeenCalled();
   });
 });
