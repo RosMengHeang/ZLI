@@ -191,7 +191,7 @@
 
 /* Calm chat: the same soft bubble and round box as an agent's chat. */
 .buddy-chat-you { padding: 10px 18px; border-radius: 22px; background: var(--zli-overlay); }
-.buddy-chat-composer, .buddy-chat-dock .buddy-chat-composer { border-color: transparent; border-radius: 26px; background: var(--zli-overlay); box-shadow: 0 0 0 1px var(--zli-border), 0 10px 30px -14px rgba(0, 0, 0, .55); }
+.buddy-chat-composer, .buddy-chat-dock .buddy-chat-composer { border-color: transparent; border-radius: 26px; background: var(--zli-overlay); box-shadow: 0 0 0 1px var(--zli-border), var(--zli-shadow-lift); }
 .buddy-chat-composer:focus-within { border-color: transparent; }
 
 /* A job handed to a teammate: their face (its mood is the job's), the job, and a word for how it is going. */

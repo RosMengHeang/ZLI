@@ -176,6 +176,7 @@ import {
   LoadingFilesPane,
   ProjectEmptyNotice,
   RuntimeLoadingState,
+  type StartChoice,
 } from "./ShellStates.js";
 import { type SidePane, sidePaneIcon, sidePaneLabel, sidePaneShortcut, Topbar } from "./Topbar.js";
 
@@ -1378,7 +1379,7 @@ function WorkspaceApp() {
     : undefined;
 
   /** Opens a new chat; with `typed`, the text from the empty screen goes out as its first message. */
-  const openNewAgent = (project?: ProjectProjection, typed?: string) => {
+  const openNewAgent = (project?: ProjectProjection, typed?: string, choice?: StartChoice) => {
     if (!projection) return;
     // A new chat is where the person goes next, so the Buddies or Pull requests page steps aside for it.
     setBuddyView(undefined);
@@ -1400,7 +1401,11 @@ function WorkspaceApp() {
     const recentProject = projection.projects.find((candidate) => candidate.projectId === recent);
     const target = project ?? selectedProject ?? recentProject ?? contextProject ?? projection.projects[0];
     const defaults = resolveLaunchDefaults(readAppSettings(), target?.projectId);
-    const agent = defaultAgent(projection.providers ?? [], defaults.provider);
+    // The empty screen's picker wins over the saved defaults.
+    const agent =
+      (choice?.provider
+        ? projection.providers?.find((entry) => entry.provider === choice.provider && entry.status === "found")
+        : undefined) ?? defaultAgent(projection.providers ?? [], defaults.provider);
     // New chat is a chat. Only someone who chose Terminal in Settings, or has no agent installed yet, gets the
     // dialog; the dialog with every option is also in the palette as New agent with options.
     if (!target || defaults.mode === "terminal" || !agent) {
@@ -1408,7 +1413,7 @@ function WorkspaceApp() {
       return;
     }
     setPaletteOpen(false);
-    const accountId = launchAccountId(accounts, agent.provider, undefined);
+    const accountId = launchAccountId(accounts, agent.provider, choice?.accountId);
     const sessionId = typed?.trim() ? makeCommandId() : undefined;
     if (sessionId && typed) seedComposerDraft(sessionId, typed, { send: true });
     void submitNewAgent({
@@ -1419,7 +1424,11 @@ function WorkspaceApp() {
       provider: agent.provider,
       mode: "chat",
       permissionMode: defaults.permissionMode ?? "supervised",
-      ...(defaults.provider === agent.provider && defaults.model ? { model: defaults.model } : {}),
+      ...(choice?.provider === agent.provider && choice.model
+        ? { model: choice.model }
+        : defaults.provider === agent.provider && defaults.model
+          ? { model: defaults.model }
+          : {}),
       ...(accountId ? { accountId } : {}),
     }).then((failure) => {
       if (failure) showError(failure);
@@ -3081,7 +3090,8 @@ function WorkspaceApp() {
                       onOpenProject={() => void openProject()}
                       onCloneProject={() => setCloneOpen(true)}
                       onNewAgent={() => openNewAgent()}
-                      onStartChat={(text) => openNewAgent(emptySelectedProject, text)}
+                      startProject={contextProject}
+                      onStartChat={(text, project, choice) => openNewAgent(project, text, choice)}
                       onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
                     />
                   ) : (

@@ -2,10 +2,21 @@ import type { ProjectProjection, RuntimeProjection } from "@zli-v2/contracts";
 
 import { type KeyboardEvent, type ReactNode, useState } from "react";
 
+import { useAccounts } from "../accounts/accounts.js";
+import { providerDisplayName } from "../agent/providers.js";
+import { AgentModelPicker } from "../chat/AgentModelPicker.js";
+import { accountChoices, otherAgents } from "../chat/agentModels.js";
+import { useKnownPlanLimits } from "../limits/limits.js";
+import { readAppSettings, resolveLaunchDefaults } from "../settings/appSettings.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { MenuButton, type MenuItem } from "../ui/Menu.js";
 import { EmptyState, LoadingState, PaneHeader } from "../ui/Pane.js";
+import { defaultAgent } from "../welcome/welcome.js";
 import { useShortcut } from "./keybindings.js";
+
+/** The agent, model, and login picked on the empty screen, for the chat it starts. */
+export type StartChoice = { provider?: string | undefined; model?: string | undefined; accountId?: string | undefined };
 
 export function GridEmptyState({
   projection,
@@ -15,6 +26,7 @@ export function GridEmptyState({
   onCloneProject,
   onNewAgent,
   onStartChat,
+  startProject,
   onScratchChat,
 }: {
   projection: RuntimeProjection;
@@ -25,8 +37,10 @@ export function GridEmptyState({
   /** Clones a repository from a forge and adds it; absent where cloning is not offered. */
   onCloneProject?: (() => void) | undefined;
   onNewAgent(): void;
-  /** Starts a new chat with what was typed on this screen as its first message. */
-  onStartChat?: ((text: string) => void) | undefined;
+  /** Starts a new chat in `project` with what was typed on this screen as its first message. */
+  onStartChat?: ((text: string, project: ProjectProjection | undefined, choice: StartChoice) => void) | undefined;
+  /** The project a chat starts in when the person picks none here. */
+  startProject?: ProjectProjection | undefined;
   /** Absent when scratch chats are not available, outside the desktop app. */
   onScratchChat?: (() => void) | undefined;
 }) {
@@ -59,8 +73,10 @@ export function GridEmptyState({
   if (onStartChat)
     return (
       <StartChat
-        place={project?.name}
+        projection={projection}
+        initialProject={project ?? startProject}
         hint={closedCount > 0 ? "Or pick a chat in the sidebar to open it again." : undefined}
+        onAddFolder={onOpenProject}
         onStart={onStartChat}
       >
         {scratch}
@@ -82,25 +98,50 @@ export function GridEmptyState({
 }
 
 /**
- * The empty screen as a place to start: one question and the message box under it. Enter opens a new chat and sends
- * what was typed, so there is no New chat click before the first word.
+ * The empty screen as a place to start: one question and a message box with the same choices as a chat's, the folder
+ * and the agent with its model. Enter opens a new chat there and sends what was typed.
  */
 function StartChat({
-  place,
+  projection,
+  initialProject,
   hint,
+  onAddFolder,
   onStart,
   children,
 }: {
-  place: string | undefined;
+  projection: RuntimeProjection;
+  initialProject: ProjectProjection | undefined;
   hint: string | undefined;
-  onStart(text: string): void;
+  onAddFolder(): void;
+  onStart(text: string, project: ProjectProjection | undefined, choice: StartChoice): void;
   children?: ReactNode;
 }) {
   const [text, setText] = useState("");
+  // A folder picked here wins; until then the box follows the screen's project, such as one just added.
+  const [projectId, setProjectId] = useState<string>();
+  const [choice, setChoice] = useState<StartChoice>({});
+  const { accounts } = useAccounts();
+  const readings = useKnownPlanLimits();
+  const project =
+    projection.projects.find((candidate) => candidate.projectId === projectId) ??
+    initialProject ??
+    projection.projects[0];
+  const defaults = resolveLaunchDefaults(readAppSettings(), project?.projectId);
+  const provider = choice.provider ?? defaultAgent(projection.providers ?? [], defaults.provider)?.provider;
+  const discovery = projection.providers?.find((entry) => entry.provider === provider);
+  const models = discovery?.status === "found" ? discovery.models : undefined;
+  const model = choice.model ?? (defaults.provider === provider ? defaults.model : undefined);
+  const others = accountChoices(otherAgents(projection.providers, ""), {
+    accounts,
+    readings,
+    providers: projection.providers,
+    current: { provider: provider ?? "", accountId: choice.accountId },
+  });
+
   const send = () => {
     const typed = text.trim();
     if (!typed) return;
-    onStart(typed);
+    onStart(typed, project, { ...choice, ...(provider ? { provider } : {}), ...(model ? { model } : {}) });
     setText("");
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -108,6 +149,23 @@ function StartChat({
     event.preventDefault();
     send();
   };
+  const folderItems = (): MenuItem[] => [
+    ...projection.projects.map((candidate) => ({
+      label: candidate.name,
+      icon: "folder" as const,
+      checked: candidate.projectId === project?.projectId,
+      run: () => setProjectId(candidate.projectId),
+    })),
+    { separator: true as const },
+    {
+      label: "Add a folder…",
+      icon: "folderPlus" as const,
+      run: () => {
+        setProjectId(undefined);
+        onAddFolder();
+      },
+    },
+  ];
   return (
     <div className="start-chat">
       <h2 className="start-chat-title">What should we work on?</h2>
@@ -121,7 +179,9 @@ function StartChat({
         <textarea
           className="start-chat-input"
           aria-label="Start a chat"
-          placeholder={place ? `Describe a task or ask a question about ${place}` : "Describe a task or ask a question"}
+          placeholder={
+            project ? `Describe a task or ask a question about ${project.name}` : "Describe a task or ask a question"
+          }
           rows={2}
           // biome-ignore lint/a11y/noAutofocus: the empty screen exists to be typed into
           autoFocus
@@ -130,12 +190,32 @@ function StartChat({
           onKeyDown={onKeyDown}
         />
         <div className="start-chat-row">
-          <span className="start-chat-note">{hint ?? "Enter starts a new chat. Shift+Enter adds a line."}</span>
+          <div className="start-chat-choices">
+            <MenuButton label="Folder" items={folderItems} icon="folder" variant="ghost" className="start-chat-chip">
+              {project?.name ?? "Add a folder"}
+            </MenuButton>
+            {provider ? (
+              <AgentModelPicker
+                provider={provider}
+                agentName={providerDisplayName(provider, projection.providers)}
+                models={models}
+                model={model}
+                others={others}
+                locked={false}
+                tooltip="Agent and model"
+                onModelChange={(next) => setChoice((current) => ({ ...current, provider, model: next }))}
+                onAgentChange={(next, nextModel, accountId) =>
+                  setChoice({ provider: next, model: nextModel, ...(accountId ? { accountId } : {}) })
+                }
+              />
+            ) : null}
+          </div>
           <button type="submit" className="send-button" aria-label="Start chat" disabled={!text.trim()}>
             <Icon name="arrowUp" size={15} />
           </button>
         </div>
       </form>
+      <p className="start-chat-note">{hint ?? "Enter starts a new chat. Shift+Enter adds a line."}</p>
       {children ? <div className="start-chat-more">{children}</div> : null}
     </div>
   );

@@ -86,11 +86,11 @@
 .env-card-host:not(.is-overlay) .env-card { flex: 0 1 auto; max-height: 100%; pointer-events: auto; }
 .env-card { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: var(--zli-space-2); overflow-y: auto; scrollbar-width: thin; }
 .env-card-host.is-overlay { position: absolute; top: var(--zli-space-2); right: var(--zli-space-2); bottom: var(--zli-space-2); z-index: 4; width: auto; padding: 0; pointer-events: none; }
-.env-card-host.is-overlay .env-card { width: min(320px, calc(100cqw - 2 * var(--zli-space-2))); max-height: 100%; flex: 0 1 auto; padding: var(--zli-space-2); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xl); background: var(--zli-surface); box-shadow: 0 16px 36px -20px rgba(0, 0, 0, .9); pointer-events: auto; animation: env-card-in var(--zli-duration-base) var(--zli-ease) both; }
+.env-card-host.is-overlay .env-card { width: min(320px, calc(100cqw - 2 * var(--zli-space-2))); max-height: 100%; flex: 0 1 auto; padding: var(--zli-space-2); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xl); background: var(--zli-surface); box-shadow: var(--zli-shadow-pop); pointer-events: auto; animation: env-card-in var(--zli-duration-base) var(--zli-ease) both; }
 .env-card-close { flex: 0 0 auto; align-self: flex-end; margin-bottom: calc(-1 * var(--zli-space-1)); }
 @media (prefers-reduced-motion: reduce) { .env-card-host.is-overlay .env-card { animation: none; } }
 /* The environment itself keeps its own card look, as before the column. */
-.env-panel { display: flex; flex: 0 0 auto; flex-direction: column; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xl); background: var(--zli-raised); box-shadow: var(--zli-highlight), 0 16px 36px -20px rgba(0, 0, 0, .9); animation: env-card-in var(--zli-duration-base) var(--zli-ease) both; }
+.env-panel { display: flex; flex: 0 0 auto; flex-direction: column; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xl); background: var(--zli-raised); box-shadow: var(--zli-highlight), var(--zli-shadow-lift); animation: env-card-in var(--zli-duration-base) var(--zli-ease) both; }
 @keyframes env-card-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
 .env-card-group { display: flex; flex-direction: column; gap: 1px; padding: var(--zli-space-1-5); }
 .env-card-group + .env-card-group { border-top: 1px solid var(--zli-border); }
@@ -153,3 +153,5 @@
 .env-branch-error { margin: 2px var(--zli-space-2-5) var(--zli-space-1); }
 .env-branch-error > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .env-branch-error > .btn-icon { flex: 0 0 auto; margin: -3px -4px 0 0; }
+/* As a drawer the column is one floating card: the environment inside it sits flat, so no card floats in a card. */
+.env-card-host.is-overlay .env-panel { border-color: var(--zli-border); box-shadow: none; animation: none; }
