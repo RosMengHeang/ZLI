@@ -1,14 +1,9 @@
-import {
-  HUDDLE_AGENT_TURN_LIMIT,
-  HUDDLE_LEAD_ROUND_LIMIT,
-  ListedProviderKind,
-  READ_AGENT_CONTROL_ACTIONS,
-} from "@zli-v2/contracts";
+import { ListedProviderKind, READ_AGENT_CONTROL_ACTIONS, SERVICE_TOOL_ACTIONS } from "@zli-v2/contracts";
 
 import type { ZliBrowserCall } from "../browser-tool/client.js";
-import { createToolServer, type McpServer, type McpTool } from "../browser-tool/mcp.js";
+import { createToolServer, type McpServer, type McpTool, type ToolResult } from "../browser-tool/mcp.js";
 
-export const ZLI_AGENT_TOOL_VERSION = "1.5.0";
+export const ZLI_AGENT_TOOL_VERSION = "1.7.0";
 
 const ROOM =
   "ZLI is the app you are running in. The person sees every agent in it as a tile and can watch and steer each one.";
@@ -24,15 +19,6 @@ const AS_CALLER = {
   description:
     "Your own name or id from list_agents. ZLI knows you by your worktree, so pass this when other agents share it, such as in a folder without Git. Without it, your message goes unsigned and a new agent is not linked to you.",
 };
-
-const HUDDLE_REF = {
-  type: "string",
-  description:
-    "The huddle's name or id. Leave it out when you are in one huddle only; the result of every huddle tool names the huddle and its id.",
-};
-
-const HUDDLE =
-  "A huddle is a ZLI conversation between several agents that the person follows and can write in. The person adds agents to it, and taking an agent out ends its access.";
 
 const BUDDY_JOB =
   "For buddy jobs: ZLI gave you this job as a buddy, in your own worktree and chat. The person sees the job on the buddy's card.";
@@ -164,6 +150,51 @@ const BUDDY_TOOLS: readonly McpTool[] = [
     required: ["summary"],
   },
   {
+    name: "start_team",
+    title: "Start a team",
+    action: "buddystartteam",
+    description:
+      'For the Primary buddy: start a team on a bigger goal, such as "add dark mode with tests". You lead it: on your next turn you plan it into tasks with team_plan, the person checks the plan, each task runs as a buddy job in its own worktree and gets reviewed, and ZLI merges the branches into one team branch for you to sum up. Use assign_task instead for one job.',
+    properties: {
+      goal: { type: "string", description: "The goal, in the person's words, clear enough to plan from." },
+      buddies: {
+        type: "array",
+        items: { type: "string" },
+        description: "Buddy names from list_buddies to work on it. Leave it out to pick per task when you plan.",
+      },
+      autoStart: {
+        type: "boolean",
+        description: "Start the plan without the person checking it first. Leave it out to use their default.",
+      },
+      project: { type: "string", description: "A project name, when it is not this one." },
+    },
+    required: ["goal"],
+  },
+  {
+    name: "team_plan",
+    title: "Hand in a team plan",
+    action: "buddyteamplan",
+    description:
+      "For a team lead's planning turn: hand in the plan, a list of tasks that can run at the same time, each with a short title, the buddy to do it, and notes on what done looks like. Call it once, then call task_done and end your turn.",
+    properties: {
+      tasks: {
+        type: "array",
+        description: "Up to 12 tasks.",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "What to do, up to 200 characters." },
+            buddy: { type: "string", description: "The buddy's name, from your brief or list_buddies." },
+            notes: { type: "string", description: "What done looks like, files to look at, how to test it." },
+          },
+          required: ["title"],
+        },
+      },
+      notes: { type: "string", description: "Optional. What the person should know before the plan starts." },
+    },
+    required: ["tasks"],
+  },
+  {
     name: "set_routine",
     title: "Set up a routine",
     action: "buddyroutine",
@@ -258,100 +289,43 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     required: ["provider", "prompt"],
   },
   {
-    name: "huddle_read",
-    title: "Read huddle",
-    action: "huddleread",
-    description: `${HUDDLE} Read the huddle messages you have not read yet, with who wrote each one, to whom, and its number, plus the members. The first call returns the latest messages. Up to 50 come back at a time, oldest unread first: when moreUnread is set, call again for the rest. earlierNotShown means older messages exist; pass before with the oldest number you got to read them. Reading clears your inbox, the messages that started no turn for you.`,
+    name: "find_tools",
+    title: "Find tools in connected services",
+    action: "toolfind",
+    description:
+      'Find tools in the services the person connected in ZLI, such as Vercel, GitHub, Linear, Notion, Sentry, or a database. Search with a few words for what you want to do, such as "deploy", "list deployments", or "create issue"; each match comes with its service, name, and the arguments it takes, ready for use_tool. An empty query lists the connected services. Services connected while you work show up here at once.',
     properties: {
-      huddle: HUDDLE_REF,
-      all: { type: "boolean", description: "Return the latest messages, read or not." },
-      before: {
-        type: "integer",
-        minimum: 1,
-        description: "Return the latest messages numbered below this one, read or not, to go back through history.",
-      },
-      limit: { type: "integer", minimum: 1, maximum: 50, description: "How many messages to return. Default 50." },
-      as: AS_CALLER,
-    },
-    readOnly: true,
-  },
-  {
-    name: "huddle_post",
-    title: "Post in huddle",
-    action: "huddlepost",
-    description: `${HUDDLE} Write in the huddle. Post when you finish (kind done), are stuck (blocked), or need an answer (ask), and put everything in one post: a second post before anyone writes to you is refused unless it answers an ask, a task, or a blocker, or is the lead's next task. Do not post to acknowledge or thank. A post starts a turn only for the members it names, when it asks, assigns, reports done, or is blocked; a busy chat agent gets them together after its turn. A note, or a post to everyone, starts no turn: members see it when they next read. A chat agent's answer to an ask or a task is posted back for it. With a lead, reports reach the lead together once everyone it gave a task has reported. After agents start ${HUDDLE_AGENT_TURN_LIMIT} turns for each other, or with a lead run ${HUDDLE_LEAD_ROUND_LIMIT} rounds of reports, the huddle holds their messages until the person writes.`,
-    properties: {
-      huddle: HUDDLE_REF,
-      text: { type: "string", description: "The message, up to 8000 characters." },
-      to: {
-        type: "array",
-        items: { type: "string" },
-        description:
-          'Member names or ids to write to: name who should act. Leave it out to write to every member, or to the lead when the huddle has one. ["person"] writes to the person only.',
-      },
-      kind: {
+      query: {
         type: "string",
-        enum: ["ask", "assign", "done", "blocked", "note"],
-        description:
-          "ask wants an answer, assign hands over a task, done reports finished work, blocked asks for a decision you need, note (default) shares information and starts no turn.",
+        description: "A few words for what you want to do, or a service name. Leave empty to list the services.",
       },
-      replyTo: {
-        type: "integer",
-        minimum: 1,
-        description:
-          "The number of the message this answers. Answers to an ask, a task, or a blocker are always allowed.",
-      },
-      start: {
-        type: "object",
-        description:
-          "Start a new agent as your sub-agent, add it to the huddle, and give it this message as its task. Goes with kind assign.",
-        properties: {
-          name: {
-            type: "string",
-            description: "The new agent's name, such as tester. No other agent in the project may have it.",
-          },
-          provider: { type: "string", enum: [...ListedProviderKind.options], description: "Which agent to start." },
-          mode: { type: "string", enum: ["chat", "terminal"], description: "chat (default) or terminal." },
-          worktree: {
-            type: "string",
-            enum: ["new", "same"],
-            description: "new (default) makes a worktree on its own branch. same shares your worktree.",
-          },
-          branch: { type: "string", description: "Branch name for a new worktree." },
-          model: { type: "string", description: "Model id, when the provider offers a choice." },
-        },
-        required: ["name", "provider"],
-      },
-      as: AS_CALLER,
+      limit: { type: "number", description: "How many tools to return, 1 to 25. Defaults to 8." },
     },
-    required: ["text"],
+    readOnly: true,
   },
   {
-    name: "huddle_wait",
-    title: "Wait for huddle",
-    action: "huddlewait",
-    description: `${HUDDLE} Wait until someone else writes in the huddle, then return the new messages. Use it when you are blocked on an answer and have nothing else to do. Returns timedOut when nobody wrote in time.`,
+    name: "use_tool",
+    title: "Use a tool from a connected service",
+    action: "tooluse",
+    description:
+      "Call one tool that find_tools returned, with arguments that follow its input schema. The tool's own result comes back as it gave it.",
     properties: {
-      huddle: HUDDLE_REF,
-      timeoutSeconds: { type: "integer", minimum: 1, maximum: 600, description: "How long to wait. Default 120." },
-      as: AS_CALLER,
+      service: { type: "string", description: "The service, exactly as find_tools listed it." },
+      tool: { type: "string", description: "The tool's name, exactly as find_tools listed it." },
+      arguments: {
+        type: "object",
+        description: "The tool's arguments, following the input schema find_tools returned.",
+        additionalProperties: true,
+      },
     },
-    readOnly: true,
-  },
-  {
-    name: "huddle_decisions",
-    title: "Huddle decisions",
-    action: "huddledecisions",
-    description: `${HUDDLE} List the messages the person pinned as agreed decisions. Check them before you start work the huddle discussed.`,
-    properties: { huddle: HUDDLE_REF, as: AS_CALLER },
-    readOnly: true,
+    required: ["service", "tool"],
   },
   {
     name: "connect_service",
     title: "Ask to connect a service",
     action: "agentconnect",
     description:
-      "Ask the person to connect a service in ZLI, such as GitHub, Linear, Notion, Sentry, or Stripe, when your task needs its tools and you do not have them, or when one of its tools says it needs a sign-in. ZLI shows them a prompt to connect or sign in. The result says whether it is already connected, and what to do next: try again after a sign-in, or start a new session for a newly connected service.",
+      "Ask the person to connect a service in ZLI, such as GitHub, Linear, Notion, Sentry, or Stripe, when your task needs its tools and find_tools has none, or when one of its tools says it needs a sign-in. ZLI shows them a prompt to connect or sign in. The result says whether it is already connected, and what to do next.",
     properties: {
       service: {
         type: "string",
@@ -365,17 +339,48 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
   ...BUDDY_TOOLS,
 ];
 
-const READ_TOOL_NAMES = new Set(
-  AGENT_MCP_TOOLS.filter((tool) => READ_AGENT_CONTROL_ACTIONS.some((action) => action === tool.action)).map(
+/** Finding and using connected services' tools; the agent access setting does not limit these. */
+const SERVICE_TOOL_NAMES = new Set(
+  AGENT_MCP_TOOLS.filter((tool) => SERVICE_TOOL_ACTIONS.some((action) => action === tool.action)).map(
     (tool) => tool.name,
   ),
 );
+
+const READ_TOOL_NAMES = new Set([
+  ...SERVICE_TOOL_NAMES,
+  ...AGENT_MCP_TOOLS.filter((tool) => READ_AGENT_CONTROL_ACTIONS.some((action) => action === tool.action)).map(
+    (tool) => tool.name,
+  ),
+]);
+
+/** A use_tool result is the service's own MCP result, so it passes through instead of being wrapped as JSON. */
+function formatAgentResult(action: string, result: unknown): ToolResult {
+  if (action === "tooluse" && isRecord(result) && Array.isArray(result.content)) {
+    const content: ToolResult["content"] = result.content.flatMap((item): ToolResult["content"] => {
+      if (!isRecord(item)) return [];
+      if (item.type === "text" && typeof item.text === "string") return [{ type: "text", text: item.text }];
+      if (item.type === "image" && typeof item.data === "string" && typeof item.mimeType === "string")
+        return [{ type: "image", data: item.data, mimeType: item.mimeType }];
+      // Resources and anything newer reach the agent as their JSON.
+      return [{ type: "text", text: JSON.stringify(item) }];
+    });
+    return {
+      content: content.length > 0 ? content : [{ type: "text", text: "The tool returned nothing." }],
+      ...(result.isError === true ? { isError: true } : {}),
+    };
+  }
+  return { content: [{ type: "text", text: JSON.stringify(result ?? null) }] };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
   return createToolServer(call, {
     tools: AGENT_MCP_TOOLS,
     serverInfo: { name: "zli", title: "ZLI agents", version: ZLI_AGENT_TOOL_VERSION },
-    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. When you are in a huddle, talk there with huddle_read, huddle_post, and huddle_wait, post only when you are done, blocked, or need an answer, and follow the decisions from huddle_decisions. Refer to agents by name when they have one. An agent in another project can be named alone or as project/agent. When ZLI Settings keep agents to their own project, ZLI asks the person to allow it and the call waits for the answer. Use connect_service when you need a service such as GitHub or Linear that you have no tools for, or that needs a sign-in. When ZLI gave you a job as a buddy, finish with task_done, ask the person with ask_person, and hand parts to other buddies with hand_off.`,
+    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. Refer to agents by name when they have one. An agent in another project can be named alone or as project/agent. When ZLI Settings keep agents to their own project, ZLI asks the person to allow it and the call waits for the answer. Services the person connected in ZLI, such as Vercel, GitHub, or Linear, are reached through find_tools and use_tool: search for what you want to do, then call the tool it returns. Use connect_service when find_tools has nothing for a service you need, or a tool says it needs a sign-in. When ZLI gave you a job as a buddy, finish with task_done, ask the person with ask_person, and hand parts to other buddies with hand_off. The Primary starts a team on a bigger goal with start_team; a team lead hands in its plan with team_plan.`,
     targetProperties: {
       cwd: {
         type: "string",
@@ -384,10 +389,11 @@ export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
       },
     },
     failureMessage: "The ZLI agent action failed.",
+    formatResult: formatAgentResult,
     // Settings can limit what agents may do; listing only allowed tools keeps agents from trying the rest.
     visibleTools: async () => {
       const result = (await call("agentaccess")) as { access?: unknown } | null;
-      if (result?.access === "off") return new Set<string>();
+      if (result?.access === "off") return SERVICE_TOOL_NAMES;
       if (result?.access === "read") return READ_TOOL_NAMES;
       return undefined;
     },

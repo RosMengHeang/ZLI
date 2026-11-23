@@ -241,6 +241,10 @@ export const AGENT_ACCESS_LABELS: Record<AgentToolAccess, string> = {
   off: "Off",
 };
 
+export function setMcpToolLoading(dispatch: Dispatch, loading: McpListResult["toolLoading"]): Promise<McpListResult> {
+  return request(dispatch, { type: "mcp.toolLoading", loading });
+}
+
 export function setAgentToolScope(dispatch: Dispatch, scope: AgentToolScope): Promise<McpListResult> {
   return request(dispatch, { type: "mcp.agentScope", scope });
 }
@@ -434,6 +438,7 @@ export function useMcpServers(): {
   save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
   setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
   setAgentScope(scope: AgentToolScope): Promise<McpListResult>;
+  setToolLoading(loading: McpListResult["toolLoading"]): Promise<McpListResult>;
   /** Signs in and resolves once it is saved. Rejects with the problem, or SIGN_IN_CANCELED. */
   signIn(name: string): Promise<void>;
   cancelSignIn(name: string): void;
@@ -566,6 +571,15 @@ export function useMcpServers(): {
     [dispatch],
   );
 
+  const setToolLoading = useCallback(
+    async (loading: McpListResult["toolLoading"]) => {
+      const result = await setMcpToolLoading(dispatch, loading);
+      setState({ status: "ready", result });
+      return result;
+    },
+    [dispatch],
+  );
+
   const test = useCallback(
     async (name: string) => {
       setTesting((current) => ({ ...current, [name]: true }));
@@ -599,6 +613,7 @@ export function useMcpServers(): {
     save,
     setAgentAccess,
     setAgentScope,
+    setToolLoading,
     signIn,
     cancelSignIn,
     reopenSignIn,

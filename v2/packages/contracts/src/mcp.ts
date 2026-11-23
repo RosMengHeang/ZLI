@@ -136,12 +136,43 @@ export const McpServerList = z
     });
   });
 
+/**
+ * How agents get the tools of the servers in Settings. on-demand: every agent gets only ZLI's own server, which
+ * finds and calls the others' tools when asked, so a server connected mid-chat works at once and tool lists cost
+ * no context. upfront: every agent gets each server's whole tool list when it starts.
+ */
+export const McpToolLoading = z.enum(["on-demand", "upfront"]);
+export type McpToolLoading = z.infer<typeof McpToolLoading>;
+export const DEFAULT_MCP_TOOL_LOADING: McpToolLoading = "on-demand";
+
+/** Arguments for one tool call, as the tool's input schema describes them. */
+const ToolArguments = z.record(z.string(), z.unknown());
+
 /** Handled directly by the runtime server; none of these reach the event log. */
 export const McpCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("mcp.list") }),
   z.object({ type: z.literal("mcp.save"), servers: McpServerList }),
   z.object({ type: z.literal("mcp.agentAccess"), access: AgentToolAccess }),
   z.object({ type: z.literal("mcp.agentScope"), scope: AgentToolScope }),
+  z.object({ type: z.literal("mcp.toolLoading"), loading: McpToolLoading }),
+  /**
+   * Finds tools across the servers an agent in `worktreeId` may use, for the on-demand gateway. An empty query
+   * lists the servers. Replies with McpToolsFindResult.
+   */
+  z.object({
+    type: z.literal("mcp.tools.find"),
+    worktreeId: z.string().min(1).max(100).optional(),
+    query: z.string().max(300),
+    limit: z.number().int().min(1).max(25).optional(),
+  }),
+  /** Calls one tool through the gateway. Replies with McpToolsCallResult. */
+  z.object({
+    type: z.literal("mcp.tools.call"),
+    worktreeId: z.string().min(1).max(100).optional(),
+    server: z.string().min(1).max(100),
+    tool: z.string().min(1).max(MAX_MCP_TOOL_NAME),
+    arguments: ToolArguments.optional(),
+  }),
   /** Starts signing in to a sign-in server; replies with McpSignInStart. */
   z.object({ type: z.literal("mcp.signIn"), name: ServerName }),
   /** Replies with McpListResult once the browser sign-in is saved. */
@@ -166,6 +197,9 @@ export const MCP_COMMAND_TYPES = [
   "mcp.save",
   "mcp.agentAccess",
   "mcp.agentScope",
+  "mcp.toolLoading",
+  "mcp.tools.find",
+  "mcp.tools.call",
   "mcp.signIn",
   "mcp.signIn.wait",
   "mcp.signIn.cancel",
@@ -252,13 +286,59 @@ export const McpListResult = z.object({
   agentAccess: AgentToolAccess,
   /** Which projects' agents the `zli` server can see. Older runtimes leave it out, which means the caller's project. */
   agentScope: AgentToolScope.default("project"),
+  /** Older runtimes leave it out; they gave agents every tool up front. */
+  toolLoading: McpToolLoading.default("upfront"),
   signIns: z.array(McpSignInState).default([]),
   /** Results of mcp.test since ZLI started. */
   health: z.array(McpServerHealth).default([]),
   /** Set when the saved list could not be read; saving replaces it. */
   problem: z.string().optional(),
+  /**
+   * How server keys and headers are kept on disk. sealed: encrypted with a key in the OS keychain. unreadable:
+   * servers whose saved values could not be opened (another computer's keychain), so they need entering again.
+   * Older runtimes leave it out.
+   */
+  secrets: z.object({ sealed: z.boolean(), unreadable: z.array(z.string().max(200)).max(200).default([]) }).optional(),
 });
 export type McpListResult = z.infer<typeof McpListResult>;
+
+/** One server as the gateway sees it right now. */
+export const McpGatewayService = z.object({
+  name: z.string(),
+  status: z.enum(["ready", "needs_sign_in", "error"]),
+  toolCount: z.number().int().min(0),
+  problem: z.string().optional(),
+});
+export type McpGatewayService = z.infer<typeof McpGatewayService>;
+
+/** A tool the gateway found, with what an agent needs to call it. */
+export const McpGatewayTool = z.object({
+  server: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  /** The tool's JSON Schema for its arguments. */
+  inputSchema: z.unknown().optional(),
+  /** The server says the tool only reads. */
+  readOnly: z.boolean().optional(),
+});
+export type McpGatewayTool = z.infer<typeof McpGatewayTool>;
+
+/** Reply to mcp.tools.find. */
+export const McpToolsFindResult = z.object({
+  services: z.array(McpGatewayService),
+  tools: z.array(McpGatewayTool),
+  /** What to do next, in one or two sentences, when there is nothing to show or something needs the person. */
+  hint: z.string().optional(),
+});
+export type McpToolsFindResult = z.infer<typeof McpToolsFindResult>;
+
+/** Reply to mcp.tools.call: the tool's own MCP result, passed through. */
+export const McpToolsCallResult = z.object({
+  content: z.array(z.record(z.string(), z.unknown())),
+  isError: z.boolean().optional(),
+  structuredContent: z.unknown().optional(),
+});
+export type McpToolsCallResult = z.infer<typeof McpToolsCallResult>;
 
 /** Reply to mcp.signIn: either done already, or a page to open (with a code to enter for GitHub). */
 export const McpSignInStart = z.discriminatedUnion("status", [
