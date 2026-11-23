@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -385,6 +385,21 @@ describe("copying files from another worktree", () => {
     await expect(service.copyFrom(from, to, ["ok.txt", "dir"])).rejects.toThrow("is a folder or a link");
     await expect(readFile(join(to, "ok.txt"), "utf8")).rejects.toThrow();
     await Promise.all([rm(from, { recursive: true, force: true }), rm(to, { recursive: true, force: true })]);
+  });
+
+  it("refuses a path under a linked folder, so nothing outside the worktree is written or deleted", async () => {
+    const { from, to } = await folders();
+    const outside = await mkdtemp(join(tmpdir(), "zli-outside-"));
+    await writeFile(join(outside, "settings.json"), "outside\n");
+    await mkdir(join(from, ".claude"));
+    await writeFile(join(from, ".claude", "settings.json"), "from\n");
+    // A junction on Windows needs no extra rights; elsewhere it is an ordinary directory link.
+    await symlink(outside, join(to, ".claude"), "junction");
+    await expect(new GitChangesService().copyFrom(from, to, [".claude/settings.json"])).rejects.toThrow(
+      "is a folder or a link",
+    );
+    expect(await readFile(join(outside, "settings.json"), "utf8")).toBe("outside\n");
+    await Promise.all([from, to, outside].map((folder) => rm(folder, { recursive: true, force: true })));
   });
 
   it("only copies between ready worktrees of the same project", async () => {

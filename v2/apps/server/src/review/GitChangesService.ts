@@ -207,8 +207,8 @@ export class GitChangesService {
     for (const path of paths) assertChangePath(path);
     const plan: { path: string; copy: boolean }[] = [];
     for (const path of new Set(paths)) {
-      const source = await entryKind(join(fromCwd, path));
-      const target = await entryKind(join(cwd, path));
+      const source = await entryKind(fromCwd, path);
+      const target = await entryKind(cwd, path);
       if (source === "other" || target === "other") {
         throw new GitChangesError(`${path} is a folder or a link, so ZLI cannot copy it. Copy it by hand.`);
       }
@@ -309,9 +309,18 @@ export async function runGitChangesCommand(
   }
 }
 
-async function entryKind(path: string): Promise<"file" | "missing" | "other"> {
+/**
+ * What `path` is inside `root`, checking every folder on the way: a linked folder anywhere along the path counts
+ * as "other", so a copy never follows it out of the worktree.
+ */
+async function entryKind(root: string, path: string): Promise<"file" | "missing" | "other"> {
+  const parts = path.split("/");
   try {
-    const info = await lstat(path);
+    for (let depth = 1; depth < parts.length; depth += 1) {
+      const folder = await lstat(join(root, ...parts.slice(0, depth)));
+      if (!folder.isDirectory()) return "other";
+    }
+    const info = await lstat(join(root, ...parts));
     return info.isFile() ? "file" : "other";
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ENOTDIR") {
