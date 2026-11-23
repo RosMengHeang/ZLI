@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import type { DevServerProjection, RpcResponse, TerminalProjection } from "@zli-v2/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 

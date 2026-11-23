@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { CommandId, EnvironmentId, type RuntimeProjection } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
