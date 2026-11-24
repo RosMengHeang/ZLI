@@ -87,6 +87,8 @@ export type AppSettings = {
   /** Per-project overrides, keyed by project id. */
   projects: Record<string, LaunchDefaults>;
   branchTemplate: string;
+  /** How new worktrees are made and cleaned up. */
+  worktrees: WorktreePrefs;
   /** Only the shortcuts the person changed. */
   shortcuts: Partial<Record<ShortcutId, string>>;
   fileTreePosition: FileTreePosition;
@@ -168,10 +170,32 @@ export type WindowLayout = "columns" | "classic";
 export type SidebarView = "activity" | "projects";
 export type ChatTint = "card" | "selection" | "none";
 
+export type WorktreePrefs = {
+  /** A folder that holds every project's worktrees, one subfolder per project. Unset: next to each project. */
+  location?: string;
+  /** Fetch the base branch first and start from its remote copy. */
+  fromRemote: boolean;
+  /** Deleting an agent offers to remove its worktree too, ticked from the start. */
+  removeWithAgent: boolean;
+};
+
+export const DEFAULT_WORKTREE_PREFS: WorktreePrefs = { fromRemote: false, removeWithAgent: false };
+
+export function parseWorktreePrefs(value: unknown): WorktreePrefs {
+  if (!isRecord(value)) return { ...DEFAULT_WORKTREE_PREFS };
+  const location = typeof value.location === "string" ? value.location.trim().slice(0, 500) : "";
+  return {
+    ...(location ? { location } : {}),
+    fromRemote: value.fromRemote === true,
+    removeWithAgent: value.removeWithAgent === true,
+  };
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   defaults: {},
   projects: {},
   branchTemplate: DEFAULT_BRANCH_TEMPLATE,
+  worktrees: DEFAULT_WORKTREE_PREFS,
   shortcuts: {},
   fileTreePosition: "right",
   sidebarLimits: { enabled: true, hidden: [] },
@@ -294,6 +318,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     defaults: parseDefaults(value.defaults),
     projects,
     branchTemplate: template,
+    worktrees: parseWorktreePrefs(value.worktrees),
     shortcuts,
     fileTreePosition: value.fileTreePosition === "left" ? "left" : "right",
     sidebarLimits: parseSidebarLimits(value.sidebarLimits),

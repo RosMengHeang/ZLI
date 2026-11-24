@@ -7,6 +7,7 @@ import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { ConnectorLogo } from "./connectorLogos.js";
+import { IssuesGroup } from "./IssuesSection.js";
 import { SettingsGroup, SettingsPageHeader } from "./SettingsLayout.js";
 import "../forges/forges.css";
 
@@ -92,7 +93,10 @@ function ForgeRow({ forge }: { forge: ForgeCliStatus }) {
   );
 }
 
-/** Settings → Forges: each forge's CLI, whether it is installed and signed in, and how to fix it when not. */
+/**
+ * Settings → Forges: each forge's CLI, whether it is installed and signed in, and how to fix it when not, then the
+ * issue trackers agents can start from.
+ */
 export function ForgesSection() {
   const { dispatch } = useRuntime();
   const [status, setStatus] = useState<ForgeStatusResult>();
@@ -128,8 +132,8 @@ export function ForgesSection() {
   return (
     <>
       <SettingsPageHeader title="Forges">
-        Where your repositories are hosted. ZLI drives each forge through its own CLI, signed in with your account, and
-        picks the right one from a project's Git remote.
+        Where your repositories and issues live. ZLI drives each forge through its own CLI, signed in with your account,
+        and picks the right one from a project's Git remote.
       </SettingsPageHeader>
       <SettingsGroup
         title="Command-line tools"
@@ -162,6 +166,7 @@ export function ForgesSection() {
       <p className="forge-footnote">
         Gitea covers Forgejo and Codeberg too. Self-hosted servers work once their CLI is signed in to them.
       </p>
+      <IssuesGroup />
     </>
   );
 }

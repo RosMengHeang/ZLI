@@ -2,6 +2,7 @@ import { MAX_AGENT_NAME_LENGTH, type RuntimeProjection, type WorktreeProjection 
 import { useId, useRef, useState } from "react";
 
 import type { AgentSession } from "../sessions/sessions.js";
+import { readAppSettings } from "../settings/appSettings.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
@@ -71,7 +72,11 @@ export function DeleteAgentDialog({
   onDelete(removeWorktree: boolean): void;
   onCancel(): void;
 }) {
-  const [removeWorktree, setRemoveWorktree] = useState(false);
+  // Settings → Worktrees can tick this from the start, but only for a worktree this agent alone uses: a shared one or
+  // the project's own folder is never offered for removal.
+  const [removeWorktree, setRemoveWorktree] = useState(
+    () => worktree !== undefined && readAppSettings().worktrees.removeWithAgent,
+  );
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <Dialog
@@ -105,7 +110,7 @@ export function DeleteAgentDialog({
         <Button ref={cancelRef} onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="danger" onClick={() => onDelete(removeWorktree)}>
+        <Button variant="danger" onClick={() => onDelete(worktree !== undefined && removeWorktree)}>
           {removeWorktree ? "Delete agent and worktree" : "Delete agent"}
         </Button>
       </div>

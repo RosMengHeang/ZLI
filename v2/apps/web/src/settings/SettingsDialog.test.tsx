@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import type { RuntimeProjection } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -91,6 +92,7 @@ describe("SettingsDialog", () => {
     expect(settingsPageFor("agents")).toBe("general");
     expect(settingsPageFor("files")).toBe("general");
     expect(settingsPageFor("notifications")).toBe("general");
+    expect(settingsPageFor("issues")).toBe("forges");
     expect(settingsPageFor("usage")).toBe("usage");
   });
 
@@ -252,5 +254,155 @@ describe("Usage in the sidebar, on the Providers page", () => {
       "Show plan limits",
       "Compact chats automatically",
     ]);
+  });
+});
+
+describe("Projects page", () => {
+  const projection = {
+    projects: [
+      { projectId: "00000000-0000-4000-8000-000000000a01", name: "web", path: "C:/code/web" },
+      { projectId: "00000000-0000-4000-8000-000000000a02", name: "api", path: "C:/code/api" },
+    ],
+    worktrees: [],
+    threads: [],
+    terminals: [],
+    browserTabs: [],
+    attention: [],
+    providers: [],
+    lastSequence: 1,
+  } as unknown as RuntimeProjection;
+
+  async function openProjects(onRemoveProject = vi.fn(async () => undefined)) {
+    const commands: Record<string, unknown>[] = [];
+    const dispatch = vi.fn(async (request: { commandId: string; command: Record<string, unknown> }) => {
+      commands.push(request.command);
+      const result =
+        request.command.type === "project.config"
+          ? { status: "valid", config: { version: 1, worktree: { copy: [".env"], setup: ["pnpm install"] } } }
+          : {};
+      return { commandId: request.commandId, accepted: true, result };
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        <RuntimeProvider bridge={{ runtime: { ...bridge.runtime, dispatch } } as unknown as ZliBridge}>
+          <SettingsDialog
+            projection={projection}
+            initialSection="projects"
+            notifications={{ settings: undefined, update: () => undefined }}
+            onRemoveProject={onRemoveProject}
+            onClose={() => undefined}
+          />
+        </RuntimeProvider>,
+      );
+    });
+    return { container, onRemoveProject, commands };
+  }
+
+  const buttonNamed = (container: HTMLElement, name: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.getAttribute("aria-label") === name || button.textContent?.trim() === name,
+    );
+  const groupTitles = (container: HTMLElement) =>
+    [...container.querySelectorAll(".settings-group-title")].map((node) => node.textContent);
+
+  it("lists the folders, and opening one shows its own page", async () => {
+    const { container } = await openProjects();
+    expect([...container.querySelectorAll(".project-name")].map((node) => node.textContent)).toEqual(["web", "api"]);
+    expect(groupTitles(container)).toEqual(["Folders"]);
+    await act(async () => container.querySelectorAll<HTMLButtonElement>(".project-open")[1]?.click());
+    expect(container.querySelector(".settings-page-title")?.textContent).toBe("api");
+    expect(groupTitles(container)).toEqual(["Project", "New worktrees", "Agent defaults", "Remove"]);
+    const codes = [...container.querySelectorAll(".project-config-list code")].map((node) => node.textContent);
+    expect(codes).toEqual([".env", "pnpm install"]);
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-page-back button")?.click());
+    expect(container.querySelector(".settings-page-title")?.textContent).toBe("Projects");
+  });
+
+  it("renames a project from its page", async () => {
+    const { container, commands } = await openProjects();
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-open")?.click());
+    const input = container.querySelector<HTMLInputElement>(".setting-row input.input");
+    expect(input?.value).toBe("web");
+    await act(async () => {
+      if (input) type(input, "website");
+      input?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(commands.at(-1)).toEqual({
+      type: "project.rename",
+      projectId: "00000000-0000-4000-8000-000000000a01",
+      name: "website",
+    });
+  });
+
+  it("asks before removing, then goes back to the list", async () => {
+    const { container, onRemoveProject } = await openProjects();
+    await act(async () => container.querySelectorAll<HTMLButtonElement>(".project-open")[1]?.click());
+    await act(async () => buttonNamed(container, "Remove")?.click());
+    expect(container.querySelector(".project-remove-title")?.textContent).toBe("Remove api from ZLI?");
+    expect(onRemoveProject).not.toHaveBeenCalled();
+    const confirm = [...container.querySelectorAll<HTMLButtonElement>(".project-remove-actions button")].at(-1);
+    await act(async () => confirm?.click());
+    expect(onRemoveProject).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000a02");
+    expect(container.querySelector(".settings-done")?.textContent).toContain("Removed api from ZLI.");
+  });
+});
+
+describe("Worktrees page", () => {
+  async function openWorktrees() {
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        <RuntimeProvider bridge={bridge}>
+          <SettingsDialog
+            projection={undefined}
+            initialSection="worktrees"
+            notifications={{ settings: undefined, update: () => undefined }}
+            onClose={() => undefined}
+          />
+        </RuntimeProvider>,
+      );
+    });
+    return container;
+  }
+
+  const switchNamed = (container: HTMLElement, label: string) =>
+    [...container.querySelectorAll<HTMLInputElement>('input[role="switch"]')].find(
+      (input) => input.closest("label")?.querySelector(".switch-label")?.textContent === label,
+    );
+
+  it("saves where worktrees go, where they start, and how they are cleaned up", async () => {
+    const container = await openWorktrees();
+
+    const location = container.querySelector<HTMLInputElement>('input[placeholder="Next to each project"]');
+    await act(async () => {
+      if (location) type(location, "relative/path");
+    });
+    expect(readAppSettings().worktrees.location).toBeUndefined();
+    expect(container.textContent).toContain("Use a full path");
+    await act(async () => {
+      if (location) type(location, "D:/worktrees");
+    });
+    expect(readAppSettings().worktrees.location).toBe("D:/worktrees");
+
+    await act(async () => switchNamed(container, "Start from the remote")?.click());
+    expect(readAppSettings().worktrees.fromRemote).toBe(true);
+    await act(async () => switchNamed(container, "Remove the worktree with its agent")?.click());
+    expect(readAppSettings().worktrees.removeWithAgent).toBe(true);
+  });
+
+  it("adds a part to the branch template when its button is clicked", async () => {
+    updateAppSettings((current) => ({ ...current, branchTemplate: "zli/{agent}" }));
+    const container = await openWorktrees();
+    const date = [...container.querySelectorAll<HTMLButtonElement>(".branch-token")].find(
+      (button) => button.textContent === "{date}",
+    );
+    await act(async () => date?.click());
+    expect(readAppSettings().branchTemplate).toBe("zli/{agent}-{date}");
+    expect(date?.disabled).toBe(true);
   });
 });

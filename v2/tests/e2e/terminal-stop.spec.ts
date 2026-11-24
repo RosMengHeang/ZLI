@@ -64,9 +64,10 @@ test("removing a project with a shell open ends the shell without waiting out a 
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
     await settings.getByRole("tab", { name: "Projects" }).click();
-    await settings.getByRole("button", { name: "Remove repo" }).click();
-    const started = Date.now();
+    await settings.locator(".project-open").first().click();
     await settings.getByRole("button", { name: "Remove", exact: true }).click();
+    const started = Date.now();
+    await settings.locator(".project-remove-actions").getByRole("button", { name: "Remove", exact: true }).click();
     await expect(settings).toContainText("Removed repo from ZLI.", { timeout: 15_000 });
     // The app gives running shells 8 seconds to exit before it removes the project anyway.
     expect(Date.now() - started).toBeLessThan(6_000);

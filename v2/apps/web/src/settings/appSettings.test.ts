@@ -33,6 +33,7 @@ describe("app settings", () => {
       defaults: { provider: "codex", model: "gpt-5" },
       projects: { b: { permissionMode: "supervised" } },
       branchTemplate: "{agent}-{random}",
+      worktrees: { fromRemote: false, removeWithAgent: false },
       shortcuts: { newAgent: "Mod+Shift+N" },
       fileTreePosition: "right",
       sidebarLimits: { enabled: true, hidden: ["codex"] },

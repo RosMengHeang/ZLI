@@ -118,6 +118,28 @@ export function foundLabel(skill: Pick<FoundSkill, "agents" | "dir">): string {
   return rest.length > 0 ? `Found in ${name} +${rest.length}` : `Found in ${name}`;
 }
 
+/**
+ * The agents a managed skill reaches. ZLI copies your skills into each worktree's `.agents/skills` and
+ * `.claude/skills`; project skills sit only in the repository's `.agents/skills`.
+ */
+export function skillReaders(scope: "user" | "project"): ListedProviderKind[] {
+  const dirs = scope === "user" ? [PROJECT_SKILLS_DIR, ".claude/skills"] : [PROJECT_SKILLS_DIR];
+  return ProviderKind.options.filter((agent) => dirs.some((dir) => AGENT_SKILL_DIRS[agent].project.includes(dir)));
+}
+
+/** A short chip for a list of agents: "All agents" when every agent ZLI runs is in it, else "3 agents". */
+export function readersLabel(agents: readonly ListedProviderKind[]): string {
+  if (agents.length === ProviderKind.options.length) return "All agents";
+  return agents.length === 1 ? "1 agent" : `${agents.length} agents`;
+}
+
+/** Whether a skill's name or description contains every word of a search, ignoring case. */
+export function skillMatches(skill: { name: string; description: string }, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/u).filter(Boolean);
+  const haystack = `${skill.name} ${skill.description}`.toLowerCase();
+  return words.every((word) => haystack.includes(word));
+}
+
 /** Agents that do not read the project's `.agents/skills`, so its skills do not reach them. */
 export function projectSkillGaps(): Array<{ agent: ListedProviderKind; dirs: readonly string[] }> {
   return ProviderKind.options
