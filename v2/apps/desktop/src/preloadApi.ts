@@ -54,6 +54,7 @@ import {
   MobileStreamInfo,
   MobileWifiConnectInput,
   MobileWifiPairInput,
+  MobileWifiQrPairInput,
   MobileWifiResult,
   OpenInApp,
   OpenInRequest,
@@ -114,6 +115,12 @@ function createMobileApi(ipc: PreloadIpc) {
     /** Pairs with a phone's Wireless debugging code, then connects to it. */
     pairWifi: async (input: MobileWifiPairInput) =>
       MobileWifiResult.parse(await ipc.invoke("zli:mobile:wifi-pair", MobileWifiPairInput.parse(input))),
+    /** Waits for a phone to scan the pairing QR code, then pairs and connects to it. */
+    pairWifiQr: async (input: MobileWifiQrPairInput) =>
+      MobileWifiResult.parse(await ipc.invoke("zli:mobile:wifi-pair-qr", MobileWifiQrPairInput.parse(input))),
+    cancelWifiQr: async () => {
+      await ipc.invoke("zli:mobile:wifi-pair-qr-cancel");
+    },
     connectWifi: async (input: MobileWifiConnectInput) =>
       MobileWifiResult.parse(await ipc.invoke("zli:mobile:wifi-connect", MobileWifiConnectInput.parse(input))),
     /** Only for a phone connected over Wi-Fi. */
