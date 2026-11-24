@@ -64,6 +64,7 @@ import { PromptsDialog } from "../prompts/PromptsDialog.js";
 import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.js";
 import { PullRequestPane } from "../review/PullRequestPane.js";
 import { PullRequestsPage } from "../review/PullRequestsPage.js";
+import { copyFilesFrom } from "../review/pullRequestClient.js";
 import { usePullRequestEntries, usePullRequestPolling } from "../review/pullRequestStore.js";
 import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
@@ -73,8 +74,8 @@ import { makeCommandId } from "../runtime/commandId.js";
 import { RuntimeProvider, useRuntime, useShellProjection } from "../runtime/RuntimeProvider.js";
 import { AgentTile } from "../sessions/AgentTile.js";
 import { keepRunCleanup, planRuns, type RunGroup, runPosition, withoutRun } from "../sessions/bestOf.js";
-import { CompareRunsDialog } from "../sessions/CompareRunsDialog.js";
-import { archiveChatOnce } from "../sessions/chatArchive.js";
+import { CompareRunsDialog, type KeepParts } from "../sessions/CompareRunsDialog.js";
+import { archiveChatOnce, useArchivedChats } from "../sessions/chatArchive.js";
 import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
 import type { HandoffRequest } from "../sessions/HandoffDialog.js";
 import { canHandOff, inlineFirstMessage, recentContextMessage } from "../sessions/handoff.js";
@@ -282,7 +283,7 @@ function WorkspaceApp() {
   }>();
   const [handoffRequest, setHandoffRequest] = useState<AgentSession>();
   const [compareGroupId, setCompareGroupId] = useState<string>();
-  const [keepRequest, setKeepRequest] = useState<{ group: RunGroup; session: AgentSession }>();
+  const [keepRequest, setKeepRequest] = useState<{ group: RunGroup; session: AgentSession; parts?: KeepParts }>();
   const [version, setVersion] = useState<string>();
   const [browserReveal, setBrowserReveal] = useState<BrowserReveal>();
   const [browserOpen, setBrowserOpen] = useState<BrowserOpenRequest>();
@@ -1543,8 +1544,25 @@ function WorkspaceApp() {
     return undefined;
   };
 
-  const keepRun = async (group: RunGroup, kept: AgentSession) => {
+  /** The newest best-of group started from this chat, for the line at the top of the chat. */
+  const runsCardFor = (sessionId: string) => {
+    const group = workbench.groups.filter((entry) => entry.sourceSessionId === sessionId).at(-1);
+    if (!group) return undefined;
+    const done = group.sessionIds.filter((id) => (runStates.get(id) ?? "running") !== "running").length;
+    return { done, count: group.sessionIds.length, onCompare: () => setCompareGroupId(group.groupId) };
+  };
+
+  const keepRun = async (group: RunGroup, kept: AgentSession, parts: KeepParts = []) => {
     setKeepRequest(undefined);
+    // Files from the other runs go in first; if a copy fails, nothing is deleted and Compare stays open.
+    for (const part of parts) {
+      try {
+        await copyFilesFrom(dispatch, kept.worktreeId, part.from.worktreeId, part.paths);
+      } catch (cause) {
+        showError(cause instanceof Error ? cause.message : "The files could not be copied. Nothing was deleted.");
+        return;
+      }
+    }
     setCompareGroupId(undefined);
     const current = projectionRef.current;
     if (!current) return;
@@ -3320,7 +3338,7 @@ function WorkspaceApp() {
           </Suspense>
         ) : null}
 
-        {compareGroup && !keepRequest ? (
+        {compareGroup ? (
           <CompareRunsDialog
             group={compareGroup}
             sessions={sessions}
@@ -3331,6 +3349,14 @@ function WorkspaceApp() {
               setReviewFocus(undefined);
             }}
             onKeep={(session) => setKeepRequest({ group: compareGroup, session })}
+            onKeepParts={(session, parts) => setKeepRequest({ group: compareGroup, session, parts })}
+            onOpenPreview={(session, url) => {
+              // The browser page is drawn over the window, so Compare closes to show it.
+              setCompareGroupId(undefined);
+              focusSession(session);
+              setBrowserOpen({ url, worktreeId: session.worktreeId, key: Date.now() });
+              setSidePane("browser");
+            }}
             onClose={() => setCompareGroupId(undefined)}
           />
         ) : null}
@@ -3345,7 +3371,14 @@ function WorkspaceApp() {
                 branch: worktree?.branch,
               }),
             )}
-            onKeep={() => void keepRun(keepRequest.group, keepRequest.session)}
+            brought={(keepRequest.parts ?? []).flatMap(({ from, paths }) =>
+              paths.map((path) => ({
+                path,
+                from: `run ${keepRequest.group.sessionIds.indexOf(from.sessionId) + 1}`,
+              })),
+            )}
+            stacked={compareGroup !== undefined}
+            onKeep={() => void keepRun(keepRequest.group, keepRequest.session, keepRequest.parts)}
             onCancel={() => setKeepRequest(undefined)}
           />
         ) : null}

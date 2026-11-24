@@ -79,11 +79,12 @@ test("sends a message as Best of N, compares the runs, and keeps one", async () 
     const compare = page.getByRole("dialog", { name: "Compare runs" });
     const first = compare.getByRole("listitem", { name: "Run 1" });
     const second = compare.getByRole("listitem", { name: "Run 2" });
-    for (const column of [first, second]) {
+    for (const [index, column] of [first, second].entries()) {
       await expect(column).toContainText("Codex");
       await expect(column).toContainText("Done");
       await expect(column).toContainText("1 file");
-      await expect(column.getByRole("button", { name: "View diff" })).toBeEnabled();
+      // Each run lists the files it changed.
+      await expect(column.getByRole("list", { name: `Files run ${index + 1} changed` })).toContainText("plan.md");
     }
 
     const runs = await runWorktrees(page);
