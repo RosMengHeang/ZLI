@@ -56,6 +56,7 @@ export function PullRequestSection({
   worktree,
   base,
   checkKey,
+  reviewedAt,
   onCommitFirst,
   onShowAgent,
   onMerged,
@@ -64,6 +65,8 @@ export function PullRequestSection({
   /** Base branch the person chose for merging, if any; the dialog starts with it. */
   base: string | undefined;
   checkKey: number;
+  /** When Changes last read the branch: an open, untouched Create dialog reads it again then. */
+  reviewedAt?: string | undefined;
   onCommitFirst(): void;
   onShowAgent?: ((sessionId: string, mode: SessionMode) => void) | undefined;
   onMerged?: ((result: PullRequestMergeResult) => void) | undefined;
@@ -373,6 +376,7 @@ export function PullRequestSection({
             worktree={worktree}
             base={base}
             forge={status?.forge}
+            reloadKey={reviewedAt}
             onClose={() => setDialogOpen(false)}
             onCreated={(created) => recordPullRequest(worktreeId, created)}
             onCommitFirst={() => {

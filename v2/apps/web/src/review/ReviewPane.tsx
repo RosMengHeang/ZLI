@@ -631,6 +631,7 @@ export function ReviewPane({
               worktree={worktree}
               base={targetTouched ? targetRef.trim() || undefined : undefined}
               checkKey={prCheckKey}
+              reviewedAt={review?.updatedAt}
               onCommitFirst={() => commitRef.current?.focus()}
               onShowAgent={onShowAgent}
               onMerged={(result) => {
@@ -740,6 +741,7 @@ export function ReviewPane({
             worktree={worktree}
             base={targetTouched ? targetRef.trim() || undefined : undefined}
             checkKey={prCheckKey}
+            reviewedAt={review?.updatedAt}
             onCommitFirst={() => commitRef.current?.focus()}
             onShowAgent={onShowAgent}
             onMerged={(result) => {
