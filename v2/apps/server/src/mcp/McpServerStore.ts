@@ -816,7 +816,11 @@ export function openSecrets(
       const text = box?.open(value);
       if (text === undefined) {
         lost = true;
-        if (typeof server.name === "string") (locked[server.name] ??= {})[`${field}.${key}`] = value;
+        if (typeof server.name === "string") {
+          const kept = locked[server.name] ?? {};
+          kept[`${field}.${key}`] = value;
+          locked[server.name] = kept;
+        }
       }
       return text ?? "";
     };
