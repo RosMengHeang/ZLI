@@ -46,7 +46,7 @@ export function AgentReachDialog({
         <p className="setup-note">
           Allowing this lets every agent find, read, and message agents in all your projects, by name.
         </p>
-        <p className="setup-note">You can turn it off again in Settings, under Agent messages.</p>
+        <p className="setup-note">You can turn it off again in Settings, under Agents.</p>
         {error ? (
           <p className="inline-error" role="alert">
             <Icon name="alert" size={13} />
