@@ -471,6 +471,9 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
       const goal = requireTeam(projection, command.goalId);
       if (goal.team.phase !== "working")
         throw new DomainError("plan_started", "Tasks can be added while the team is working.");
+      // A stopped team keeps its phase, but starts no more work.
+      if (goal.status === "done" || goal.status === "stopped")
+        throw new DomainError("goal_closed", "This team was stopped. Start a new goal to add work.");
       if (goal.team.plan.length >= MAX_TEAM_TASKS)
         throw new DomainError("plan_full", `A team plan holds up to ${MAX_TEAM_TASKS} tasks.`);
       if (goal.team.plan.some((item) => item.planTaskId === command.task.planTaskId)) return [];

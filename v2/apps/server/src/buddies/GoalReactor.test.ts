@@ -333,6 +333,16 @@ describe("GoalReactor teams", () => {
     ]);
     expect(stepped.tasks?.find((task) => task.taskId === "q4")?.status).toBe("queued");
     expect(stepped.tasks?.find((task) => task.taskId === "q3")?.status).toBe("cancelled");
+
+    // A working team that was stopped takes no new task, so no more work starts.
+    await send(engine, { type: "goal.stop", goalId: "t2" });
+    const stoppedAdd = await send(engine, {
+      type: "goal.task.add",
+      goalId: "t2",
+      task: { planTaskId: "q9", title: "Late task", buddyId: "b2" },
+    });
+    expect(stoppedAdd.status).toBe("rejected");
+    expect((await engine.projection()).tasks?.some((task) => task.taskId === "q9")).toBe(false);
   });
 
   it("asks the person when the lead's planning turn hands in no plan", async () => {
