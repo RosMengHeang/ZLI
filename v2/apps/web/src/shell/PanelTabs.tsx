@@ -207,14 +207,11 @@ export function PanelTabs({
               </button>
             </div>,
             slots?.[tab.id] ? (
-              <span
+              <PanelSlot
                 key={`${tab.id}-slot`}
                 className={`panel-strip-slot is-${tab.id}${on ? " is-active" : ""}`}
-                ref={slots[tab.id]}
-                onClickCapture={(event) => {
-                  if (on || !(event.target instanceof Element) || event.target.closest('[class$="-close"]')) return;
-                  onSelect(tab.id);
-                }}
+                host={slots[tab.id]}
+                onPick={on ? undefined : () => onSelect(tab.id)}
               />
             ) : null,
           ];
@@ -324,4 +321,36 @@ export function PanelStart({ items }: { items: readonly LauncherItem[] }) {
       </ul>
     </div>
   );
+}
+
+/**
+ * Where a pane puts its own tabs (open files, shells). Those tabs are portaled in, so their React events follow the
+ * pane, not this strip: a native listener on the host is what sees a click and brings the pane to the front.
+ */
+function PanelSlot({
+  className,
+  host,
+  onPick,
+}: {
+  className: string;
+  host: Ref<HTMLSpanElement> | undefined;
+  onPick: (() => void) | undefined;
+}) {
+  const [element, setElement] = useState<HTMLSpanElement | null>(null);
+  const pick = useRef(onPick);
+  pick.current = onPick;
+  useEffect(() => {
+    if (typeof host === "function") host(element);
+    else if (host) (host as { current: HTMLSpanElement | null }).current = element;
+  }, [host, element]);
+  useEffect(() => {
+    if (!element) return;
+    const onClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || event.target.closest('[class$="-close"]')) return;
+      pick.current?.();
+    };
+    element.addEventListener("click", onClick, true);
+    return () => element.removeEventListener("click", onClick, true);
+  }, [element]);
+  return <span className={className} ref={setElement} />;
 }

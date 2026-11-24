@@ -1,5 +1,5 @@
 import type { ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, posix, win32 } from "node:path";
 
 import type {
@@ -51,22 +51,33 @@ export function planProviderUpdate(
   executable: string,
   platform: NodeJS.Platform = process.platform,
   exists: (path: string) => boolean = existsSync,
+  realPath: (path: string) => string = followLinks,
 ): UpdatePlan {
   const path = executable.replaceAll("\\", "/").toLowerCase();
+  // Where a shim really points: /usr/local/bin holds npm's links and Homebrew's alike.
+  const real = realPath(executable).replaceAll("\\", "/").toLowerCase();
+  const homebrew = real.includes("/cellar/") || real.includes("/homebrew/") || real.includes("/linuxbrew/");
   const npmPackage = NPM_PACKAGES[provider];
   const windows = platform === "win32";
   const tool = (name: string) => (windows ? `${name}.cmd` : name);
   const pkg = npmPackage ? `${npmPackage}@latest` : undefined;
   const base = npmPackage ? { npmPackage } : {};
 
-  if (pkg) {
-    if (path.includes("/.bun/")) return run("bun", windows ? "bun.exe" : "bun", ["add", "-g", pkg], base);
+  if (pkg && !homebrew) {
+    if (path.includes("/.bun/")) {
+      // Bun's own binary sits beside the agents it installed, and its folder need not be on PATH.
+      const ownBun = (windows ? win32 : posix).join(
+        (windows ? win32 : posix).dirname(executable),
+        windows ? "bun.exe" : "bun",
+      );
+      return run("bun", exists(ownBun) ? ownBun : windows ? "bun.exe" : "bun", ["add", "-g", pkg], base);
+    }
     if (path.includes("/pnpm/") || path.includes("/.pnpm") || path.includes("pnpm-global")) {
       return run("pnpm", tool("pnpm"), ["add", "-g", pkg], base);
     }
     if (path.includes("/.volta/")) return run("volta", windows ? "volta.exe" : "volta", ["install", pkg], base);
     if (path.includes("/yarn/")) return run("yarn", tool("yarn"), ["global", "add", pkg], base);
-    const prefix = npmPrefix(executable, path, platform);
+    const prefix = npmPrefix(executable, path, real, platform);
     if (prefix !== undefined || path.includes("/node_modules/")) {
       // The npm that sits beside the CLI owns its global folder, so it updates the same copy.
       const ownNpm = windows && prefix ? win32.join(prefix, "npm.cmd") : undefined;
@@ -85,7 +96,19 @@ export function planProviderUpdate(
       ...base,
     };
   }
+  // Homebrew's copy is updated by Homebrew; the formula is the Cellar folder's name.
+  const formula = /\/cellar\/([^/]+)\//u.exec(real)?.[1];
+  if (formula) return { method: "manual", display: `brew upgrade ${formula}`, ...base };
   return { method: "manual", ...(pkg ? { display: `npm install -g ${pkg}` } : {}), ...base };
+}
+
+/** The file a link leads to, or the path itself when it cannot be read. */
+function followLinks(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 
 function run(method: ProviderUpdateMethod, command: string, args: readonly string[], base: object): UpdatePlan {
@@ -96,7 +119,7 @@ function run(method: ProviderUpdateMethod, command: string, args: readonly strin
  * The npm prefix that owns a global shim, when the path proves it: %APPDATA%\npm or a Node install folder
  * on Windows, <prefix>/bin elsewhere. Undefined when the shim could belong to something else.
  */
-function npmPrefix(executable: string, path: string, platform: NodeJS.Platform): string | undefined {
+function npmPrefix(executable: string, path: string, real: string, platform: NodeJS.Platform): string | undefined {
   if (platform === "win32") {
     const folder = win32.dirname(executable);
     const lower = folder.replaceAll("\\", "/").toLowerCase();
@@ -104,9 +127,9 @@ function npmPrefix(executable: string, path: string, platform: NodeJS.Platform):
       ? folder
       : undefined;
   }
-  if (!/\/(\.nvm|\.npm-global|\.npm|nodenv|fnm|n)\//u.test(path) && !path.startsWith("/usr/local/bin/")) {
-    return undefined;
-  }
+  // /usr/local/bin is npm's only when the link leads into a node_modules folder.
+  const npmLink = path.startsWith("/usr/local/bin/") && real.includes("/node_modules/");
+  if (!/\/(\.nvm|\.npm-global|\.npm|nodenv|fnm|n)\//u.test(path) && !npmLink) return undefined;
   const folder = dirname(executable);
   return folder.endsWith("/bin") ? dirname(folder) : undefined;
 }

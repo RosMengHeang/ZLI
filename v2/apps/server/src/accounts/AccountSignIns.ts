@@ -73,11 +73,28 @@ export type AccountSignInsOptions = {
  */
 export class AccountSignIns {
   private readonly sessions = new Map<string, Session>();
+  /** Starts for one account run one after another, so two quick clicks never leave a login nobody tracks. */
+  private readonly starting = new Map<string, Promise<unknown>>();
+  /** Bumped by every start and cancel: a start that finishes after a newer one, or a cancel, stops its login. */
+  private readonly generations = new Map<string, number>();
+  private disposed = false;
 
   constructor(private readonly options: AccountSignInsOptions) {}
 
   /** Undefined when this agent signs in only in a terminal. */
   async start(accountId: string): Promise<AccountSignIn | undefined> {
+    const generation = this.bump(accountId);
+    const previous = this.starting.get(accountId) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(() => this.launch(accountId, generation));
+    this.starting.set(accountId, next);
+    try {
+      return await next;
+    } finally {
+      if (this.starting.get(accountId) === next) this.starting.delete(accountId);
+    }
+  }
+
+  private async launch(accountId: string, generation: number): Promise<AccountSignIn | undefined> {
     const account = await this.options.resolveAccount(accountId);
     const kind = BACKGROUND_SIGN_IN[account.provider];
     const args = LOGIN_ARGS[account.provider];
@@ -170,7 +187,15 @@ export class AccountSignIns {
       }, CREDENTIALS_POLL_MS);
     }
     this.sessions.set(accountId, session);
+    // Cancelled, or asked again, while it was starting: this login is not wanted any more.
+    if (this.disposed || this.generations.get(accountId) !== generation) session.stop();
     return session.state;
+  }
+
+  private bump(accountId: string): number {
+    const generation = (this.generations.get(accountId) ?? 0) + 1;
+    this.generations.set(accountId, generation);
+    return generation;
   }
 
   status(accountId: string): AccountSignIn | undefined {
@@ -178,12 +203,14 @@ export class AccountSignIns {
   }
 
   cancel(accountId: string): AccountSignIn | undefined {
+    this.bump(accountId);
     this.sessions.get(accountId)?.stop();
     return this.status(accountId);
   }
 
   /** Ends every running sign-in, as when ZLI quits. */
   dispose(): void {
+    this.disposed = true;
     for (const session of this.sessions.values()) session.stop();
   }
 

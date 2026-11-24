@@ -3257,6 +3257,8 @@ function WorkspaceApp() {
                               sessionId={activeSession?.sessionId}
                               tabsHost={terminalTabsHost}
                               newRequest={terminalRequest}
+                              // Kept mounted behind other panels: only the shown terminal starts a shell for a chat.
+                              autoStart={sidePane === "terminal"}
                               onClose={() => closePanelTab("terminal")}
                             />
                           </div>

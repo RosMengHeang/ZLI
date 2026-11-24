@@ -78,6 +78,33 @@ describe("AccountSignIns", () => {
     expect(second.child.killed).toBe(true);
   });
 
+  it("never leaves a login running untracked when Sign in is clicked twice or cancelled while starting", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "zli-signin-"));
+    const children: FakeChild[] = [];
+    const spawn = vi.fn(() => {
+      const child = new FakeChild();
+      children.push(child);
+      return child as never;
+    });
+    const signIns = new AccountSignIns({
+      resolveCli: async () => "/bin/agent",
+      resolveAccount: async () => ({ provider: "codex", env: { CODEX_HOME: dir }, dir }),
+      spawn,
+      env: {},
+    });
+    // Two clicks before either start has answered: one login runs, and it is the one status and Cancel reach.
+    await Promise.all([signIns.start("work"), signIns.start("work")]);
+    expect(children.filter((child) => !child.killed)).toHaveLength(1);
+    expect(signIns.cancel("work")?.state).toBe("cancelled");
+    expect(children.every((child) => child.killed)).toBe(true);
+
+    // Cancel while a start is still on its way stops that login as it begins.
+    const pending = signIns.start("work");
+    signIns.cancel("work");
+    await pending;
+    expect(children.every((child) => child.killed)).toBe(true);
+  });
+
   it("shows the code for agents that sign in with one, and leaves terminal-only agents alone", async () => {
     const { signIns, child } = setup("kimi");
     expect(await signIns.start("k")).toMatchObject({ opensBrowser: false });

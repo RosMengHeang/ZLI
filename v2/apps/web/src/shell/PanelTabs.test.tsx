@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { act, type ReactNode } from "react";
+import { act, type ReactNode, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -24,6 +25,48 @@ async function render(node: ReactNode) {
 }
 
 describe("PanelTabs", () => {
+  it("brings a pane to the front when one of its own tabs, portaled into the strip, is clicked", async () => {
+    const select = vi.fn();
+    function Strip() {
+      const [host, setHost] = useState<HTMLSpanElement | null>(null);
+      return (
+        <>
+          <PanelTabs
+            tabs={[
+              { id: "review", label: "Changes", icon: "diff" },
+              { id: "files", label: "Files", icon: "folderTree" },
+            ]}
+            active="review"
+            items={[]}
+            slots={{ files: setHost }}
+            onSelect={select}
+            onClose={vi.fn()}
+          />
+          {/* The Files pane renders elsewhere and portals its tabs into the strip, as in the app. */}
+          <div className="pane">
+            {host
+              ? createPortal(
+                  <>
+                    <button type="button" className="file-tab">
+                      README.md
+                    </button>
+                    <button type="button" className="file-tab-close" aria-label="Close README.md" />
+                  </>,
+                  host,
+                )
+              : null}
+          </div>
+        </>
+      );
+    }
+    const container = await render(<Strip />);
+    const slot = container.querySelector(".panel-strip-slot.is-files");
+    await act(async () => slot?.querySelector<HTMLButtonElement>(".file-tab-close")?.click());
+    expect(select).not.toHaveBeenCalled();
+    await act(async () => slot?.querySelector<HTMLButtonElement>(".file-tab")?.click());
+    expect(select).toHaveBeenCalledWith("files");
+  });
+
   it("shows only the opened panels as tabs, closes them, and adds the rest from the plus", async () => {
     const select = vi.fn();
     const close = vi.fn();

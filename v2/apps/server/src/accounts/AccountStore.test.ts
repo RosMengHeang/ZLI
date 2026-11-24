@@ -27,6 +27,18 @@ afterEach(async () => {
 });
 
 describe("AccountStore", () => {
+  it("reads usage from every account with its own folder, Codex API keys too", async () => {
+    const { store, root } = await makeStore();
+    await store.save({ provider: "codex", label: "Work", kind: "sign-in" });
+    await store.save({ provider: "codex", label: "Billing", kind: "api-key", apiKey: KEY });
+    await store.save({ provider: "gemini", label: "Team", kind: "api-key", apiKey: KEY });
+    const homes = store.usageHomes();
+    expect(homes.map((home) => home.provider)).toEqual(["codex", "codex"]);
+    for (const home of homes) expect(home.configDir.startsWith(join(root, "accounts"))).toBe(true);
+    // Only the sign-in has a plan to read.
+    expect(store.limitTargets()).toHaveLength(1);
+  });
+
   it("keeps API keys in an owner-only file and never lists them", async () => {
     const { store, root } = await makeStore();
     const result = await store.save({ provider: "claude-code", label: "Work", kind: "api-key", apiKey: KEY });

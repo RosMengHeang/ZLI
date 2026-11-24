@@ -46,6 +46,39 @@ describe("planProviderUpdate", () => {
     expect(planProviderUpdate("codex", "/home/me/.volta/bin/codex", "linux").method).toBe("volta");
   });
 
+  it("runs the bun beside the agent when bun's folder is not on PATH", () => {
+    const plan = planProviderUpdate("gemini", "/home/me/.bun/bin/gemini", "linux", (path) => path.endsWith("/bun"));
+    expect(plan).toMatchObject({
+      method: "bun",
+      command: "/home/me/.bun/bin/bun",
+      display: "bun add -g @google/gemini-cli@latest",
+    });
+  });
+
+  it("tells npm's links in /usr/local/bin from Homebrew's", () => {
+    const npm = planProviderUpdate(
+      "codex",
+      "/usr/local/bin/codex",
+      "darwin",
+      () => false,
+      () => "/usr/local/lib/node_modules/@openai/codex/bin/codex.js",
+    );
+    expect(npm).toMatchObject({
+      method: "npm",
+      args: ["install", "-g", "--prefix", "/usr/local", "@openai/codex@latest"],
+    });
+    const brew = planProviderUpdate(
+      "codex",
+      "/usr/local/bin/codex",
+      "darwin",
+      () => false,
+      () => "/usr/local/Cellar/codex/0.58.0/bin/codex",
+    );
+    expect(brew.method).toBe("manual");
+    expect(brew.command).toBeUndefined();
+    expect(brew.display).toBe("brew upgrade codex");
+  });
+
   it("lets the Claude Code native install update itself", () => {
     const plan = planProviderUpdate("claude-code", "C:\\Users\\me\\.local\\bin\\claude.exe", "win32");
     expect(plan).toMatchObject({ method: "self", args: ["update"], display: "claude update" });

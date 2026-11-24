@@ -346,7 +346,7 @@ export async function startRuntime(options: {
     sources: () => {
       const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(userHome, ".claude");
       const codexHome = process.env.CODEX_HOME?.trim() || join(userHome, ".codex");
-      const saved = accounts.limitTargets().flatMap((target): UsageSource[] =>
+      const saved = accounts.usageHomes().flatMap((target): UsageSource[] =>
         target.provider === "claude-code"
           ? [{ provider: "claude-code", dir: join(target.configDir, "projects") }]
           : target.provider === "codex"
