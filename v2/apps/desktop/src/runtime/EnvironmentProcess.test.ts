@@ -157,4 +157,41 @@ describe("EnvironmentProcess", () => {
     await stuck.environment.shutdown(20);
     expect(stuck.events).toEqual(["stdin-end", "kill"]);
   });
+  it("builds the extra environment again for each server it starts, and reports each exit", async () => {
+    const seen: (string | undefined)[] = [];
+    const closers: (() => void)[] = [];
+    let exits = 0;
+    let made = 0;
+    const process = new EnvironmentProcess({
+      serverEntryPath: "server.js",
+      databasePath: "runtime.sqlite",
+      extraEnv: () => ({ HANDOFF: `file-${++made}` }),
+      onExit: () => {
+        exits += 1;
+      },
+      launcher: (input) => {
+        seen.push(input.extraEnv?.HANDOFF);
+        let output: ((chunk: string) => void) | undefined;
+        queueMicrotask(() => output?.('{"url":"ws://127.0.0.1:1/rpc","token":"t"}\n'));
+        return {
+          stdout: {
+            on: (_event: "data", listener: (chunk: string) => void) => {
+              output = listener;
+            },
+          },
+          stderr: { on: () => undefined },
+          once: (event: "error" | "close", listener: (...args: unknown[]) => void) => {
+            if (event === "close") closers.push(() => listener(0));
+          },
+          kill: () => undefined,
+        };
+      },
+      timeoutMs: 500,
+    });
+    await process.start();
+    closers.shift()?.();
+    await process.start();
+    expect(seen).toEqual(["file-1", "file-2"]);
+    expect(exits).toBe(1);
+  });
 });

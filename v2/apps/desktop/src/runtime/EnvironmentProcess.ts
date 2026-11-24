@@ -21,8 +21,13 @@ type EnvironmentProcessOptions = {
   serverEntryPath: string;
   databasePath: string;
   timeoutMs?: number;
-  /** Added to the server's environment, which agent processes inherit. */
-  extraEnv?: Readonly<Record<string, string>>;
+  /**
+   * Added to the server's environment, which agent processes inherit. A function is called again for every server
+   * it starts, so something the server uses up at start (the key handoff file) is made fresh for each one.
+   */
+  extraEnv?: Readonly<Record<string, string>> | (() => Readonly<Record<string, string>>);
+  /** Called when a server it started exits, for cleaning up what that server's start left behind. */
+  onExit?: () => void;
   launcher?: (input: LaunchInput) => EnvironmentChild;
 };
 
@@ -40,11 +45,13 @@ export class EnvironmentProcess {
   start(): Promise<EnvironmentDescriptorLine> {
     if (this.startPromise) return this.startPromise;
     this.startPromise = new Promise<EnvironmentDescriptorLine>((resolve, reject) => {
+      const extra = this.options.extraEnv;
+      const extraEnv = typeof extra === "function" ? extra() : extra;
       const child = (this.options.launcher ?? defaultLauncher)({
         serverEntryPath: this.options.serverEntryPath,
         databasePath: this.options.databasePath,
         token: this.token,
-        ...(this.options.extraEnv ? { extraEnv: this.options.extraEnv } : {}),
+        ...(extraEnv ? { extraEnv } : {}),
       });
       this.child = child;
       let buffer = "";
@@ -84,6 +91,7 @@ export class EnvironmentProcess {
         finish(args[0] instanceof Error ? args[0] : new Error("ZLI server failed to start.")),
       );
       child.once("close", (...args) => {
+        this.options.onExit?.();
         if (this.child === child) {
           this.child = undefined;
           this.startPromise = undefined;

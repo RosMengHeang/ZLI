@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { handOffKey, type KeychainCodec, secretsKey } from "./secretsKey.js";
+import { handOffKey, type KeychainCodec, removeHandoffs, secretsKey } from "./secretsKey.js";
 
 const folders: string[] = [];
 afterEach(() => {
@@ -72,9 +72,21 @@ describe("secretsKey", () => {
   it("hands the key over in a new file each start, never in the environment", async () => {
     const dir = mkdtempSync(join(tmpdir(), "zli-key-"));
     folders.push(dir);
-    const first = await handOffKey(dir, "k1");
-    const second = await handOffKey(dir, "k2");
+    const first = handOffKey(dir, "k1");
+    const second = handOffKey(dir, "k2");
     expect(first).not.toBe(second);
     expect(readFileSync(first, "utf8")).toBe("k1");
+  });
+
+  it("deletes handoff files no server read, and leaves the sealed key alone", () => {
+    const dir = mkdtempSync(join(tmpdir(), "zli-key-"));
+    folders.push(dir);
+    writeFileSync(join(dir, "secrets-key.bin"), "sealed");
+    writeFileSync(join(dir, "runtime.sqlite"), "");
+    handOffKey(dir, "k1");
+    handOffKey(dir, "k2");
+    removeHandoffs(dir);
+    expect(readdirSync(dir).sort()).toEqual(["runtime.sqlite", "secrets-key.bin"]);
+    removeHandoffs(join(dir, "missing"));
   });
 });

@@ -33,6 +33,9 @@ export class SecretBox {
       } catch {
         value = undefined;
       }
+      // A key was meant to arrive and did not (the file is gone or unreadable): handled like a slow keychain, so
+      // secrets are not saved at all rather than saved unsealed. keychainSlow reads this next.
+      if (!value) env[SECRETS_KEYCHAIN_SLOW_ENV] = "1";
       rmSync(file, { force: true });
     }
     if (!value) return undefined;

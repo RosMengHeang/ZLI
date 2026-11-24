@@ -101,6 +101,7 @@ jobs:
           done
           exit "$missing"
       # GitHub's API sometimes answers 500 for a moment (v0.1.16 was lost to one), so each call gets four tries.
+      # Its warnings go to stderr: callers capture stdout as the command's result.
       - name: Write the retry helper
         run: |
           cat > "$RUNNER_TEMP/retry.sh" <<'EOF'
@@ -108,7 +109,7 @@ jobs:
             for attempt in 1 2 3 4; do
               "$@" && return 0
               if [ "$attempt" -lt 4 ]; then
-                echo "::warning::Attempt $attempt of $* failed, trying again in $((attempt * 15))s"
+                echo "::warning::Attempt $attempt of $* failed, trying again in $((attempt * 15))s" >&2
                 sleep "$((attempt * 15))"
               fi
             done

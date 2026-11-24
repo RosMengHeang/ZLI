@@ -87,6 +87,7 @@ import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal } from "./security/NavigationPolicy.js";
 import {
   handOffKey,
+  removeHandoffs,
   SECRETS_KEY_FILE_ENV,
   SECRETS_KEYCHAIN_SLOW_ENV,
   SECRETS_NO_KEYCHAIN_ENV,
@@ -213,19 +214,23 @@ async function main(): Promise<void> {
   const presence = process.platform === "win32" ? windowsHello() : undefined;
   const sealing = await secretsKey(keyPath, keychain, undefined, presence);
   registerPresenceIpc(ipcMain, presenceSettings({ presence, codec: keychain, path: keyPath, key: () => sealing.key }));
-  const keyFile = sealing.key ? await handOffKey(dirname(databasePath), sealing.key) : undefined;
+  // The server deletes the handoff file once it reads it, so every server start (a restart too) gets a new one.
+  // Files no server read, from a failed start or an earlier launch that was killed, are deleted.
+  const handoffDir = dirname(databasePath);
+  removeHandoffs(handoffDir);
   environment = new EnvironmentProcess({
     serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
     databasePath,
-    extraEnv: {
+    onExit: () => removeHandoffs(handoffDir),
+    extraEnv: () => ({
       ...browserToolEnvironment(browserToolPaths),
-      ...(keyFile ? { [SECRETS_KEY_FILE_ENV]: keyFile } : {}),
+      ...(sealing.key ? { [SECRETS_KEY_FILE_ENV]: handOffKey(handoffDir, sealing.key) } : {}),
       // A cancelled Hello prompt is handled like a slow keychain: the runtime refuses to save secrets unsealed.
       ...(sealing.slow || sealing.locked ? { [SECRETS_KEYCHAIN_SLOW_ENV]: "1" } : {}),
       ...(sealing.noKeychain ? { [SECRETS_NO_KEYCHAIN_ENV]: "1" } : {}),
       // Test and development launches must leave the user's real agent settings alone.
       ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
-    },
+    }),
   });
   const descriptor = await environment.start();
   const environmentId = process.env.ZLI_ENVIRONMENT_ID ?? DEFAULT_ENVIRONMENT_ID;

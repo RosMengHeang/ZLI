@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { readdirSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -35,11 +36,32 @@ export const SECRETS_NO_KEYCHAIN_ENV = "ZLI_SECRETS_NO_KEYCHAIN";
  */
 export const SECRETS_KEY_FILE_ENV = "ZLI_SECRETS_KEY_FILE";
 
-/** Writes the key to a new file only this account can read, for the runtime to pick up; returns its path. */
-export async function handOffKey(dir: string, key: string): Promise<string> {
+const HANDOFF_FILE = /^secrets-key\.[0-9a-f]{24}\.handoff$/u;
+
+/**
+ * Writes the key to a new file only this account can read, for the runtime to pick up; returns its path. Made fresh
+ * for every server start, since the server deletes the file once it has read it.
+ */
+export function handOffKey(dir: string, key: string): string {
   const path = join(dir, `secrets-key.${randomBytes(12).toString("hex")}.handoff`);
-  await writeFile(path, key, { mode: 0o600, flag: "wx" });
+  writeFileSync(path, key, { mode: 0o600, flag: "wx" });
   return path;
+}
+
+/**
+ * Deletes handoff files no server read: one left by a launch that failed or was killed before the server started
+ * would otherwise keep the key in the clear on disk.
+ */
+export function removeHandoffs(dir: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (HANDOFF_FILE.test(name)) rmSync(join(dir, name), { force: true });
+  }
 }
 
 /** How long ZLI waits for the keychain before it starts without sealing, rather than never opening. */

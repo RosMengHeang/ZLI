@@ -99,6 +99,19 @@ describe("Team chat", () => {
     expect(commands.filter((command) => command.type === "buddies.team.send")).toMatchObject([{ text: "@Builder" }]);
   });
 
+  it("sends a message once when Send is pressed twice in a row", async () => {
+    const { commands } = await render(projection(), TEAM_CHAT_ID);
+    const box = document.querySelector<HTMLTextAreaElement>(".team-chat-input");
+    if (!box) throw new Error("no message box");
+    await typeInto(box, "hello team");
+    await act(async () => {
+      button("Send")?.click();
+      button("Send")?.click();
+    });
+    expect(commands.filter((command) => command.type === "buddies.team.send")).toHaveLength(1);
+    expect(box.value).toBe("");
+  });
+
   it("shows the person's message once and each answer under its buddy", async () => {
     const state = projection([
       message({ messageId: "t1:b2", buddyId: "b2", team: "t1" }),

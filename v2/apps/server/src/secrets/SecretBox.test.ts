@@ -37,6 +37,14 @@ describe("SecretBox key handover", () => {
     expect(SecretBox.fromEnvironment({ [SECRETS_KEY_FILE_ENV]: join(scratch(), "missing") })).toBeUndefined();
   });
 
+  it("refuses to save secrets unsealed when the key file it was given is gone", () => {
+    // A restarted server handed a file the first server already read and deleted.
+    const env: NodeJS.ProcessEnv = { [SECRETS_KEY_FILE_ENV]: join(scratch(), "already-read.handoff") };
+    expect(SecretBox.fromEnvironment(env)).toBeUndefined();
+    expect(SecretBox.keychainSlow(env)).toBe(true);
+    expect(SecretBox.keychainSlow({})).toBe(false);
+  });
+
   it("tells the person the key is saved unencrypted when there is no real keychain", async () => {
     const env: NodeJS.ProcessEnv = { [SECRETS_NO_KEYCHAIN_ENV]: "1" };
     expect(SecretBox.noKeychain(env)).toBe(true);

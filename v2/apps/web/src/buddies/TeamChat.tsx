@@ -73,6 +73,9 @@ export function teamChatWaiting(projection: RuntimeProjection): BuddyProjection[
 
 export function TeamChat({ projection, run }: { projection: RuntimeProjection; run: Run }) {
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  // Set before the first await, so a second Enter or click in the same moment cannot send the draft again.
+  const sendingNow = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const team = buddiesInOrder(projection);
   const options: MentionOption[] = team.map((buddy) => ({
@@ -88,9 +91,20 @@ export function TeamChat({ projection, run }: { projection: RuntimeProjection; r
 
   const send = async (event?: FormEvent) => {
     event?.preventDefault();
-    const text = draft.trim();
-    if (!text) return;
-    if (await run({ type: "buddies.team.send", messageId: makeCommandId(), text })) setDraft("");
+    const sent = draft;
+    const text = sent.trim();
+    if (!text || sendingNow.current) return;
+    sendingNow.current = true;
+    setSending(true);
+    try {
+      // Text typed while it was sending stays: only the part that was sent is cleared.
+      if (await run({ type: "buddies.team.send", messageId: makeCommandId(), text })) {
+        setDraft((current) => (current.startsWith(sent) ? current.slice(sent.length).trimStart() : current));
+      }
+    } finally {
+      sendingNow.current = false;
+      setSending(false);
+    }
   };
 
   return (
@@ -163,8 +177,8 @@ export function TeamChat({ projection, run }: { projection: RuntimeProjection; r
           <span className="team-chat-to">
             {goesTo.length > 0 ? `Goes to ${goesTo.map((buddy) => buddy.name).join(", ")}` : ""}
           </span>
-          <button type="submit" disabled={!draft.trim()}>
-            Send
+          <button type="submit" disabled={!draft.trim() || sending}>
+            {sending ? "Sending" : "Send"}
           </button>
         </div>
       </form>
