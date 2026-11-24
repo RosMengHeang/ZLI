@@ -174,7 +174,8 @@ export function latestContext(records: readonly ThreadUsageRecord[]): ContextUsa
 export function formatTokens(count: number): string {
   if (count < 1_000) return String(count);
   if (count < 1_000_000) return `${trimZero((count / 1_000).toFixed(count < 10_000 ? 1 : 0))}k`;
-  return `${trimZero((count / 1_000_000).toFixed(count < 10_000_000 ? 2 : 1))}M`;
+  if (count < 1_000_000_000) return `${trimZero((count / 1_000_000).toFixed(count < 10_000_000 ? 2 : 1))}M`;
+  return `${trimZero((count / 1_000_000_000).toFixed(count < 10_000_000_000 ? 2 : 1))}B`;
 }
 
 export function formatCost(usd: number): string {

@@ -1,11 +1,12 @@
 import type { Account, PlanLimitReading, PlanLimitWindow, ProviderDiscovery } from "@zli-v2/contracts";
-import { USUAL_LOGIN_ACCOUNT_ID } from "@zli-v2/contracts";
+import { FIVE_HOUR_WINDOW, USUAL_LOGIN_ACCOUNT_ID, WEEKLY_WINDOW } from "@zli-v2/contracts";
 import { type ReactNode, useId, useState } from "react";
 
 import { accountLabel, USUAL_LOGIN_LABEL } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
 import {
   formatPercent,
+  formatResetIn,
   LIMIT_WARN_PERCENT,
   limitKey,
   resetText,
@@ -43,8 +44,10 @@ type Props = {
   pinned?: string | undefined;
   /** For tests; the person's own time zone otherwise. */
   timeZone?: string;
-  /** Opens Settings at Usage, where the card and its agents are chosen. */
+  /** Opens Settings at Providers, where the card and its agents are chosen. */
   onOpenSettings(): void;
+  /** Opens the usage and cost report. */
+  onOpenUsage?: (() => void) | undefined;
   /**
    * Places the two parts: the folded line, which fits in a row of its own, and the list it unfolds.
    * Both are missing while there is nothing to show. Without it, the list sits above the line.
@@ -86,7 +89,7 @@ function LiveUsageStrip(props: Omit<Props, "readings">) {
 }
 
 /**
- * How much of each login's plan limits is used. The line is the pinned agent's login at its fullest
+ * How much of each login's plan limits is used. The line is the pinned agent's login at its 5-hour
  * limit; without a pin, the selected agent's, or the fullest limit of any login when no agent with
  * limits is selected, so it never crowds the project list. Clicking it unfolds every login with a
  * circle per limit and its reset.
@@ -101,6 +104,7 @@ export function SidebarUsageStrip({
   pinned,
   timeZone,
   onOpenSettings,
+  onOpenUsage,
   children = stacked,
 }: Props) {
   const descriptionId = useId();
@@ -148,13 +152,13 @@ export function SidebarUsageStrip({
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         aria-describedby={descriptionId}
-        data-tooltip={open ? undefined : summaryTooltip(summary)}
+        data-tooltip={open ? undefined : summaryTooltip(summary, now)}
         onClick={toggle}
       >
         <span id={descriptionId} className="sr-only">
           {description}
         </span>
-        <Summary summary={summary} />
+        <Summary summary={summary} now={now} />
         <Icon name="chevronUp" size={12} className="usage-strip-chevron" aria-hidden="true" />
       </button>
     ),
@@ -168,75 +172,130 @@ export function SidebarUsageStrip({
             <LoginRow key={row.key} row={row} now={now} timeZone={timeZone} />
           ))}
         </div>
-        <button type="button" className="usage-strip-settings" onClick={onOpenSettings}>
-          Choose agents
-        </button>
+        <div className="usage-strip-links">
+          {onOpenUsage ? (
+            <button type="button" className="usage-strip-settings" onClick={onOpenUsage}>
+              Usage and cost
+            </button>
+          ) : null}
+          <button type="button" className="usage-strip-settings" onClick={onOpenSettings}>
+            Choose agents
+          </button>
+        </div>
       </div>
     ) : undefined,
   });
 }
 
-type SummaryPick = { row: Row; window: PlanLimitWindow | undefined };
+type SummaryPick = {
+  row: Row;
+  window: PlanLimitWindow | undefined;
+  /** The weekly window beside the 5-hour one, for a pinned or selected agent that has both. */
+  weekly?: PlanLimitWindow | undefined;
+};
 
 /**
- * The folded line: the agent's mark and one login's fullest limit, or why it has none. The mark, not
- * the name, says whose limit it is, so a long model label such as "Auto models" still fits.
+ * The folded line: the agent's mark, one limit's circle and share, and the time until it resets. No
+ * words, so it fits the narrowest sidebar; the tooltip and the description name the limit.
  */
-function Summary({ summary: { row, window } }: { summary: SummaryPick }) {
+function Summary({ summary: { row, window, weekly }, now }: { summary: SummaryPick; now: number }) {
   const used = window ? Math.min(100, Math.max(0, window.usedPercent)) : 0;
   return (
     <span
-      className={`usage-strip-summary${row.reading.state === "ok" ? "" : " is-stale"}${window ? tone(used) : ""}`}
+      className={`usage-strip-summary${row.reading.state === "ok" ? "" : " is-stale"}${window && !weekly ? tone(used) : ""}${weekly ? " is-dual" : ""}`}
       aria-hidden="true"
     >
       <ProviderMark provider={row.reading.provider} size={13} />
       {window ? (
         <>
-          <span className="usage-strip-window-label">{windowLabel(window)}</span>
-          <span className="usage-strip-window-percent">{formatPercent(used)}</span>
+          <SummaryWindow window={window} now={now} label={weekly ? "5h" : undefined} />
+          {weekly ? <SummaryWindow window={weekly} now={now} label="wk" /> : null}
           {/* Only the Project rail style shows this. Elsewhere the line is too tight for it. */}
           <span className="usage-strip-bar">
             <span style={{ width: `${used}%` }} />
           </span>
         </>
       ) : row.reading.state === "ok" ? null : (
-        <span className="usage-strip-state">{stateText[row.reading.state]}</span>
+        <Icon name="alert" size={12} className="usage-strip-state" />
       )}
+    </span>
+  );
+}
+
+/** One limit on the folded line: "5h ◔ 40% · 3h". The label shows only when two limits share the line. */
+function SummaryWindow({ window, now, label }: { window: PlanLimitWindow; now: number; label: string | undefined }) {
+  const used = Math.min(100, Math.max(0, window.usedPercent));
+  const resetIn = formatResetIn(window.resetsAt, now);
+  const short = resetIn?.split(" ")[0] ?? resetIn;
+  return (
+    <span className={`usage-strip-summary-window${tone(used)}`}>
+      {label ? <span className="usage-strip-summary-label">{label}</span> : null}
+      <LimitRing percent={used} />
+      <span className="usage-strip-window-percent">{formatPercent(used)}</span>
+      {resetIn && short ? (
+        <span className="usage-strip-summary-reset">
+          {/* A narrow sidebar gets the largest unit, "2h"; a wide one says it in full. Two limits keep it short. */}
+          <ResetTime long={label ? short : `Resets in ${resetIn}`} short={short} />
+        </span>
+      ) : null}
     </span>
   );
 }
 
 /**
  * The pinned agent's logins when it has any on the card, otherwise every login. Among them, the
- * selected agent's login when it has numbers, otherwise the one closest to its limit. Within a login,
- * the fullest window whose reset has not passed, since that is the one that stops the agent.
+ * selected agent's login when it has numbers, otherwise the one closest to its limit.
+ *
+ * Within a login, the fullest window whose reset has not passed, since that is the one that stops the
+ * agent. A pinned or selected agent shows its 5-hour window instead when it has one: that is the
+ * number people watch while they work, and the weekly one moves too slowly to tell them much.
  */
 function summaryOf(rows: readonly Row[], now: number, pinned: string | undefined): SummaryPick {
   const own = pinned ? rows.filter((row) => row.reading.provider === pinned) : [];
   const pool = own.length > 0 ? own : rows;
+  const live = (row: Row) => row.windows.filter((window) => !resetText(window, now).passed);
   const fullest = (row: Row) =>
-    row.windows
-      .filter((window) => !resetText(window, now).passed)
-      .reduce<PlanLimitWindow | undefined>(
-        (best, window) => (!best || window.usedPercent > best.usedPercent ? window : best),
-        undefined,
-      );
+    live(row).reduce<PlanLimitWindow | undefined>(
+      (best, window) => (!best || window.usedPercent > best.usedPercent ? window : best),
+      undefined,
+    );
+  const fiveHourOrFullest = (row: Row) => {
+    const fiveHour = live(row).filter(
+      (window) => window.kind !== "spend" && window.durationMinutes === FIVE_HOUR_WINDOW,
+    );
+    return fiveHour.find((window) => !window.scope) ?? fiveHour[0] ?? fullest(row);
+  };
+  // Beside a 5-hour window, the plan's own weekly one, so a pinned agent shows both at a glance.
+  const withWeekly = (row: Row): SummaryPick => {
+    const window = fiveHourOrFullest(row);
+    const weekly =
+      window?.durationMinutes === FIVE_HOUR_WINDOW
+        ? live(row).find((entry) => entry.kind !== "spend" && !entry.scope && entry.durationMinutes === WEEKLY_WINDOW)
+        : undefined;
+    return { row, window, ...(weekly ? { weekly } : {}) };
+  };
   const current = pool.find((row) => row.current && fullest(row));
-  if (current) return { row: current, window: fullest(current) };
+  if (current) return withWeekly(current);
+  const pick = own.length > 0 ? fiveHourOrFullest : fullest;
   let best: SummaryPick | undefined;
   for (const row of pool) {
-    const window = fullest(row);
+    const window = pick(row);
     if (window && (!best?.window || window.usedPercent > best.window.usedPercent)) best = { row, window };
   }
+  if (best && own.length > 0) return withWeekly(best.row);
   return best ?? { row: pool[0] as Row, window: undefined };
 }
 
-/** The folded line in words, for when its name and label do not fit: "Codex, 5-hour limit: 34% used". */
-function summaryTooltip({ row, window }: SummaryPick): string {
+/** The folded line in words, since it shows none: "Codex, 5-hour limit: 34% used, resets in 47m". */
+function summaryTooltip({ row, window, weekly }: SummaryPick, now: number): string {
   const who = [row.name, row.account].filter(Boolean).join(", ");
   if (!window) return row.reading.state === "ok" ? who : `${who}: ${stateText[row.reading.state]}`;
-  const limit = [windowName(window), "limit"].filter(Boolean).join(" ");
-  return `${who}, ${limit}: ${formatPercent(window.usedPercent)} used`;
+  const say = (entry: PlanLimitWindow) => {
+    const limit = [windowName(entry), "limit"].filter(Boolean).join(" ");
+    const resetIn = formatResetIn(entry.resetsAt, now);
+    return `${limit}: ${formatPercent(entry.usedPercent)} used${resetIn ? `, resets in ${resetIn}` : ""}`;
+  };
+  return `${who}, ${[window, ...(weekly ? [weekly] : [])].map(say).join("; ")}`;
 }
 
 function LoginRow({ row, now, timeZone }: { row: Row; now: number; timeZone: string | undefined }) {
@@ -265,7 +324,16 @@ function LoginRow({ row, now, timeZone }: { row: Row; now: number; timeZone: str
   );
 }
 
-function WindowLine({ window, now, timeZone }: { window: PlanLimitWindow; now: number; timeZone: string | undefined }) {
+/** One limit: its circle, name, share used, and when it resets. Settings → Providers shows these too. */
+export function WindowLine({
+  window,
+  now,
+  timeZone,
+}: {
+  window: PlanLimitWindow;
+  now: number;
+  timeZone: string | undefined;
+}) {
   const reset = resetText(window, now, timeZone);
   const used = Math.min(100, Math.max(0, window.usedPercent));
   return (
@@ -278,10 +346,28 @@ function WindowLine({ window, now, timeZone }: { window: PlanLimitWindow; now: n
         {windowLabel(window)}
       </span>
       <span className="usage-strip-window-percent">{reset.passed ? "–" : formatPercent(used)}</span>
-      <span className="usage-strip-window-reset" data-tooltip={reset.clock ? `Resets ${reset.clock}` : undefined}>
-        {reset.text}
+      {/* In full when the card has room; just the countdown, "2h 10m", when it is narrow. */}
+      <span
+        className="usage-strip-window-reset"
+        data-tooltip={reset.clock ? `${reset.text}, at ${reset.clock}` : undefined}
+      >
+        <ResetTime
+          long={reset.text}
+          short={reset.clock ? (formatResetIn(window.resetsAt, now) ?? reset.text) : reset.text}
+        />
       </span>
     </span>
+  );
+}
+
+/** Both wordings are rendered; the container's width picks which one shows, so nothing measures in script. */
+function ResetTime({ long, short }: { long: string; short: string }) {
+  if (long === short) return <>{long}</>;
+  return (
+    <>
+      <span className="reset-long">{long}</span>
+      <span className="reset-short">{short}</span>
+    </>
   );
 }
 

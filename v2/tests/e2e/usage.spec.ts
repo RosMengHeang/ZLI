@@ -42,7 +42,9 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     const card = page.locator(".sidebar-usage-strip");
     await expect(limits).toHaveAttribute("aria-expanded", "false");
     const line = page.locator(".sidebar-footer .usage-strip-summary");
-    await expect(line).toHaveText("5h34%");
+    // Each window of the limit, the 5-hour one and the weekly one, with how long until it resets.
+    await expect(line).toContainText("5h34%");
+    await expect(line).toContainText("wk12%");
     await expect(line.locator(".provider-mark-codex")).toBeVisible();
     await expect(page.locator(".sidebar-footer").getByRole("button", { name: "Settings", exact: true })).toHaveText("");
     await expect(card).toHaveCount(0);
@@ -53,8 +55,9 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await expect(card.locator(".usage-strip-name").first()).toHaveText("Claude Code");
     await expect(card.locator(".usage-strip-window-label").first()).toHaveText("5h");
     await expect(card.locator(".usage-strip-window-percent").first()).toHaveText("86%");
-    // Every circle says when it resets, the same way.
-    await expect(card.locator(".usage-strip-window-reset").first()).toHaveText(/^Resets in \d+m$/u);
+    // Every circle says when it resets, the same way; a narrow card keeps just the countdown.
+    await expect(card.locator(".usage-strip-window-reset").first()).toHaveText(/^Resets in \d+m/u);
+    // Choose agents opens Settings on Providers, where the sidebar's usage is set up.
     await card.getByRole("button", { name: "Choose agents" }).click();
     await expect(settings.getByRole("tab", { name: "Usage" })).toHaveAttribute("aria-selected", "true");
     // Pinned in Settings, the line shows that agent's limit instead of the selected chat's.
