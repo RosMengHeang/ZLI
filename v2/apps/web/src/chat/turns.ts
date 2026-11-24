@@ -1,6 +1,7 @@
 import type { ThreadActivityProjection, ThreadTurnProjection } from "@zli-v2/contracts";
 
 import type { TimelineItem } from "../sessions/sessions.js";
+import { splitAttachedContext } from "./attachedContext.js";
 import { splitAttachedFiles } from "./attachedFiles.js";
 import { durationLabel, stepDuration } from "./Thought.js";
 import { baseName, exploreCounts } from "./WorkLog.js";
@@ -36,7 +37,7 @@ export function groupTurns(timeline: readonly TimelineItem[]): ChatTurns {
   timeline.forEach((item, index) => {
     if (index === 0 || isUser(item)) starts.push(index);
     if (item.kind === "message" && item.message.role === "user") {
-      const text = splitAttachedFiles(item.message.text).text.trim();
+      const text = splitAttachedContext(splitAttachedFiles(item.message.text).text).body.trim();
       if (text) prompts.push({ id: item.message.messageId, text });
     }
   });

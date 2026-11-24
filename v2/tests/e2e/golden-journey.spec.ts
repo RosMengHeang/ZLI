@@ -14,6 +14,7 @@ import {
   launchDesktop,
   openCreateWorktree,
   openNewAgentOptions,
+  startTerminal,
   togglePanel,
 } from "./desktop-fixtures.js";
 
@@ -63,7 +64,7 @@ test("completes the workspace, provider, browser, review, and restoration journe
     // The drawer's open state is remembered between launches, so only open it when it is closed.
     const terminalToggle = page.getByRole("button", { name: "Terminal", exact: true });
     if ((await terminalToggle.getAttribute("aria-pressed")) !== "true") await terminalToggle.click();
-    await page.getByRole("button", { name: "Start terminal" }).click();
+    await startTerminal(page);
     await expect
       .poll(
         async () =>
@@ -188,8 +189,8 @@ test("completes the workspace, provider, browser, review, and restoration journe
         { timeout: 30_000 },
       )
       .toBe("ready");
-    // The worktree has an agent, so the sidebar names its branch on the agent's card.
-    await expect(fixture.page.locator(".session-branch", { hasText: "e2e" })).toBeVisible({ timeout: 30_000 });
+    // The worktree has an agent: its one-line card in the sidebar names the branch in its tooltip.
+    await expect(fixture.page.locator('.session-row[title*="e2e"]').first()).toBeVisible({ timeout: 30_000 });
     await expect(fixture.page.locator(".chat-log").getByText("Mock response: inspect workspace")).toBeVisible({
       timeout: 20_000,
     });

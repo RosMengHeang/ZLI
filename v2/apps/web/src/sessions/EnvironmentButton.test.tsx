@@ -219,7 +219,7 @@ function CardHarness({ initial }: { initial: ReviewProjection | undefined }) {
   );
 }
 
-const card = () => document.querySelector<HTMLElement>('section[aria-label="Environment"]');
+const card = () => document.querySelector<HTMLElement>('section[aria-label="Chat overview"]');
 const inCard = (text: string) =>
   [...(card()?.querySelectorAll("button") ?? [])].find((button) => button.textContent?.includes(text));
 
@@ -238,6 +238,26 @@ describe("EnvironmentButton card", () => {
     await act(async () => item?.click());
     expect(commands).toContainEqual({ type: "review.git.switchBranch", worktreeId: worktree.worktreeId, name: "main" });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("explains a failed switch under the branch row, not in the commit panel, until dismissed", async () => {
+    await renderWithRuntime(<CardHarness initial={review([])} />, (command) =>
+      command.type === "review.git.switchBranch"
+        ? { error: "Switching to main would overwrite uncommitted changes." }
+        : command.type === "review.git.branches"
+          ? { result: BRANCHES }
+          : { result: {} },
+    );
+    await act(async () => buttonByLabel("Branch feature. Switch branch")?.click());
+    const item = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (entry) => entry.textContent?.trim() === "main",
+    );
+    await act(async () => item?.click());
+    const problem = card()?.querySelector(".env-branch-error");
+    expect(problem?.textContent).toContain("would overwrite uncommitted changes");
+    expect(card()?.querySelector(".env-commit-panel")).toBeNull();
+    await act(async () => problem?.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')?.click());
+    expect(card()?.querySelector(".env-branch-error")).toBeNull();
   });
 
   it("says what Commit & push will do, and offers to commit without pushing", async () => {
@@ -294,7 +314,10 @@ describe("EnvironmentButton card", () => {
     await renderWithRuntime(<CardHarness initial={review([])} />, (command) =>
       command.type === "review.git.branches" ? { result: BRANCHES } : { result: {} },
     );
-    expect(card()?.querySelector(".env-pr-title")?.textContent).toBe("Welcome new installs with a three-step setup");
+    // The pull request sits in the Changes card, in the newer card style.
+    expect(card()?.querySelector('[aria-label="Changes"] .ov-pr-title')?.textContent).toContain(
+      "Welcome new installs with a three-step setup",
+    );
     expect(card()?.textContent).toContain("#139");
     await act(async () => inCard("Merge")?.click());
     expect(document.querySelector('[role="dialog"][aria-label="Merge pull request"]')).not.toBeNull();

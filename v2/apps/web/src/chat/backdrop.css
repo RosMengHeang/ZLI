@@ -1,0 +1,65 @@
+/*
+ * The chat background sits under everything in the chat view. The canvas is transparent outside its marks,
+ * so the surface color shows through, and a wash of the surface keeps the middle of the reading column dark.
+ */
+/* The background fills its whole panel: an agent tile, header included, or the chat view on its own. */
+:is(.agent-tile, .chat-view):has(> .chat-backdrop) { position: relative; isolation: isolate; }
+.chat-backdrop { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; animation: zli-fade-in 600ms var(--zli-ease) both; }
+.backdrop-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+/*
+ * Washes of the surface keep text readable on every style: the header at the top, the labels under the
+ * message box at the bottom, and the reading column in the middle.
+ */
+.chat-backdrop-veil {
+  --veil-top: linear-gradient(to bottom, color-mix(in srgb, var(--zli-surface) 92%, transparent) 0, color-mix(in srgb, var(--zli-surface) 80%, transparent) var(--zli-bar-height, 40px), transparent calc(var(--zli-bar-height, 40px) + 56px));
+  --veil-bottom: linear-gradient(to top, color-mix(in srgb, var(--zli-surface) 90%, transparent) 0, color-mix(in srgb, var(--zli-surface) 72%, transparent) 40px, transparent 104px);
+  --veil-column: radial-gradient(ellipse 46% 70% at 50% 50%, color-mix(in srgb, var(--zli-surface) 90%, transparent) 0%, color-mix(in srgb, var(--zli-surface) 55%, transparent) 55%, transparent 100%);
+  position: absolute; inset: 0;
+  background: var(--veil-top), var(--veil-bottom), var(--veil-column);
+}
+/* The soft and dot looks stay at the edges, away from the reading column, so it needs no middle wash. */
+.chat-backdrop:is([data-style="glow"], [data-style="dots"]) .chat-backdrop-veil { background: var(--veil-top), var(--veil-bottom); }
+/*
+ * A photo or blur has detail everywhere, so it is dimmed all over as well. Dither and halftone are already
+ * mostly empty surface between their marks, so they keep only the top and bottom washes and a light
+ * one in the middle.
+ */
+.chat-backdrop[data-style="image"] .chat-backdrop-veil {
+  background: var(--veil-top), var(--veil-bottom), var(--veil-column), color-mix(in srgb, var(--zli-surface) 35%, transparent);
+}
+.chat-backdrop[data-style="image"]:is([data-effect="dither"], [data-effect="halftone"]) .chat-backdrop-veil {
+  background: var(--veil-top), var(--veil-bottom), color-mix(in srgb, var(--zli-surface) 18%, transparent);
+}
+
+/* No line under the header: the wash above separates it from the chat instead. */
+.agent-tile:has(> .chat-backdrop) > .tile-header { border-bottom-color: transparent; box-shadow: none; }
+:is(.agent-tile, .chat-view):has(> .chat-backdrop) > :not(.chat-backdrop, .chat-dock) { position: relative; z-index: 1; }
+:is(.agent-tile, .chat-view):has(> .chat-backdrop) .chat-view { background: transparent; }
+
+/* The dock's solid strip would cut a band across the background. Instead the log fades out under the box. */
+:has(> .chat-backdrop) .chat-dock { background: none; }
+:has(> .chat-backdrop) .chat-log {
+  -webkit-mask-image: linear-gradient(to top, transparent 0, transparent calc(var(--dock-h, 0px) - 24px), #000 calc(var(--dock-h, 0px) + 32px));
+  mask-image: linear-gradient(to top, transparent 0, transparent calc(var(--dock-h, 0px) - 24px), #000 calc(var(--dock-h, 0px) + 32px));
+}
+
+
+/* Choices in Settings > Appearance: a small canvas of each look. */
+.backdrop-preview { position: relative; display: block; height: 84px; overflow: hidden; border-radius: var(--zli-radius-lg); background: var(--zli-surface); box-shadow: inset 0 0 0 1px var(--zli-border-strong); transition: box-shadow var(--zli-duration-fast) var(--zli-ease); }
+.backdrop-preview .backdrop-canvas { border-radius: inherit; }
+.backdrop-preview-off { position: absolute; inset: 0; display: grid; place-items: center; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.theme-tile-pick:hover .backdrop-preview { box-shadow: inset 0 0 0 1px var(--zli-border-hover); }
+.theme-tile-pick:has(input:checked) .backdrop-preview { box-shadow: 0 0 0 2px var(--zli-surface), 0 0 0 4px var(--zli-accent); }
+.theme-tile-pick:has(input:focus-visible) .backdrop-preview { outline: 2px solid var(--zli-focus); outline-offset: 4px; }
+
+/* Color: Theme or Custom, then the custom color's swatch and hex value. */
+.backdrop-color { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--zli-space-3); }
+.backdrop-color-custom { display: inline-flex; align-items: center; gap: var(--zli-space-2); }
+.backdrop-color-custom .color-text { width: 96px; }
+
+.backdrop-image-picker { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--zli-space-2); }
+.backdrop-image-picker .inline-error { flex-basis: 100%; margin: 0; text-align: right; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-backdrop { animation: none; }
+}

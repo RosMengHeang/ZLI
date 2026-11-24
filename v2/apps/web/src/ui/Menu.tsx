@@ -28,6 +28,8 @@ export type MenuEntry =
       detail?: string | undefined;
       /** Why the item is disabled, or what it does. */
       title?: string | undefined;
+      /** The keys that do the same thing, shown at the end of the line. */
+      shortcut?: string | undefined;
       run(): void;
     }
   | "separator";
@@ -448,6 +450,7 @@ function AnchoredMenuButton({
                       tabIndex={-1}
                       className={cx("menu-item", entry.detail && "has-detail")}
                       aria-disabled={entry.disabled || undefined}
+                      aria-keyshortcuts={entry.shortcut ? ariaShortcut(entry.shortcut) : undefined}
                       title={entry.title}
                       onPointerMove={(event) => {
                         if (!entry.disabled && document.activeElement !== event.currentTarget)
@@ -468,6 +471,7 @@ function AnchoredMenuButton({
                       ) : (
                         <span className="menu-item-label">{entry.label}</span>
                       )}
+                      {entry.shortcut ? <span className="menu-shortcut">{shortcutText(entry.shortcut)}</span> : null}
                       {entry.checked ? <Icon className="menu-item-check" name="check" size={14} /> : null}
                     </button>
                   ),

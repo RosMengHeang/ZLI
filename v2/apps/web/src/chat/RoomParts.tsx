@@ -5,6 +5,7 @@ import { BuddyAvatar, useAvatarMood } from "../teammates/BuddyAvatar.js";
 import type { Buddy } from "../teammates/buddies.js";
 import { Button } from "../ui/Button.js";
 import { MenuButton, type MenuItem } from "../ui/Menu.js";
+import { type GuestMode, guestModeHint, guestModeLabel } from "./guestWork.js";
 import { liveStepLabel } from "./liveStatus.js";
 import { elapsedLabel } from "./WorkLog.js";
 
@@ -22,6 +23,8 @@ export type RoomPerson = {
   role: "host" | "guest" | "helper";
   /** A helper in a terminal has no messages to show here, only its own tile. */
   terminal?: boolean | undefined;
+  /** How a guest was brought in: to ask, read-only, or to work on its own copy. */
+  mode?: GuestMode | undefined;
 };
 
 export function PersonAvatar({ person, size = 22 }: { person: RoomPerson; size?: number }) {
@@ -85,13 +88,13 @@ export function RoomLive({ person, onOpen }: { person: RoomPerson; onOpen?: (() 
  */
 export function RoomBar({
   people,
-  bringInItems,
+  onBringIn,
   bringing,
   personItems,
 }: {
   people: readonly RoomPerson[];
-  /** Absent where agents cannot start from this chat. */
-  bringInItems?: (() => MenuItem[]) | undefined;
+  /** Opens the menu of agents to bring in, from the button. Absent where agents cannot start from this chat. */
+  onBringIn?: ((anchor: HTMLElement) => void) | undefined;
   /** The name of the agent on its way in. */
   bringing?: string | undefined;
   personItems(person: RoomPerson): MenuItem[];
@@ -121,6 +124,11 @@ export function RoomBar({
                 >
                   <PersonAvatar person={person} size={16} />
                   <span className="room-person-name">{person.name}</span>
+                  {person.mode ? (
+                    <span className={`room-person-mode is-${person.mode}`} title={guestModeHint[person.mode]}>
+                      {guestModeLabel[person.mode]}
+                    </span>
+                  ) : null}
                 </MenuButton>
               )}
             </li>
@@ -132,17 +140,19 @@ export function RoomBar({
           {bringing} is joining
         </span>
       ) : null}
-      {bringInItems && others.length > 0 ? (
-        <MenuButton
+      {onBringIn && others.length > 0 ? (
+        <Button
           className="room-bring"
-          label="Bring in an agent"
-          tooltip="Add a buddy or an agent to this chat"
-          icon="plus"
+          variant="ghost"
           size="xs"
-          items={bringInItems}
+          icon="plus"
+          aria-label="Ask an agent"
+          aria-haspopup="menu"
+          tooltip="Add a buddy or an agent to this chat"
+          onClick={(event) => onBringIn(event.currentTarget)}
         >
-          <span>Bring in</span>
-        </MenuButton>
+          Bring in
+        </Button>
       ) : null}
     </section>
   );

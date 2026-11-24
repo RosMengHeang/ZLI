@@ -1,0 +1,40 @@
+/* The Usage page in Settings: totals, a bar per day, and tables by agent and by model. */
+.usage-report-controls { display: flex; flex-wrap: wrap; gap: var(--zli-space-2); margin-bottom: var(--zli-space-4); }
+.usage-report { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-5); transition: opacity var(--zli-duration-base) var(--zli-ease); }
+.usage-report[aria-busy="true"] { opacity: 0.6; }
+.usage-report-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-3); margin-bottom: var(--zli-space-4); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.usage-report-error p { margin: 0; }
+.usage-report-section { display: flex; flex-direction: column; gap: var(--zli-space-2); }
+
+.usage-report-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: var(--zli-space-2); margin: 0; }
+.usage-report-total { display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-1); padding: var(--zli-space-3); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); }
+.usage-report-total dt { color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.usage-report-total dd { margin: 0; overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-lg); font-variant-numeric: tabular-nums; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.usage-report-note { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+
+.usage-chart { display: flex; min-width: 0; gap: var(--zli-space-2); }
+.usage-chart-scale { display: flex; flex: 0 0 auto; flex-direction: column; justify-content: space-between; height: 140px; color: var(--zli-dim); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; text-align: right; }
+.usage-chart-plot { display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; gap: var(--zli-space-1); }
+.usage-chart-bars { display: flex; height: 140px; align-items: stretch; gap: 2px; border-bottom: 1px solid var(--zli-border); }
+.usage-chart-bar { display: flex; min-width: 0; flex: 1 1 0; align-items: flex-end; padding: 0; border: 0; border-radius: var(--zli-radius-xs); background: transparent; cursor: default; }
+.usage-chart-bar:hover, .usage-chart-bar.is-shown { background: var(--zli-hover); }
+.usage-chart-bar:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
+.usage-chart-fill { display: block; width: 100%; border-radius: 4px 4px 0 0; background: var(--zli-accent); }
+.usage-chart-bar.is-shown .usage-chart-fill { background: var(--zli-accent-hover); }
+.usage-chart-axis { display: flex; justify-content: space-between; color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+.usage-chart-detail { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1) var(--zli-space-3); margin: var(--zli-space-2) 0 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.usage-chart-detail-date { color: var(--zli-text); font-weight: 500; }
+.usage-chart-detail-slice { display: inline-flex; align-items: center; gap: var(--zli-space-1); }
+
+.usage-report-scroll { min-width: 0; overflow-x: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); }
+.usage-report-table { width: 100%; border-collapse: collapse; font-size: var(--zli-text-sm); font-variant-numeric: tabular-nums; }
+.usage-report-table th, .usage-report-table td { padding: var(--zli-space-2) var(--zli-space-3); text-align: right; white-space: nowrap; }
+.usage-report-table thead th { color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; border-bottom: 1px solid var(--zli-border); }
+.usage-report-table th:first-child { width: 100%; text-align: left; }
+.usage-report-table tbody th { color: var(--zli-text); font-weight: 400; }
+.usage-report-table tbody td { color: var(--zli-muted); }
+.usage-report-table tbody tr + tr > * { border-top: 1px solid var(--zli-border); }
+.usage-report-table td.is-unknown, .usage-report-partial { color: var(--zli-dim); }
+.usage-report-name { display: inline-flex; max-width: 28ch; align-items: center; gap: var(--zli-space-2); }
+.usage-report-name > svg { flex: 0 0 auto; }
+.usage-report-model { overflow: hidden; text-overflow: ellipsis; }

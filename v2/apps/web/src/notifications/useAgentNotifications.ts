@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { NotificationSettings, ZliBridge } from "../runtime/bridge.js";
 import { buddyIcon } from "../teammates/buddyIcon.js";
 import { hashedBuddy, storedChatBuddy } from "../teammates/chatBuddies.js";
+import { isNotificationTone, playNotificationTone } from "./sounds.js";
 
 /**
  * Connects the shell to the main process notifier: reports which agent tiles are on screen, selects
@@ -59,6 +60,14 @@ export function useAgentNotifications(
   const activateRef = useRef(onActivate);
   activateRef.current = onActivate;
   useEffect(() => notifications?.onActivate(({ sessionId }) => activateRef.current(sessionId)), [notifications]);
+  // A notification with one of ZLI's own sounds: main shows it silently and the window plays the sound.
+  useEffect(
+    () =>
+      notifications?.onPlaySound?.(({ tone, volume }) => {
+        if (isNotificationTone(tone)) playNotificationTone(tone, volume);
+      }),
+    [notifications],
+  );
 
   const update = useCallback(
     async (patch: Partial<NotificationSettings>) => {

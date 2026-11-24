@@ -3,7 +3,6 @@ import { lazy, type MouseEvent, type ReactNode, Suspense, useEffect, useRef, use
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
-import { huddleMarkText, sessionHuddles } from "../huddle/huddles.js";
 import { trackDescription } from "../review/branches.js";
 import { type PullRequestEntry, recordPullRequest, refreshPullRequest } from "../review/pullRequestStore.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -110,8 +109,6 @@ export type BranchesViewProps = {
   onNewAgent(project?: ProjectProjection): void;
   onCreateWorktree(project?: ProjectProjection): void;
   onOpenProject(): void;
-  /** Opens the Huddle panel on a huddle. Without it rows show no huddle marks. */
-  onOpenHuddle: ((huddleId: string) => void) | undefined;
   /** The sidebar's clock, so row ages move on together. */
   now: number;
 };
@@ -147,7 +144,6 @@ export function BranchesView({
   onNewAgent,
   onCreateWorktree,
   onOpenProject,
-  onOpenHuddle,
   now,
 }: BranchesViewProps) {
   const { dispatch } = useRuntime();
@@ -362,16 +358,6 @@ export function BranchesView({
       return at > newest ? at : newest;
     }, "");
     const age = relativeTime(latest || undefined, now);
-    const huddles = onOpenHuddle
-      ? [
-          ...new Map(
-            agents
-              .flatMap((session) => (projection ? sessionHuddles(projection, session) : []))
-              .map((huddle) => [huddle.huddleId, huddle]),
-          ).values(),
-        ]
-      : [];
-    const firstHuddle = huddles[0];
     const marks =
       agents.length > 0 ? (
         <span className="ship-marks">
@@ -452,17 +438,6 @@ export function BranchesView({
               >
                 Merge
               </Button>
-            ) : null}
-            {firstHuddle && onOpenHuddle ? (
-              <button
-                className={`ship-huddle${huddles.some((huddle) => huddle.paused) ? " is-paused" : ""}`}
-                type="button"
-                aria-label={`${huddleMarkText(huddles)}. Open ${firstHuddle.name}`}
-                data-tooltip={huddleMarkText(huddles)}
-                onClick={() => onOpenHuddle(firstHuddle.huddleId)}
-              >
-                <Icon name="users" size={13} />
-              </button>
             ) : null}
             {expandable ? (
               <button

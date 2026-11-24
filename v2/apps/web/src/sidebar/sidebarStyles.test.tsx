@@ -56,7 +56,7 @@ const session = (index: number, id: string, status: AgentSession["status"], upda
     updatedAt,
   }) as AgentSession;
 
-/** An agent in a chat, so it has the thread id that names, huddles, and sub-agents go by. */
+/** An agent in a chat, so it has the thread id that names and sub-agents go by. */
 const chat = (
   index: number,
   id: string,
@@ -68,14 +68,6 @@ const chat = (
     mode: "chat",
     thread: { threadId: id, name: fields.name, startedBy: fields.startedBy },
   }) as unknown as AgentSession;
-
-const huddle = (huddleId: string, name: string, members: string[], paused?: true) =>
-  ({
-    huddleId,
-    name,
-    members: members.map((agentId) => ({ agentId })),
-    ...(paused ? { paused } : {}),
-  }) as unknown as NonNullable<RuntimeProjection["huddles"]>[number];
 
 const worktrees = [
   worktree(1, "working-branch"),
@@ -173,10 +165,6 @@ async function mount(
     noProjects?: boolean;
     onOpenSearch?: () => void;
     requests?: RuntimeProjection["requests"];
-    huddles?: RuntimeProjection["huddles"];
-    onOpenHuddle?: (huddleId: string) => void;
-    /** Turns on the huddle actions in agent menus without caring where they lead. */
-    huddleActions?: boolean;
     /** Branch names by worktree index, for rows whose name matters to the test. */
     worktreeNames?: Record<number, string>;
   } = {},
@@ -199,7 +187,6 @@ async function mount(
               : {
                   ...projection(),
                   requests: options.requests,
-                  huddles: options.huddles,
                   worktrees: worktrees.map((entry, index) => ({
                     ...entry,
                     branch: options.worktreeNames?.[index + 1] ?? entry.branch,
@@ -207,14 +194,12 @@ async function mount(
                 }
           }
           onOpenSearch={options.onOpenSearch}
-          onOpenHuddle={options.onOpenHuddle ?? (options.huddleActions ? noop : undefined)}
           sessions={options.agents ?? sessions}
           activeSessionId={undefined}
           backgroundSessionIds={new Set()}
           activeWorktreeId={undefined}
           currentProjectId={options.currentProjectId}
           onSelectSession={options.onSelectSession ?? noop}
-          onStopSession={noop}
           onDeleteSession={noop}
           onSelectWorktree={noop}
           onNewAgent={options.onNewAgent ?? noop}
@@ -225,7 +210,6 @@ async function mount(
           onWorktreeAction={noop}
           onReviewSetup={noop}
           onShowSetupOutput={noop}
-          onOpenHelp={noop}
           onOpenSettings={options.onOpenSettings ?? noop}
           onOpenUsage={noop}
           onHideSidebar={noop}
@@ -276,16 +260,10 @@ afterEach(async () => {
 });
 
 describe("sidebar styles", () => {
-  it("keeps huddle marks and links out of the tree, so it stays as it was", async () => {
-    const container = await mount("tree", {
-      agents: [chat(1, "lead", "working")],
-      huddles: [huddle("h1", "Login work", ["lead"])],
-      onOpenHuddle: noop,
-    });
-    expect(container.querySelector(".session-huddle, .session-note")).toBeNull();
+  it("keeps notes out of the tree, so it stays as it was", async () => {
+    const container = await mount("tree", { agents: [chat(1, "lead", "working")] });
+    expect(container.querySelector(".session-note")).toBeNull();
     expect(container.querySelector(".sidebar-top")).not.toBeNull();
-    await act(async () => button(container, "Agent actions").click());
-    expect(menuItems().map((item) => item.textContent)).not.toContain("Open Login work");
   });
 });
 
@@ -503,48 +481,15 @@ describe("Branches style", () => {
       chat(1, "lead", "working", { name: "Lead" }),
       chat(2, "helper", "working", { name: "Helper", startedBy: "lead" }),
     ];
-    const container = await mount("branches", { agents, huddleActions: true });
+    const container = await mount("branches", { agents });
     const helperRow = container.querySelector(`[data-worktree-id="${worktreeId(2)}"]`);
     expect(helperRow?.querySelector(".ship-name")?.textContent).toBe("Helper");
     expect(helperRow?.querySelector(".ship-row")?.getAttribute("title")).toContain("Started by Lead");
     const leadRow = container.querySelector(`[data-worktree-id="${worktreeId(1)}"]`);
     if (!leadRow) throw new Error("No row");
-    // The lead's row has nothing to expand, and its menu still reaches the sub-agent.
+    // The lead's row has nothing to expand.
     expect(leadRow.querySelector(".ship-marks-toggle")).toBeNull();
     expect(container.querySelector(".sub-agent-list")).toBeNull();
-    await act(async () => button(leadRow, "Branch actions").click());
-    expect(menuItems().map((item) => item.textContent)).toContain("Start a huddle with its sub-agents");
-  });
-
-  it("marks a branch whose agent is in a huddle, and the mark opens that huddle", async () => {
-    const onOpenHuddle = vi.fn();
-    const container = await mount("branches", {
-      agents: [chat(1, "lead", "working")],
-      huddles: [huddle("h1", "Login work", ["lead"])],
-      onOpenHuddle,
-    });
-    await act(async () => button(container, "In the huddle Login work. Open Login work").click());
-    expect(onOpenHuddle).toHaveBeenCalledWith("h1");
-  });
-
-  it("says when a huddle is paused, since it waits on the person", async () => {
-    const container = await mount("branches", {
-      agents: [chat(1, "lead", "working")],
-      huddles: [huddle("h1", "Login work", ["lead"], true)],
-      onOpenHuddle: noop,
-    });
-    expect(container.querySelector(".ship-huddle.is-paused")?.getAttribute("data-tooltip")).toBe(
-      "In the huddle Login work (paused)",
-    );
-  });
-
-  it("leaves a row's huddle mark out when the agent is in no huddle", async () => {
-    const container = await mount("branches", {
-      agents: [chat(1, "lead", "working")],
-      huddles: [huddle("h1", "Login work", ["someone-else"])],
-      onOpenHuddle: noop,
-    });
-    expect(container.querySelector(".ship-huddle")).toBeNull();
   });
 
   it("filters to one project and says when it has no branches", async () => {
@@ -720,22 +665,6 @@ describe("Project rail style", () => {
     expect(onOpenSearch).toHaveBeenCalledOnce();
   });
 
-  it("keeps one huddle mark on a lead and its sub-agents, with the name still on each row", async () => {
-    const agents = [
-      chat(1, "lead", "working", { name: "Lead" }),
-      chat(1, "helper", "working", { name: "Helper", startedBy: "lead" }),
-    ];
-    const container = await mount("rail", {
-      agents,
-      currentProjectId: repoId,
-      huddles: [huddle("h1", "Login work", ["lead", "helper"])],
-      onOpenHuddle: noop,
-    });
-    expect(container.querySelectorAll(".session-huddle")).toHaveLength(1);
-    const helper = container.querySelector(".sub-agent-list .session-row");
-    expect(helper?.getAttribute("aria-label")).toContain("In the huddle Login work");
-  });
-
   it("lifts an agent that needs the person, even through a sub-agent, above the running ones", async () => {
     const agents = [
       chat(1, "running", "working", { createdAt: "2026-02-01T00:00:00.000Z" }),
@@ -785,8 +714,8 @@ describe("Project rail style", () => {
 
   it("says an agent is working and names its branch", async () => {
     const container = await mount("rail", { agents: [session(1, "running", "working")], currentProjectId: repoId });
-    // A working row's dot says so, and its second line shows what it is doing; the branch is in the tooltip.
-    expect(container.querySelector(".session-dot.is-working")).not.toBeNull();
+    // A working row's bars say so; the branch is in the tooltip.
+    expect(container.querySelector(".session-bars")).not.toBeNull();
     expect(container.querySelector(".session-row")?.getAttribute("title")).toContain("working-branch");
   });
 
@@ -810,32 +739,14 @@ describe("Project rail style", () => {
     expect(container.querySelector(".session-row")?.getAttribute("aria-label")).toContain("1 check failed");
   });
 
-  it("marks an agent in a huddle, and its menu goes to the huddle", async () => {
-    const onOpenHuddle = vi.fn();
-    const container = await mount("rail", {
-      agents: [chat(1, "lead", "working")],
-      currentProjectId: repoId,
-      huddles: [huddle("h1", "Login work", ["lead"])],
-      onOpenHuddle,
-    });
-    expect(container.querySelector(".session-huddle")).not.toBeNull();
-    await act(async () => button(container, "Agent actions").click());
-    await act(async () =>
-      menuItems()
-        .find((item) => item.textContent === "Open Login work")
-        ?.click(),
-    );
-    expect(onOpenHuddle).toHaveBeenCalledWith("h1");
-  });
-
-  it("keeps Add project, Usage, Settings, and Help on the strip", async () => {
+  it("keeps Add project, Usage, and Settings on the strip, without Help", async () => {
     const onOpenSettings = vi.fn();
     const container = await mount("rail", { onOpenSettings });
     await act(async () => button(container, "Settings").click());
     expect(onOpenSettings).toHaveBeenCalled();
     expect(button(container, "Add project")).toBeTruthy();
     expect(button(container, "Usage")).toBeTruthy();
-    expect(button(container, "Help")).toBeTruthy();
+    expect(container.querySelector('button[aria-label="Help"]')).toBeNull();
   });
 
   it("offers the project's menu from a tile with pin, rename, and remove", async () => {
