@@ -364,6 +364,12 @@ function formatAgentResult(action: string, result: unknown): ToolResult {
       // Resources and anything newer reach the agent as their JSON.
       return [{ type: "text", text: JSON.stringify(item) }];
     });
+    // A structured result reaches the agent as its JSON unless a text part already carries the same.
+    if (result.structuredContent !== undefined) {
+      const json = JSON.stringify(result.structuredContent);
+      if (!content.some((item) => item.type === "text" && item.text === json))
+        content.push({ type: "text", text: json });
+    }
     return {
       content: content.length > 0 ? content : [{ type: "text", text: "The tool returned nothing." }],
       ...(result.isError === true ? { isError: true } : {}),

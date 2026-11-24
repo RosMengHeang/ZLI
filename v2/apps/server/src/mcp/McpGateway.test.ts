@@ -95,6 +95,16 @@ describe("McpGateway", () => {
     expect(result.hint).toContain("connect_service");
   });
 
+  it("starts again after a sign-in instead of keeping the failed handshake", async () => {
+    gateway = new McpGateway();
+    const options = { signIn: true, started: { count: 0 } };
+    const notion = fakeServer("notion", [{ name: "search_pages", description: "Search Notion pages." }], options);
+    expect((await gateway.find([notion], "")).services[0]).toMatchObject({ status: "needs_sign_in" });
+    options.signIn = false;
+    expect((await gateway.find([notion], "search pages")).tools[0]?.name).toBe("search_pages");
+    expect(options.started.count).toBe(2);
+  });
+
   it("calls a tool through one shared session and passes its result through", async () => {
     gateway = new McpGateway();
     const started = { count: 0 };

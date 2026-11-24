@@ -65,7 +65,12 @@ class GatewaySession {
 
   /** Connects and initializes on first use; later calls share the same handshake. */
   ready(): Promise<void> {
-    this.#ready ??= this.#start();
+    // A handshake that failed (such as before a sign-in) is not kept: the session closes, so the next call starts
+    // again with the credentials as they are then.
+    this.#ready ??= this.#start().catch(async (error: unknown) => {
+      await this.close();
+      throw error;
+    });
     return this.#ready;
   }
 
@@ -408,8 +413,15 @@ export function scoreTool(tool: McpGatewayTool, words: readonly string[]): numbe
 function callResult(result: unknown): McpToolsCallResult {
   if (!isObject(result)) return { content: [{ type: "text", text: JSON.stringify(result ?? null) }] };
   const content = Array.isArray(result.content) ? result.content.filter(isObject) : [];
+  const structured =
+    result.structuredContent !== undefined ? [{ type: "text", text: JSON.stringify(result.structuredContent) }] : [];
   return {
-    content: content.length > 0 ? content : [{ type: "text", text: "The tool returned nothing." }],
+    content:
+      content.length > 0
+        ? content
+        : structured.length > 0
+          ? structured
+          : [{ type: "text", text: "The tool returned nothing." }],
     ...(result.isError === true ? { isError: true } : {}),
     ...(result.structuredContent !== undefined ? { structuredContent: result.structuredContent } : {}),
   };
