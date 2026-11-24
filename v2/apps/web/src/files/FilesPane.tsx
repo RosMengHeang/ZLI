@@ -1083,9 +1083,10 @@ function FilesWorkspace({
     </div>
   ) : null;
   // The foot: what the file is, then opening it in an editor and the rest of the actions.
-  const foot = barPath ? (
+  // Always there in the right panel, so the folder opens in another app even before a file is open.
+  const foot = (
     <div className="files-foot">
-      {active?.status === "ready" && active.file.content !== undefined ? (
+      {barPath && active?.status === "ready" && active.file.content !== undefined ? (
         <span className="files-foot-meta">
           {languageLabel(barPath)} · {active.file.lineEnding === "crlf" ? "CRLF" : "LF"}
         </span>
@@ -1094,7 +1095,7 @@ function FilesWorkspace({
       <OpenInButton worktreeId={worktreeId} onError={setOpenInError} />
       <MenuButton label="More file actions" items={moreItems} />
     </div>
-  ) : null;
+  );
 
   return (
     <div className={`tool-pane files-pane${compact ? " is-compact" : ""}`} ref={rootRef}>

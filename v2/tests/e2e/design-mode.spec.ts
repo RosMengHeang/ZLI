@@ -222,8 +222,14 @@ test("annotates the page, sends the annotations to a chat agent in one message, 
       designPath,
     ]);
     expect(started.stderr).toBe("");
-    const helperTile = page.getByRole("region", { name: /^Helper,/u });
-    await expect(helperTile.getByText(/^Mock response/u).first()).toBeVisible({ timeout: 20_000 });
+    // The helper runs beside its starter and opens from its row in the sidebar.
+    await page.locator(".session-row", { hasText: "Helper" }).first().click({ timeout: 20_000 });
+    await expect(
+      page
+        .locator(".chat-log")
+        .getByText(/^Mock response/u)
+        .first(),
+    ).toBeVisible({ timeout: 20_000 });
     await worktree.click();
     await expect(page.getByRole("heading", { name: "Design fixture" })).toBeVisible();
 
@@ -252,11 +258,11 @@ test("annotates the page, sends the annotations to a chat agent in one message, 
     const sentElsewhere = page.getByRole("status").filter({ hasText: "Sent to Codex on cheap." });
     await expect(sentElsewhere).toBeVisible();
     await expect(panel).toHaveCount(0);
-    await expect(
-      helperTile.getByText(/Mock response: This annotation was made in the browser of another worktree/u),
-    ).toBeVisible({
-      timeout: 20_000,
-    });
+    // The helper answered; its chat is read through zli so the panels stay on design.
+    const helperId = (JSON.parse(started.stdout) as { agent: { id: string } }).agent.id;
+    await expect
+      .poll(async () => (await zli(["read", helperId, "--cwd", designPath])).stdout, { timeout: 20_000 })
+      .toContain("Mock response: This annotation was made in the browser of another worktree");
     // The browser stays on design until Show brings the agent forward, which moves the panels to its worktree.
     await expect(page.getByRole("heading", { name: "Design fixture" })).toBeVisible();
     await sentElsewhere.getByRole("button", { name: "Show", exact: true }).click();

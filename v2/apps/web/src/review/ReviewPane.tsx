@@ -682,20 +682,7 @@ export function ReviewPane({
                   items={() => [{ label: "Commit and push", icon: "upload", run: () => void commit(true) }]}
                 />
               </div>
-              {toPush > 0 ? (
-                <Button
-                  size="sm"
-                  icon="upload"
-                  aria-label={`Push, ${toPush} to push`}
-                  loading={syncing === "push"}
-                  disabled={!!syncing}
-                  tooltip={`Push this branch to origin. ${trackDescription(upstream)}`}
-                  onClick={() => void sync("push")}
-                >
-                  Push
-                  <span className="sync-count">↑{toPush}</span>
-                </Button>
-              ) : null}
+              {/* Push and Pull sit in the bar above, which shows whenever there is something to move. */}
             </div>
           </div>
           <div className="review-merge">

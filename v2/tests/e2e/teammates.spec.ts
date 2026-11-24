@@ -31,19 +31,21 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
     await page.getByRole("menuitem", { name: /^Ask an agent/u }).click();
     await page.getByRole("menuitem", { name: /Codex/u }).click();
     const composer = page.getByRole("textbox", { name: /^Message / });
-    await expect(composer).toHaveValue(/^@[A-Z][a-z]+ $/u);
-    const guest = (await composer.inputValue()).slice(1).trim();
+    // The message box calls the guest with a chip of its name at the start.
+    const called = page.locator(".composer-chips .composer-chip-label").last();
+    await expect(called).toHaveText(/^[A-Z][a-z]+$/u);
+    const guest = (await called.textContent())?.trim() ?? "";
     const room = page.getByRole("region", { name: "Who is in this chat" });
     await expect(room).toContainText(guest);
 
-    await composer.fill(`@${guest} review the login page`);
+    await composer.fill("review the login page");
     await composer.press("Enter");
     await expect(page.locator(".room-speaker-name", { hasText: guest })).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".room-speaker-name").first()).toHaveText("Codex");
 
     // Typing @ offers the people in the chat.
     await composer.fill(`@${guest.slice(0, 1)}`);
-    await expect(page.getByRole("listbox", { name: "Teammates" })).toContainText(guest);
+    await expect(page.getByRole("listbox", { name: "Files, teammates, and buddies" })).toContainText(guest);
     await composer.press("Escape");
     await composer.fill("Thanks, fix what the guest found");
     await composer.press("Enter");
@@ -55,7 +57,7 @@ test("brings a second agent into a chat, talks to it by name, and keeps both in 
     await page.getByRole("button", { name: "Add", exact: true }).last().click();
     await page.getByRole("menuitem", { name: /^Ask an agent/u }).click();
     await page.getByRole("menuitem", { name: "Builder", exact: true }).click();
-    await expect(composer).toHaveValue("@Builder ");
+    await expect(page.locator(".composer-chips .composer-chip-label").last()).toHaveText("Builder");
     await expect(room).toContainText("Builder");
     await composer.pressSequentially("any missing tests?");
     await composer.press("Enter");

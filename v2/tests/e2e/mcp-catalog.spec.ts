@@ -70,7 +70,11 @@ test("adds connectors from the gallery and MCP servers by remote URL", async () 
     await expect(settings).not.toContainText("ghp_e2e_secret");
     await expect(settings).not.toContainText("Goose in a terminal cannot send headers");
 
-    const saved = JSON.parse(await readFile(join(root, "mcp-servers.json"), "utf8"));
+    // With a system keychain the token is sealed on disk, never in the file as typed. A machine without one (some
+    // Linux runners) saves it as typed, as Integrations then says.
+    const savedText = await readFile(join(root, "mcp-servers.json"), "utf8");
+    if (savedText.includes("sealed:v1:")) expect(savedText).not.toContain("ghp_e2e_secret");
+    const saved = JSON.parse(savedText);
     expect(saved.servers).toEqual([
       {
         name: "memory",
@@ -84,7 +88,7 @@ test("adds connectors from the gallery and MCP servers by remote URL", async () 
         enabled: true,
         transport: "http",
         url: "https://api.githubcopilot.com/mcp/",
-        headers: { Authorization: "Bearer ghp_e2e_secret" },
+        headers: { Authorization: expect.stringMatching(/^(sealed:v1:|Bearer ghp_e2e_secret$)/u) },
         oauth: false,
       },
       {

@@ -34,7 +34,7 @@ test("creates skills in Settings for every agent and for the project", async () 
     const settings = page.getByRole("dialog", { name: "Settings" });
     await settings.getByRole("tab", { name: "Skills" }).click();
     await expect(settings).toContainText("No skills yet.");
-    await expect(settings).toContainText("ZLI gives your enabled skills only to agents it starts.");
+    await expect(settings).toContainText("ZLI copies the ones that are on into each worktree it starts an agent in");
 
     await settings.getByRole("button", { name: "New skill" }).click();
     const form = settings.getByRole("form", { name: "New skill" });

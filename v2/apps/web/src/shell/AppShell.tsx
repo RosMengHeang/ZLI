@@ -2925,6 +2925,8 @@ function WorkspaceApp() {
       hasProjects={hasProjects}
       drawerOpen={workbench.drawerOpen}
       showPanels={!buddyView && !pullView}
+      // Chat only keeps the terminal out of sight; the right panel still opens one.
+      showTerminal={!chatOnly}
       sidePane={sidePane}
       onShowSidebar={toggleSidebar}
       onNewAgent={() => openNewAgent()}
