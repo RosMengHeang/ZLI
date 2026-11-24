@@ -262,7 +262,7 @@ export class ConnectedApps {
         );
         return { configured: true, via: "connect", accounts };
       } catch (error) {
-        return { configured: true, via: "connect", accounts: [], problem: messageOf(error) };
+        return { configured: true, via: "connect", accounts: [], problem: scrub(messageOf(error), saved.apiKey) };
       }
     }
     try {
@@ -276,7 +276,7 @@ export class ConnectedApps {
       }));
       return { configured: true, via: "project", accounts };
     } catch (error) {
-      return { configured: true, via: "project", accounts: [], problem: messageOf(error) };
+      return { configured: true, via: "project", accounts: [], problem: scrub(messageOf(error), saved.apiKey) };
     }
   }
 
@@ -435,7 +435,12 @@ export class ConnectedApps {
       throw new ConnectedAppsError("Composio did not accept this key.");
     if (!response.ok)
       throw new ConnectedAppsError(scrub(`Composio said: ${problemIn(text) ?? `HTTP ${response.status}`}`, apiKey));
-    return text ? JSON.parse(text) : {};
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      // JSON.parse quotes the start of the text in its message, and that text could hold the key.
+      throw new ConnectedAppsError("Composio sent an answer ZLI could not read.");
+    }
   }
 }
 

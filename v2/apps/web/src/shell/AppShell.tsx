@@ -28,6 +28,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { accountLabel, launchAccountId, sessionAccountId, useAccounts } from "../accounts/accounts.js";
+import { AgentInstallContext, installTerminalCommand, type RunInstall } from "../agent/InstallAgent.js";
 import { isSelectableProvider, listedDiscoveries, preferredProvider, providerDisplayName } from "../agent/providers.js";
 import { type BrowserOpenRequest, BrowserPane, type BrowserReveal } from "../browser/BrowserPane.js";
 import { BuddiesPane, useStarterTeam, useTeammatesToBuddies } from "../buddies/BuddiesPane.js";
@@ -136,8 +137,8 @@ import { useAgentReach } from "../setup/agentReach.js";
 import { AGENTS_NOT_TRUSTED, useAgentTrust } from "../setup/agentTrust.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
-import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { chatAfterDelete } from "../sidebar/nextChat.js";
+import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { SidebarResizer, useSidebarWidth } from "../sidebar/SidebarResizer.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { themeChoices } from "../theme/customThemes.js";
@@ -153,6 +154,7 @@ import { busyAgentCount } from "../updates/updateCopy.js";
 import { useUpdates } from "../updates/useUpdates.js";
 import { WelcomeDialog } from "../welcome/WelcomeDialog.js";
 import { defaultAgent, shouldWelcome } from "../welcome/welcome.js";
+import { discoverProviders } from "../welcome/welcomeClient.js";
 import { MIN_PANEL_WIDTH, PanelResizer, usePanelWidth } from "../workspace/PanelResizer.js";
 import {
   CloseAgentDialog,
@@ -161,6 +163,7 @@ import {
   KeepRunDialog,
   RenameAgentDialog,
 } from "./AgentDialogs.js";
+import { stepAfterAddingProject } from "./addedProject.js";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette.js";
 import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
@@ -1006,8 +1009,8 @@ function WorkspaceApp() {
   }, [runStates, updateWorkbench, workbench.groups]);
 
   /**
-   * Adds a folder and points the person at their first agent there. From Settings the project is only
-   * selected, so New agent does not open on top of the Settings dialog.
+   * Adds a folder and opens a new chat there, also when the folder was already added. From Settings the
+   * project is only selected, so nothing opens on top of the Settings dialog.
    */
   const openProject = async ({ startAgent = true }: { startAgent?: boolean } = {}) => {
     if (!bridge) {
@@ -1055,16 +1058,20 @@ function WorkspaceApp() {
     { startAgent, existing }: { startAgent: boolean; existing: boolean },
   ) => {
     setSelectedProjectId(project.projectId);
-    const worktrees = projectionRef.current?.worktrees ?? [];
-    const hasAgents = sessionsRef.current.some((session) =>
-      worktrees.some(
-        (worktree) => worktree.worktreeId === session.worktreeId && worktree.projectId === project.projectId,
-      ),
-    );
     if (existing) setNotice({ message: `${project.name} is already in ZLI.`, tone: "info" });
-    if (!startAgent || hasAgents) return;
-    setPaletteOpen(false);
-    setNewAgentProject(project);
+    const defaults = resolveLaunchDefaults(readAppSettings(), project.projectId);
+    const step = stepAfterAddingProject({
+      startAgent,
+      mode: defaults.mode,
+      hasAgent: defaultAgent(projectionRef.current?.providers ?? [], defaults.provider) !== undefined,
+    });
+    if (step === "select") return;
+    if (step === "dialog") {
+      setPaletteOpen(false);
+      setNewAgentProject(project);
+      return;
+    }
+    openNewAgent(project);
   };
 
   /** Polls the projection, which catches up with a command a moment after it is accepted. */
@@ -1339,7 +1346,11 @@ function WorkspaceApp() {
 
   /** Opens a new chat; with `typed`, the text from the empty screen goes out as its first message. */
   const openNewAgent = (project?: ProjectProjection, typed?: string) => {
+    // A project added a moment ago may not be in this render's projection yet.
+    const projection = projectionRef.current;
     if (!projection) return;
+    const hasProjects = projection.projects.length > 0;
+    const selectedProject = projection.projects.find((candidate) => candidate.projectId === selectedProjectId);
     // A new chat is where the person goes next, so the Buddies or Pull requests page steps aside for it.
     setBuddyView(undefined);
     setPullView(undefined);
@@ -1763,6 +1774,44 @@ function WorkspaceApp() {
     });
     if (failure) return failure;
     setSettingsSection(undefined);
+    setSelectedWorktreeId(worktree.worktreeId);
+    updateWorkbench((state) => ({ ...state, activeSessionId: sessionId, maximizedSessionId: undefined }));
+    return undefined;
+  };
+
+  /** Terminals running an agent install; when one ends, ZLI looks for agents again so the new one shows. */
+  const installTerminals = useRef(new Set<string>());
+  useEffect(() => {
+    const pending = installTerminals.current;
+    if (pending.size === 0 || !projection) return;
+    for (const terminal of projection.terminals) {
+      if (!pending.has(terminal.terminalId) || (terminal.status !== "exited" && terminal.status !== "failed")) continue;
+      pending.delete(terminal.terminalId);
+      if (terminal.status === "exited") void discoverProviders(dispatch);
+    }
+  }, [projection, dispatch]);
+
+  /** Runs an install command in a tile, in the worktree in focus, so the person sees it and can stop it. */
+  const installAgent: RunInstall = async (provider, command) => {
+    const worktree = contextWorktree?.status === "ready" ? contextWorktree : undefined;
+    if (!projection || !worktree) return "Add a project first. The install runs in a terminal in one of its folders.";
+    const sessionId = makeCommandId();
+    const terminal = installTerminalCommand({
+      command,
+      title: `Install ${providerDisplayName(provider, projection.providers)}`,
+      worktreeId: worktree.worktreeId,
+      cwd: worktree.path,
+      sessionId,
+    });
+    try {
+      const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command: terminal });
+      if (response?.accepted === false) return response.error.message;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : "The install could not start.";
+    }
+    installTerminals.current.add(terminal.terminalId);
+    setSettingsSection(undefined);
+    setNewAgentProject(undefined);
     setSelectedWorktreeId(worktree.worktreeId);
     updateWorkbench((state) => ({ ...state, activeSessionId: sessionId, maximizedSessionId: undefined }));
     return undefined;
@@ -2815,703 +2864,711 @@ function WorkspaceApp() {
   );
 
   return (
-    <FileIndexProvider onOpenFile={openFile}>
-      <div
-        className={`app-shell${sidebarOpen ? "" : " is-sidebar-hidden"}${columnsLayout ? " is-columns" : ""}${sidePane ? " has-panel" : ""}`}
-        style={sidebarWidth ? ({ "--zli-sidebar-width": `${sidebarWidth}px` } as CSSProperties) : undefined}
-      >
-        {sidebarOpen ? (
-          <Sidebar
-            projection={projection}
-            sessions={listedSessions}
-            accounts={loadedAccounts}
-            activeSessionId={activeSession?.sessionId}
-            backgroundSessionIds={backgroundSessionIds}
-            activeWorktreeId={contextWorktree?.worktreeId}
-            currentProjectId={selectedProject?.projectId ?? contextProject?.projectId}
-            selectedProjectId={selectedProject?.projectId}
-            onSelectSession={(session) => {
-              setSelectedProjectId(undefined);
-              focusSession(session);
-            }}
-            onStopSession={(session) => void stopSession(session)}
-            onDeleteSession={setDeleteRequest}
-            onRenameSession={(session) => setRenameRequestId(session.sessionId)}
-            onSelectWorktree={(worktree) => {
-              setNotice(undefined);
-              if (worktree.projectId !== selectedProjectId) setSelectedProjectId(undefined);
-              setSelectedWorktreeId(worktree.worktreeId);
-              const latest = tiles.filter((session) => session.worktreeId === worktree.worktreeId).at(-1);
-              updateWorkbench((state) => ({ ...state, activeSessionId: latest?.sessionId }));
-            }}
-            onNewAgent={openNewAgent}
-            onStartFromIssue={openIssues}
-            onOpenProject={() => void openProject()}
-            onRemoveProject={async (projectId) => {
-              const name = projection?.projects.find((project) => project.projectId === projectId)?.name ?? "project";
-              const problem = await removeProject(projectId);
-              if (!problem)
-                setNotice({ message: `Removed ${name} from ZLI. Its folder is still on disk.`, tone: "info" });
-              return problem;
-            }}
-            onRenameProject={(projectId, name) => void renameProject(projectId, name)}
-            onWorktreeAction={(worktree, action) => void worktreeAction(worktree, action)}
-            onReviewSetup={(worktree) => reviewSetup(worktree.worktreeId)}
-            onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}
-            onOpenHelp={() => setHelpOpen(true)}
-            onOpenSettings={openSettings}
-            onOpenUsage={openUsage}
-            onOpenSearch={() => setPaletteOpen(true)}
-            runGroups={workbench.groups}
-            runStates={runStates}
-            onCompareRuns={(group) => setCompareGroupId(group.groupId)}
-            onOpenHuddle={openHuddle}
-            onHuddleError={showError}
-            projectAgentActions={projectAgentActions}
-            onOpenBuddies={openBuddies}
-            activeBuddyId={shownBuddy}
-            onOpenPullRequests={openPullRequests}
-            pullRequestsOpen={pullView !== undefined}
-          />
-        ) : null}
-        {sidebarOpen ? <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} /> : null}
-        <main className="main-workspace">
-          {notice ? (
-            <div className={`banner banner-${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
-              <Icon name={notice.tone === "danger" ? "alert" : "check"} size={14} />
-              <span className="banner-message">{notice.message}</span>
-              {notice.action ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    notice.action?.run();
-                    setNotice(undefined);
-                  }}
-                >
-                  {notice.action.label}
-                </Button>
-              ) : null}
-              <IconButton label="Dismiss message" icon="x" size="sm" onClick={() => setNotice(undefined)} />
-            </div>
+    <AgentInstallContext.Provider value={installAgent}>
+      <FileIndexProvider onOpenFile={openFile}>
+        <div
+          className={`app-shell${sidebarOpen ? "" : " is-sidebar-hidden"}${columnsLayout ? " is-columns" : ""}${sidePane ? " has-panel" : ""}`}
+          style={sidebarWidth ? ({ "--zli-sidebar-width": `${sidebarWidth}px` } as CSSProperties) : undefined}
+        >
+          {sidebarOpen ? (
+            <Sidebar
+              projection={projection}
+              sessions={listedSessions}
+              accounts={loadedAccounts}
+              activeSessionId={activeSession?.sessionId}
+              backgroundSessionIds={backgroundSessionIds}
+              activeWorktreeId={contextWorktree?.worktreeId}
+              currentProjectId={selectedProject?.projectId ?? contextProject?.projectId}
+              selectedProjectId={selectedProject?.projectId}
+              onSelectSession={(session) => {
+                setSelectedProjectId(undefined);
+                focusSession(session);
+              }}
+              onStopSession={(session) => void stopSession(session)}
+              onDeleteSession={setDeleteRequest}
+              onRenameSession={(session) => setRenameRequestId(session.sessionId)}
+              onSelectWorktree={(worktree) => {
+                setNotice(undefined);
+                if (worktree.projectId !== selectedProjectId) setSelectedProjectId(undefined);
+                setSelectedWorktreeId(worktree.worktreeId);
+                const latest = tiles.filter((session) => session.worktreeId === worktree.worktreeId).at(-1);
+                updateWorkbench((state) => ({ ...state, activeSessionId: latest?.sessionId }));
+              }}
+              onNewAgent={openNewAgent}
+              onStartFromIssue={openIssues}
+              onOpenProject={() => void openProject()}
+              onRemoveProject={async (projectId) => {
+                const name = projection?.projects.find((project) => project.projectId === projectId)?.name ?? "project";
+                const problem = await removeProject(projectId);
+                if (!problem)
+                  setNotice({ message: `Removed ${name} from ZLI. Its folder is still on disk.`, tone: "info" });
+                return problem;
+              }}
+              onRenameProject={(projectId, name) => void renameProject(projectId, name)}
+              onWorktreeAction={(worktree, action) => void worktreeAction(worktree, action)}
+              onReviewSetup={(worktree) => reviewSetup(worktree.worktreeId)}
+              onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}
+              onOpenHelp={() => setHelpOpen(true)}
+              onOpenSettings={openSettings}
+              onOpenUsage={openUsage}
+              onOpenSearch={() => setPaletteOpen(true)}
+              runGroups={workbench.groups}
+              runStates={runStates}
+              onCompareRuns={(group) => setCompareGroupId(group.groupId)}
+              onOpenHuddle={openHuddle}
+              onHuddleError={showError}
+              projectAgentActions={projectAgentActions}
+              onOpenBuddies={openBuddies}
+              activeBuddyId={shownBuddy}
+              onOpenPullRequests={openPullRequests}
+              pullRequestsOpen={pullView !== undefined}
+            />
           ) : null}
-          {bridge ? <ExpiredSignInNotice onSignInAgain={openConnectors} /> : null}
-          {!bridge ? (
-            <DisconnectedState />
-          ) : !projection ? (
-            <RuntimeLoadingState />
-          ) : (
-            <div className="workspace-body" ref={workspaceBodyRef}>
-              <div className="workbench-column">
-                <section className="agent-grid-region" aria-label="Agents" ref={gridRegionRef}>
-                  {pullView ? (
-                    <PullRequestsPage
-                      projection={projection}
-                      selectedId={pullView === "all" ? undefined : pullView}
-                      onSelect={setPullView}
-                      onShowAgent={showAgent}
-                      onOpenChanges={(worktreeId) => {
-                        const session = sessions.find((entry) => entry.worktreeId === worktreeId);
-                        if (session) showAgent(session.sessionId);
-                        setSidePane("review");
-                      }}
-                    />
-                  ) : buddyView ? (
-                    <BuddiesPane
-                      projection={projection}
-                      selectedId={shownBuddy === "team" ? undefined : shownBuddy}
-                      onSelect={(next) => setBuddyView(next ?? "team")}
-                      projectId={contextProject?.projectId}
-                      onOpenThread={(threadId) => {
-                        const thread = projection.threads.find((entry) => entry.threadId === threadId);
-                        if (thread) showAgent(thread.sessionId ?? thread.threadId);
-                      }}
-                      onOpenPullRequest={(threadId) => {
-                        const thread = projection.threads.find((entry) => entry.threadId === threadId);
-                        if (thread) showAgent(thread.sessionId ?? thread.threadId);
-                        setSidePane("pullRequest");
-                      }}
-                    />
-                  ) : visibleTiles.length === 0 &&
-                    projection.projects.length === 0 &&
-                    workStyleOf(settings.defaults) !== "terminal" ? (
-                    // In chat, the first screen is already a chat: its folder tab adds the first project.
-                    <NoProjectChat
-                      agent={firstChatAgent}
-                      onPickFolder={pickChatFolder}
-                      onOpenChat={openFirstChat}
-                      onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
-                    />
-                  ) : visibleTiles.length === 0 ? (
-                    <GridEmptyState
-                      projection={projection}
-                      project={emptySelectedProject}
-                      closedCount={sessions.length}
-                      onOpenProject={() => void openProject()}
-                      onCloneProject={() => setCloneOpen(true)}
-                      onNewAgent={() => openNewAgent()}
-                      onStartChat={(text) => openNewAgent(emptySelectedProject, text)}
-                      onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
-                    />
-                  ) : (
-                    <>
-                      {emptySelectedProject ? (
-                        <ProjectEmptyNotice
-                          project={emptySelectedProject}
-                          onNewAgent={() => openNewAgent(emptySelectedProject)}
-                          onDismiss={() => setSelectedProjectId(undefined)}
-                        />
-                      ) : null}
-                      <div
-                        className="agent-grid"
-                        style={{
-                          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                          // Rows keep a usable height; past that the grid scrolls.
-                          gridTemplateRows: `repeat(${rows}, minmax(${rows > 1 ? 260 : 0}px, 1fr))`,
-                        }}
-                      >
-                        {visibleTiles.map((session, index) => (
-                          <AgentTile
-                            key={session.sessionId}
-                            projection={projection}
-                            session={session}
-                            tall={index < tall}
-                            accountLabel={accountLabel(loadedAccounts, sessionAccountId(session))}
-                            worktree={findWorktree(session.worktreeId)}
-                            active={session.sessionId === activeSession?.sessionId}
-                            maximized={maximized?.sessionId === session.sessionId}
-                            canMaximize={severalOnScreen && tiles.length > 1}
-                            closable={severalOnScreen || session.mode !== "chat"}
-                            onFocus={() => focusSession(session)}
-                            onToggleMaximize={() =>
-                              updateWorkbench((state) => ({
-                                ...state,
-                                maximizedSessionId:
-                                  state.maximizedSessionId === session.sessionId ? undefined : session.sessionId,
-                              }))
-                            }
-                            onStop={() => void stopSession(session)}
-                            onClose={() => closeTile(session)}
-                            onRename={
-                              sessionRenameCommand(session, null)
-                                ? () => setRenameRequestId(session.sessionId)
-                                : undefined
-                            }
-                            startedBy={parentChip(session)}
-                            onOpenHuddle={openHuddle}
-                            onOpenPullRequest={() => {
-                              focusSession(session);
-                              setSidePane("pullRequest");
-                            }}
-                            onOpenDiff={(path) => {
-                              focusSession(session);
-                              setSidePane("review");
-                              setReviewFocus(path ? { path, nonce: Date.now() } : undefined);
-                            }}
-                            onStart={(mode) => startInSession(session, mode)}
-                            onRetryPending={() => retryPending(session)}
-                            onDismissPending={() => closeTileNow(session)}
-                            onReviewSetup={() => reviewSetup(session.worktreeId)}
-                            onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
-                            onSwitchAgent={
-                              newChatTarget(session)
-                                ? (provider, model) => switchChatAgent(session, provider, model)
-                                : undefined
-                            }
-                            onDraftChange={(change) => changeDraft(session.sessionId, change)}
-                            onDraftMove={(place) => moveDraft(session.sessionId, place)}
-                            onAddFolder={bridge ? addChatFolder : undefined}
-                            onDraftSend={(message) => sendDraft(session, message)}
-                            onMoveChat={
-                              newChatTarget(session) &&
-                              !sentDrafts.current.has(session.sessionId) &&
-                              !sessionHasMessages(session, projection.messages)
-                                ? (place) => moveChat(session, place)
-                                : undefined
-                            }
-                            onNewChat={
-                              newChatTarget(session) ? (withContext) => startNewChat(session, withContext) : undefined
-                            }
-                            canCarryContext={canHandOff(session, projection.messages)}
-                            newChatRequest={
-                              newChatRequest?.sessionId === session.sessionId ? newChatRequest.nonce : undefined
-                            }
-                            newChatShortcut={shortcuts.newChat}
-                            onOpenChat={(threadId) => void openChat(session, threadId)}
-                            onOpenConnectors={openConnectors}
-                            run={runPosition(workbench.groups, session.sessionId)}
-                            onStartRuns={
-                              runPosition(workbench.groups, session.sessionId)
-                                ? undefined
-                                : (request) => startRuns(session, request)
-                            }
-                            onBringIn={session.thread ? (request) => bringIntoChat(session, request) : undefined}
-                            onOpenAgent={openAgent}
-                            onBranch={(branch) => branchChat(session, branch)}
-                            onNewChatWithPrompt={(text) => newChatWithPrompt(session, text)}
-                            onAskAside={(question, context) => askAside(session, question, context)}
-                            onCloseAside={closeAside}
-                            sideChatSlot={
-                              session.sessionId === activeSession?.sessionId ? (sideChatSlot ?? undefined) : undefined
-                            }
-                          />
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </section>
-                {workbench.drawerOpen ? (
-                  <TerminalDrawer
-                    projection={projection}
-                    worktree={contextWorktree}
-                    sessionId={activeSession?.sessionId}
-                    height={shownDrawerHeight}
-                    maxHeight={drawerMax}
-                    onHeightChange={(drawerHeight) => updateWorkbench((state) => ({ ...state, drawerHeight }))}
-                    onClose={() => updateWorkbench((state) => ({ ...state, drawerOpen: false }))}
-                  />
-                ) : null}
-              </div>
-              {sidePane ? (
-                <>
-                  <PanelResizer width={shownPanelWidth} max={panelMax} onChange={setPanelWidth} />
-                  <aside
-                    className="tool-panel"
-                    aria-label={`${sidePaneLabel[sidePane]} panel`}
-                    style={{ width: shownPanelWidth }}
+          {sidebarOpen ? <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} /> : null}
+          <main className="main-workspace">
+            {notice ? (
+              <div className={`banner banner-${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>
+                <Icon name={notice.tone === "danger" ? "alert" : "check"} size={14} />
+                <span className="banner-message">{notice.message}</span>
+                {notice.action ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      notice.action?.run();
+                      setNotice(undefined);
+                    }}
                   >
-                    <PanelTabs
-                      tabs={panelTabs.map((pane) => ({ id: pane, label: sidePaneLabel[pane], icon: panelIcon(pane) }))}
-                      active={sidePane}
-                      items={launcherItems}
-                      onSelect={(pane) => setSidePane(pane as SidePane)}
-                    />
-                    {panelTabs.includes("sideChat") ? (
-                      <div className="side-chat-panel" hidden={sidePane !== "sideChat"}>
-                        {sideChatAvailable ? (
-                          <div className="side-chat-slot" ref={setSideChatSlot} />
-                        ) : (
-                          <p className="side-chat-panel-empty">Open a chat to ask a side question about it.</p>
-                        )}
-                      </div>
-                    ) : null}
-                    {sidePane === "launcher" ? (
-                      <PanelLauncher
-                        title={contextWorktree?.branch ?? contextProject?.name}
-                        items={launcherItems}
-                        onClose={() => setSidePane(undefined)}
-                      />
-                    ) : sidePane === "files" ? (
-                      <Suspense fallback={<LoadingFilesPane />}>
-                        <FilesPane
-                          worktree={files.worktree}
-                          focus={filesFocus}
-                          askAgent={askAgent}
-                          projects={projection?.projects}
-                          onOpenProject={openFilesInProject}
-                          onQuickOpen={openQuickOpen}
-                          onOpenDiff={(path) => {
-                            setSidePane("review");
-                            setReviewFocus({ path, nonce: Date.now() });
-                          }}
-                        />
-                      </Suspense>
-                    ) : sidePane === "browser" ? (
-                      <BrowserPane
-                        worktree={contextWorktree}
-                        obscured={overlayOpen}
-                        reveal={browserReveal}
-                        openRequest={browserOpen}
-                        onShowAgent={showAgent}
-                        onNotice={showSent}
-                        projects={projection?.projects}
-                        onOpenProject={openBrowserInProject}
-                      />
-                    ) : sidePane === "pullRequest" ? (
-                      <PullRequestPane
-                        worktree={contextWorktree}
-                        onOpenChanges={() => setSidePane("review")}
-                        onShowAgent={showAgent}
-                      />
-                    ) : sidePane === "sideChat" ? null : sidePane === "huddle" ? (
-                      <HuddlePane
+                    {notice.action.label}
+                  </Button>
+                ) : null}
+                <IconButton label="Dismiss message" icon="x" size="sm" onClick={() => setNotice(undefined)} />
+              </div>
+            ) : null}
+            {bridge ? <ExpiredSignInNotice onSignInAgain={openConnectors} /> : null}
+            {!bridge ? (
+              <DisconnectedState />
+            ) : !projection ? (
+              <RuntimeLoadingState />
+            ) : (
+              <div className="workspace-body" ref={workspaceBodyRef}>
+                <div className="workbench-column">
+                  <section className="agent-grid-region" aria-label="Agents" ref={gridRegionRef}>
+                    {pullView ? (
+                      <PullRequestsPage
                         projection={projection}
-                        selectedId={huddleId}
-                        onSelect={setHuddleId}
-                        onOpenAgent={(agentId) => void openHuddleAgent(agentId)}
+                        selectedId={pullView === "all" ? undefined : pullView}
+                        onSelect={setPullView}
+                        onShowAgent={showAgent}
+                        onOpenChanges={(worktreeId) => {
+                          const session = sessions.find((entry) => entry.worktreeId === worktreeId);
+                          if (session) showAgent(session.sessionId);
+                          setSidePane("review");
+                        }}
                       />
-                    ) : sidePane === "mobile" ? (
-                      <MobilePane
-                        reveal={mobileReveal}
-                        devServers={mobileDevServers}
-                        worktreeId={contextWorktree?.worktreeId}
-                        worktreeName={contextWorktree?.branch}
-                        popOutRequest={mobilePopOutRequest}
-                        onPopOutRequestDone={() => setMobilePopOutRequest(undefined)}
-                        onOpenTerminal={() => updateWorkbench((state) => ({ ...state, drawerOpen: true }))}
+                    ) : buddyView ? (
+                      <BuddiesPane
+                        projection={projection}
+                        selectedId={shownBuddy === "team" ? undefined : shownBuddy}
+                        onSelect={(next) => setBuddyView(next ?? "team")}
+                        projectId={contextProject?.projectId}
+                        onOpenThread={(threadId) => {
+                          const thread = projection.threads.find((entry) => entry.threadId === threadId);
+                          if (thread) showAgent(thread.sessionId ?? thread.threadId);
+                        }}
+                        onOpenPullRequest={(threadId) => {
+                          const thread = projection.threads.find((entry) => entry.threadId === threadId);
+                          if (thread) showAgent(thread.sessionId ?? thread.threadId);
+                          setSidePane("pullRequest");
+                        }}
+                      />
+                    ) : visibleTiles.length === 0 &&
+                      projection.projects.length === 0 &&
+                      workStyleOf(settings.defaults) !== "terminal" ? (
+                      // In chat, the first screen is already a chat: its folder tab adds the first project.
+                      <NoProjectChat
+                        agent={firstChatAgent}
+                        onPickFolder={pickChatFolder}
+                        onOpenChat={openFirstChat}
+                        onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
+                      />
+                    ) : visibleTiles.length === 0 ? (
+                      <GridEmptyState
+                        projection={projection}
+                        project={emptySelectedProject}
+                        closedCount={sessions.length}
+                        onOpenProject={() => void openProject()}
+                        onCloneProject={() => setCloneOpen(true)}
+                        onNewAgent={() => openNewAgent()}
+                        onStartChat={(text) => openNewAgent(emptySelectedProject, text)}
+                        onScratchChat={bridge.scratch ? () => void startScratchChat() : undefined}
                       />
                     ) : (
-                      <Suspense fallback={<LoadingState label="Loading the changes" />}>
-                        <ReviewPane
+                      <>
+                        {emptySelectedProject ? (
+                          <ProjectEmptyNotice
+                            project={emptySelectedProject}
+                            onNewAgent={() => openNewAgent(emptySelectedProject)}
+                            onDismiss={() => setSelectedProjectId(undefined)}
+                          />
+                        ) : null}
+                        <div
+                          className="agent-grid"
+                          style={{
+                            gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                            // Rows keep a usable height; past that the grid scrolls.
+                            gridTemplateRows: `repeat(${rows}, minmax(${rows > 1 ? 260 : 0}px, 1fr))`,
+                          }}
+                        >
+                          {visibleTiles.map((session, index) => (
+                            <AgentTile
+                              key={session.sessionId}
+                              projection={projection}
+                              session={session}
+                              tall={index < tall}
+                              accountLabel={accountLabel(loadedAccounts, sessionAccountId(session))}
+                              worktree={findWorktree(session.worktreeId)}
+                              active={session.sessionId === activeSession?.sessionId}
+                              maximized={maximized?.sessionId === session.sessionId}
+                              canMaximize={severalOnScreen && tiles.length > 1}
+                              closable={severalOnScreen || session.mode !== "chat"}
+                              onFocus={() => focusSession(session)}
+                              onToggleMaximize={() =>
+                                updateWorkbench((state) => ({
+                                  ...state,
+                                  maximizedSessionId:
+                                    state.maximizedSessionId === session.sessionId ? undefined : session.sessionId,
+                                }))
+                              }
+                              onStop={() => void stopSession(session)}
+                              onClose={() => closeTile(session)}
+                              onRename={
+                                sessionRenameCommand(session, null)
+                                  ? () => setRenameRequestId(session.sessionId)
+                                  : undefined
+                              }
+                              startedBy={parentChip(session)}
+                              onOpenHuddle={openHuddle}
+                              onOpenPullRequest={() => {
+                                focusSession(session);
+                                setSidePane("pullRequest");
+                              }}
+                              onOpenDiff={(path) => {
+                                focusSession(session);
+                                setSidePane("review");
+                                setReviewFocus(path ? { path, nonce: Date.now() } : undefined);
+                              }}
+                              onStart={(mode) => startInSession(session, mode)}
+                              onRetryPending={() => retryPending(session)}
+                              onDismissPending={() => closeTileNow(session)}
+                              onReviewSetup={() => reviewSetup(session.worktreeId)}
+                              onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
+                              onSwitchAgent={
+                                newChatTarget(session)
+                                  ? (provider, model) => switchChatAgent(session, provider, model)
+                                  : undefined
+                              }
+                              onDraftChange={(change) => changeDraft(session.sessionId, change)}
+                              onDraftMove={(place) => moveDraft(session.sessionId, place)}
+                              onAddFolder={bridge ? addChatFolder : undefined}
+                              onDraftSend={(message) => sendDraft(session, message)}
+                              onMoveChat={
+                                newChatTarget(session) &&
+                                !sentDrafts.current.has(session.sessionId) &&
+                                !sessionHasMessages(session, projection.messages)
+                                  ? (place) => moveChat(session, place)
+                                  : undefined
+                              }
+                              onNewChat={
+                                newChatTarget(session) ? (withContext) => startNewChat(session, withContext) : undefined
+                              }
+                              canCarryContext={canHandOff(session, projection.messages)}
+                              newChatRequest={
+                                newChatRequest?.sessionId === session.sessionId ? newChatRequest.nonce : undefined
+                              }
+                              newChatShortcut={shortcuts.newChat}
+                              onOpenChat={(threadId) => void openChat(session, threadId)}
+                              onOpenConnectors={openConnectors}
+                              run={runPosition(workbench.groups, session.sessionId)}
+                              onStartRuns={
+                                runPosition(workbench.groups, session.sessionId)
+                                  ? undefined
+                                  : (request) => startRuns(session, request)
+                              }
+                              onBringIn={session.thread ? (request) => bringIntoChat(session, request) : undefined}
+                              onOpenAgent={openAgent}
+                              onBranch={(branch) => branchChat(session, branch)}
+                              onNewChatWithPrompt={(text) => newChatWithPrompt(session, text)}
+                              onAskAside={(question, context) => askAside(session, question, context)}
+                              onCloseAside={closeAside}
+                              sideChatSlot={
+                                session.sessionId === activeSession?.sessionId ? (sideChatSlot ?? undefined) : undefined
+                              }
+                            />
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </section>
+                  {workbench.drawerOpen ? (
+                    <TerminalDrawer
+                      projection={projection}
+                      worktree={contextWorktree}
+                      sessionId={activeSession?.sessionId}
+                      height={shownDrawerHeight}
+                      maxHeight={drawerMax}
+                      onHeightChange={(drawerHeight) => updateWorkbench((state) => ({ ...state, drawerHeight }))}
+                      onClose={() => updateWorkbench((state) => ({ ...state, drawerOpen: false }))}
+                    />
+                  ) : null}
+                </div>
+                {sidePane ? (
+                  <>
+                    <PanelResizer width={shownPanelWidth} max={panelMax} onChange={setPanelWidth} />
+                    <aside
+                      className="tool-panel"
+                      aria-label={`${sidePaneLabel[sidePane]} panel`}
+                      style={{ width: shownPanelWidth }}
+                    >
+                      <PanelTabs
+                        tabs={panelTabs.map((pane) => ({
+                          id: pane,
+                          label: sidePaneLabel[pane],
+                          icon: panelIcon(pane),
+                        }))}
+                        active={sidePane}
+                        items={launcherItems}
+                        onSelect={(pane) => setSidePane(pane as SidePane)}
+                      />
+                      {panelTabs.includes("sideChat") ? (
+                        <div className="side-chat-panel" hidden={sidePane !== "sideChat"}>
+                          {sideChatAvailable ? (
+                            <div className="side-chat-slot" ref={setSideChatSlot} />
+                          ) : (
+                            <p className="side-chat-panel-empty">Open a chat to ask a side question about it.</p>
+                          )}
+                        </div>
+                      ) : null}
+                      {sidePane === "launcher" ? (
+                        <PanelLauncher
+                          title={contextWorktree?.branch ?? contextProject?.name}
+                          items={launcherItems}
+                          onClose={() => setSidePane(undefined)}
+                        />
+                      ) : sidePane === "files" ? (
+                        <Suspense fallback={<LoadingFilesPane />}>
+                          <FilesPane
+                            worktree={files.worktree}
+                            focus={filesFocus}
+                            askAgent={askAgent}
+                            projects={projection?.projects}
+                            onOpenProject={openFilesInProject}
+                            onQuickOpen={openQuickOpen}
+                            onOpenDiff={(path) => {
+                              setSidePane("review");
+                              setReviewFocus({ path, nonce: Date.now() });
+                            }}
+                          />
+                        </Suspense>
+                      ) : sidePane === "browser" ? (
+                        <BrowserPane
                           worktree={contextWorktree}
-                          focus={reviewFocus}
+                          obscured={overlayOpen}
+                          reveal={browserReveal}
+                          openRequest={browserOpen}
                           onShowAgent={showAgent}
                           onNotice={showSent}
+                          projects={projection?.projects}
+                          onOpenProject={openBrowserInProject}
                         />
-                      </Suspense>
-                    )}
-                  </aside>
-                </>
+                      ) : sidePane === "pullRequest" ? (
+                        <PullRequestPane
+                          worktree={contextWorktree}
+                          onOpenChanges={() => setSidePane("review")}
+                          onShowAgent={showAgent}
+                        />
+                      ) : sidePane === "sideChat" ? null : sidePane === "huddle" ? (
+                        <HuddlePane
+                          projection={projection}
+                          selectedId={huddleId}
+                          onSelect={setHuddleId}
+                          onOpenAgent={(agentId) => void openHuddleAgent(agentId)}
+                        />
+                      ) : sidePane === "mobile" ? (
+                        <MobilePane
+                          reveal={mobileReveal}
+                          devServers={mobileDevServers}
+                          worktreeId={contextWorktree?.worktreeId}
+                          worktreeName={contextWorktree?.branch}
+                          popOutRequest={mobilePopOutRequest}
+                          onPopOutRequestDone={() => setMobilePopOutRequest(undefined)}
+                          onOpenTerminal={() => updateWorkbench((state) => ({ ...state, drawerOpen: true }))}
+                        />
+                      ) : (
+                        <Suspense fallback={<LoadingState label="Loading the changes" />}>
+                          <ReviewPane
+                            worktree={contextWorktree}
+                            focus={reviewFocus}
+                            onShowAgent={showAgent}
+                            onNotice={showSent}
+                          />
+                        </Suspense>
+                      )}
+                    </aside>
+                  </>
+                ) : null}
+              </div>
+            )}
+            {topbar}
+            {/* The sidebar's switch sits in the main panel's corner, by the chat's title, open or closed. */}
+            <div className={`columns-lead${sidebarOpen ? "" : " is-sidebar-hidden"}`}>
+              <IconButton
+                label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+                icon="panelLeft"
+                shortcut={shortcuts.toggleSidebar}
+                onClick={toggleSidebar}
+              />
+              {/* Buddies and Pull requests are pages, not chats: their corner keeps only the switch. */}
+              {!sidebarOpen && hasProjects && !buddyView && !pullView ? (
+                <IconButton
+                  label="New chat"
+                  icon="squarePen"
+                  shortcut={shortcuts.newAgent}
+                  onClick={() => openNewAgent()}
+                />
               ) : null}
             </div>
-          )}
-          {topbar}
-          {/* The sidebar's switch sits in the main panel's corner, by the chat's title, open or closed. */}
-          <div className={`columns-lead${sidebarOpen ? "" : " is-sidebar-hidden"}`}>
-            <IconButton
-              label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-              icon="panelLeft"
-              shortcut={shortcuts.toggleSidebar}
-              onClick={toggleSidebar}
+          </main>
+          {paletteOpen ? <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} /> : null}
+          {quickOpen && contextWorktree ? (
+            <QuickOpen
+              worktreeId={contextWorktree.worktreeId}
+              branch={contextWorktree.branch}
+              onOpen={(location) => openFile({ worktreeId: contextWorktree.worktreeId, ...location })}
+              onClose={() => setQuickOpen(false)}
             />
-            {/* Buddies and Pull requests are pages, not chats: their corner keeps only the switch. */}
-            {!sidebarOpen && hasProjects && !buddyView && !pullView ? (
-              <IconButton
-                label="New chat"
-                icon="squarePen"
-                shortcut={shortcuts.newAgent}
-                onClick={() => openNewAgent()}
-              />
-            ) : null}
-          </div>
-        </main>
-        {paletteOpen ? <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} /> : null}
-        {quickOpen && contextWorktree ? (
-          <QuickOpen
-            worktreeId={contextWorktree.worktreeId}
-            branch={contextWorktree.branch}
-            onOpen={(location) => openFile({ worktreeId: contextWorktree.worktreeId, ...location })}
-            onClose={() => setQuickOpen(false)}
-          />
-        ) : null}
-        {legacyImportBatchId && projection && (
-          <LegacyImportDialog
-            projection={projection}
-            batchId={legacyImportBatchId}
-            onImport={(selected) => void importLegacyRecords(selected)}
-            onRollback={() => void rollbackLegacyImport()}
-            onClose={() => setLegacyImportBatchId(undefined)}
-          />
-        )}
-        {helpOpen && (
-          <HelpDialog
-            version={version}
-            onSupportBundle={() => {
-              setHelpOpen(false);
-              void exportSupportBundle();
-            }}
-            onImportLegacy={() => {
-              setHelpOpen(false);
-              void startLegacyImport();
-            }}
-            onOpenUpdates={
-              updates.available
-                ? () => {
-                    setHelpOpen(false);
-                    openSettings("updates");
-                  }
-                : undefined
-            }
-            onClose={() => setHelpOpen(false)}
-          />
-        )}
-        {settingsSection ? (
-          <SettingsDialog
-            key={settingsKey}
-            projection={projection}
-            initialProjectId={contextProject?.projectId}
-            initialSection={settingsSection}
-            integrationsView={integrationsView}
-            focusConnector={focusConnector}
-            notifications={{ settings: notifications.settings, update: (patch) => void notifications.update(patch) }}
-            updates={updates}
-            onRestartToUpdate={restartToUpdate}
-            onSignIn={signInAccount}
-            onAddProject={() => void openProject({ startAgent: false })}
-            onRemoveProject={removeProject}
-            onRunSetup={() => {
-              setSettingsSection(undefined);
-              setWelcomeOpen(true);
-            }}
-            onClose={() => setSettingsSection(undefined)}
-          />
-        ) : null}
-        {usageOpen ? (
-          <Suspense fallback={null}>
-            <UsageDialog
+          ) : null}
+          {legacyImportBatchId && projection && (
+            <LegacyImportDialog
+              projection={projection}
+              batchId={legacyImportBatchId}
+              onImport={(selected) => void importLegacyRecords(selected)}
+              onRollback={() => void rollbackLegacyImport()}
+              onClose={() => setLegacyImportBatchId(undefined)}
+            />
+          )}
+          {helpOpen && (
+            <HelpDialog
+              version={version}
+              onSupportBundle={() => {
+                setHelpOpen(false);
+                void exportSupportBundle();
+              }}
+              onImportLegacy={() => {
+                setHelpOpen(false);
+                void startLegacyImport();
+              }}
+              onOpenUpdates={
+                updates.available
+                  ? () => {
+                      setHelpOpen(false);
+                      openSettings("updates");
+                    }
+                  : undefined
+              }
+              onClose={() => setHelpOpen(false)}
+            />
+          )}
+          {settingsSection ? (
+            <SettingsDialog
+              key={settingsKey}
               projection={projection}
               initialProjectId={contextProject?.projectId}
-              accounts={loadedAccounts}
-              onClose={() => setUsageOpen(false)}
+              initialSection={settingsSection}
+              integrationsView={integrationsView}
+              focusConnector={focusConnector}
+              notifications={{ settings: notifications.settings, update: (patch) => void notifications.update(patch) }}
+              updates={updates}
+              onRestartToUpdate={restartToUpdate}
+              onSignIn={signInAccount}
+              onAddProject={() => void openProject({ startAgent: false })}
+              onRemoveProject={removeProject}
+              onRunSetup={() => {
+                setSettingsSection(undefined);
+                setWelcomeOpen(true);
+              }}
+              onClose={() => setSettingsSection(undefined)}
             />
-          </Suspense>
-        ) : null}
-        {closeRequest && projection && (
-          <CloseAgentDialog
-            title={sessionTitle(closeRequest, projection.messages, projection.providers)}
-            provider={
-              sessionAgentName(closeRequest) ?? providerDisplayName(closeRequest.provider, projection.providers)
-            }
-            onStopAndClose={() => {
-              const session = closeRequest;
-              setCloseRequest(undefined);
-              void stopSession(session);
-              closeTileNow(session);
-            }}
-            onKeepRunning={() => {
-              const session = closeRequest;
-              setCloseRequest(undefined);
-              closeTileNow(session);
-            }}
-            onCancel={() => setCloseRequest(undefined)}
-          />
-        )}
-        {deleteRequest && projection && (
-          <DeleteAgentDialog
-            title={sessionTitle(deleteRequest, projection.messages, projection.providers)}
-            provider={
-              sessionAgentName(deleteRequest) ?? providerDisplayName(deleteRequest.provider, projection.providers)
-            }
-            running={sessionStopCommands(deleteRequest).length > 0}
-            worktree={deletableWorktree(projection, sessions, deleteRequest)}
-            onDelete={(removeWorktree) => {
-              const session = deleteRequest;
-              setDeleteRequest(undefined);
-              void deleteSession(session, removeWorktree);
-            }}
-            onCancel={() => setDeleteRequest(undefined)}
-          />
-        )}
-        {renaming && projection ? (
-          <RenameAgentDialog
-            current={sessionAgentName(renaming)}
-            agent={renameSubtitle(renaming, projection)}
-            problem={(name) =>
-              agentNameProblem(projection, findWorktree(renaming.worktreeId)?.projectId, name, renaming)
-            }
-            onRename={(name) => renameSession(renaming, name)}
-            onCancel={() => setRenameRequestId(undefined)}
-          />
-        ) : null}
-        {actionRequest ? (
-          <PluginActionDialog
-            action={actionRequest.action}
-            pluginName={actionRequest.pluginName}
-            origin={actionRequest.origin}
-            canRemember={actionRequest.key !== undefined}
-            onRun={(remember) => {
-              const { action, key } = actionRequest;
-              setActionRequest(undefined);
-              if (remember && key) rememberActionApproval(key);
-              void startPluginAction(action);
-            }}
-            onCancel={() => setActionRequest(undefined)}
-          />
-        ) : null}
-        {handoffSession && handoffWorktree && projection ? (
-          <Suspense fallback={null}>
-            <HandoffDialog
-              projection={projection}
-              session={handoffSession}
-              worktree={handoffWorktree}
-              onClose={() => setHandoffRequest(undefined)}
-              onSubmit={(request) => submitHandoff(handoffSession, request)}
+          ) : null}
+          {usageOpen ? (
+            <Suspense fallback={null}>
+              <UsageDialog
+                projection={projection}
+                initialProjectId={contextProject?.projectId}
+                accounts={loadedAccounts}
+                onClose={() => setUsageOpen(false)}
+              />
+            </Suspense>
+          ) : null}
+          {closeRequest && projection && (
+            <CloseAgentDialog
+              title={sessionTitle(closeRequest, projection.messages, projection.providers)}
+              provider={
+                sessionAgentName(closeRequest) ?? providerDisplayName(closeRequest.provider, projection.providers)
+              }
+              onStopAndClose={() => {
+                const session = closeRequest;
+                setCloseRequest(undefined);
+                void stopSession(session);
+                closeTileNow(session);
+              }}
+              onKeepRunning={() => {
+                const session = closeRequest;
+                setCloseRequest(undefined);
+                closeTileNow(session);
+              }}
+              onCancel={() => setCloseRequest(undefined)}
             />
-          </Suspense>
-        ) : null}
+          )}
+          {deleteRequest && projection && (
+            <DeleteAgentDialog
+              title={sessionTitle(deleteRequest, projection.messages, projection.providers)}
+              provider={
+                sessionAgentName(deleteRequest) ?? providerDisplayName(deleteRequest.provider, projection.providers)
+              }
+              running={sessionStopCommands(deleteRequest).length > 0}
+              worktree={deletableWorktree(projection, sessions, deleteRequest)}
+              onDelete={(removeWorktree) => {
+                const session = deleteRequest;
+                setDeleteRequest(undefined);
+                void deleteSession(session, removeWorktree);
+              }}
+              onCancel={() => setDeleteRequest(undefined)}
+            />
+          )}
+          {renaming && projection ? (
+            <RenameAgentDialog
+              current={sessionAgentName(renaming)}
+              agent={renameSubtitle(renaming, projection)}
+              problem={(name) =>
+                agentNameProblem(projection, findWorktree(renaming.worktreeId)?.projectId, name, renaming)
+              }
+              onRename={(name) => renameSession(renaming, name)}
+              onCancel={() => setRenameRequestId(undefined)}
+            />
+          ) : null}
+          {actionRequest ? (
+            <PluginActionDialog
+              action={actionRequest.action}
+              pluginName={actionRequest.pluginName}
+              origin={actionRequest.origin}
+              canRemember={actionRequest.key !== undefined}
+              onRun={(remember) => {
+                const { action, key } = actionRequest;
+                setActionRequest(undefined);
+                if (remember && key) rememberActionApproval(key);
+                void startPluginAction(action);
+              }}
+              onCancel={() => setActionRequest(undefined)}
+            />
+          ) : null}
+          {handoffSession && handoffWorktree && projection ? (
+            <Suspense fallback={null}>
+              <HandoffDialog
+                projection={projection}
+                session={handoffSession}
+                worktree={handoffWorktree}
+                onClose={() => setHandoffRequest(undefined)}
+                onSubmit={(request) => submitHandoff(handoffSession, request)}
+              />
+            </Suspense>
+          ) : null}
 
-        {compareGroup && !keepRequest ? (
-          <CompareRunsDialog
-            group={compareGroup}
-            sessions={sessions}
-            onViewDiff={(session) => {
-              setCompareGroupId(undefined);
-              focusSession(session);
-              setSidePane("review");
-              setReviewFocus(undefined);
-            }}
-            onKeep={(session) => setKeepRequest({ group: compareGroup, session })}
-            onClose={() => setCompareGroupId(undefined)}
-          />
-        ) : null}
-        {keepRequest && projection ? (
-          <KeepRunDialog
-            index={keepRequest.group.sessionIds.indexOf(keepRequest.session.sessionId) + 1}
-            count={keepRequest.group.sessionIds.length}
-            branch={findWorktree(keepRequest.session.worktreeId)?.branch ?? "its worktree"}
-            discarded={keepRunCleanup(projection, sessions, keepRequest.group, keepRequest.session.sessionId).map(
-              ({ session, worktree }) => ({
-                title: `Run ${keepRequest.group.sessionIds.indexOf(session.sessionId) + 1}, ${providerDisplayName(session.provider, projection.providers)}`,
-                branch: worktree?.branch,
-              }),
-            )}
-            onKeep={() => void keepRun(keepRequest.group, keepRequest.session)}
-            onCancel={() => setKeepRequest(undefined)}
-          />
-        ) : null}
-        {cloneOpen ? (
-          <CloneDialog
-            nearProject={(contextProject ?? projection?.projects[0])?.path}
-            onClose={() => setCloneOpen(false)}
-            onCloned={async (path) => {
-              setCloneOpen(false);
-              const added = await registerProjectPath(path);
-              if ("error" in added) {
-                if (!added.late) showError(added.error);
-              } else showAddedProject(added.project, { startAgent: true, existing: added.existing });
-            }}
-          />
-        ) : null}
-        {worktreeDialogProject && (
-          <WorktreeDialog
-            onClose={() => setWorktreeDialogProject(undefined)}
-            onSubmit={(branch, baseRef) => void submitWorktree(worktreeDialogProject, branch, baseRef)}
-          />
-        )}
-        {welcomeOpen && projection && (
-          <WelcomeDialog
-            projection={projection}
-            dispatch={dispatch}
-            pickFolder={bridge?.dialog?.openProject}
-            registerProjectPath={registerProjectPath}
-            onStart={async (request) => {
-              const current = projectionRef.current;
-              if (!current) return "The runtime is not connected.";
-              // The checkout may have been added a moment ago, after this render's projection.
-              const checkout = await ensureCheckout(dispatch, current, request.project);
-              if ("error" in checkout) return checkout.error;
-              const accountId = launchAccountId(accounts, request.provider, undefined);
-              const failure = await submitNewAgent({
-                ...request,
-                placement: { kind: "existing", worktreeId: checkout.worktreeId },
-                ...(accountId ? { accountId } : {}),
-              });
-              if (!failure) setSelectedProjectId(request.project.projectId);
-              return failure;
-            }}
-            onDone={() => setWelcomeOpen(false)}
-          />
-        )}
-        {newAgentProject && projection && (
-          <NewAgentDialog
-            projection={projection}
-            initialProject={
-              newAgentProject === "default"
-                ? (selectedProject ?? contextProject ?? projection.projects[0])
-                : newAgentProject
-            }
-            initialWorktreeId={selectedWorktreeId ?? contextWorktree?.worktreeId}
-            prefill={issueStart?.prefill}
-            onClose={() => {
-              setNewAgentProject(undefined);
-              setIssueStart(undefined);
-            }}
-            accounts={accounts}
-            dispatch={dispatch}
-            onSubmit={submitNewAgent}
-          />
-        )}
-        {issuesProject && projection ? (
-          <Suspense fallback={null}>
-            <IssuesDialog
+          {compareGroup && !keepRequest ? (
+            <CompareRunsDialog
+              group={compareGroup}
+              sessions={sessions}
+              onViewDiff={(session) => {
+                setCompareGroupId(undefined);
+                focusSession(session);
+                setSidePane("review");
+                setReviewFocus(undefined);
+              }}
+              onKeep={(session) => setKeepRequest({ group: compareGroup, session })}
+              onClose={() => setCompareGroupId(undefined)}
+            />
+          ) : null}
+          {keepRequest && projection ? (
+            <KeepRunDialog
+              index={keepRequest.group.sessionIds.indexOf(keepRequest.session.sessionId) + 1}
+              count={keepRequest.group.sessionIds.length}
+              branch={findWorktree(keepRequest.session.worktreeId)?.branch ?? "its worktree"}
+              discarded={keepRunCleanup(projection, sessions, keepRequest.group, keepRequest.session.sessionId).map(
+                ({ session, worktree }) => ({
+                  title: `Run ${keepRequest.group.sessionIds.indexOf(session.sessionId) + 1}, ${providerDisplayName(session.provider, projection.providers)}`,
+                  branch: worktree?.branch,
+                }),
+              )}
+              onKeep={() => void keepRun(keepRequest.group, keepRequest.session)}
+              onCancel={() => setKeepRequest(undefined)}
+            />
+          ) : null}
+          {cloneOpen ? (
+            <CloneDialog
+              nearProject={(contextProject ?? projection?.projects[0])?.path}
+              onClose={() => setCloneOpen(false)}
+              onCloned={async (path) => {
+                setCloneOpen(false);
+                const added = await registerProjectPath(path);
+                if ("error" in added) {
+                  if (!added.late) showError(added.error);
+                } else showAddedProject(added.project, { startAgent: true, existing: added.existing });
+              }}
+            />
+          ) : null}
+          {worktreeDialogProject && (
+            <WorktreeDialog
+              onClose={() => setWorktreeDialogProject(undefined)}
+              onSubmit={(branch, baseRef) => void submitWorktree(worktreeDialogProject, branch, baseRef)}
+            />
+          )}
+          {welcomeOpen && projection && (
+            <WelcomeDialog
               projection={projection}
-              initialProject={issuesProject === "default" ? (contextProject ?? projection.projects[0]) : issuesProject}
-              attach={issueAttach !== undefined}
-              onClose={() => {
-                setIssuesProject(undefined);
-                setIssueAttach(undefined);
-              }}
-              onConnectLinear={() => {
-                setIssuesProject(undefined);
-                setIssueAttach(undefined);
-                openSettings("issues");
-              }}
-              onStart={(project, issue) => {
-                const { source, key, reference, title, url } = issue;
-                setIssuesProject(undefined);
-                if (issueAttach) {
-                  issueAttach.onPick(issue);
-                  setIssueAttach(undefined);
-                  return;
-                }
-                setIssueStart({
-                  link: { source, key, reference, title, url },
-                  prefill: { issue: { source, key, reference, title }, prompt: issuePrompt(issue) },
+              dispatch={dispatch}
+              pickFolder={bridge?.dialog?.openProject}
+              registerProjectPath={registerProjectPath}
+              onStart={async (request) => {
+                const current = projectionRef.current;
+                if (!current) return "The runtime is not connected.";
+                // The checkout may have been added a moment ago, after this render's projection.
+                const checkout = await ensureCheckout(dispatch, current, request.project);
+                if ("error" in checkout) return checkout.error;
+                const accountId = launchAccountId(accounts, request.provider, undefined);
+                const failure = await submitNewAgent({
+                  ...request,
+                  placement: { kind: "existing", worktreeId: checkout.worktreeId },
+                  ...(accountId ? { accountId } : {}),
                 });
-                setNewAgentProject(project);
+                if (!failure) setSelectedProjectId(request.project.projectId);
+                return failure;
               }}
-              onStartWithoutIssue={(project) => {
-                setIssuesProject(undefined);
-                setNewAgentProject(project);
+              onDone={() => setWelcomeOpen(false)}
+            />
+          )}
+          {newAgentProject && projection && (
+            <NewAgentDialog
+              projection={projection}
+              initialProject={
+                newAgentProject === "default"
+                  ? (selectedProject ?? contextProject ?? projection.projects[0])
+                  : newAgentProject
+              }
+              initialWorktreeId={selectedWorktreeId ?? contextWorktree?.worktreeId}
+              prefill={issueStart?.prefill}
+              onClose={() => {
+                setNewAgentProject(undefined);
+                setIssueStart(undefined);
               }}
+              accounts={accounts}
+              dispatch={dispatch}
+              onSubmit={submitNewAgent}
             />
-          </Suspense>
-        ) : null}
-        {promptManager && projection ? (
-          <PromptsDialog
-            project={
-              projection.projects.find((project) => project.projectId === promptManager.projectId) ?? contextProject
-            }
-            initialDraft={promptManager.draft}
-            onClose={() => setPromptManager(undefined)}
-          />
-        ) : null}
-        {setupApproval && projection ? (
-          <SetupApprovalDialog
-            key={setupDeferKey(setupApproval)}
-            setup={setupApproval}
-            project={projection.projects.find((project) => project.projectId === setupApproval.projectId)}
-            worktree={findWorktree(setupApproval.worktreeId)}
-            onRespond={(decision) => respondToSetup(setupApproval, decision)}
-            onDefer={() => deferSetup(setupApproval)}
-          />
-        ) : null}
-        {agentTrustProjectId && projection ? (
-          <AgentTrustDialog
-            key={agentTrustProjectId}
-            project={projection.projects.find((project) => project.projectId === agentTrustProjectId)}
-            onTrust={() => trustAgents(agentTrustProjectId)}
-            onDecline={() => answerTrust(agentTrustProjectId, false)}
-          />
-        ) : null}
-        {reachRequest ? (
-          <AgentReachDialog key={reachRequest.requestId} request={reachRequest} onAnswer={answerReach} />
-        ) : null}
-        {restartConfirm && readyUpdate ? (
-          <RestartToUpdateDialog
-            version={readyUpdate.version}
-            busyCount={busyAgents}
-            onRestart={() => {
-              setRestartConfirm(false);
-              void updates.install();
-            }}
-            onCancel={() => setRestartConfirm(false)}
-          />
-        ) : null}
-        {whatsNew ? (
-          <Suspense fallback={null}>
-            <WhatsNewDialog
-              whatsNew={whatsNew}
-              bridge={bridge}
-              onOpenRelease={() => void updates.openReleasePage()}
-              onClose={updates.dismissWhatsNew}
+          )}
+          {issuesProject && projection ? (
+            <Suspense fallback={null}>
+              <IssuesDialog
+                projection={projection}
+                initialProject={
+                  issuesProject === "default" ? (contextProject ?? projection.projects[0]) : issuesProject
+                }
+                attach={issueAttach !== undefined}
+                onClose={() => {
+                  setIssuesProject(undefined);
+                  setIssueAttach(undefined);
+                }}
+                onConnectLinear={() => {
+                  setIssuesProject(undefined);
+                  setIssueAttach(undefined);
+                  openSettings("issues");
+                }}
+                onStart={(project, issue) => {
+                  const { source, key, reference, title, url } = issue;
+                  setIssuesProject(undefined);
+                  if (issueAttach) {
+                    issueAttach.onPick(issue);
+                    setIssueAttach(undefined);
+                    return;
+                  }
+                  setIssueStart({
+                    link: { source, key, reference, title, url },
+                    prefill: { issue: { source, key, reference, title }, prompt: issuePrompt(issue) },
+                  });
+                  setNewAgentProject(project);
+                }}
+                onStartWithoutIssue={(project) => {
+                  setIssuesProject(undefined);
+                  setNewAgentProject(project);
+                }}
+              />
+            </Suspense>
+          ) : null}
+          {promptManager && projection ? (
+            <PromptsDialog
+              project={
+                projection.projects.find((project) => project.projectId === promptManager.projectId) ?? contextProject
+              }
+              initialDraft={promptManager.draft}
+              onClose={() => setPromptManager(undefined)}
             />
-          </Suspense>
-        ) : null}
-        <ThemeEditor />
-        <TooltipLayer />
-      </div>
-    </FileIndexProvider>
+          ) : null}
+          {setupApproval && projection ? (
+            <SetupApprovalDialog
+              key={setupDeferKey(setupApproval)}
+              setup={setupApproval}
+              project={projection.projects.find((project) => project.projectId === setupApproval.projectId)}
+              worktree={findWorktree(setupApproval.worktreeId)}
+              onRespond={(decision) => respondToSetup(setupApproval, decision)}
+              onDefer={() => deferSetup(setupApproval)}
+            />
+          ) : null}
+          {agentTrustProjectId && projection ? (
+            <AgentTrustDialog
+              key={agentTrustProjectId}
+              project={projection.projects.find((project) => project.projectId === agentTrustProjectId)}
+              onTrust={() => trustAgents(agentTrustProjectId)}
+              onDecline={() => answerTrust(agentTrustProjectId, false)}
+            />
+          ) : null}
+          {reachRequest ? (
+            <AgentReachDialog key={reachRequest.requestId} request={reachRequest} onAnswer={answerReach} />
+          ) : null}
+          {restartConfirm && readyUpdate ? (
+            <RestartToUpdateDialog
+              version={readyUpdate.version}
+              busyCount={busyAgents}
+              onRestart={() => {
+                setRestartConfirm(false);
+                void updates.install();
+              }}
+              onCancel={() => setRestartConfirm(false)}
+            />
+          ) : null}
+          {whatsNew ? (
+            <Suspense fallback={null}>
+              <WhatsNewDialog
+                whatsNew={whatsNew}
+                bridge={bridge}
+                onOpenRelease={() => void updates.openReleasePage()}
+                onClose={updates.dismissWhatsNew}
+              />
+            </Suspense>
+          ) : null}
+          <ThemeEditor />
+          <TooltipLayer />
+        </div>
+      </FileIndexProvider>
+    </AgentInstallContext.Provider>
   );
 }
 

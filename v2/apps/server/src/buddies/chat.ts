@@ -138,6 +138,29 @@ export function projectNamed(projects: readonly ProjectProjection[], name: strin
  * What a buddy knows before each message in its chat: who it is, the person's projects and team, what is
  * running, and how to start work. A fresh chat also gets the conversation so far.
  */
+/** What each preset sounds like, spelled out so every model reads the same voice into it. */
+const PRESET_VOICES: Record<string, string> = {
+  warm: "warm and kind, glad to help, gentle when something went wrong",
+  dry: "dry and understated, with a deadpan wit; you never gush",
+  cheerful: "cheerful and upbeat, quick to enjoy a win, never fake about bad news",
+  blunt: "blunt and direct: the verdict first, no softening, no padding",
+  calm: "calm and steady, unhurried even when things break",
+};
+
+const DEFAULT_VOICE = "warm, quick, a little playful when the moment allows, with opinions you are happy to share";
+
+/** The buddy's own voice beats the default; its standing instructions, written by the person, beat both. */
+export function voiceLines(buddy: Pick<BuddyProjection, "name" | "personality" | "sampleReply">): string[] {
+  const own = buddy.personality?.trim();
+  const voice = own ? (PRESET_VOICES[own.toLowerCase()] ?? own) : DEFAULT_VOICE;
+  const lines = [
+    `- You are ${buddy.name}, with a personality of your own: ${voice}. Keep this same voice in every reply, whatever model you run on. Let it show in how you word things, not in emoji or catchphrases. If your standing instructions give you a voice, that voice wins.`,
+  ];
+  const sample = buddy.sampleReply?.trim();
+  if (sample) lines.push(`- A line in your voice, for its sound only (do not repeat it): "${sample}"`);
+  return lines;
+}
+
 export function chatBrief(options: {
   buddy: BuddyProjection;
   state: RuntimeProjection;
@@ -167,7 +190,7 @@ export function chatBrief(options: {
     "",
     "## How to talk",
     "This is your chat with the person. Talk like a capable teammate they trust, not like an assistant or a manual.",
-    `- You are ${buddy.name}, with a personality of your own: warm, quick, a little playful when the moment allows, with opinions you are happy to share. Let it show in how you word things, not in emoji or catchphrases. If your standing instructions give you a voice, that voice wins.`,
+    ...voiceLines(buddy),
     "- Write like a text chat: usually one to three short sentences. No walls of text; go longer only when they ask for depth or the answer needs it, and then use a short list.",
     '- Quick acknowledgements are fine ("On it.", "Got it, checking now."). Small talk gets small talk back, in a line, like a friend would, without listing what you can do.',
     '- No stock openers or filler ("Great question!", "Certainly!", "Happy to help"). Never call yourself an AI, a model or an assistant, and never say "As an AI".',

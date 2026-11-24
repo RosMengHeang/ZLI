@@ -22,6 +22,9 @@ const NO_PLAN = [
 
 const SIGNED_OUT = [
   /\bnot (?:logged|signed) in\b/iu,
+  /\bnot authenticated\b/iu,
+  /\bauthentication required\s*·\s*sign in again\b/iu,
+  /\bcould not resolve authentication method\b/iu,
   /\bplease (?:log|sign) ?in\b/iu,
   /\brun \S*\s*\/login\b/iu,
   /\binvalid (?:x-)?api[ _-]?key\b/iu,
@@ -50,7 +53,8 @@ const SIGN_IN_HINTS: Partial<Record<ListedProviderKind, string>> = {
   "claude-code": "Sign in to Claude Code in a terminal (run `claude`, then `/login`), then try again.",
   codex: "Sign in to Codex in a terminal (run `codex login`), then try again.",
   "cursor-agent": "Sign in to Cursor in a terminal (run `cursor-agent login`), then try again.",
-  droid: "Sign in to Droid in a terminal (run `droid` and follow the login prompt), then try again.",
+  droid:
+    "Sign in to Droid in a terminal (run `droid` and sign in through your browser), or set FACTORY_API_KEY, then try again.",
 };
 
 /** The error with a sign-in step added when it says the agent is signed out. Other errors are unchanged. */

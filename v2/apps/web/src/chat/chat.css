@@ -77,7 +77,7 @@
 .chat-peer .btn { align-self: flex-end; }
 
 /* ---------- Markdown ---------- */
-.markdown { font-size: var(--zli-text-chat); line-height: var(--zli-leading-relaxed); overflow-wrap: anywhere; }
+.markdown { min-width: 0; font-size: var(--zli-text-chat); line-height: var(--zli-leading-relaxed); overflow-wrap: anywhere; }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
 .markdown p { margin: 0 0 var(--zli-space-2-5); white-space: pre-wrap; }
@@ -478,7 +478,7 @@ svg.permission-icon.is-full-access, .composer-footer .picker-trigger > svg.permi
 .md-file-link.is-chip code { padding: 0; border: 0; background: none; color: var(--zli-text); }
 .md-file-link.is-chip:hover { border-color: var(--zli-border-hover); background: var(--zli-hover); }
 .md-file-link.is-chip:hover code { text-decoration: none; }
-.md-code-block.is-folded > .md-code { max-height: 340px; overflow: hidden; mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent); }
+.md-code-block.is-folded > .md-code { max-height: 340px; overflow-x: auto; overflow-y: hidden; mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent); }
 .md-code-fold { display: block; width: 100%; height: 30px; padding: 0; border: 0; border-top: 1px solid var(--zli-border); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-xs); transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
 .md-code-fold:hover { background: var(--zli-hover); color: var(--zli-text); }
 
@@ -569,6 +569,9 @@ span.room-person-chip { color: var(--zli-muted); }
 /* ---------- Picking up, editing, branching ---------- */
 .chat-continue { display: flex; align-items: center; gap: var(--zli-space-2); margin: var(--zli-space-2) 0; }
 .chat-continue-line { height: 1px; flex: 1; background: var(--zli-border); }
+/* Turns an edit of an older message replaced: kept for reference, out of the way. */
+.chat-replaced { display: flex; flex-direction: column; gap: inherit; opacity: 0.5; }
+.chat-replaced-label { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .chat-branched { display: flex; align-items: center; justify-content: center; gap: var(--zli-space-1-5); margin: 0 auto var(--zli-space-4); color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: center; }
 .chat-branched > svg { flex: 0 0 auto; }
 .chat-branched > span { min-width: 0; }
@@ -844,6 +847,8 @@ span.room-person-chip { color: var(--zli-muted); }
 .step-output { position: relative; }
 .step-more { display: block; margin: 1px 0; padding: 0; border: 0; background: none; color: var(--zli-dim); cursor: default; font: inherit; }
 .step-more:hover, .step-more:focus-visible { color: var(--zli-text); }
+.step-trimmed { display: block; margin: var(--zli-space-1) 0; color: var(--zli-dim); font-family: var(--zli-font); }
+.step-trimmed .step-more { display: inline; margin: 0; text-decoration: underline; text-underline-offset: 2px; }
 .step-copy { position: absolute; top: 8px; right: 6px; background: var(--zli-overlay); opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
 .step-output:hover .step-copy, .step-copy:focus-visible, .trace:hover .trace-copy, .trace-copy:focus-visible { opacity: 1; }
 .step-detail.is-trace { white-space: normal; }

@@ -1280,6 +1280,148 @@ describe("ChatView context meter", () => {
     expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", text: "Continue where you left off." });
   });
 
+  it("sends Continue once when it is clicked twice before the chat catches up", async () => {
+    const turnId = thread.activeTurnId as string;
+    const failed = {
+      ...thread,
+      status: "failed",
+      providerSessionId: "conv-1",
+      errorMessage: "Connection lost",
+    } as ThreadProjection;
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [failed],
+        messages: [
+          { messageId: "m1", threadId, turnId, role: "user", text: "Build the page" },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    await act(async () => button(container, "Continue")?.click());
+    await act(async () => button(container, "Continue")?.click());
+    const resends = dispatched.filter(
+      (request) => request.command.type === "thread.queue" && request.command.text === "Continue where you left off.",
+    );
+    expect(resends).toHaveLength(1);
+  });
+
+  it("offers Edit on older messages too once the chat is idle", async () => {
+    const turnId = thread.activeTurnId as string;
+    const idle = { ...thread, status: "idle" } as ThreadProjection;
+    const { container } = await render(
+      projectionWith({
+        threads: [idle],
+        messages: [
+          { messageId: "m1", threadId, turnId: "t-old", role: "user", text: "Make it red" },
+          { messageId: "m2", threadId, turnId: "t-old", role: "assistant", text: "Red now." },
+          { messageId: "m3", threadId, turnId, role: "user", text: "Make it blue" },
+          { messageId: "m4", threadId, turnId, role: "assistant", text: "Done." },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    const edits = [...container.querySelectorAll('button[aria-label="Edit message"]')];
+    expect(edits.map((edit) => edit.closest("article")?.textContent ?? "")).toEqual([
+      expect.stringContaining("Make it red"),
+      expect.stringContaining("Make it blue"),
+    ]);
+  });
+
+  it("offers no Edit while the agent is working", async () => {
+    const turnId = thread.activeTurnId as string;
+    const { container } = await render(
+      projectionWith({
+        messages: [
+          { messageId: "m1", threadId, turnId: "t-old", role: "user", text: "Make it red" },
+          { messageId: "m2", threadId, turnId: "t-old", role: "assistant", text: "Red now." },
+          { messageId: "m3", threadId, turnId, role: "user", text: "Make it blue" },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    expect(container.querySelector('button[aria-label="Edit message"]')).toBeNull();
+  });
+
+  it("sends an edit of an older message as a replacement and dims the turns it replaced", async () => {
+    localStorage.clear();
+    const turnId = thread.activeTurnId as string;
+    const idle = { ...thread, status: "idle" } as ThreadProjection;
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [idle],
+        messages: [
+          { messageId: "m1", threadId, turnId: "t-old", role: "user", text: "Make it red\nand round" },
+          { messageId: "m2", threadId, turnId: "t-old", role: "assistant", text: "Red now." },
+          { messageId: "m3", threadId, turnId, role: "user", text: "Make it blue" },
+          { messageId: "m4", threadId, turnId, role: "assistant", text: "Done." },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    await act(async () => button(container, "Edit message")?.click());
+    await act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+    expect(container.querySelector(".chat-note.is-editing")?.textContent).toContain("Editing an earlier message");
+    const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Droid"]');
+    expect(textarea?.value).toBe("Make it red\nand round");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(textarea, "Make it green");
+      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button(container, "Send")?.click());
+    expect(dispatched.at(-1)?.command).toMatchObject({
+      type: "thread.queue",
+      text: "Make it green",
+      context: "Replace my earlier message 'Make it red…' with this and redo from there; ignore what came after.",
+    });
+    const dimmed = [...container.querySelectorAll(".chat-replaced")];
+    expect(dimmed).toHaveLength(4);
+    expect(container.querySelectorAll(".chat-replaced-label")).toHaveLength(1);
+    expect(dimmed[0]?.textContent).toContain("Replaced by your edit");
+    expect(container.querySelector(".chat-replaced button[aria-label='Edit message']")).toBeNull();
+  });
+
+  it("regenerates the last finished reply by sending the original message again, once", async () => {
+    const turnId = thread.activeTurnId as string;
+    const idle = { ...thread, status: "idle" } as ThreadProjection;
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [idle],
+        messages: [
+          { messageId: "m1", threadId, turnId, role: "user", text: "Make it blue" },
+          { messageId: "m2", threadId, turnId, role: "assistant", text: "Done." },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    await act(async () => button(container, "Regenerate")?.click());
+    await act(async () => button(container, "Regenerate")?.click());
+    const resends = dispatched.filter(
+      (request) => request.command.type === "thread.queue" && request.command.text === "Make it blue",
+    );
+    expect(resends).toHaveLength(1);
+    expect(button(container, "Regenerate")).toBeUndefined();
+  });
+
+  it("offers Regenerate next to Continue on a cut-off reply", async () => {
+    const turnId = thread.activeTurnId as string;
+    const failed = {
+      ...thread,
+      status: "failed",
+      providerSessionId: "conv-1",
+      errorMessage: "Connection lost",
+    } as ThreadProjection;
+    const { container, dispatched } = await render(
+      projectionWith({
+        threads: [failed],
+        messages: [
+          { messageId: "m1", threadId, turnId, role: "user", text: "Build the page" },
+          { messageId: "m2", threadId, turnId, role: "assistant", text: "Starting on" },
+        ] as RuntimeProjection["messages"],
+      }),
+    );
+    expect(button(container, "Continue")).toBeDefined();
+    expect(container.querySelectorAll(".chat-continue button")).toHaveLength(2);
+    await act(async () => button(container, "Regenerate")?.click());
+    expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", text: "Build the page" });
+    expect(button(container, "Continue")).toBeUndefined();
+  });
+
   it("puts a reply's suggested next steps right under it, not above the message box", async () => {
     const turnId = thread.activeTurnId as string;
     const idle = { ...thread, status: "idle" } as ThreadProjection;

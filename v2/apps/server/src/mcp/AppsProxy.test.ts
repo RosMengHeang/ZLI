@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type AppsCall, AppsProxy, type AppsVerdict } from "./AppsProxy.js";
+import { type AppsCall, AppsProxy, type AppsVerdict, keyScrubber } from "./AppsProxy.js";
 import { ConnectedApps } from "./ConnectedApps.js";
 
 const proxies: AppsProxy[] = [];
@@ -201,5 +201,50 @@ describe("AppsProxy", () => {
       method: "tools/call",
       params: { name: "COMPOSIO_MULTI_EXECUTE_TOOL" },
     });
+  });
+
+  it("cuts the key out of what Composio sends back to the agent", async () => {
+    const key = "ak_live_0123456789";
+    // Composio echoes the request in an error, streamed in pieces that split the key.
+    const pieces = ['data: {"error":"bad header x-api-key: ak_live_', "0123", '456789, retry"}\n'];
+    const fetch = (async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (const piece of pieces) controller.enqueue(new TextEncoder().encode(piece));
+            controller.close();
+          },
+        }),
+        { status: 400, headers: { "content-type": "text/event-stream" } },
+      )) as typeof globalThis.fetch;
+    const proxy = new AppsProxy({
+      upstream: () => ({ url: "https://backend.composio.dev/mcp", headers: { "x-api-key": key } }),
+      fetch,
+    });
+    proxies.push(proxy);
+    await proxy.start();
+    const endpoint = proxy.endpoint("wt-1");
+    if (!endpoint) throw new Error("not started");
+    const reply = await send(endpoint.url, endpoint.headers);
+    expect(reply.status).toBe(400);
+    expect(reply.body).not.toContain("0123456789");
+    expect(reply.body).toContain("x-api-key: [key], retry");
+  });
+});
+
+describe("keyScrubber", () => {
+  it("finds a key split across any two chunks, and leaves other text as it was", async () => {
+    const key = "ck_abcdefgh";
+    const text = `start ${key} middle ${key}${key} end`;
+    for (let cut = 0; cut <= text.length; cut += 1) {
+      const scrubber = keyScrubber([key]);
+      const out: Buffer[] = [];
+      scrubber.on("data", (chunk: Buffer) => out.push(chunk));
+      const ended = new Promise((resolve) => scrubber.on("end", resolve));
+      scrubber.write(Buffer.from(text.slice(0, cut)));
+      scrubber.end(Buffer.from(text.slice(cut)));
+      await ended;
+      expect(Buffer.concat(out).toString()).toBe("start [key] middle [key][key] end");
+    }
   });
 });

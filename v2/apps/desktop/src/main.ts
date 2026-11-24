@@ -87,11 +87,14 @@ import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal } from "./security/NavigationPolicy.js";
 import {
   handOffKey,
+  removeHandoffs,
   SECRETS_KEY_FILE_ENV,
   SECRETS_KEYCHAIN_SLOW_ENV,
   SECRETS_NO_KEYCHAIN_ENV,
   secretsKey,
 } from "./security/secretsKey.js";
+import { presenceSettings, registerPresenceIpc } from "./security/presenceSettings.js";
+import { windowsHello } from "./security/windowsHello.js";
 import { writeJsonFile } from "./storage/writeJsonFile.js";
 import { createElectronTray } from "./tray/electronTray.js";
 import { TrayController } from "./tray/TrayController.js";
@@ -200,23 +203,37 @@ async function main(): Promise<void> {
   const browserToolPaths = await startBrowserControl(databasePath);
   // The runtime seals secrets on disk (the Composio key) with a key the OS keychain keeps.
   // Asked without blocking, and only for a few seconds: a keychain stuck on a prompt never keeps the window shut.
-  const sealing = await secretsKey(join(dirname(databasePath), "secrets-key.bin"), {
+  // When the user has turned on Windows Hello for connected apps, this is where Hello asks, once per launch.
+  const keyPath = join(dirname(databasePath), "secrets-key.bin");
+  const keychain = {
     available: () => safeStorage.isAsyncEncryptionAvailable(),
-    encrypt: (text) => safeStorage.encryptStringAsync(text),
-    decrypt: async (sealed) => (await safeStorage.decryptStringAsync(sealed)).result,
+    encrypt: (text: string) => safeStorage.encryptStringAsync(text),
+    decrypt: async (sealed: Buffer) => (await safeStorage.decryptStringAsync(sealed)).result,
     weak: () => process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text",
-  });
-  const keyFile = sealing.key ? await handOffKey(dirname(databasePath), sealing.key) : undefined;
+  };
+  const presence = process.platform === "win32" ? windowsHello() : undefined;
+  const sealing = await secretsKey(keyPath, keychain, undefined, presence);
+  registerPresenceIpc(ipcMain, presenceSettings({ presence, codec: keychain, path: keyPath, key: () => sealing.key }));
+  // The server deletes the handoff file once it reads it, so every server start (a restart too) gets a new one.
+  // Files no server read, from a failed start or an earlier launch that was killed, are deleted.
+  const handoffDir = dirname(databasePath);
+  removeHandoffs(handoffDir);
   environment = new EnvironmentProcess({
     serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
     databasePath,
-    extraEnv: {
-      ...browserToolEnvironment(browserToolPaths),
-      ...(keyFile ? { [SECRETS_KEY_FILE_ENV]: keyFile } : {}),
-      ...(sealing.slow ? { [SECRETS_KEYCHAIN_SLOW_ENV]: "1" } : {}),
-      ...(sealing.noKeychain ? { [SECRETS_NO_KEYCHAIN_ENV]: "1" } : {}),
-      // Test and development launches must leave the user's real agent settings alone.
-      ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
+    onExit: () => removeHandoffs(handoffDir),
+    extraEnv: () => {
+      const keyFile = sealing.key ? handOffKeyOrNothing(handoffDir, sealing.key) : undefined;
+      return {
+        ...browserToolEnvironment(browserToolPaths),
+        ...(keyFile ? { [SECRETS_KEY_FILE_ENV]: keyFile } : {}),
+        // A cancelled Hello prompt is handled like a slow keychain: the runtime refuses to save secrets unsealed.
+        // So is a handoff file that could not be written (a full disk): the server still starts.
+        ...(sealing.slow || sealing.locked || (sealing.key && !keyFile) ? { [SECRETS_KEYCHAIN_SLOW_ENV]: "1" } : {}),
+        ...(sealing.noKeychain ? { [SECRETS_NO_KEYCHAIN_ENV]: "1" } : {}),
+        // Test and development launches must leave the user's real agent settings alone.
+        ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
+      };
     },
   });
   const descriptor = await environment.start();
@@ -626,7 +643,7 @@ function registerIpc(desktopDiagnostics: DesktopDiagnostics): void {
   ipcMain.handle("zli:app:quit", () => {
     app.quit();
   });
-  ipcMain.handle("zli:app:zoom", (event, input: { zoom?: unknown }) => {
+  ipcMain.handle("zli:app:zoom", (_event, input: { zoom?: unknown }) => {
     if (input?.zoom !== "in" && input?.zoom !== "out" && input?.zoom !== "reset") throw new Error("Unknown zoom.");
     zoomApp(input.zoom);
   });
@@ -1011,4 +1028,13 @@ async function shutdownRuntime(): Promise<void> {
 function defaultRendererRoot(): string {
   const candidates = [join(app.getAppPath(), "renderer"), resolve(DESKTOP_DIST, "..", "renderer")];
   return candidates.find((candidate) => existsSync(join(candidate, "index.html"))) ?? candidates[0] ?? "renderer";
+}
+
+/** The handoff file's path, or undefined when it cannot be written; the server then starts without the key. */
+function handOffKeyOrNothing(dir: string, key: string): string | undefined {
+  try {
+    return handOffKey(dir, key);
+  } catch {
+    return undefined;
+  }
 }

@@ -123,11 +123,15 @@ describe("withSignInHint", () => {
     expect(withSignInHint("cursor-agent", "Not logged in. Run cursor-agent login.")).toContain(
       "run `cursor-agent login`",
     );
-    expect(withSignInHint("droid", "Authentication failed")).toContain("run `droid`");
+    expect(withSignInHint("droid", "Authentication failed")).toContain("or set FACTORY_API_KEY");
+    expect(withSignInHint("cursor-agent", "Error: Not authenticated")).toContain("run `cursor-agent login`");
+    expect(withSignInHint("claude-code", "Authentication required · Sign in again to continue")).toContain("`/login`");
   });
 
   it("leaves other errors, ACP agents, and already hinted text alone", () => {
     expect(withSignInHint("codex", "Network error")).toBe("Network error");
+    const mcpError = "MCP server github: authentication required";
+    expect(withSignInHint("claude-code", mcpError)).toBe(mcpError);
     expect(withSignInHint("grok", "Not logged in")).toBe("Not logged in");
     const once = withSignInHint("codex", "Not logged in");
     expect(withSignInHint("codex", once)).toBe(once);

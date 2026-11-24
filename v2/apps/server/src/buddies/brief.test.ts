@@ -131,3 +131,29 @@ describe("chatBrief history", () => {
     expect(brief).not.toContain(`Message number ${MAX_HISTORY * 2 - 1}.`);
   });
 });
+
+describe("chatBrief personality", () => {
+  it("speaks in the buddy's own voice and sample, with standing instructions still on top", async () => {
+    const { state, buddy } = await twoBuddies();
+    const plain = chatBrief({ buddy: buddy("b1"), state, guess: undefined });
+    expect(plain).toContain("warm, quick, a little playful");
+    expect(plain).not.toContain("A line in your voice");
+
+    const dry = chatBrief({
+      buddy: { ...buddy("b1"), personality: "dry", sampleReply: "Fixed. It was the cache, again." },
+      state,
+      guess: undefined,
+    });
+    expect(dry).toContain("dry and understated");
+    expect(dry).not.toContain("warm, quick, a little playful");
+    expect(dry).toContain('"Fixed. It was the cache, again."');
+    expect(dry).toContain("If your standing instructions give you a voice, that voice wins.");
+
+    const custom = chatBrief({
+      buddy: { ...buddy("b1"), personality: "patient and a bit nerdy" },
+      state,
+      guess: undefined,
+    });
+    expect(custom).toContain("a personality of your own: patient and a bit nerdy.");
+  });
+});

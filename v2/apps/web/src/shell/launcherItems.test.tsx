@@ -1,4 +1,5 @@
 import type { PullRequestInfo, ReviewProjection } from "@zli-v2/contracts";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -18,7 +19,7 @@ const quiet: LauncherState = {
 };
 
 const actions = () => ({ open: vi.fn(), openTerminal: vi.fn(), openDevServer: vi.fn() });
-const text = (node: unknown) => renderToStaticMarkup(<>{node}</>).replace(/<[^>]+>/g, "");
+const text = (node: ReactNode) => renderToStaticMarkup(node).replace(/<[^>]+>/g, "");
 
 describe("launcherItems", () => {
   it("lists the panels in a fixed order with their keys, and nothing live when nothing is going on", () => {

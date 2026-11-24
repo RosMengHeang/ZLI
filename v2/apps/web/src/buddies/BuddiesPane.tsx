@@ -28,11 +28,12 @@ import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
-import { BuddyScreen, BudgetField, RulesEditor } from "./BuddyAutonomy.js";
+import { BuddyScreen, BudgetField, PersonalityField, RulesEditor } from "./BuddyAutonomy.js";
 import { BuddyChat } from "./BuddyChat.js";
 import { BuddyList } from "./BuddyList.js";
 import { BuddyLookEditor } from "./BuddyLookEditor.js";
 import { GoalComposer, GoalList, isPlanTurn, isWebTask } from "./Goals.js";
+import { TEAM_CHAT_ID, TeamChat } from "./TeamChat.js";
 import {
   buddyStats,
   duration,
@@ -101,12 +102,20 @@ export function BuddiesPane(props: BuddiesPaneProps) {
       <BuddyList
         projection={projection}
         team={team}
-        selectedId={selected?.buddyId}
+        selectedId={selected?.buddyId ?? (selectedId === TEAM_CHAT_ID ? TEAM_CHAT_ID : undefined)}
         run={run}
         onSelect={props.onSelect}
       />
       <div className="buddies-detail">
-        {selected ? (
+        {selectedId === TEAM_CHAT_ID ? (
+          <div className="buddies-home">
+            <header className="buddies-home-head">
+              <h2>Team chat</h2>
+            </header>
+            {errorLine}
+            <TeamChat projection={projection} run={run} />
+          </div>
+        ) : selected ? (
           // Keyed by buddy: what one buddy's Settings were editing never carries over to the next.
           <BuddyPage key={selected.buddyId} {...props} buddy={selected} run={run} error={errorLine} />
         ) : (
@@ -1420,6 +1429,8 @@ function SettingsTab({
           onChange={(permissionMode) => void update({ permissionMode })}
         />
       </section>
+
+      <PersonalityField buddy={buddy} run={run} />
 
       <RulesEditor buddy={buddy} run={run} />
 

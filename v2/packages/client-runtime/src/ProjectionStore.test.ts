@@ -194,6 +194,59 @@ describe("ProjectionStore", () => {
     expect(store.current()?.lastSequence).toBe(events.length);
   });
 
+  it("keeps folding a streamed reply while another chat is busy, and after a reload mid-stream", () => {
+    const store = new ProjectionStore();
+    const replying = id("31");
+    const other = id("32");
+    const turnId = id("41");
+    const thread = (threadId: string) => ({
+      threadId,
+      worktreeId: id("11"),
+      provider: "codex",
+      status: "idle",
+      capabilities: {},
+    });
+    store.replace({ ...projection(), threads: [thread(replying), thread(other)] });
+    const chunk = (messageId: string, text: string) => ({
+      type: "thread.message.appended",
+      message: { messageId, threadId: replying, turnId, role: "assistant", text },
+    });
+    const events = [
+      { type: "thread.status.changed", threadId: replying, status: "working", turnId },
+      chunk("a1", "Hello"),
+      // The person opens the other chat and sends there while the first reply is still coming in.
+      { type: "thread.status.changed", threadId: other, status: "working", turnId: id("42") },
+      {
+        type: "thread.message.appended",
+        message: { messageId: "b1", threadId: other, turnId: id("42"), role: "assistant", text: "Other" },
+      },
+      chunk("a2", " there"),
+    ];
+    for (const [index, event] of events.entries()) expect(store.apply(envelope(index + 1, event))).toBe("applied");
+    const reply = () => store.current()?.messages?.filter((message) => message.threadId === replying) ?? [];
+    expect(reply().map((message) => message.text)).toEqual(["Hello there"]);
+
+    // A reload fetches a fresh projection, then the server replays from its sequence. The event the
+    // snapshot already holds comes again and must not double the text.
+    const snapshot = store.current();
+    if (!snapshot) throw new Error("no projection");
+    const reloaded = new ProjectionStore();
+    reloaded.replace(structuredClone(snapshot));
+    expect(reloaded.apply(envelope(events.length, chunk("a2", " there")))).toBe("duplicate");
+    expect(reloaded.apply(envelope(events.length + 1, chunk("a3", "!")))).toBe("applied");
+    expect(
+      reloaded.apply(
+        envelope(events.length + 2, { type: "thread.status.changed", threadId: replying, status: "idle" }),
+      ),
+    ).toBe("applied");
+    const after = reloaded.current();
+    expect(after?.messages?.filter((message) => message.threadId === replying).map((message) => message.text)).toEqual([
+      "Hello there!",
+    ]);
+    expect(after?.threads.find((candidate) => candidate.threadId === replying)?.status).toBe("idle");
+    expect(after?.messages?.find((message) => message.threadId === other)?.text).toBe("Other");
+  });
+
   it("keeps the message queue in order as messages are queued, moved up, and sent", () => {
     const store = new ProjectionStore();
     const threadId = id("31");

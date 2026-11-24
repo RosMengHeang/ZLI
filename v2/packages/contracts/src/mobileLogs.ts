@@ -229,7 +229,8 @@ export function shortCrashTitle(title: string): string {
 /** The tag that fences raw device log text handed to an agent. */
 export const DEVICE_LOG_TAG = "device-log";
 
-const CONTROL_CHARS = new RegExp("[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]", "gu");
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point of this pattern.
+const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu;
 
 /** Device log text with control and escape characters stripped, so it cannot redraw a terminal or a chat. */
 export function sanitizeLogText(text: string): string {

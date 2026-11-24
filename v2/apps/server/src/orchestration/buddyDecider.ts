@@ -12,6 +12,7 @@ import {
   screenNote,
   type TaskProjection,
   type TaskStatus,
+  teamTargets,
 } from "@zli-v2/contracts";
 
 import { type DomainDecision, DomainError } from "./decider.js";
@@ -29,6 +30,11 @@ const ALLOWED: Record<TaskStatus, readonly TaskStatus[]> = {
   stopped: ["working", "queued"],
   cancelled: [],
 };
+
+/** The id of one buddy's copy of a team chat message. */
+export function teamCopyId(messageId: string, buddyId: string): string {
+  return `${messageId}:${buddyId}`;
+}
 
 export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand): DomainDecision[] {
   switch (command.type) {
@@ -87,6 +93,22 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
           ...(command.progress ? { progress: true } : {}),
         },
       ];
+    }
+    case "buddies.team.send": {
+      // Each buddy it reaches gets its own copy, answered in its own 1:1 chat and shown back in the team chat.
+      const known = new Set((projection.buddyMessages ?? []).map((message) => message.messageId));
+      const targets = teamTargets(projection, command.text);
+      if (targets.length === 0) throw new DomainError("buddy_missing", "There is nobody on the team to read this.");
+      return targets
+        .map((buddy) => ({ buddy, messageId: teamCopyId(command.messageId, buddy.buddyId) }))
+        .filter(({ messageId }) => !known.has(messageId))
+        .map(({ buddy, messageId }) => ({
+          type: "buddy.chat.sent" as const,
+          buddyId: buddy.buddyId,
+          messageId,
+          text: command.text,
+          team: command.messageId,
+        }));
     }
     case "buddy.chat.thread": {
       const buddy = requireBuddy(projection, command.buddyId);
