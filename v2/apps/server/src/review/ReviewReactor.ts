@@ -99,14 +99,19 @@ export class ReviewReactor {
         candidate.status === "ready" &&
         candidate.branch === targetRef,
     );
-    await this.dispatchUpdated(
-      await this.service.merge({
+    let merged: ReviewProjection;
+    try {
+      merged = await this.service.merge({
         ...input,
         ...(holder ? { repositoryPath: holder.path } : {}),
         targetRef,
         ...(commitMessage ? { commitMessage } : {}),
-      }),
-    );
+      });
+    } catch (error) {
+      await this.dispatchError(worktreeId, error, true);
+      return;
+    }
+    await this.dispatchUpdated({ ...merged, mergedAt: new Date().toISOString() });
   }
 
   private async runAbortMerge(worktreeId: string): Promise<void> {
@@ -167,14 +172,17 @@ export class ReviewReactor {
       .then(() => undefined);
   }
 
-  private async dispatchError(worktreeId: string, error: unknown): Promise<void> {
+  private async dispatchError(worktreeId: string, error: unknown, fromMerge = false): Promise<void> {
     const projection = await this.engine.projection();
     const review = projection.reviews?.find((candidate) => candidate.worktreeId === worktreeId);
     if (!review) return;
+    const now = new Date().toISOString();
+    const { mergedAt: _earlier, ...rest } = review;
     await this.dispatchUpdated({
-      ...review,
+      ...rest,
       errorMessage: error instanceof Error ? error.message : "Git review operation failed.",
-      updatedAt: new Date().toISOString(),
+      ...(fromMerge ? { mergedAt: now } : {}),
+      updatedAt: now,
     });
   }
 }

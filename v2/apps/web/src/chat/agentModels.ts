@@ -112,13 +112,17 @@ export function accountChoices(
   const readingOf = (provider: string, accountId: string) =>
     readings.find((reading) => reading.provider === provider && reading.accountId === accountId);
   return choices.flatMap((choice): AgentChoice[] => {
-    if (choice.unavailable) return [choice];
-    const own = accountsFor(accounts, choice.provider);
     const login = providers?.find((entry) => entry.provider === choice.provider);
+    // Not installed rules out every login; signed out or out of plan is about the usual login only, and a saved
+    // account still runs on its own.
+    if (choice.unavailable && login?.status !== "found") return [choice];
+    const usualBlocked = choice.unavailable !== undefined;
+    const { unavailable: _usualReason, ...base } = choice;
+    const own = accountsFor(accounts, choice.provider);
     const usualKnownIn = login?.status === "found" && login.login?.status === "signed-in";
-    const usualOut = !usualKnownIn && loginOut(readingOf(choice.provider, USUAL_LOGIN_ACCOUNT_ID));
+    const usualOut = usualBlocked || (!usualKnownIn && loginOut(readingOf(choice.provider, USUAL_LOGIN_ACCOUNT_ID)));
     const isCurrent = choice.provider === current.provider;
-    if (own.length === 0) return usualOut || isCurrent ? [] : [choice];
+    if (own.length === 0) return usualBlocked ? [choice] : usualOut || isCurrent ? [] : [choice];
     const currentId = isCurrent ? (current.accountId ?? defaultAccountId(accounts, choice.provider)) : undefined;
     const logins = [
       ...(usualOut
@@ -134,10 +138,10 @@ export function accountChoices(
         .filter((account) => !loginOut(readingOf(choice.provider, account.id)))
         .map((account) => ({ id: account.id, label: account.label, account })),
     ];
-    return logins
+    const picks = logins
       .filter((entry) => entry.id !== currentId)
       .map((entry) => ({
-        ...choice,
+        ...base,
         accountId: entry.id,
         account: entry.label,
         tag: accountTag(entry.label),
@@ -146,6 +150,8 @@ export function accountChoices(
             ? choice.plan
             : (accountLine(entry.account, readingOf(choice.provider, entry.id)) ?? choice.plan),
       }));
+    // Every saved account signed out as well: the agent stays listed with the usual login's reason.
+    return usualBlocked && picks.length === 0 ? [choice] : picks;
   });
 }
 

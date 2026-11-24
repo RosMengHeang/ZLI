@@ -47,8 +47,10 @@ export function GuestWorkCard({
   const [shown, setShown] = useState<string>();
   const [confirming, setConfirming] = useState(false);
   const [discarding, setDiscarding] = useState(false);
-  // The review's time when the merge was asked for: the next review after it says how the merge went.
-  const [mergedFrom, setMergedFrom] = useState<string | null>();
+  // When the merge was asked for. Only a review the merge itself produced (mergedAt after this) says how it went, so
+  // a refresh that lands meanwhile is not taken for the result.
+  const [mergeAsked, setMergeAsked] = useState<string>();
+  const [outcome, setOutcome] = useState<Outcome>();
   const worktreeId = worktree.worktreeId;
 
   const run = async (command: Record<string, unknown>): Promise<boolean> => {
@@ -75,20 +77,28 @@ export function GuestWorkCard({
 
   const files = review?.baseRef === hostBranch ? review.files : [];
   const totals = changeTotals(files);
-  const outcome: Outcome | undefined =
-    mergedFrom !== undefined && review && review.updatedAt !== mergedFrom
-      ? review.state === "conflicted"
+  useEffect(() => {
+    if (!mergeAsked || !review?.mergedAt || review.mergedAt < mergeAsked) return;
+    setMergeAsked(undefined);
+    setOutcome(
+      review.state === "conflicted"
         ? { kind: "conflict", files: review.conflictFiles }
         : review.errorMessage
           ? { kind: "error", text: review.errorMessage }
-          : { kind: "merged" }
-      : undefined;
-  const merging = mergedFrom !== undefined && !outcome;
+          : { kind: "merged" },
+    );
+  }, [mergeAsked, review]);
+  // New work from the agent makes the last merge's result out of date.
+  useEffect(() => {
+    if (working) setOutcome(undefined);
+  }, [working]);
+  const merging = mergeAsked !== undefined;
 
   const merge = async () => {
-    setMergedFrom(review?.updatedAt ?? null);
+    setOutcome(undefined);
+    setMergeAsked(new Date().toISOString());
     const sent = await run(guestMergeCommand({ worktreeId, targetBranch: hostBranch, name }));
-    if (!sent) setMergedFrom(undefined);
+    if (!sent) setMergeAsked(undefined);
   };
 
   const showDiff = (path: string) => {

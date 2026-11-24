@@ -1217,6 +1217,15 @@ export function ChatView({
       if (sent) setEditing(undefined);
       return sent;
     }
+    // A message to another chat carries only its text: rather than drop pasted images or files, the send waits and
+    // keeps them, before anything goes out.
+    const peerCalled = names.find((called) => peerNamed(called) !== undefined);
+    if (peerCalled && attachments.length > 0) {
+      setError(
+        `A message for @${peerCalled} in another chat can't take attached files yet. Remove them, or send them here.`,
+      );
+      return false;
+    }
     let sent = true;
     for (const called of names) {
       const target = callable.find((person) => agentNameKey(person.name) === agentNameKey(called));

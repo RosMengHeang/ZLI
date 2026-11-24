@@ -67,6 +67,31 @@ describe("accountChoices", () => {
     ]);
   });
 
+  it("still offers saved accounts when only the usual login is signed out", () => {
+    const signedOut = [found("claude-code", { login: { status: "signed-out" } }), found("cursor-agent")];
+    const list = accountChoices(otherAgents(signedOut, ""), {
+      accounts,
+      readings: [reading("claude-code", "acc-team", "expired")],
+      providers: signedOut,
+      current: { provider: "codex", accountId: undefined },
+    });
+    expect(list.map((choice) => [choice.provider, choice.account, choice.unavailable])).toEqual([
+      ["cursor-agent", undefined, undefined],
+      ["claude-code", "Work", undefined],
+    ]);
+    // With no saved account that can run, the agent stays listed with the usual login's reason.
+    const none = accountChoices(otherAgents(signedOut, ""), {
+      accounts: [],
+      readings: [],
+      providers: signedOut,
+      current: { provider: "codex", accountId: undefined },
+    });
+    expect(none.map((choice) => [choice.provider, choice.unavailable])).toEqual([
+      ["cursor-agent", undefined],
+      ["claude-code", "Not signed in"],
+    ]);
+  });
+
   it("leaves out a login the readings say is signed out, and an agent with no other login", () => {
     const list = accountChoices(otherAgents([...providers, found("opencode")], ""), {
       accounts: [],
