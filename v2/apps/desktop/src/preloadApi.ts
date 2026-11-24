@@ -452,6 +452,12 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
               .slice(0, 200),
           ),
         }),
+      /** Fires when a notification uses one of ZLI's own sounds, which the window plays. */
+      onPlaySound: (listener: (event: { tone: string; volume: number }) => void) =>
+        ipc.on("zli:notifications:play-sound", (_event, value) => {
+          const { tone, volume } = (value ?? {}) as { tone?: unknown; volume?: unknown };
+          if (typeof tone === "string" && typeof volume === "number") listener({ tone, volume });
+        }),
       /** Fires when the person clicks a notification, with the session to select. */
       onActivate: (listener: (event: { sessionId: string }) => void) =>
         ipc.on("zli:notifications:activate", (_event, value) => {

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import type { AlertProjection } from "./agentAlerts.js";
 import { AgentNotifier, type NotifierHost } from "./AgentNotifier.js";
+import type { AlertProjection } from "./agentAlerts.js";
 import type { NotificationSettings } from "./notificationSettings.js";
 
 const worktreeId = "00000000-0000-4000-8000-000000000101";
@@ -26,7 +25,7 @@ function projection(status: string, requests: string[] = []): AlertProjection {
 }
 
 function setup(initial: Partial<NotificationSettings> = {}) {
-  const settings: NotificationSettings = { enabled: true, sound: true, ...initial };
+  const settings: NotificationSettings = { enabled: true, sound: true, tone: "chime", volume: 70, ...initial };
   const shown: { title: string; silent: boolean; click(): void }[] = [];
   const badges: number[] = [];
   const flashes: boolean[] = [];

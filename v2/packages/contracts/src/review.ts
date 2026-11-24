@@ -41,6 +41,10 @@ export const ReviewProjection = z.object({
   conflictFiles: z.array(z.string().min(1)),
   diff: ReviewDiffProjection.optional(),
   errorMessage: z.string().min(1).optional(),
+  /** Set only on the review a merge produced, so its result is not mistaken for a refresh that ran alongside it. */
+  mergedAt: z.string().datetime({ offset: true }).optional(),
+  /** Set only on the review a commit produced, the same way. */
+  committedAt: z.string().datetime({ offset: true }).optional(),
   updatedAt: z.string().datetime({ offset: true }),
 });
 export type ReviewProjection = z.infer<typeof ReviewProjection>;

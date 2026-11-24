@@ -38,7 +38,7 @@ export class ReviewReactor {
         this.start(event.worktreeId, () => this.runCommit(event.worktreeId, event.message));
         return;
       case "review.merge.requested":
-        this.start(event.worktreeId, () => this.runMerge(event.worktreeId, event.targetRef));
+        this.start(event.worktreeId, () => this.runMerge(event.worktreeId, event.targetRef, event.commitMessage));
         return;
       case "review.abortMerge.requested":
         this.start(event.worktreeId, () => this.runAbortMerge(event.worktreeId));
@@ -78,7 +78,14 @@ export class ReviewReactor {
 
   private async runCommit(worktreeId: string, message: string): Promise<void> {
     const input = await this.input(worktreeId, await this.baseRef(worktreeId));
-    await this.dispatchUpdated(await this.service.commit({ ...input, message }));
+    let committed: ReviewProjection;
+    try {
+      committed = await this.service.commit({ ...input, message });
+    } catch (error) {
+      await this.dispatchError(worktreeId, error, "committedAt");
+      return;
+    }
+    await this.dispatchUpdated({ ...committed, committedAt: new Date().toISOString() });
   }
 
   private async runDiff(worktreeId: string, path: string): Promise<void> {
@@ -86,14 +93,59 @@ export class ReviewReactor {
     await this.dispatchUpdated(await this.service.diff({ ...input, path }));
   }
 
-  private async runMerge(worktreeId: string, targetRef: string): Promise<void> {
+  private async runMerge(worktreeId: string, targetRef: string, commitMessage: string | undefined): Promise<void> {
     const input = await this.input(worktreeId, await this.baseRef(worktreeId));
-    await this.dispatchUpdated(await this.service.merge({ ...input, targetRef }));
+    // The target branch may be checked out in another worktree of the project, such as a chat's own one: the
+    // merge runs there, since Git keeps a branch in one working copy at a time.
+    const projection = await this.engine.projection();
+    const source = projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
+    const holder = projection.worktrees.find(
+      (candidate) =>
+        candidate.worktreeId !== worktreeId &&
+        candidate.projectId === source?.projectId &&
+        candidate.status === "ready" &&
+        candidate.branch === targetRef,
+    );
+    let merged: ReviewProjection;
+    try {
+      merged = await this.service.merge({
+        ...input,
+        ...(holder ? { repositoryPath: holder.path } : {}),
+        targetRef,
+        ...(commitMessage ? { commitMessage } : {}),
+      });
+    } catch (error) {
+      await this.dispatchError(worktreeId, error, "mergedAt");
+      return;
+    }
+    await this.dispatchUpdated({ ...merged, mergedAt: new Date().toISOString() });
   }
 
   private async runAbortMerge(worktreeId: string): Promise<void> {
     const input = await this.input(worktreeId, await this.baseRef(worktreeId));
-    await this.dispatchUpdated(await this.service.abortMerge(input));
+    // The merge may have run in another worktree that holds the target branch; abort it where it stopped. The
+    // project folder comes first, as before, then the project's other worktrees.
+    const projection = await this.engine.projection();
+    const source = projection.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
+    const places = [
+      input.repositoryPath,
+      ...projection.worktrees
+        .filter(
+          (candidate) =>
+            candidate.worktreeId !== worktreeId &&
+            candidate.projectId === source?.projectId &&
+            candidate.status === "ready",
+        )
+        .map((candidate) => candidate.path),
+    ];
+    let repositoryPath = input.repositoryPath;
+    for (const place of places) {
+      if (await this.service.mergeInProgress(place)) {
+        repositoryPath = place;
+        break;
+      }
+    }
+    await this.dispatchUpdated(await this.service.abortMerge({ ...input, repositoryPath }));
   }
 
   private async input(worktreeId: string, baseRef: string): Promise<ReviewServiceInput> {
@@ -127,14 +179,22 @@ export class ReviewReactor {
       .then(() => undefined);
   }
 
-  private async dispatchError(worktreeId: string, error: unknown): Promise<void> {
+  /** `finished` marks the review as the result of that operation, so the screen waiting on it sees it failed. */
+  private async dispatchError(
+    worktreeId: string,
+    error: unknown,
+    finished?: "mergedAt" | "committedAt",
+  ): Promise<void> {
     const projection = await this.engine.projection();
     const review = projection.reviews?.find((candidate) => candidate.worktreeId === worktreeId);
     if (!review) return;
+    const now = new Date().toISOString();
+    const { mergedAt: _merged, committedAt: _committed, ...rest } = review;
     await this.dispatchUpdated({
-      ...review,
+      ...rest,
       errorMessage: error instanceof Error ? error.message : "Git review operation failed.",
-      updatedAt: new Date().toISOString(),
+      ...(finished ? { [finished]: now } : {}),
+      updatedAt: now,
     });
   }
 }
