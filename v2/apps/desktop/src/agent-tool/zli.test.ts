@@ -124,6 +124,8 @@ describe("zli MCP server", () => {
       "task_status",
       "task_revise",
       "goal_done",
+      "start_team",
+      "team_plan",
       "set_routine",
     ]);
     // A buddy can still report on its own job when Settings keep agents to reading.
@@ -140,6 +142,7 @@ describe("zli MCP server", () => {
       "list_buddies",
       "task_status",
       "goal_done",
+      "team_plan",
     ]);
     // Connected services' tools are not about other agents, so turning agent tools off leaves them.
     expect(await listNames("off")).toEqual(["find_tools", "use_tool"]);

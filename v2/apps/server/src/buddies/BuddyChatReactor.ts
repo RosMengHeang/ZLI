@@ -420,7 +420,7 @@ export class BuddyChatReactor {
           key: `job:${answer.messageId}:${index}`,
         });
     }
-    // A goal the buddy takes on: it leads it. Only the person can set one, like a job.
+    // A goal the buddy takes on: it leads it as a team. Only the person can set one, like a job.
     const goals = fromTeammate ? [] : parsed.goals.slice(0, 1);
     for (const [index, goal] of goals.entries()) {
       const guessed = guessProject(goal.text, state.projects, state.tasks ?? [], buddy.buddyId, undefined);
@@ -440,6 +440,8 @@ export class BuddyChatReactor {
             buddyId: buddy.buddyId,
             text: goal.text.slice(0, 4_000),
             projectId: project.projectId,
+            // A goal from the chat runs as a team: planned once, checked by the person, merged on one branch.
+            team: {},
           },
         } as RuntimeCommand,
         `buddy-chat-goal:${answer.messageId}:${index}`,

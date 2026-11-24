@@ -56,6 +56,8 @@ export const AGENT_CONTROL_ACTIONS = [
   "buddyrevise",
   "buddyroutine",
   "buddygoaldone",
+  "buddyteamplan",
+  "buddystartteam",
 ] as const;
 export const AgentControlAction = z.enum(AGENT_CONTROL_ACTIONS);
 export type AgentControlAction = z.infer<typeof AgentControlAction>;
@@ -73,8 +75,9 @@ export const READ_AGENT_CONTROL_ACTIONS: readonly AgentControlAction[] = [
   "buddyask",
   "buddyremember",
   "buddyverdict",
-  // A lead closing its own goal, like a buddy reporting on its own job.
+  // A lead closing its own goal, or handing in its team's plan, like a buddy reporting on its own job.
   "buddygoaldone",
+  "buddyteamplan",
 ];
 
 /**

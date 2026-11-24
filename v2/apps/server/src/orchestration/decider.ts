@@ -65,6 +65,10 @@ export type DomainErrorCode =
   | "routine_missing"
   | "goal_missing"
   | "goal_limit"
+  | "goal_closed"
+  | "plan_started"
+  | "plan_full"
+  | "task_exists"
   | "unsupported_command";
 
 export class DomainError extends Error {
