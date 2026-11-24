@@ -64,7 +64,9 @@ describe("PullRequestService.lookup", () => {
   it("reads each linked pull request and leaves out one GitHub cannot read", async () => {
     const { runner, calls } = fakeRunner(({ command, args }) => {
       if (command !== "gh" || args[0] !== "pr") return undefined;
-      return args[2] === "https://github.com/acme/app/pull/12" ? ok(PR_JSON) : fail("could not resolve to a PullRequest");
+      return args[2] === "https://github.com/acme/app/pull/12"
+        ? ok(PR_JSON)
+        : fail("could not resolve to a PullRequest");
     });
     const result = await new PullRequestService(runner).lookup(INPUT, [
       "https://github.com/acme/app/pull/12",

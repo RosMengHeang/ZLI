@@ -65,7 +65,10 @@ test("creates skills in Settings for every agent and for the project", async () 
     await projectForm.getByRole("button", { name: "Add skill" }).click();
     await expect(projectForm).toHaveCount(0);
     // Project skills have a tab of their own.
-    await settings.getByRole("tablist", { name: "Skills" }).getByRole("tab", { name: /^Project/u }).click();
+    await settings
+      .getByRole("tablist", { name: "Skills" })
+      .getByRole("tab", { name: /^Project/u })
+      .click();
     await expect(settings.locator(".skill-card", { hasText: "release-notes" })).toContainText("Project");
     expect(await readFile(join(repo, ".agents", "skills", "release-notes", "SKILL.md"), "utf8")).toContain(
       "name: release-notes",
