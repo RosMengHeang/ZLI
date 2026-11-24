@@ -33,13 +33,18 @@ test("creates, switches, renames, and deletes branches from the Changes panel", 
     await expect(worktree).toContainText("Ready", { timeout: 30_000 });
     await worktree.click();
     const worktreePath = join(`${repo}-worktrees`, "feature");
+    // The app reads this worktree's status in the background, and git refuses to write while it holds index.lock,
+    // so each commit is tried again until the lock is free.
+    const commit = (file: string, message: string) =>
+      expect(async () => {
+        await git(worktreePath, ["add", file]);
+        await git(worktreePath, ["commit", "-m", message]);
+      }).toPass({ timeout: 20_000 });
     await writeFile(join(worktreePath, "one.txt"), "one\n", "utf8");
-    await git(worktreePath, ["add", "one.txt"]);
-    await git(worktreePath, ["commit", "-m", "One"]);
+    await commit("one.txt", "One");
     await git(worktreePath, ["push", "-u", "origin", "feature"]);
     await writeFile(join(worktreePath, "two.txt"), "two\n", "utf8");
-    await git(worktreePath, ["add", "two.txt"]);
-    await git(worktreePath, ["commit", "-m", "Two"]);
+    await commit("two.txt", "Two");
 
     await togglePanel(page, "Changes");
     await expect(page.getByRole("button", { name: "Push, 1 to push" })).toBeVisible({ timeout: 30_000 });

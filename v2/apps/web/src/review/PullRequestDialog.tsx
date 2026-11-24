@@ -26,6 +26,7 @@ export function PullRequestDialog({
   onClose,
   onCreated,
   onCommitFirst,
+  reloadKey,
 }: {
   worktree: WorktreeProjection;
   base: string | undefined;
@@ -34,6 +35,8 @@ export function PullRequestDialog({
   onClose(): void;
   onCreated(pullRequest: PullRequestInfo): void;
   onCommitFirst(): void;
+  /** Changes when Changes read the branch again: an untouched form reads it too, so new commits show in it. */
+  reloadKey?: string | number | undefined;
 }) {
   const { bridge, dispatch } = useRuntime();
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
@@ -74,6 +77,16 @@ export function PullRequestDialog({
   useEffect(() => {
     void load();
   }, []);
+
+  // Once the person types, the form is theirs; until then a refresh brings in what changed on the branch.
+  const edited = useRef(false);
+  const seenReload = useRef(reloadKey);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only a new refresh reads the branch again.
+  useEffect(() => {
+    if (reloadKey === seenReload.current) return;
+    seenReload.current = reloadKey;
+    if (!edited.current && phase.kind === "form") void load();
+  }, [reloadKey]);
 
   useEffect(() => {
     if (phase.kind === "form") titleRef.current?.focus();
@@ -292,7 +305,10 @@ export function PullRequestDialog({
                   className="input"
                   value={title}
                   maxLength={256}
-                  onChange={(event) => setTitle(event.target.value)}
+                  onChange={(event) => {
+                    edited.current = true;
+                    setTitle(event.target.value);
+                  }}
                   required
                 />
               </Field>
@@ -309,7 +325,10 @@ export function PullRequestDialog({
                   value={body}
                   rows={7}
                   maxLength={60_000}
-                  onChange={(event) => setBody(event.target.value)}
+                  onChange={(event) => {
+                    edited.current = true;
+                    setBody(event.target.value);
+                  }}
                   onKeyDown={submitOnModEnter}
                 />
               </Field>

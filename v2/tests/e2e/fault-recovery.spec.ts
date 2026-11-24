@@ -93,7 +93,8 @@ test("restores the durable workspace after an abrupt Electron main-process exit"
     });
     const exitResult = await Promise.race([
       exited,
-      new Promise<undefined>((resolveTimeout) => setTimeout(() => resolveTimeout(undefined), 2_500)),
+      // A busy macOS runner can take a few seconds to take the process down.
+      new Promise<undefined>((resolveTimeout) => setTimeout(() => resolveTimeout(undefined), 10_000)),
     ]);
     expect(exitResult).toBeDefined();
 

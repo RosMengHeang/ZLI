@@ -77,6 +77,8 @@ export function McpServersSection({
   const [saveError, setSaveError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string>();
+  /** Keys and header values show as dots until asked, so a screen share does not show them. */
+  const [revealed, setRevealed] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   if (state.status === "loading") {
@@ -317,12 +319,22 @@ export function McpServersSection({
             hint="One Name: value per line, such as Authorization: Bearer and your token. Values stay on this computer, in ZLI's data folder and the agent config files it writes."
           >
             <textarea
-              className="textarea is-mono"
+              className={`textarea is-mono${revealed ? "" : " is-masked"}`}
               rows={2}
               value={editing.draft.headers}
               spellCheck={false}
+              autoComplete="off"
               onChange={(event) => setDraft({ headers: event.target.value })}
             />
+            <button
+              type="button"
+              className="mcp-reveal"
+              aria-pressed={revealed}
+              onClick={() => setRevealed((value) => !value)}
+            >
+              <Icon name={revealed ? "eyeOff" : "eye"} size={12} />
+              {revealed ? "Hide values" : "Show values"}
+            </button>
           </Field>
           <label className="check-field mcp-oauth">
             <input
@@ -353,6 +365,10 @@ export function McpServersSection({
               onChange={(event) => setDraft({ command: event.target.value })}
             />
           </Field>
+          <p className="mcp-trust" role="note">
+            <Icon name="alert" size={13} />
+            This command runs on your computer, with your access, each time an agent starts. Add only servers you trust.
+          </p>
           <Field label="Arguments" hint="One per line.">
             <textarea
               className="textarea is-mono"
@@ -367,12 +383,22 @@ export function McpServersSection({
             hint="One NAME=value per line. Values stay on this computer, in ZLI's data folder and the agent config files it writes."
           >
             <textarea
-              className="textarea is-mono"
+              className={`textarea is-mono${revealed ? "" : " is-masked"}`}
               rows={2}
               value={editing.draft.env}
               spellCheck={false}
+              autoComplete="off"
               onChange={(event) => setDraft({ env: event.target.value })}
             />
+            <button
+              type="button"
+              className="mcp-reveal"
+              aria-pressed={revealed}
+              onClick={() => setRevealed((value) => !value)}
+            >
+              <Icon name={revealed ? "eyeOff" : "eye"} size={12} />
+              {revealed ? "Hide values" : "Show values"}
+            </button>
           </Field>
         </>
       )}
@@ -463,9 +489,51 @@ export function McpServersSection({
     );
   }
 
+  const secrets = result.secrets;
+  const localCommands = servers.filter((server) => server.enabled && server.transport !== "http").length;
+  const safety = (
+    <SettingsGroup title="Security" bare>
+      <ul className="mcp-safety">
+        {secrets ? (
+          <li className={secrets.sealed ? "is-ok" : "is-warning"}>
+            <Icon name={secrets.sealed ? "check" : "alert"} size={13} />
+            <span>
+              {secrets.sealed
+                ? "Keys and headers are locked with your system keychain."
+                : secrets.keychainSlow
+                  ? "Your system keychain didn't answer when ZLI started, so keys and headers can't be saved until you restart ZLI."
+                  : "No system keychain was found, so keys and headers are saved as typed, readable by apps running as you."}
+            </span>
+          </li>
+        ) : null}
+        {secrets && secrets.unreadable.length > 0 ? (
+          <li className="is-warning">
+            <Icon name="alert" size={13} />
+            <span>Enter the keys again for {secrets.unreadable.join(", ")}. They were locked on another computer.</span>
+          </li>
+        ) : null}
+        <li>
+          <Icon name="terminal" size={13} />
+          <span>
+            {localCommands === 0
+              ? "No server runs a command on this computer."
+              : `${localCommands} ${localCommands === 1 ? "server runs a command" : "servers run commands"} on this computer when an agent starts.`}
+          </span>
+        </li>
+        <li>
+          <Icon name="users" size={13} />
+          <span>
+            Agents reaching other agents: {zliStatus} <TextLink onClick={onAgentMessages}>Change</TextLink>
+          </span>
+        </li>
+      </ul>
+    </SettingsGroup>
+  );
+
   return (
     <>
       {storeAlert}
+      {safety}
       <SettingsGroup title="Built into ZLI" bare>
         <ul className="mcp-rows">
           <li className="mcp-row">
@@ -474,7 +542,7 @@ export function McpServersSection({
               <strong>zli</strong>
               <span className="mcp-row-detail">
                 Lets agents list, read, start, and message other agents. Also available as the zli command in terminals.{" "}
-                {zliStatus} Change it in <TextLink onClick={onAgentMessages}>Agent messages</TextLink>.
+                {zliStatus} Change it in <TextLink onClick={onAgentMessages}>Agents</TextLink>.
               </span>
             </span>
           </li>

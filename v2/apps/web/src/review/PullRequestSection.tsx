@@ -46,10 +46,17 @@ function pullRequestStateLabel(pullRequest: PullRequestInfo): string {
  * action that creates it. Status comes from the shared store, which the shell keeps current;
  * `checkKey` changes whenever the panel refreshes, which checks again.
  */
+/**
+ * Worktrees whose Create pull request dialog is open. Changes draws this section in one spot while there are
+ * changes and in another once there are none, so a refresh can draw it anew; the dialog stays open through that.
+ */
+const createOpen = new Set<string>();
+
 export function PullRequestSection({
   worktree,
   base,
   checkKey,
+  reviewedAt,
   onCommitFirst,
   onShowAgent,
   onMerged,
@@ -58,6 +65,8 @@ export function PullRequestSection({
   /** Base branch the person chose for merging, if any; the dialog starts with it. */
   base: string | undefined;
   checkKey: number;
+  /** When Changes last read the branch: an open, untouched Create dialog reads it again then. */
+  reviewedAt?: string | undefined;
   onCommitFirst(): void;
   onShowAgent?: ((sessionId: string, mode: SessionMode) => void) | undefined;
   onMerged?: ((result: PullRequestMergeResult) => void) | undefined;
@@ -67,7 +76,12 @@ export function PullRequestSection({
   const status = entry?.status;
   const checking = entry?.checking ?? false;
   const error = entry?.error;
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogOpen, setDialogShown] = useState(() => createOpen.has(worktree.worktreeId));
+  const setDialogOpen = (open: boolean) => {
+    if (open) createOpen.add(worktree.worktreeId);
+    else createOpen.delete(worktree.worktreeId);
+    setDialogShown(open);
+  };
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -362,6 +376,7 @@ export function PullRequestSection({
             worktree={worktree}
             base={base}
             forge={status?.forge}
+            reloadKey={reviewedAt}
             onClose={() => setDialogOpen(false)}
             onCreated={(created) => recordPullRequest(worktreeId, created)}
             onCommitFirst={() => {

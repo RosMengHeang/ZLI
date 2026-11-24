@@ -102,14 +102,21 @@ test("keeps MCP servers added in Settings for every agent", async () => {
     await expect(settings.locator(".mcp-row-command")).toHaveText("npx -y @modelcontextprotocol/server-github");
     await expect(settings).toContainText("ZLI gives these servers only to agents it starts.");
 
-    const saved = JSON.parse(await readFile(join(root, "mcp-servers.json"), "utf8"));
+    // With a system keychain the token is sealed on disk, never saved as typed; without one it is kept as typed.
+    const safety = settings.locator(".mcp-safety > li").first();
+    await expect(safety).toHaveClass(/is-(ok|warning)/u);
+    const sealed = (await safety.getAttribute("class"))?.includes("is-ok") === true;
+    if (process.platform === "win32") expect(sealed).toBe(true);
+    const savedText = await readFile(join(root, "mcp-servers.json"), "utf8");
+    if (sealed) expect(savedText).not.toContain("test-token");
+    const saved = JSON.parse(savedText);
     expect(saved.servers).toEqual([
       {
         name: "github",
         enabled: true,
         command: "npx",
         args: ["-y", "@modelcontextprotocol/server-github"],
-        env: { GITHUB_TOKEN: "test-token" },
+        env: { GITHUB_TOKEN: sealed ? expect.stringMatching(/^sealed:v1:/u) : "test-token" },
       },
     ]);
 
