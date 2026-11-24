@@ -13,23 +13,15 @@ const quiet: LauncherState = {
   runningTerminals: 0,
   devServers: [],
   pullRequest: undefined,
-  activeHuddles: 0,
-  sideChat: false,
 };
 
 const actions = () => ({ open: vi.fn(), openTerminal: vi.fn(), openDevServer: vi.fn() });
 const text = (node: unknown) => renderToStaticMarkup(<>{node}</>).replace(/<[^>]+>/g, "");
 
 describe("launcherItems", () => {
-  it("lists the panels in a fixed order with their keys, and nothing live when nothing is going on", () => {
+  it("lists the panels in a fixed order, and nothing live when nothing is going on", () => {
     const items = launcherItems(quiet, actions());
-    expect(items.map((item) => `${item.label}:${item.hotkey}`)).toEqual([
-      "Changes:c",
-      "Files:f",
-      "Terminal:t",
-      "Browser:b",
-      "Huddle:h",
-    ]);
+    expect(items.map((item) => item.label)).toEqual(["Changes", "Files", "Terminal", "Browser"]);
     expect(items.every((item) => item.live === undefined)).toBe(true);
   });
 
@@ -72,17 +64,7 @@ describe("launcherItems", () => {
       ],
     } as PullRequestInfo;
     const row = launcherItems({ ...quiet, pullRequest }, actions()).find((item) => item.id === "pullRequest");
-    expect(row?.hotkey).toBe("p");
     expect(row?.live).toEqual({ text: "#12 · 1 of 2 checks failed", tone: "red" });
-  });
-
-  it("adds the side chat when a chat is in view", () => {
-    const run = actions();
-    const row = launcherItems({ ...quiet, sideChat: true }, run).at(-1);
-    expect(row?.label).toBe("Side chat");
-    expect(row?.hotkey).toBe("s");
-    row?.run();
-    expect(run.open).toHaveBeenCalledWith("sideChat");
   });
 
   it("leaves the terminal out in Chat only", () => {

@@ -41,3 +41,8 @@
 .browser-design-pick-note { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .browser-design-pick-note.is-empty { color: var(--zli-dim); font-style: italic; }
 .browser-design-edits { color: var(--zli-accent); }
+
+/* While the app covers the page (a menu, a dialog), a still picture of it holds its place. */
+.browser-surface > .browser-frozen { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; pointer-events: none; }
+/* The branch, only while several of the same task run side by side. */
+.browser-branch { max-width: 140px; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }

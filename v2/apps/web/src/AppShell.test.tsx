@@ -246,35 +246,58 @@ describe("AppShell", () => {
     expect(button(container, "Right panel")?.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("opens the right panel on a picker, and a panel's key opens it", async () => {
+  it("opens the right panel on a list of panels when none is open yet, and opens nothing by itself", async () => {
     const container = await render(makeBridge(projection));
     await act(async () => button(container, "Right panel")?.click());
-    expect(container.querySelector(".panel-launcher")?.textContent).toContain("Nothing waiting");
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true }));
-    });
-    expect(container.querySelector('[aria-label="Files panel"]')).not.toBeNull();
+    expect(container.querySelector(".panel-start")).not.toBeNull();
+    expect(container.querySelectorAll('.panel-strip [role="tab"]')).toHaveLength(0);
+    const changes = [...container.querySelectorAll<HTMLButtonElement>(".panel-start-item")].find((item) =>
+      item.textContent?.includes("Changes"),
+    );
+    await act(async () => changes?.click());
+    expect(container.querySelector('[aria-label="Changes panel"]')).not.toBeNull();
+    expect(container.querySelector('.panel-strip [aria-selected="true"]')?.getAttribute("aria-label")).toBe("Changes");
     await act(async () => button(container, "Right panel")?.click());
     expect(container.querySelector(".tool-panel")).toBeNull();
   });
 
-  it("shows every panel as an icon in the strip, switches from it, and reopens on the last one", async () => {
+  it("adds panels from the plus, switches between their tabs, and reopens on the last one", async () => {
     const container = await render(makeBridge(projection));
     await act(async () => button(container, "Right panel")?.click());
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true }));
-    });
-    const strip = () => [...container.querySelectorAll('.panel-tabs [role="tab"]')];
-    expect(strip().map((tab) => tab.getAttribute("aria-label"))).toEqual(
-      expect.arrayContaining(["Changes", "Files", "Browser"]),
+    const add = async (label: string) => {
+      await act(async () => button(container, "Add a panel")?.click());
+      const item = [...container.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')].find(
+        (candidate) => candidate.querySelector(".menu-item-label")?.textContent === label,
+      );
+      await act(async () => item?.click());
+    };
+    await add("Files");
+    await add("Browser");
+    const strip = () => [...container.querySelectorAll<HTMLButtonElement>('.panel-strip [role="tab"]')];
+    expect(strip().map((tab) => tab.getAttribute("aria-label"))).toEqual(["Files", "Browser"]);
+    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    await act(async () => strip()[0]?.click());
+    expect(container.querySelector('[aria-label="Files panel"]')).not.toBeNull();
+    await act(async () => strip()[1]?.click());
+    await act(async () => button(container, "Right panel")?.click());
+    await act(async () => button(container, "Right panel")?.click());
+    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    await act(async () => button(container, "Close Browser")?.click());
+    expect(container.querySelector('[aria-label="Files panel"]')).not.toBeNull();
+    expect(strip().map((tab) => tab.getAttribute("aria-label"))).toEqual(["Files"]);
+  });
+
+  it("opens a terminal in the right panel apart from the drawer at the bottom", async () => {
+    const container = await render(makeBridge(projection));
+    await act(async () => button(container, "Right panel")?.click());
+    const terminal = [...container.querySelectorAll<HTMLButtonElement>(".panel-start-item")].find((item) =>
+      item.textContent?.includes("Terminal"),
     );
-    expect(container.querySelector('.panel-tabs [aria-selected="true"]')?.textContent).toBe("Files");
-    const browser = strip().find((tab) => tab.getAttribute("aria-label") === "Browser") as HTMLButtonElement;
-    await act(async () => browser.click());
-    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
-    await act(async () => button(container, "Right panel")?.click());
-    await act(async () => button(container, "Right panel")?.click());
-    expect(container.querySelector('[aria-label="Browser panel"]')).not.toBeNull();
+    await act(async () => terminal?.click());
+    expect(container.querySelector('[aria-label="Side terminal"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Terminal panel"]')).toBeNull();
+    await act(async () => button(container, "Close Terminal")?.click());
+    expect(container.querySelector(".tool-panel")).toBeNull();
   });
 
   it("opens the Browser panel when an agent opens a page", async () => {
@@ -1192,6 +1215,12 @@ describe("Settings", () => {
   });
 });
 
+// With the sidebar open, a new version shows in the sidebar's update card instead of the title bar.
+const cardButton = (container: HTMLElement, label: string) =>
+  [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Updates"] button')].find(
+    (entry) => entry.textContent === label,
+  );
+
 describe("Updates", () => {
   const ready: UpdateStatus = {
     state: { status: "ready", version: "0.2.0", notes: "Faster startup" },
@@ -1254,10 +1283,10 @@ describe("Updates", () => {
   };
   const dialog = (name: string) => document.querySelector<HTMLElement>(`[role="dialog"][aria-label="${name}"]`);
 
-  it("restarts into a downloaded update from the title bar, asking first while an agent works", async () => {
+  it("restarts into a downloaded update from the sidebar, asking first while an agent works", async () => {
     const { bridge, calls } = withUpdates(makeBridge(working), ready);
     const container = await render(bridge);
-    const pill = button(container, "Restart to update to v0.2.0");
+    const pill = cardButton(container, "Restart");
     expect(pill).not.toBeUndefined();
 
     await act(async () => {
@@ -1277,7 +1306,7 @@ describe("Updates", () => {
     const { bridge, calls } = withUpdates(makeBridge(withAgent), ready);
     const container = await render(bridge);
     await act(async () => {
-      button(container, "Restart to update to v0.2.0")?.click();
+      cardButton(container, "Restart")?.click();
     });
     expect(dialog("Restart to update")).toBeNull();
     expect(calls).toEqual(["install"]);
@@ -1301,7 +1330,7 @@ describe("Updates", () => {
       });
     });
     await act(async () => {
-      button(container, "Update available: v0.3.0")?.click();
+      cardButton(container, "Download")?.click();
     });
     expect(calls).toEqual(["open-release"]);
   });

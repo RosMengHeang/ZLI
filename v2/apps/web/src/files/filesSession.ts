@@ -23,7 +23,8 @@ export function emptyFilesSession(): FilesSession {
     expanded: new Set(),
     mode: "tree",
     changedOnly: false,
-    changedOpen: true,
+    // The Changed group starts folded; the tree comes first until it is opened.
+    changedOpen: false,
     diffSource: "uncommitted",
     search: { query: "", caseSensitive: false, regex: false },
   };

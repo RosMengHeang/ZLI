@@ -160,6 +160,7 @@ const icons = {
   commit: { icon: GitCommit },
   file: { icon: File },
   fileText: { icon: FileText },
+  chevronLeft: { icon: CaretLeft },
   chevronRight: { icon: CaretRight },
   paperclip: { icon: Paperclip },
   image: { icon: Image },

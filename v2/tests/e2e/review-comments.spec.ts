@@ -138,7 +138,9 @@ test("collects notes from a turn's diff and the Files editor and sends them toge
     await panel.getByRole("tab", { name: "Code", exact: true }).click();
     const editor = panel.locator(".cm-content");
     await editor.getByText("ZLI integration fixture").click();
-    await panel.getByRole("button", { name: "Add review note" }).click();
+    // In the right panel the review note waits in the file's ... menu.
+    await panel.getByRole("button", { name: "More file actions" }).click();
+    await page.getByRole("menuitem", { name: /^Add review note/u }).click();
     const note = panel.getByRole("textbox", { name: "Note on README.md:1" });
     await expect(note).toBeFocused();
     await note.fill("Use a shorter title.");

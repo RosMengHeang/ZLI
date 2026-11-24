@@ -33,7 +33,8 @@ test("stopping a drawer terminal ends its shell and the jobs it started", async 
     const shell = await startDrawerShell(page, "stop");
 
     await page.getByRole("button", { name: "Stop Terminal 1" }).click();
-    await expect(page.getByText("No shell in")).toBeVisible({ timeout: 10_000 });
+    // Stopping the last shell closes the drawer with it.
+    await expect(page.getByRole("log", { name: "Terminal output" })).toHaveCount(0, { timeout: 10_000 });
     await expect.poll(() => [shell.shellPid, shell.jobPid].filter(isRunning), { timeout: 10_000 }).toEqual([]);
     await expect
       .poll(async () =>

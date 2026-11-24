@@ -42,9 +42,13 @@ test("stages a hunk, commits only it, and stashes the rest", async () => {
     const diff = page.getByRole("region", { name: "Diff for README.md" });
     await expect(diff.getByRole("button", { name: "Unstaged, 1 hunk" })).toHaveAttribute("aria-pressed", "true");
     await diff.getByRole("button", { name: "Stage hunk" }).click();
-    await expect(readme).toBeChecked({ timeout: 20_000 });
-    await expect(diff.getByRole("button", { name: "Staged, 1 hunk" })).toHaveAttribute("aria-pressed", "true");
+    await expect(diff.getByRole("button", { name: "Staged, 1 hunk" })).toHaveAttribute("aria-pressed", "true", {
+      timeout: 20_000,
+    });
     await expect(diff.getByRole("button", { name: "Unstage hunk" })).toBeVisible();
+    // The diff reads in place of the file list; back on the list, the file shows as staged.
+    await page.getByRole("button", { name: "Back to the changed files" }).click();
+    await expect(readme).toBeChecked({ timeout: 20_000 });
 
     await page.getByLabel("Commit message").fill("Stage the readme on its own");
     await page.getByRole("button", { name: "Commit 1 staged file" }).click();
