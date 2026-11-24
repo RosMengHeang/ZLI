@@ -10,6 +10,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { Segmented } from "../ui/Segmented.js";
 import {
   type AndroidSituation,
   accelerationProblem,
@@ -24,6 +25,9 @@ import { NewDeviceDialog } from "./NewDeviceDialog.js";
 
 const ACCELERATION_ITEM = "Hardware acceleration for the emulator";
 
+/** The setup's three places: Android's emulator, a real Android phone, and the iPhone simulator. */
+export type MobileSetupView = "emulator" | "phone" | "iphone";
+
 /**
  * What this computer has for Android and iOS, and the guided Android install when something is missing.
  * iOS Simulator needs a Mac, so other hosts get one line about it instead of a section, unless a Mac on the
@@ -36,6 +40,7 @@ export function MobileSetup({
   devices = [],
   virtualDevices,
   phones,
+  startOn = "emulator",
   onRecheck,
 }: {
   mobile: MobileBridge;
@@ -46,8 +51,10 @@ export function MobileSetup({
   devices?: readonly MobileDevice[];
   /** The virtual device manager, shown under the Android section. */
   virtualDevices?: ReactNode;
-  /** USB and Wi-Fi phones, shown after the virtual devices. */
+  /** USB and Wi-Fi phones, on the Phone tab. */
   phones?: ReactNode;
+  /** The tab to open on, such as Phone after Connect a phone. */
+  startOn?: MobileSetupView;
   /** Reads the status again. recheckAcceleration also reruns the emulator's acceleration check. */
   onRecheck(options?: { recheckAcceleration?: boolean }): Promise<void>;
 }) {
@@ -63,51 +70,68 @@ export function MobileSetup({
   const acceleration = accelerationProblem(status.android);
   const situation = androidSituation(status.android);
   const needsInstall = situation !== "ready";
+  const [view, setView] = useState<MobileSetupView>(startOn);
+  useEffect(() => setView(startOn), [startOn]);
 
   return (
     <div className="mobile-setup">
-      <section
-        className={`mobile-setup-section${needsInstall ? " mobile-setup-card" : ""}`}
-        aria-labelledby="mobile-setup-android"
-      >
-        <h3 id="mobile-setup-android" className="mobile-setup-title">
-          {situation === "install"
-            ? "Set up the Android emulator"
-            : situation === "create"
-              ? "Create an Android virtual device"
-              : "Android"}
-        </h3>
-        {acceleration ? (
-          <div className="banner banner-warning" role="alert">
-            <Icon name="alert" size={14} />
-            <span className="banner-message">{acceleration}</span>
-            <div className="banner-actions">
-              <Button size="xs" loading={rechecking} onClick={() => void recheck({ recheckAcceleration: true })}>
-                Check again
-              </Button>
-            </div>
-          </div>
-        ) : null}
-        {situation !== "ready" ? (
-          <AndroidInstall
-            mobile={mobile}
-            android={status.android}
-            situation={situation}
-            noDevices={noDevices}
-            onFinished={() => void recheck()}
-          />
-        ) : (
-          <p className="mobile-setup-ready">
-            <Icon name="check" size={13} />
-            {status.android.avds.length === 1
-              ? `Ready, with the virtual device ${status.android.avds[0]}.`
-              : `Ready, with ${status.android.avds.length} virtual devices.`}
-          </p>
-        )}
-      </section>
-      {virtualDevices}
-      {phones}
-      {status.host.os === "macos" || status.ios.host ? (
+      <Segmented<MobileSetupView>
+        label="What to set up"
+        className="mobile-setup-tabs"
+        value={view}
+        options={[
+          { value: "emulator", label: "Emulator" },
+          { value: "phone", label: "Phone" },
+          { value: "iphone", label: "iPhone" },
+        ]}
+        onChange={setView}
+      />
+      {view === "emulator" ? (
+        <>
+          <section
+            className={`mobile-setup-section${needsInstall ? " mobile-setup-card" : ""}`}
+            aria-labelledby="mobile-setup-android"
+          >
+            <h3 id="mobile-setup-android" className="mobile-setup-title">
+              {situation === "install"
+                ? "Set up the Android emulator"
+                : situation === "create"
+                  ? "Create an Android virtual device"
+                  : "Android"}
+            </h3>
+            {acceleration ? (
+              <div className="banner banner-warning" role="alert">
+                <Icon name="alert" size={14} />
+                <span className="banner-message">{acceleration}</span>
+                <div className="banner-actions">
+                  <Button size="xs" loading={rechecking} onClick={() => void recheck({ recheckAcceleration: true })}>
+                    Check again
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {situation !== "ready" ? (
+              <AndroidInstall
+                mobile={mobile}
+                android={status.android}
+                situation={situation}
+                noDevices={noDevices}
+                onFinished={() => void recheck()}
+              />
+            ) : (
+              <p className="mobile-setup-ready">
+                <Icon name="check" size={13} />
+                {status.android.avds.length === 1
+                  ? `Ready, with the virtual device ${status.android.avds[0]}.`
+                  : `Ready, with ${status.android.avds.length} virtual devices.`}
+              </p>
+            )}
+          </section>
+          {virtualDevices}
+        </>
+      ) : null}
+      {view === "phone" ? phones : null}
+      {view !== "iphone" ? null : status.host.os === "macos" || status.ios.host ? (
         <IosSection
           mobile={mobile}
           devices={devices}

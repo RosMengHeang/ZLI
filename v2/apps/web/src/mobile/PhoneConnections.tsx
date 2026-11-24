@@ -1,23 +1,60 @@
 import {
+  adbQrPayload,
   type MobileDevice,
   MobilePairingCode,
   type MobileWifiResult,
   readAdbAddress,
   readAdbPort,
 } from "@zli-v2/contracts";
-import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { MobileBridge } from "../runtime/bridge.js";
 import { Button } from "../ui/Button.js";
 import { Field } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
+import { qrPath } from "../settings/mobileAccessView.js";
 import { connectionLabel, deviceStateLabel, errorText, phoneStateHint } from "./mobile.js";
 
-type Mode = "pair" | "connect";
+type Mode = "qr" | "pair" | "connect";
 type Busy = { kind: "pair" } | { kind: "connect" } | { kind: "disconnect"; deviceId: string };
 
-export type PhoneConnectionsBridge = Pick<MobileBridge, "pairWifi" | "connectWifi" | "disconnectWifi">;
+export type PhoneConnectionsBridge = Pick<
+  MobileBridge,
+  "pairWifi" | "connectWifi" | "disconnectWifi" | "pairWifiQr" | "cancelWifiQr"
+>;
+
+const QUIET_ZONE = 4;
+const LETTERS = "abcdefghijklmnopqrstuvwxyz0123456789";
+const MIXED = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+
+function randomText(alphabet: string, length: number): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
+}
+
+/** A fresh name and password for one QR pairing; the phone advertises the name once it has scanned the code. */
+function newQrCredentials(): { name: string; password: string } {
+  return { name: `zli-${randomText(LETTERS, 8)}`, password: randomText(MIXED, 10) };
+}
+
+function PairingQr({ text }: { text: string }) {
+  const { size, path } = useMemo(() => qrPath(text), [text]);
+  const box = size + QUIET_ZONE * 2;
+  return (
+    <svg
+      className="phone-qr"
+      viewBox={`${-QUIET_ZONE} ${-QUIET_ZONE} ${box} ${box}`}
+      role="img"
+      aria-label="Pairing QR code"
+      shapeRendering="crispEdges"
+    >
+      <rect x={-QUIET_ZONE} y={-QUIET_ZONE} width={box} height={box} fill="#fff" />
+      <path d={path} fill="#000" />
+    </svg>
+  );
+}
 
 /**
  * The Android phones adb can see, with Disconnect for the ones on Wi-Fi, and the two ways to reach a phone
@@ -44,7 +81,13 @@ export function PhoneConnections({
   onChanged(): void;
 }) {
   const ids = useId();
-  const [mode, setMode] = useState<Mode>("pair");
+  const canQr = !!mobile.pairWifiQr;
+  const [mode, setMode] = useState<Mode>(canQr ? "qr" : "pair");
+  /** Counts up for a new QR code; each code is good for one pairing. */
+  const [qrRound, setQrRound] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new round makes a new code.
+  const qr = useMemo(() => newQrCredentials(), [qrRound]);
+  const [waiting, setWaiting] = useState(false);
   const [pairAddress, setPairAddress] = useState("");
   const [code, setCode] = useState("");
   const [connectPort, setConnectPort] = useState("");
@@ -61,18 +104,44 @@ export function PhoneConnections({
     if (focusConnect && adbFound) firstField.current?.focus();
   }, [focusConnect, adbFound]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: finish and onChanged read the latest props on purpose.
+  useEffect(() => {
+    const pairQr = mobile.pairWifiQr;
+    if (mode !== "qr" || !adbFound || !pairQr) return;
+    let live = true;
+    setWaiting(true);
+    setError(undefined);
+    pairQr(qr)
+      .then((result) => {
+        if (!live) return;
+        setWaiting(false);
+        finish(result);
+      })
+      .catch((cause: unknown) => {
+        if (!live) return;
+        setWaiting(false);
+        setError(errorText(cause, "The phone could not be paired."));
+      });
+    return () => {
+      live = false;
+      void mobile.cancelWifiQr?.();
+    };
+  }, [mode, adbFound, qr]);
+
   const pairCheck = readAdbAddress(pairAddress);
   const codeCheck = MobilePairingCode.safeParse(code);
   const portCheck = connectPort.trim() ? readAdbPort(connectPort) : undefined;
   const addressCheck = readAdbAddress(address);
   const problems =
-    mode === "pair"
-      ? {
-          pairAddress: pairCheck.ok ? undefined : pairCheck.problem,
-          code: codeCheck.success ? undefined : codeCheck.error.issues[0]?.message,
-          connectPort: portCheck && !portCheck.ok ? portCheck.problem : undefined,
-        }
-      : { address: addressCheck.ok ? undefined : addressCheck.problem };
+    mode === "qr"
+      ? {}
+      : mode === "pair"
+        ? {
+            pairAddress: pairCheck.ok ? undefined : pairCheck.problem,
+            code: codeCheck.success ? undefined : codeCheck.error.issues[0]?.message,
+            connectPort: portCheck && !portCheck.ok ? portCheck.problem : undefined,
+          }
+        : { address: addressCheck.ok ? undefined : addressCheck.problem };
   const shown = (key: keyof typeof problems) => (checked ? problems[key] : undefined);
   const disabled = !adbFound || busy !== undefined;
 
@@ -93,7 +162,7 @@ export function PhoneConnections({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (disabled) return;
+    if (disabled || mode === "qr") return;
     setChecked(true);
     if (Object.values(problems).some(Boolean)) return;
     setError(undefined);
@@ -158,10 +227,10 @@ export function PhoneConnections({
   return (
     <section className="mobile-setup-section" aria-labelledby={`${ids}-title`}>
       <h3 id={`${ids}-title`} className="mobile-setup-title">
-        Phones
+        Your phone
       </h3>
       <p className="mobile-setup-text">
-        Plug in an Android phone with USB debugging turned on, or connect one over Wi-Fi on Android 11 and newer.
+        Connect over Wi-Fi on Android 11 and newer, or plug in with USB debugging on and it shows up here by itself.
       </p>
       {error ? (
         <div className="banner banner-danger" role="alert">
@@ -225,19 +294,46 @@ export function PhoneConnections({
           noValidate
           onSubmit={(event) => void submit(event)}
         >
-          <h4 id={`${ids}-wifi`} className="mobile-avd-form-title">
+          <h4 id={`${ids}-wifi`} className="mobile-avd-form-title sr-only">
             Connect over Wi-Fi
           </h4>
           <Segmented<Mode>
             label="How to connect"
             value={mode}
             options={[
-              { value: "pair", label: "Pair with a code", tooltip: "For a phone that has not trusted this computer" },
-              { value: "connect", label: "Connect to an address", tooltip: "For a phone that is already paired" },
+              ...(canQr
+                ? [{ value: "qr" as const, label: "Scan QR code", tooltip: "Scan the code with the phone's camera" }]
+                : []),
+              { value: "pair", label: "Pairing code", tooltip: "Type the 6-digit code the phone shows" },
+              { value: "connect", label: "Address", tooltip: "For a phone that is already paired" },
             ]}
             onChange={switchMode}
           />
-          {mode === "pair" ? (
+          {mode === "qr" ? (
+            <div className="phone-qr-step">
+              {adbFound ? <PairingQr text={adbQrPayload(qr.name, qr.password)} /> : null}
+              <div className="phone-qr-copy">
+                <ol className="mobile-setup-list">
+                  <li>On the phone, open Settings, then Developer options, then Wireless debugging.</li>
+                  <li>Tap Pair device with QR code and scan this code.</li>
+                </ol>
+                <p className="phone-qr-status" role="status">
+                  {!adbFound ? null : waiting ? (
+                    <>
+                      <span className="spinner" aria-hidden="true" />
+                      Waiting for your phone
+                    </>
+                  ) : (
+                    "The code expired."
+                  )}
+                </p>
+                <Button size="xs" variant="ghost" icon="reload" onClick={() => setQrRound((round) => round + 1)}>
+                  New code
+                </Button>
+                <p className="mobile-setup-hint">The phone and this computer need to be on the same Wi-Fi.</p>
+              </div>
+            </div>
+          ) : mode === "pair" ? (
             <>
               <ol className="mobile-setup-list">
                 <li>On the phone, open Settings, then Developer options, then Wireless debugging, and turn it on.</li>
@@ -321,7 +417,7 @@ export function PhoneConnections({
               />
             </Field>
           )}
-          <div className="mobile-setup-actions">
+          <div className="mobile-setup-actions" hidden={mode === "qr"}>
             <Button
               type="submit"
               variant="primary"

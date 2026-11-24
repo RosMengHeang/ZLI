@@ -25,6 +25,7 @@ import type {
   MobileStreamInfo,
   MobileWifiConnectInput,
   MobileWifiPairInput,
+  MobileWifiQrPairInput,
   MobileWifiResult,
   OpenInApp,
   RpcResponse,
@@ -185,6 +186,9 @@ export type MobileBridge = {
   shutdown(deviceId: string): Promise<void>;
   /** Wireless debugging for Android 11 and newer phones. Absent in test bridges without it. */
   pairWifi?(input: MobileWifiPairInput): Promise<MobileWifiResult>;
+  /** Waits for a phone to scan the pairing QR code, then pairs and connects to it. */
+  pairWifiQr?(input: MobileWifiQrPairInput): Promise<MobileWifiResult>;
+  cancelWifiQr?(): Promise<void>;
   connectWifi?(input: MobileWifiConnectInput): Promise<MobileWifiResult>;
   /** Only for a phone connected over Wi-Fi. */
   disconnectWifi?(deviceId: string): Promise<void>;
