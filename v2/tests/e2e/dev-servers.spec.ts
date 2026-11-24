@@ -15,6 +15,8 @@ import {
 
 test("finds a dev server in terminal output and opens it in the browser panel", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  // Room for a slow PowerShell prompt on top of the launch and the server start.
+  test.setTimeout(150_000);
   const { root, repo } = await createGitFixture();
   let fixture: DesktopFixture | undefined;
   try {
