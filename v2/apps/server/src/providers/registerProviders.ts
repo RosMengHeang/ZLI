@@ -198,7 +198,11 @@ export function createProviderRegistry(
   };
   // Servers for an agent that reads them from a file: the relay token moves to the agent's own environment.
   const fileServers = async (worktreeId: string | undefined) => liftSecretEnv(await allServers(worktreeId));
-  const chatEnv = async (worktreeId: string | undefined, account?: ProviderAccount, secrets?: Record<string, string>) => {
+  const chatEnv = async (
+    worktreeId: string | undefined,
+    account?: ProviderAccount,
+    secrets?: Record<string, string>,
+  ) => {
     const merged = {
       ...(browserTool ? agentEnv(browserTool, worktreeId, env) : {}),
       ...(await metroEnv(worktreeId)),
@@ -235,9 +239,7 @@ export function createProviderRegistry(
   };
   // Resolves true when the worktree's project MCP file is ZLI's and holds this chat's servers.
   const worktreeMcpFile = async (provider: "cursor-agent" | "droid", cwd: string, specs: readonly McpServerSpec[]) =>
-    options.writeWorktreeFile
-      ? writeProjectMcpFile(provider, specs, cwd, options.writeWorktreeFile)
-      : false;
+    options.writeWorktreeFile ? writeProjectMcpFile(provider, specs, cwd, options.writeWorktreeFile) : false;
   // One app server serves every Codex thread, so servers from Settings join per thread and edits
   // reach the next thread without restarting it.
   const codexThreadOverrides = async (worktreeId: string | undefined) => {

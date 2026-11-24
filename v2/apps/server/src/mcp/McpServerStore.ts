@@ -285,7 +285,9 @@ export class McpServerStore {
 
   /** The connected apps' server, whose relay token stays out of every file. */
   private isAppsServer(server: McpServerConfig): boolean {
-    return this.options.apps !== undefined && server.name.toLowerCase() === this.options.apps.server()?.name.toLowerCase();
+    return (
+      this.options.apps !== undefined && server.name.toLowerCase() === this.options.apps.server()?.name.toLowerCase()
+    );
   }
 
   /**
@@ -624,9 +626,7 @@ export class McpServerStore {
     } catch {
       return;
     }
-    const keep = new Set(
-      [...wanted.keys()].map((path) => path.slice(this.bridgeDir().length + 1)),
-    );
+    const keep = new Set([...wanted.keys()].map((path) => path.slice(this.bridgeDir().length + 1)));
     for (const name of names) {
       if (!BRIDGE_FILE_SUFFIXES.some((suffix) => name.endsWith(suffix)) || keep.has(name)) continue;
       await rm(join(this.bridgeDir(), name), { force: true }).catch(() => undefined);
