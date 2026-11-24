@@ -72,8 +72,11 @@ export function DeleteAgentDialog({
   onDelete(removeWorktree: boolean): void;
   onCancel(): void;
 }) {
-  // Settings → Worktrees can tick this from the start.
-  const [removeWorktree, setRemoveWorktree] = useState(() => readAppSettings().worktrees.removeWithAgent);
+  // Settings → Worktrees can tick this from the start, but only for a worktree this agent alone uses: a shared one or
+  // the project's own folder is never offered for removal.
+  const [removeWorktree, setRemoveWorktree] = useState(
+    () => worktree !== undefined && readAppSettings().worktrees.removeWithAgent,
+  );
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <Dialog
@@ -107,7 +110,7 @@ export function DeleteAgentDialog({
         <Button ref={cancelRef} onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="danger" onClick={() => onDelete(removeWorktree)}>
+        <Button variant="danger" onClick={() => onDelete(worktree !== undefined && removeWorktree)}>
           {removeWorktree ? "Delete agent and worktree" : "Delete agent"}
         </Button>
       </div>

@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { KeepRunDialog, RenameAgentDialog } from "./AgentDialogs.js";
+import { DeleteAgentDialog, KeepRunDialog, RenameAgentDialog } from "./AgentDialogs.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -112,5 +112,35 @@ describe("KeepRunDialog", () => {
       [...document.querySelectorAll("button")].find((button) => button.textContent === "Keep this one")?.click();
     });
     expect(onKeep).toHaveBeenCalledOnce();
+  });
+});
+
+describe("DeleteAgentDialog", () => {
+  it("never removes a worktree it was not offered, even with removal on in Settings", async () => {
+    window.localStorage.setItem("zli.settings.v1", JSON.stringify({ worktrees: { removeWithAgent: true } }));
+    const onDelete = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    roots.push(root);
+    await act(async () => {
+      root.render(
+        <DeleteAgentDialog
+          title="Fix the login bug"
+          provider="Codex"
+          running={false}
+          worktree={undefined}
+          onDelete={onDelete}
+          onCancel={() => undefined}
+        />,
+      );
+    });
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.textContent?.startsWith("Delete agent"),
+    );
+    expect(confirm?.textContent).toBe("Delete agent");
+    await act(async () => confirm?.click());
+    expect(onDelete).toHaveBeenCalledWith(false);
+    window.localStorage.removeItem("zli.settings.v1");
   });
 });
