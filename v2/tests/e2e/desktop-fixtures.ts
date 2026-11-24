@@ -424,14 +424,21 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 async function stopTerminals(page: Page): Promise<void> {
-  const terminalIds = await page.evaluate(async () => {
-    const projection = await window.zli?.runtime.getProjection();
-    return (
-      projection?.terminals
-        .filter((terminal) => terminal.status === "running" || terminal.status === "starting")
-        .map((terminal) => terminal.terminalId) ?? []
-    );
-  });
+  // A window that already went away (an app that quit on its own) has no shells left to stop; closing it still runs.
+  if (page.isClosed()) return;
+  const terminalIds = await page
+    .evaluate(async () => {
+      const projection = await window.zli?.runtime.getProjection();
+      return (
+        projection?.terminals
+          .filter((terminal) => terminal.status === "running" || terminal.status === "starting")
+          .map((terminal) => terminal.terminalId) ?? []
+      );
+    })
+    .catch((error: unknown) => {
+      if (page.isClosed() || /has been closed/u.test(String(error))) return [] as string[];
+      throw error;
+    });
   if (terminalIds.length === 0) return;
   await page.evaluate(async (ids) => {
     const bridge = window.zli;
