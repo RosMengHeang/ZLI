@@ -2936,7 +2936,8 @@ function WorkspaceApp() {
       onOpenDevServer={openDevServer}
       updateNotice={
         <>
-          <ReviewNotesPill worktree={contextWorktree} onShowAgent={showAgent} />
+          {/* Changes lists the same notes with its own send button, and the strip under the bar needs the room. */}
+          {sidePane === "review" ? null : <ReviewNotesPill worktree={contextWorktree} onShowAgent={showAgent} />}
           {sidebarOpen ? null : (
             <UpdatePill
               status={updates.status}

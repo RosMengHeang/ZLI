@@ -284,6 +284,8 @@
 .panel-strip-arrow { display: inline-grid; width: 20px; height: 26px; flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-dim); cursor: default; -webkit-app-region: no-drag; }
 .panel-strip-arrow:hover { background: var(--zli-hover); color: var(--zli-text); }
 .panel-strip-arrow:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+/* A narrow panel keeps its room for the open tab: the strip still scrolls with the wheel. */
+@container panel (max-width: 440px) { .panel-strip-arrow { display: none; } }
 /* The start box's choices, as in a chat's message box: the folder and the agent with its model. */
 .start-chat-choices { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1); }
 .start-chat-chip { max-width: 220px; color: var(--zli-muted); }

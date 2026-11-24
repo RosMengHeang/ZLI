@@ -60,9 +60,8 @@ test("shows a chat's context use, plan limits in the sidebar, and the Usage page
     const footerAgent = settings.getByRole("button", { name: /^Agent in the footer/u });
     await expect(async () => {
       if ((await footerAgent.getAttribute("aria-expanded")) !== "true") await footerAgent.click();
-      await expect(footerAgent).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+      await page.getByRole("option", { name: /^Cursor/u }).click({ timeout: 1_000 });
     }).toPass({ timeout: 15_000 });
-    await page.getByRole("option", { name: /^Cursor/u }).click();
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
     await expect(line.locator(".provider-mark-cursor-agent")).toBeVisible();

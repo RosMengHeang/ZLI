@@ -538,9 +538,19 @@ describe("TerminalDrawer", () => {
     const terminals = [
       { ...shared, terminalId: firstId },
       { ...shared, terminalId: secondId, kind: "agent" as const },
-      { ...shared, terminalId: TerminalId.parse("00000000-0000-4000-8000-000000000025"), status: "exited" as const },
+      {
+        ...shared,
+        terminalId: TerminalId.parse("00000000-0000-4000-8000-000000000025"),
+        title: "Terminal 2",
+        status: "exited" as const,
+      },
+      // A command that finished stays, so its output can be read.
+      { ...shared, terminalId: TerminalId.parse("00000000-0000-4000-8000-000000000026"), status: "exited" as const },
     ] as TerminalProjection[];
-    expect(drawerTerminals(terminals, worktreeId).map((terminal) => terminal.terminalId)).toEqual([firstId]);
+    expect(drawerTerminals(terminals, worktreeId).map((terminal) => terminal.terminalId)).toEqual([
+      firstId,
+      TerminalId.parse("00000000-0000-4000-8000-000000000026"),
+    ]);
     expect(drawerTerminals(terminals, undefined)).toEqual([]);
     expect(nextTerminalTitle([])).toBe("Terminal 1");
     expect(nextTerminalTitle([{ ...shared, terminalId: firstId, title: "Terminal 3" }] as TerminalProjection[])).toBe(

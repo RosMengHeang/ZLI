@@ -19,7 +19,8 @@ export const MAX_TERMINALS = 10;
 
 /**
  * The worktree's shells, whichever chat opened them, so switching chats on a branch keeps its terminals. A shell
- * that exited is gone; one that failed stays so its error can be read. Agent CLIs live in their tiles instead.
+ * someone typed `exit` in is gone; a command that finished stays, so its output can be read until it is closed, and
+ * one that failed stays so its error can be read. Agent CLIs live in their tiles instead.
  */
 export function drawerTerminals(
   terminals: readonly TerminalProjection[],
@@ -27,9 +28,15 @@ export function drawerTerminals(
 ): TerminalProjection[] {
   if (!worktreeId) return [];
   return terminals.filter(
-    (terminal) => terminal.kind !== "agent" && terminal.worktreeId === worktreeId && terminal.status !== "exited",
+    (terminal) =>
+      terminal.kind !== "agent" &&
+      terminal.worktreeId === worktreeId &&
+      !(terminal.status === "exited" && SHELL_TITLE.test(terminal.title)),
   );
 }
+
+/** A plain shell from New terminal, as opposed to one that runs a command. */
+const SHELL_TITLE = /^Terminal \d+$/u;
 
 /** The next free "Terminal N" title among the worktree's shells. */
 export function nextTerminalTitle(terminals: readonly TerminalProjection[]): string {
