@@ -79,6 +79,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
     branch: z.string().min(1),
     baseRef: z.string().min(1).optional(),
     checkoutExistingBranch: z.boolean().optional(),
+    /** Fetch the base branch first and start from its remote copy, falling back to the local branch. */
+    fromRemote: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("worktree.import"),

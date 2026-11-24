@@ -231,6 +231,7 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           workspaceRoot: command.workspaceRoot,
           ...(command.baseRef ? { baseRef: command.baseRef } : {}),
           ...(command.checkoutExistingBranch ? { checkoutExistingBranch: true } : {}),
+          ...(command.fromRemote && !command.checkoutExistingBranch ? { fromRemote: true } : {}),
           worktree: {
             worktreeId: command.worktreeId,
             projectId: command.projectId,

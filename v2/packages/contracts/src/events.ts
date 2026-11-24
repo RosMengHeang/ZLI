@@ -55,6 +55,7 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     workspaceRoot: z.string().min(1),
     baseRef: z.string().min(1).optional(),
     checkoutExistingBranch: z.boolean().optional(),
+    fromRemote: z.boolean().optional(),
   }),
   z.object({ type: z.literal("worktree.imported"), worktree: WorktreeProjection }),
   z.object({
