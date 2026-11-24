@@ -70,6 +70,8 @@ export class TeamReactor {
   private readonly unsubscribe: () => void;
   private running: Promise<void> | undefined;
   private dirty = false;
+  /** How often each review assignment was refused, so the next try goes out under a key of its own. */
+  private readonly refusals = new Map<string, number>();
 
   constructor(
     private readonly engine: Engine,
@@ -138,6 +140,8 @@ export class TeamReactor {
   private async review(state: RuntimeProjection, goal: Team): Promise<void> {
     const rounds = goal.team.reviewRounds;
     if (rounds <= 0) return;
+    // Reviews this pass gives out count against each reviewer's open jobs at once, not on the next read.
+    const given = new Map<string, number>();
     for (const item of goal.team.plan) {
       if (!item.taskId || item.accepted) continue;
       const task = state.tasks?.find((entry) => entry.taskId === item.taskId);
@@ -160,9 +164,11 @@ export class TeamReactor {
       // A reviewer at its open-job limit is asked again on a later pass, once a job of its closes, rather than
       // sent an assignment that is refused for good under this round's key.
       const open = (state.tasks ?? []).filter((entry) => entry.buddyId === reviewer.buddyId && isOpenTask(entry));
-      if (open.length >= MAX_OPEN_JOBS) continue;
+      if (open.length + (given.get(reviewer.buddyId) ?? 0) >= MAX_OPEN_JOBS) continue;
       const owner = findBuddy(state, task.buddyId);
-      await this.dispatch(
+      const base = `team:${goal.goalId}:review:${task.taskId}:${round}`;
+      const refused = this.refusals.get(base) ?? 0;
+      const receipt = await this.dispatch(
         {
           type: "task.assign",
           task: {
@@ -177,8 +183,10 @@ export class TeamReactor {
             quiet: true,
           },
         },
-        `team:${goal.goalId}:review:${task.taskId}:${round}`,
+        refused > 0 ? `${base}:retry-${refused}` : base,
       );
+      if (receipt.status === "rejected") this.refusals.set(base, refused + 1);
+      else given.set(reviewer.buddyId, (given.get(reviewer.buddyId) ?? 0) + 1);
     }
   }
 
