@@ -310,10 +310,21 @@ export function ReviewPane({
 
   const canCommit = !!worktree && !busy && !changing && !!message.trim() && !conflicted;
   /** Commits the staged changes, or every change when nothing is staged, then pushes when asked. */
+  // Commit and push: the push waits for the review the commit itself produced, so it never sends the branch as it
+  // was before the commit, and a commit that failed is not pushed.
+  const [pushAfter, setPushAfter] = useState<string>();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: acts once, on the commit's own result.
+  useEffect(() => {
+    if (!pushAfter || !review?.committedAt || review.committedAt < pushAfter) return;
+    setPushAfter(undefined);
+    if (!review.errorMessage) void sync("push");
+  }, [pushAfter, review]);
+
   const commit = async (push: boolean) => {
     if (!worktree || !message.trim()) return;
+    if (push) setPushAfter(new Date().toISOString());
     const done = await run({ type: "review.commit", worktreeId: worktree.worktreeId, message: message.trim() });
-    if (done && push) await sync("push");
+    if (!done) setPushAfter(undefined);
   };
 
   // Comparing with another branch, pulling and pushing are a row of their own, out of the way until asked for

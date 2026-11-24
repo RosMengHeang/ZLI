@@ -78,7 +78,14 @@ export class ReviewReactor {
 
   private async runCommit(worktreeId: string, message: string): Promise<void> {
     const input = await this.input(worktreeId, await this.baseRef(worktreeId));
-    await this.dispatchUpdated(await this.service.commit({ ...input, message }));
+    let committed: ReviewProjection;
+    try {
+      committed = await this.service.commit({ ...input, message });
+    } catch (error) {
+      await this.dispatchError(worktreeId, error, "committedAt");
+      return;
+    }
+    await this.dispatchUpdated({ ...committed, committedAt: new Date().toISOString() });
   }
 
   private async runDiff(worktreeId: string, path: string): Promise<void> {
@@ -108,7 +115,7 @@ export class ReviewReactor {
         ...(commitMessage ? { commitMessage } : {}),
       });
     } catch (error) {
-      await this.dispatchError(worktreeId, error, true);
+      await this.dispatchError(worktreeId, error, "mergedAt");
       return;
     }
     await this.dispatchUpdated({ ...merged, mergedAt: new Date().toISOString() });
@@ -172,16 +179,21 @@ export class ReviewReactor {
       .then(() => undefined);
   }
 
-  private async dispatchError(worktreeId: string, error: unknown, fromMerge = false): Promise<void> {
+  /** `finished` marks the review as the result of that operation, so the screen waiting on it sees it failed. */
+  private async dispatchError(
+    worktreeId: string,
+    error: unknown,
+    finished?: "mergedAt" | "committedAt",
+  ): Promise<void> {
     const projection = await this.engine.projection();
     const review = projection.reviews?.find((candidate) => candidate.worktreeId === worktreeId);
     if (!review) return;
     const now = new Date().toISOString();
-    const { mergedAt: _earlier, ...rest } = review;
+    const { mergedAt: _merged, committedAt: _committed, ...rest } = review;
     await this.dispatchUpdated({
       ...rest,
       errorMessage: error instanceof Error ? error.message : "Git review operation failed.",
-      ...(fromMerge ? { mergedAt: now } : {}),
+      ...(finished ? { [finished]: now } : {}),
       updatedAt: now,
     });
   }
