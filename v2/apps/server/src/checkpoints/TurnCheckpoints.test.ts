@@ -132,6 +132,25 @@ describe("TurnCheckpoints", () => {
     expect(refs.stdout.trim().split(/\r?\n/u)).toHaveLength(3);
   }, 20_000);
 
+  it("shows one file's diff across several turns", async () => {
+    const { repo, engine, checkpoints } = await setup();
+    const first = await checkpoints.capture(threadId);
+    if (!first) throw new Error("Expected a starting snapshot.");
+    await writeFile(join(repo, "README.md"), "first\n");
+    await checkpoints.record(threadId, "turn-1", first);
+    const second = await checkpoints.capture(threadId);
+    if (!second) throw new Error("Expected a starting snapshot.");
+    await writeFile(join(repo, "README.md"), "second\n");
+    await checkpoints.record(threadId, "turn-2", second);
+
+    const [one, two] = (await engine.projection()).checkpoints ?? [];
+    if (!one || !two) throw new Error("Expected two checkpoints.");
+    const diff = await checkpoints.diff(one.checkpointId, "README.md", two.checkpointId);
+    expect(diff.patch).toContain("-base");
+    expect(diff.patch).toContain("+second");
+    expect(diff.patch).not.toContain("first");
+  });
+
   it("copies a worktree's current files, or a turn's starting files, into a new worktree", async () => {
     const { repo, git, engine, dispatch, checkpoints } = await setup();
     const start = await checkpoints.capture(threadId);
