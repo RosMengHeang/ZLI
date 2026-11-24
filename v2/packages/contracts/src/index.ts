@@ -43,3 +43,4 @@ export * from "./rpc.js";
 export * from "./skills.js";
 export * from "./terminal.js";
 export * from "./updates.js";
+export * from "./usage.js";
