@@ -103,7 +103,8 @@ export function usePullRequestPolling(dispatch: Dispatch, worktreeIds: readonly 
     const ids = key ? key.split("\n") : [];
     if (ids.length === 0) return;
     const tick = () => {
-      if (document.visibilityState === "hidden") return;
+      // No document once the page is gone (a test's teardown); nothing is shown, so nothing is checked.
+      if (typeof document === "undefined" || document.visibilityState === "hidden") return;
       const now = Date.now();
       for (const id of ids) {
         const entry = entries.get(id);
