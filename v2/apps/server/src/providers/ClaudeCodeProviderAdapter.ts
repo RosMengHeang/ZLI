@@ -34,6 +34,10 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
     structuredUserInput: false,
     conversationRollback: false,
     modelSwitch: "in-session",
+    // Claude Code runs /compact when it arrives as a message and reports a compact_boundary. Text after it
+    // ("/compact keep the API decisions") steers the summary.
+    compaction: "native",
+    compactionInstructions: true,
   };
 
   private readonly sessions = new Map<

@@ -112,6 +112,13 @@ export const ProviderCapabilities = z.object({
   permissionSwitch: z.enum(["in-session", "unsupported"]).optional(),
   /** Levels this session's agent reported when it started, for agents that report them per session. */
   reasoningEfforts: ReasoningEfforts.optional(),
+  /**
+   * native: a "/compact" message makes the agent summarize its own context in the same session. Missing
+   * means it has no way ZLI can drive, so ZLI asks it for a summary and carries on in a fresh session.
+   */
+  compaction: z.enum(["native"]).optional(),
+  /** The native "/compact" takes focus text after it, such as "/compact keep the API decisions". */
+  compactionInstructions: z.boolean().optional(),
 });
 export type ProviderCapabilities = z.infer<typeof ProviderCapabilities>;
 

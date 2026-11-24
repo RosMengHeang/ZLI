@@ -192,6 +192,16 @@ export class AccountStore {
     return { accountId: account.id, env: await this.launchEnv(account) };
   }
 
+  /** What a sign-in account's login runs with: its agent, its environment, and the folder that keeps it. */
+  async signInTarget(
+    accountId: string,
+  ): Promise<{ provider: ListedProviderKind; env: Record<string, string>; dir: string }> {
+    const account = this.accounts.find((candidate) => candidate.id === accountId);
+    if (!account) throw new AccountError("This account was removed.");
+    if (account.kind !== "sign-in") throw new AccountError("Only sign-in accounts sign in.");
+    return { provider: account.provider, env: await this.launchEnv(account), dir: this.accountDir(account.id) };
+  }
+
   /** Sign-in accounts of agents whose plans report limits, with the folder that holds each login. */
   limitTargets(): Array<{ provider: PlanLimitProvider; accountId: string; configDir: string }> {
     return this.accounts.flatMap((account) =>
