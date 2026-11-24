@@ -197,11 +197,11 @@ export async function startRuntime(options: {
   await connectedApps.load();
   const mcpServers: McpServerStore = new McpServerStore({
     path: join(dirname(databasePath), "mcp-servers.json"),
+    ...(secrets ? { box: secrets } : {}),
     apps: connectedApps,
     extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
     signIns,
     importFrom: { home: userHome },
-    ...(secrets ? { box: secrets } : {}),
     ...(browserTool?.connectScript
       ? { connectTool: { command: browserTool.command, script: browserTool.connectScript } }
       : {}),
