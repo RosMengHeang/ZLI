@@ -195,8 +195,10 @@ export async function launchDesktop(
       // A busy Windows runner sometimes never opens the first window, or the process exits before
       // it does. That launch is already closed, so one more start is safe. Any other failure is
       // real. The wait counts against the test, so put it back or teardown crosses the limit.
-      if (!(error instanceof WindowTimeout)) throw error;
-      if (attempt >= 2) throw error.cause;
+      // Electron itself can also fail to start on a loaded runner, with nothing left running; that is retried too.
+      const failedStart = error instanceof Error && /Process failed to launch/u.test(error.message);
+      if (!(error instanceof WindowTimeout) && !failedStart) throw error;
+      if (attempt >= 2) throw error instanceof WindowTimeout ? error.cause : error;
       const timeout = test.info().timeout;
       if (timeout > 0) test.setTimeout(timeout + RELAUNCH_BUDGET_MS);
     }
