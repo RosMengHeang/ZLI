@@ -72,4 +72,39 @@ describe("AgentMessagesSection", () => {
     ).toBe("true");
     await act(async () => root.unmount());
   });
+
+  it("switches between finding tools when needed and giving agents every tool up front", async () => {
+    let toolLoading = "on-demand";
+    const bridge = {
+      runtime: {
+        dispatch: async (request: { commandId: string; command: { type: string; loading?: string } }) => {
+          if (request.command.type === "mcp.toolLoading") toolLoading = request.command.loading ?? toolLoading;
+          return {
+            commandId: CommandId.parse(request.commandId),
+            accepted: true as const,
+            result: { servers: [], agentAccess: "full", agentScope: "project", toolLoading },
+          };
+        },
+        getProjection: async () => undefined,
+        onProjection: () => () => undefined,
+      },
+    } as unknown as ZliBridge;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <RuntimeProvider bridge={bridge}>
+          <AgentMessagesSection />
+        </RuntimeProvider>,
+      );
+    });
+    const toggle = container.querySelector<HTMLInputElement>('input[role="switch"]');
+    expect(toggle?.checked).toBe(true);
+    expect(container.textContent).toContain("work in running chats right away");
+    await act(async () => toggle?.click());
+    expect(toolLoading).toBe("upfront");
+    expect(container.textContent).toContain("A service connected later needs a new chat");
+    act(() => root.unmount());
+  });
 });
