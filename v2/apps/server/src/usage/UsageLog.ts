@@ -34,6 +34,8 @@ type FileState = {
   /** A hash of the bytes just before `offset`; a file rewritten in place is read again from the start. */
   guard: string;
   entries: UsageEntry[];
+  /** What the last line without a newline held at that read, shown with `entries` until the file changes. */
+  tail: UsageEntry[];
   codex: CodexState | undefined;
 };
 
@@ -102,7 +104,8 @@ export class UsageLog {
     try {
       const stat = await handle.stat();
       const known = this.files.get(path);
-      if (known && known.size === stat.size && known.mtimeMs === stat.mtimeMs) return known.entries;
+      if (known && known.size === stat.size && known.mtimeMs === stat.mtimeMs)
+        return withTail(known.entries, known.tail);
       const resume = known && stat.size >= known.offset && (await guardOf(handle, known.offset)) === known.guard;
       const start = resume ? known.offset : 0;
       const entries = resume ? [...known.entries] : [];
@@ -124,15 +127,20 @@ export class UsageLog {
         offset,
         guard: await guardOf(handle, offset),
         entries,
+        tail: tailEntries,
         codex,
       });
-      return tailEntries.length > 0 ? [...entries, ...tailEntries] : entries;
+      return withTail(entries, tailEntries);
     } catch {
       return this.files.get(path)?.entries ?? [];
     } finally {
       await handle.close().catch(() => undefined);
     }
   }
+}
+
+function withTail(entries: UsageEntry[], tail: UsageEntry[]): UsageEntry[] {
+  return tail.length > 0 ? [...entries, ...tail] : entries;
 }
 
 async function readLines(

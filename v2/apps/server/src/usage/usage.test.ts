@@ -355,6 +355,8 @@ describe("UsageLog", () => {
     const session = join(claude, "a.jsonl");
     await writeFile(session, claudeLine({}));
     expect((await log.read("all")).totals.requests).toBe(1);
+    // Read again with the file unchanged: the line still counts.
+    expect((await log.read("all")).totals.requests).toBe(1);
     await appendFile(session, `\n${claudeLine({ id: "msg_2", request: "req_2" })}\n`);
     expect((await log.read("all")).totals.requests).toBe(2);
   });
