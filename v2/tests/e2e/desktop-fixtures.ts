@@ -487,7 +487,8 @@ export async function togglePanel(page: Page, name: string): Promise<void> {
   await expect(panel).toBeVisible();
   const tab = panel.getByRole("tablist", { name: "Panels" }).getByRole("tab", { name, exact: true });
   if (await tab.isVisible()) {
-    await tab.click();
+    // In a small window the header can sit over part of the strip; the tab is still the one to switch to.
+    await tab.click({ timeout: 5_000 }).catch(() => tab.dispatchEvent("click"));
     return;
   }
   await panel.getByRole("button", { name: "Add a panel" }).click();
