@@ -61,6 +61,7 @@ import {
   TerminalProjection,
   TerminalStreamMessage,
 } from "./terminal.js";
+import { UsageCommand } from "./usage.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
@@ -327,6 +328,11 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   /** A shell printed a local server address. The runtime records it for the terminal's worktree. */
   z.object({ type: z.literal("devserver.detected"), terminalId: TerminalId, url: z.string().min(1).max(2_000) }),
   z.object({ type: z.literal("devserver.stopped"), terminalId: TerminalId, port: DevServerProjection.shape.port }),
+  /**
+   * Which local servers the agents of these chats started from their shell tools and are still up. Answered
+   * directly from the chats' steps and a port check; nothing is recorded.
+   */
+  z.object({ type: z.literal("devserver.agentServers"), threadIds: z.array(ThreadId).min(1).max(20) }),
   ThreadAttachmentReadCommand,
   ...FileCommand.options,
   ...PullRequestCommand.options,
@@ -339,6 +345,7 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   ...PluginCommand.options,
   ...AccountCommand.options,
   ...LimitsCommand.options,
+  ...UsageCommand.options,
   ...AgentSettingsCommand.options,
   ...HistoryCommand.options,
   ...HuddleCommand.options,

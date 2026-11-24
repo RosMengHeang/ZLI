@@ -211,6 +211,19 @@ export class AccountStore {
     );
   }
 
+  /**
+   * Every saved account that runs from a folder of its own, where its agent writes session logs: sign-ins, and
+   * Codex API keys, which run from their own CODEX_HOME. Wider than `limitTargets`, which only lists accounts
+   * with a plan to read.
+   */
+  usageHomes(): Array<{ provider: StoredAccount["provider"]; accountId: string; configDir: string }> {
+    return this.accounts.flatMap((account) =>
+      account.kind === "sign-in" || account.provider === "codex"
+        ? [{ provider: account.provider, accountId: account.id, configDir: this.accountDir(account.id) }]
+        : [],
+    );
+  }
+
   async waitForIdle(): Promise<void> {
     await this.queue.catch(() => undefined);
   }
