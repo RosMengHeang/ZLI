@@ -499,8 +499,12 @@ export async function startTerminal(page: Page): Promise<void> {
   const start = page.getByRole("button", { name: "Start terminal" });
   const shell = page.locator(".terminal-drawer:not(.is-side) .drawer-pane");
   await expect.poll(async () => (await start.isVisible()) || (await shell.count()) > 0, { timeout: 30_000 }).toBe(true);
-  if (await start.isVisible()) await start.click();
-  await expect(shell.first()).toBeAttached({ timeout: 30_000 });
+  // The drawer's own shell can land between the check and the click, taking the button away: then there is
+  // nothing to click, and the shell is what this waits for.
+  await expect(async () => {
+    if ((await shell.count()) === 0 && (await start.isVisible())) await start.click({ timeout: 2_000 });
+    await expect(shell.first()).toBeAttached({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
 }
 
 /**
