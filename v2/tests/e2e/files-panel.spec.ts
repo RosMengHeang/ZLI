@@ -67,13 +67,12 @@ test("browses, edits, finds, and searches files in a worktree", async () => {
     await expect
       .poll(async () => (await readFile(join(worktreePath, "README.md"), "utf8")).replaceAll("\r\n", "\n"))
       .toBe("# ZLI integration fixture\nEdited in ZLI\n");
-    // A narrow panel hides the file list while a file is open, so read the status from the open file's path bar.
-    await expect(panel.locator(".file-path-bar .file-status-modified")).toHaveText("M", { timeout: 10_000 });
-    const diff = panel.getByRole("button", { name: "Diff", exact: true });
-    await diff.click();
-    await expect(diff).toHaveAttribute("aria-pressed", "true");
+    // The file's bar above it toggles between the file and what changed in it.
+    await panel.getByRole("button", { name: "Show what changed" }).click();
+    const fileButton = panel.getByRole("button", { name: "Show the file" });
+    await expect(fileButton).toHaveAttribute("aria-pressed", "true");
     await expect(panel.locator(".file-diff")).toContainText("Edited in ZLI", { timeout: 10_000 });
-    await diff.click();
+    await fileButton.click();
 
     await writeFile(join(worktreePath, "README.md"), "# Changed by an agent\n", "utf8");
     await expect(editor).toContainText("Changed by an agent", { timeout: 10_000 });
