@@ -56,6 +56,13 @@ describe("McpServerStore", () => {
     await elsewhere.load();
     expect(elsewhere.list().secrets?.unreadable).toEqual(["github", "notion"]);
     expect(elsewhere.list().servers[0]).toMatchObject({ env: { TOKEN: "" } });
+
+    // Saving something else there keeps the sealed values, so the right computer still opens them.
+    await elsewhere.save([...elsewhere.list().servers, linear]);
+    const back = new McpServerStore({ path, box });
+    await back.load();
+    expect(back.list().servers).toEqual([github, remote, linear]);
+    expect(back.list().secrets?.unreadable).toEqual([]);
   });
 
   it("saves no key unprotected while the keychain was too slow to answer", async () => {

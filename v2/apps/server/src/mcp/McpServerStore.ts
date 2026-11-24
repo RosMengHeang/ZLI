@@ -233,6 +233,12 @@ export class McpServerStore {
 
   /** Servers whose saved keys or headers could not be opened with this computer's key. */
   private unreadable: string[] = [];
+  /**
+   * The sealed text of each value that could not be opened, by server and then "env.NAME" or "headers.NAME". It is
+   * written back as it was until that value is typed again or removed, so a save of something else never wipes a
+   * key the right computer can still open.
+   */
+  private locked: Record<string, Record<string, string>> = {};
 
   async load(): Promise<void> {
     this.loading = this.options.toolLoading ?? DEFAULT_MCP_TOOL_LOADING;
@@ -273,6 +279,7 @@ export class McpServerStore {
     }
     this.servers = servers.data;
     this.unreadable = opened.unreadable;
+    this.locked = opened.locked;
     this.owned = isPlainObject(parsed) ? ownedFrom(parsed.owned) : {};
     // A list saved before sealing, or saved readable by others, is written again: sealed, and for this user only.
     if (opened.plain && this.options.box) await this.write().catch(() => undefined);
@@ -762,7 +769,7 @@ export class McpServerStore {
     );
     const file: StoredFile = {
       version: 1,
-      servers: sealSecrets(servers, this.options.box),
+      servers: keepLocked(sealSecrets(servers, this.options.box), this.locked),
       owned: this.owned,
       agentAccess: this.access,
       agentScope: this.scope,
@@ -779,10 +786,10 @@ function hasSecretValues(server: McpServerConfig): boolean {
   return Object.values(values).some((value) => value.length > 0);
 }
 
-function mapValues(record: unknown, change: (value: string) => string): Record<string, unknown> | unknown {
+function mapValues(record: unknown, change: (value: string, key: string) => string): Record<string, unknown> | unknown {
   if (!isPlainObject(record)) return record;
   return Object.fromEntries(
-    Object.entries(record).map(([key, value]) => [key, typeof value === "string" ? change(value) : value]),
+    Object.entries(record).map(([key, value]) => [key, typeof value === "string" ? change(value, key) : value]),
   );
 }
 
@@ -793,29 +800,52 @@ function mapValues(record: unknown, change: (value: string) => string): Record<s
 export function openSecrets(
   servers: unknown,
   box: SecretBox | undefined,
-): { servers: unknown; unreadable: string[]; plain: boolean } {
-  if (!Array.isArray(servers)) return { servers, unreadable: [], plain: false };
+): { servers: unknown; unreadable: string[]; plain: boolean; locked: Record<string, Record<string, string>> } {
+  if (!Array.isArray(servers)) return { servers, unreadable: [], plain: false, locked: {} };
   const unreadable: string[] = [];
+  const locked: Record<string, Record<string, string>> = {};
   let plain = false;
   const opened = servers.map((server: unknown) => {
     if (!isPlainObject(server)) return server;
     let lost = false;
-    const open = (value: string) => {
+    const opener = (field: "env" | "headers") => (value: string, key: string) => {
       if (!SecretBox.isSealed(value)) {
         if (value) plain = true;
         return value;
       }
       const text = box?.open(value);
-      if (text === undefined) lost = true;
+      if (text === undefined) {
+        lost = true;
+        if (typeof server.name === "string") (locked[server.name] ??= {})[`${field}.${key}`] = value;
+      }
       return text ?? "";
     };
-    const next = { ...server, env: mapValues(server.env, open), headers: mapValues(server.headers, open) };
+    const next = {
+      ...server,
+      env: mapValues(server.env, opener("env")),
+      headers: mapValues(server.headers, opener("headers")),
+    };
     if (server.env === undefined) delete (next as Record<string, unknown>).env;
     if (server.headers === undefined) delete (next as Record<string, unknown>).headers;
     if (lost && typeof server.name === "string") unreadable.push(server.name);
     return next;
   });
-  return { servers: opened, unreadable, plain };
+  return { servers: opened, unreadable, plain, locked };
+}
+
+/** Puts back the sealed text of values that could not be opened and are still empty, as they were on disk. */
+function keepLocked(servers: McpServerConfig[], locked: Record<string, Record<string, string>>): McpServerConfig[] {
+  return servers.map((server) => {
+    const sealed = locked[server.name];
+    if (!sealed) return server;
+    const field = server.transport === "http" ? "headers" : "env";
+    const values = { ...(server.transport === "http" ? server.headers : server.env) };
+    for (const [key, value] of Object.entries(values)) {
+      const kept = sealed[`${field}.${key}`];
+      if (value === "" && kept) values[key] = kept;
+    }
+    return { ...server, [field]: values } as McpServerConfig;
+  });
 }
 
 /** Seals every env and header value for the file on disk; the list in memory keeps them open. */
