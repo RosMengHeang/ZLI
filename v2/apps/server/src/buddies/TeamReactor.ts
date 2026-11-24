@@ -5,7 +5,9 @@ import {
   type GoalProjection,
   isBuddyHome,
   isBusyTask,
+  isOpenTask,
   isTeam,
+  MAX_OPEN_JOBS,
   type RuntimeCommand,
   type RuntimeEventEnvelope,
   type RuntimeProjection,
@@ -117,6 +119,15 @@ export class TeamReactor {
             await this.startCombining(state, goal);
           } else if (goal.team.phase === "combining") await this.combine(state, goal);
         }
+        // Reviews that handed in their verdict are closed, whatever the team is doing now.
+        for (const goal of state.goals ?? []) {
+          if (!isTeam(goal)) continue;
+          for (const reviewId of finishedReviews(state, goal))
+            await this.dispatch(
+              { type: "task.close", taskId: reviewId },
+              `team:${goal.goalId}:review-close:${reviewId}`,
+            );
+        }
       } catch (error) {
         this.options.onError?.(error);
       }
@@ -136,13 +147,9 @@ export class TeamReactor {
       const round = task.reviews.length + 1;
       const reviewId = teamReviewId(task.taskId, round);
       if (state.tasks?.some((entry) => entry.taskId === reviewId)) continue;
-      if (last) {
-        // Notes came back: wait until the buddy was asked to fix them and has finished again.
-        const previous = state.tasks?.find((entry) => entry.taskId === teamReviewId(task.taskId, round - 1));
-        const revised = task.revisions.at(-1)?.at;
-        const since = previous?.endedAt ?? previous?.updatedAt;
-        if (!revised || (since && revised < since)) continue;
-      }
+      // Notes came back: wait until the buddy was asked to fix every round's notes. Being ready again after that
+      // ask means it finished; the reviewer's own end time is not compared, since it can land after the ask.
+      if (last && task.revisions.length < task.reviews.length) continue;
       // A review already running from the buddy's own handoff rules counts as this round.
       if (
         state.tasks?.some((entry) => entry.kind === "review" && entry.parentTaskId === task.taskId && isBusyTask(entry))
@@ -150,6 +157,10 @@ export class TeamReactor {
         continue;
       const reviewer = teamReviewer(state, goal, task);
       if (!reviewer) continue;
+      // A reviewer at its open-job limit is asked again on a later pass, once a job of its closes, rather than
+      // sent an assignment that is refused for good under this round's key.
+      const open = (state.tasks ?? []).filter((entry) => entry.buddyId === reviewer.buddyId && isOpenTask(entry));
+      if (open.length >= MAX_OPEN_JOBS) continue;
       const owner = findBuddy(state, task.buddyId);
       await this.dispatch(
         {
@@ -373,4 +384,21 @@ export class TeamReactor {
       command: command as RuntimeCommand,
     });
   }
+}
+
+/**
+ * The team's reviews that handed in their verdict and wait as ready jobs: they have nothing left for the person, so
+ * they are closed and do not fill the reviewer's open jobs.
+ */
+function finishedReviews(state: RuntimeProjection, goal: Team): string[] {
+  const ids: string[] = [];
+  for (const item of goal.team.plan) {
+    const parent = item.taskId ? state.tasks?.find((entry) => entry.taskId === item.taskId) : undefined;
+    if (!parent) continue;
+    for (let round = 1; round <= parent.reviews.length; round += 1) {
+      const review = state.tasks?.find((entry) => entry.taskId === teamReviewId(parent.taskId, round));
+      if (review?.status === "ready") ids.push(review.taskId);
+    }
+  }
+  return ids;
 }

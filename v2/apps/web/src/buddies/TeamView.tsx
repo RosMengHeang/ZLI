@@ -147,7 +147,7 @@ export function TeamView({
 
       {phase === "planning" ? (
         <p className="team-hint">{lead?.name ?? "The lead"} is writing the plan.</p>
-      ) : phase === "plan_ready" ? (
+      ) : phase === "plan_ready" && team.status !== "stopped" && team.status !== "done" ? (
         <PlanEditor
           key={team.team.plan.map((item) => item.planTaskId).join()}
           team={team}

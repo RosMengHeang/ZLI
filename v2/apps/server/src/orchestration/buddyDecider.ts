@@ -458,6 +458,9 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
     case "goal.plan.approve": {
       const goal = requireTeam(projection, command.goalId);
       if (goal.team.phase !== "plan_ready") throw new DomainError("plan_started", "There is no plan waiting for Go.");
+      // A stopped or finished team keeps its plan to read, but Go no longer starts its jobs.
+      if (goal.status === "done" || goal.status === "stopped")
+        throw new DomainError("goal_closed", "This team was stopped. Start a new goal to run the plan.");
       return approvePlan(
         projection,
         goal,
@@ -483,7 +486,14 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
       const item = goal.team.plan.find((entry) => entry.taskId === command.taskId);
       if (!item) throw new DomainError("task_missing", "That task is not in the plan.");
       if (item.accepted) return [];
-      return [{ type: "goal.task.accepted", goalId: goal.goalId, taskId: command.taskId }];
+      // Use as is ends the wait for review notes too, so the team can sum up instead of waiting on this job.
+      const job = findTask(projection, command.taskId);
+      return [
+        { type: "goal.task.accepted", goalId: goal.goalId, taskId: command.taskId },
+        ...(job?.status === "needs_you"
+          ? [{ type: "task.status.changed" as const, taskId: job.taskId, status: "ready" as const }]
+          : []),
+      ];
     }
     case "goal.task.drop": {
       const goal = requireTeam(projection, command.goalId);

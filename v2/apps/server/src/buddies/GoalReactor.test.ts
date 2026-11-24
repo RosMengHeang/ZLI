@@ -289,6 +289,36 @@ describe("GoalReactor teams", () => {
     });
     expect(again.status).toBe("rejected");
 
+    // A job waiting on review notes that the person takes as is no longer holds up the team's summary.
+    await send(engine, { type: "task.status", taskId: "q1", status: "working" });
+    await send(engine, {
+      type: "task.status",
+      taskId: "q1",
+      status: "needs_you",
+      needs: { kind: "handoff_limit", text: "Notes" },
+    });
+    await send(engine, { type: "goal.task.accept", goalId: "t2", taskId: "q1" });
+    expect((await engine.projection()).tasks?.find((task) => task.taskId === "q1")).toMatchObject({ status: "ready" });
+
+    // A team stopped while its plan waits for Go keeps the plan, but Go starts nothing.
+    await send(engine, {
+      type: "goal.create",
+      goal: { goalId: "t3", buddyId: "lead", text: "Rename the app", projectId, team: {} },
+    });
+    await send(engine, {
+      type: "goal.plan.submit",
+      goalId: "t3",
+      plan: [{ planTaskId: "r1", title: "Rename", buddyId: "b2" }],
+    });
+    await send(engine, { type: "goal.stop", goalId: "t3" });
+    const stoppedGo = await send(engine, {
+      type: "goal.plan.approve",
+      goalId: "t3",
+      plan: [{ planTaskId: "r1", title: "Rename", buddyId: "b2" }],
+    });
+    expect(stoppedGo.status).toBe("rejected");
+    expect((await engine.projection()).tasks?.some((task) => task.taskId === "r1")).toBe(false);
+
     // Stepping in: a task added once the team works starts at once; a dropped one stops.
     await send(engine, {
       type: "goal.task.add",
