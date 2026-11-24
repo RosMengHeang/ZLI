@@ -233,8 +233,13 @@ describe("TaskReactor", () => {
     expect(state.tasks?.[0]?.status).toBe("failed");
     // Try again makes it once more.
     await send(engine, { type: "task.retry", taskId: "w1" });
-    state = await settle();
-    expect(state.worktrees.find((entry) => entry.worktreeId === worktreeId)?.status).toBe("queued");
+    // Remaking the worktree takes a few reactor passes; a busy machine can need more than settle's fixed rounds.
+    await expect
+      .poll(async () => {
+        state = await settle();
+        return state.worktrees.find((entry) => entry.worktreeId === worktreeId)?.status;
+      })
+      .toBe("queued");
     expect(state.tasks?.[0]?.status).toBe("preparing");
   });
 

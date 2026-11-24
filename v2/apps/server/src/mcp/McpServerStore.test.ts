@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { McpProbe } from "./McpProbe.js";
 import { McpRequestError, McpServerStore, mcpLaunchSpec, projectPathKey, serverInProject } from "./McpServerStore.js";
 import { McpSignIns } from "./signIn/McpSignIns.js";
+import { SecretBox } from "../secrets/SecretBox.js";
 
 const temps: string[] = [];
 afterEach(async () => {
@@ -24,6 +25,66 @@ const github = { name: "github", enabled: true, command: "npx", args: ["-y", "gh
 const linear = { name: "linear", enabled: false, command: "linear-mcp", args: [], env: {} };
 
 describe("McpServerStore", () => {
+  it("seals server keys and headers on disk, opens them on load, and keeps the file to this user", async () => {
+    const path = await storePath();
+    const box = SecretBox.withKey(Buffer.alloc(32, 7));
+    const remote = {
+      name: "notion",
+      enabled: true,
+      transport: "http" as const,
+      url: "https://mcp.example.com/mcp",
+      headers: { Authorization: "Bearer secret-header" },
+      oauth: false,
+    };
+    const store = new McpServerStore({ path, box });
+    await store.load();
+    await store.save([github, remote]);
+
+    const text = await readFile(path, "utf8");
+    expect(text).not.toContain('"t"');
+    expect(text).not.toContain("secret-header");
+    expect(text).toContain("sealed:v1:");
+    if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
+    expect(store.list().secrets).toEqual({ sealed: true, unreadable: [] });
+
+    const reloaded = new McpServerStore({ path, box });
+    await reloaded.load();
+    expect(reloaded.list().servers).toEqual([github, remote]);
+
+    // Another computer's key cannot open them: the values come back empty and the server is named.
+    const elsewhere = new McpServerStore({ path, box: SecretBox.withKey(Buffer.alloc(32, 9)) });
+    await elsewhere.load();
+    expect(elsewhere.list().secrets?.unreadable).toEqual(["github", "notion"]);
+    expect(elsewhere.list().servers[0]).toMatchObject({ env: { TOKEN: "" } });
+
+    // Saving something else there keeps the sealed values, so the right computer still opens them.
+    await elsewhere.save([...elsewhere.list().servers, linear]);
+    const back = new McpServerStore({ path, box });
+    await back.load();
+    expect(back.list().servers).toEqual([github, remote, linear]);
+    expect(back.list().secrets?.unreadable).toEqual([]);
+  });
+
+  it("saves no key unprotected while the keychain was too slow to answer", async () => {
+    const path = await storePath();
+    const store = new McpServerStore({ path, keychainSlow: true });
+    await store.load();
+    await expect(store.save([github])).rejects.toThrow(McpRequestError);
+    await expect(readFile(path, "utf8")).rejects.toThrow();
+    // A server without keys is still saved, and Integrations says why keys wait.
+    await store.save([{ ...github, env: {} }]);
+    expect((await store.list()).secrets).toMatchObject({ sealed: false, keychainSlow: true });
+  });
+
+  it("seals a list saved before sealing the first time it loads", async () => {
+    const path = await storePath();
+    await writeFile(path, JSON.stringify({ version: 1, servers: [github] }));
+    const store = new McpServerStore({ path, box: SecretBox.withKey(Buffer.alloc(32, 7)) });
+    await store.load();
+    expect(store.list().servers).toEqual([github]);
+    expect(await readFile(path, "utf8")).toContain("sealed:v1:");
+  });
+
   it("saves, reloads, and hands only enabled servers to agents", async () => {
     const path = await storePath();
     const store = new McpServerStore({ path });
@@ -34,6 +95,7 @@ describe("McpServerStore", () => {
       agentScope: "project",
       signIns: [],
       health: [],
+      secrets: { sealed: false, unreadable: [] },
     });
 
     await store.save([github, linear]);

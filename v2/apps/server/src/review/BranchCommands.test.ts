@@ -356,6 +356,21 @@ describe("branchChanges", () => {
     ).toEqual([]);
   });
 
+  it("never offers HEAD as a pull request's base, even when Changes was read against it", async () => {
+    const inputs: unknown[] = [];
+    const service = {
+      status: async (input: unknown) => {
+        inputs.push(input);
+        return {};
+      },
+    } as unknown as PullRequestService;
+    const reviewedAgainst = (baseRef: string) =>
+      ({ ...projection("feature", "other"), reviews: [{ worktreeId: here, baseRef }] }) as never;
+    await runPullRequestCommand(service, reviewedAgainst("HEAD"), { type: "review.pr.status", worktreeId: here });
+    await runPullRequestCommand(service, reviewedAgainst("develop"), { type: "review.pr.status", worktreeId: here });
+    expect(inputs).toMatchObject([{ fallbackBase: "main" }, { fallbackBase: "develop" }]);
+  });
+
   it("is given every branch list a branch command answers with", async () => {
     const seen: string[] = [];
     const state = projection("feature", "other");

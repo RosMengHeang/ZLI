@@ -197,6 +197,8 @@ export async function startRuntime(options: {
   await connectedApps.load();
   const mcpServers: McpServerStore = new McpServerStore({
     path: join(dirname(databasePath), "mcp-servers.json"),
+    ...(secrets ? { box: secrets } : {}),
+    ...(keychainSlow ? { keychainSlow: true } : {}),
     apps: connectedApps,
     extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
     signIns,
