@@ -55,6 +55,25 @@ describe("PullRequestSection on each forge", () => {
     expect(text).not.toContain("Review");
   });
 
+  it("keeps the Create dialog open when Changes draws the section again elsewhere", async () => {
+    await show(base);
+    const create = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "Create PR",
+    );
+    await act(async () => create?.click());
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    // Drawn anew, as when a refresh moves it between Changes' two spots.
+    await cleanupRuntimeRenders();
+    await show(base);
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    const cancel = [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+      (b) => b.textContent === "Cancel",
+    );
+    await act(async () => cancel?.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it("offers Create MR when the branch has none", async () => {
     const text = await show({ ...base, forge: gitlab });
     expect(text).toContain("No merge request for this branch yet");
