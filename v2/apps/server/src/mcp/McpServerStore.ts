@@ -50,6 +50,9 @@ export type McpSpecContext = { projectPath?: string; worktreeId?: string };
 /** A request about a server that cannot be done as asked, worth showing the person as is. */
 export class McpRequestError extends Error {}
 
+const KEYCHAIN_SLOW =
+  "Your system keychain didn't answer when ZLI started, so ZLI won't save keys or headers unprotected. Restart ZLI, then save them again.";
+
 type StoredFile = {
   version: 1;
   servers: McpServerConfig[];
@@ -219,6 +222,11 @@ export class McpServerStore {
       toolLoading?: McpToolLoading;
       /** Seals server keys and header values on disk. Without it (no OS keychain) they are saved as typed. */
       box?: SecretBox;
+      /**
+       * The keychain is there but did not answer in time when ZLI started: keys and headers are then not saved at
+       * all until a restart, rather than saved as typed.
+       */
+      keychainSlow?: boolean;
       now?: () => number;
     },
   ) {}
@@ -369,7 +377,11 @@ export class McpServerStore {
       signIns: this.signInStates(),
       health: this.healthStates(),
       ...(this.problem ? { problem: this.problem } : {}),
-      secrets: { sealed: this.options.box !== undefined, unreadable: [...this.unreadable] },
+      secrets: {
+        sealed: this.options.box !== undefined,
+        ...(this.options.keychainSlow && !this.options.box ? { keychainSlow: true } : {}),
+        unreadable: [...this.unreadable],
+      },
     };
   }
 
@@ -739,6 +751,9 @@ export class McpServerStore {
   }
 
   private async write(servers: McpServerConfig[] = this.servers): Promise<void> {
+    if (this.options.keychainSlow && !this.options.box && servers.some(hasSecretValues)) {
+      throw new McpRequestError(KEYCHAIN_SLOW);
+    }
     // Re-entered values replace ones that could not be opened.
     const names = new Set(servers.map((server) => server.name.toLowerCase()));
     this.unreadable = this.unreadable.filter(

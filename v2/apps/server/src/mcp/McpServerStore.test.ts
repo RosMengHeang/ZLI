@@ -58,6 +58,17 @@ describe("McpServerStore", () => {
     expect(elsewhere.list().servers[0]).toMatchObject({ env: { TOKEN: "" } });
   });
 
+  it("saves no key unprotected while the keychain was too slow to answer", async () => {
+    const path = await storePath();
+    const store = new McpServerStore({ path, keychainSlow: true });
+    await store.load();
+    await expect(store.save([github])).rejects.toThrow(McpRequestError);
+    await expect(readFile(path, "utf8")).rejects.toThrow();
+    // A server without keys is still saved, and Integrations says why keys wait.
+    await store.save([{ ...github, env: {} }]);
+    expect((await store.list()).secrets).toMatchObject({ sealed: false, keychainSlow: true });
+  });
+
   it("seals a list saved before sealing the first time it loads", async () => {
     const path = await storePath();
     await writeFile(path, JSON.stringify({ version: 1, servers: [github] }));

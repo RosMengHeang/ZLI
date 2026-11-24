@@ -500,7 +500,9 @@ export function McpServersSection({
             <span>
               {secrets.sealed
                 ? "Keys and headers are locked with your system keychain."
-                : "No system keychain was found, so keys and headers are saved as typed, readable by apps running as you."}
+                : secrets.keychainSlow
+                  ? "Your system keychain didn't answer when ZLI started, so keys and headers can't be saved until you restart ZLI."
+                  : "No system keychain was found, so keys and headers are saved as typed, readable by apps running as you."}
             </span>
           </li>
         ) : null}

@@ -298,7 +298,14 @@ export const McpListResult = z.object({
    * servers whose saved values could not be opened (another computer's keychain), so they need entering again.
    * Older runtimes leave it out.
    */
-  secrets: z.object({ sealed: z.boolean(), unreadable: z.array(z.string().max(200)).max(200).default([]) }).optional(),
+  secrets: z
+    .object({
+      sealed: z.boolean(),
+      /** The keychain did not answer when ZLI started: keys and headers are not saved until a restart. */
+      keychainSlow: z.boolean().optional(),
+      unreadable: z.array(z.string().max(200)).max(200).default([]),
+    })
+    .optional(),
 });
 export type McpListResult = z.infer<typeof McpListResult>;
 
