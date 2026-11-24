@@ -280,8 +280,14 @@ describe("CompareRunsDialog", () => {
       if (command.type === "files.read") return { error: "missing" };
       return { result: {} };
     });
-    await click(button("Preview", byLabel("Run 2") ?? document));
+    // A second click while the command is looked up starts nothing more.
+    const preview = button("Preview", byLabel("Run 2") ?? document);
+    await act(async () => {
+      preview?.click();
+      preview?.click();
+    });
     await flush();
+    expect(commands.filter((command) => command.type === "terminal.create")).toHaveLength(1);
     const started = commands.find((command) => command.type === "terminal.create");
     expect(started).toMatchObject({
       worktreeId: worktreeIds[1],

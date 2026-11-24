@@ -5,6 +5,9 @@ import { detectDevServerUrls } from "./devServerDetector.js";
 
 export type PortProbe = (url: string) => Promise<boolean>;
 
+/** How many printed ports are looked at in all, newest first: past it, older ones are not probed. */
+const MAX_CANDIDATES = 64;
+
 /**
  * The local servers the agents of these chats started from their own shell tools and that still answer.
  * A chat agent's commands run inside the agent, not in a ZLI terminal, so the only signs are the address a
@@ -22,13 +25,13 @@ export async function findAgentServers(
     (activity) => threads.has(activity.threadId) && activity.kind === "command" && activity.detail,
   );
   // Newest first, so the latest step that printed a port names it.
-  for (let index = activities.length - 1; index >= 0 && byPort.size < MAX_AGENT_SERVERS; index -= 1) {
+  for (let index = activities.length - 1; index >= 0 && byPort.size < MAX_CANDIDATES; index -= 1) {
     const activity = activities[index];
     if (!activity?.detail) continue;
     for (const line of activity.detail.split(/\r\n|\n|\r/u)) {
       for (const url of detectDevServerUrls(line)) {
         const port = Number(new URL(url).port);
-        if (byPort.has(port) || byPort.size >= MAX_AGENT_SERVERS) continue;
+        if (byPort.has(port) || byPort.size >= MAX_CANDIDATES) continue;
         byPort.set(port, {
           threadId: activity.threadId,
           activityId: activity.activityId,
@@ -40,7 +43,13 @@ export async function findAgentServers(
       }
     }
   }
+  // Probed a batch at a time, newest first, until enough answer: a closed newer port never hides an older live one.
   const candidates = [...byPort.values()];
-  const open = await Promise.all(candidates.map((server) => probe(server.url).catch(() => false)));
-  return candidates.filter((_, index) => open[index]);
+  const live: AgentServer[] = [];
+  for (let start = 0; start < candidates.length && live.length < MAX_AGENT_SERVERS; start += MAX_AGENT_SERVERS) {
+    const batch = candidates.slice(start, start + MAX_AGENT_SERVERS);
+    const open = await Promise.all(batch.map((server) => probe(server.url).catch(() => false)));
+    live.push(...batch.filter((_, index) => open[index]));
+  }
+  return live.slice(0, MAX_AGENT_SERVERS);
 }

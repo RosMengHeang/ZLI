@@ -146,7 +146,27 @@ export function CompareRunsDialog({
   const [chosenCommand, setCommand] = useState<string>();
   const command = chosenCommand ?? (projectId ? savedPreviewCommand(projectId) : undefined);
 
+  // A run's preview starts once at a time: a second click during the command lookup or the start is ignored, so two
+  // installs never race in one worktree.
+  const starting = useRef(new Set<number>());
+  const [startingRuns, setStartingRuns] = useState<ReadonlySet<number>>(new Set());
+  const markStarting = (index: number, on: boolean) => {
+    if (on) starting.current.add(index);
+    else starting.current.delete(index);
+    setStartingRuns(new Set(starting.current));
+  };
+
   const startPreview = async (run: RunView, chosen?: string) => {
+    if (starting.current.has(run.index)) return;
+    markStarting(run.index, true);
+    try {
+      await launchPreview(run, chosen);
+    } finally {
+      markStarting(run.index, false);
+    }
+  };
+
+  const launchPreview = async (run: RunView, chosen?: string) => {
     const worktree = run.worktree;
     if (worktree?.status !== "ready") return;
     setPreviewErrors((current) => without(current, run.index));
@@ -203,6 +223,7 @@ export function CompareRunsDialog({
                   : { kind: "idle" }
               }
               previewError={previewErrors.get(run.index)}
+              previewStarting={startingRuns.has(run.index)}
               selectedPath={selected?.runIndex === run.index ? selected.path : undefined}
               partsMode={parts !== undefined}
               onSelectFile={(path) => setSelected({ runIndex: run.index, path })}
@@ -339,6 +360,7 @@ function RunColumn({
   run,
   preview,
   previewError,
+  previewStarting,
   selectedPath,
   partsMode,
   onSelectFile,
@@ -351,6 +373,8 @@ function RunColumn({
   run: RunView;
   preview: PreviewState;
   previewError: string | undefined;
+  /** Its preview command is being looked up or started. */
+  previewStarting: boolean;
   selectedPath: string | undefined;
   partsMode: boolean;
   onSelectFile(path: string): void;
@@ -459,12 +483,12 @@ function RunColumn({
             size="sm"
             icon="play"
             variant="ghost"
-            loading={preview.kind === "starting"}
-            disabled={!session || !ready || partsMode}
+            loading={preview.kind === "starting" || previewStarting}
+            disabled={!session || !ready || partsMode || previewStarting}
             tooltip="Start this run's app in its worktree"
             onClick={onPreview}
           >
-            {preview.kind === "starting" ? "Starting" : "Preview"}
+            {preview.kind === "starting" || previewStarting ? "Starting" : "Preview"}
           </Button>
         )}
         <Button size="sm" variant="ghost" icon="diff" disabled={!session || !worktree} onClick={onViewDiff}>

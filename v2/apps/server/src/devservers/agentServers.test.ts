@@ -58,6 +58,18 @@ describe("findAgentServers", () => {
     expect(servers).toEqual([]);
   });
 
+  it("still finds an older server that runs when the newer ports have all closed", async () => {
+    // Nine servers announced, oldest first; only the oldest still answers.
+    const steps = Array.from({ length: 9 }, (_, index) =>
+      step(`s${index}`, {
+        detail: `Local: http://localhost:${4000 + index}/
+`,
+      }),
+    );
+    const servers = await findAgentServers(projection(steps), [threadId], async (url) => url.includes(":4000/"));
+    expect(servers.map((server) => server.port)).toEqual([4000]);
+  });
+
   it("lets the newest step name a port", async () => {
     const servers = await findAgentServers(
       projection([
