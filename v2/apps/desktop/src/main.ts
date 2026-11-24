@@ -222,15 +222,19 @@ async function main(): Promise<void> {
     serverEntryPath: process.env.ZLI_SERVER_ENTRY ?? join(DESKTOP_DIST, "server-entry.js"),
     databasePath,
     onExit: () => removeHandoffs(handoffDir),
-    extraEnv: () => ({
-      ...browserToolEnvironment(browserToolPaths),
-      ...(sealing.key ? { [SECRETS_KEY_FILE_ENV]: handOffKey(handoffDir, sealing.key) } : {}),
-      // A cancelled Hello prompt is handled like a slow keychain: the runtime refuses to save secrets unsealed.
-      ...(sealing.slow || sealing.locked ? { [SECRETS_KEYCHAIN_SLOW_ENV]: "1" } : {}),
-      ...(sealing.noKeychain ? { [SECRETS_NO_KEYCHAIN_ENV]: "1" } : {}),
-      // Test and development launches must leave the user's real agent settings alone.
-      ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
-    }),
+    extraEnv: () => {
+      const keyFile = sealing.key ? handOffKeyOrNothing(handoffDir, sealing.key) : undefined;
+      return {
+        ...browserToolEnvironment(browserToolPaths),
+        ...(keyFile ? { [SECRETS_KEY_FILE_ENV]: keyFile } : {}),
+        // A cancelled Hello prompt is handled like a slow keychain: the runtime refuses to save secrets unsealed.
+        // So is a handoff file that could not be written (a full disk): the server still starts.
+        ...(sealing.slow || sealing.locked || (sealing.key && !keyFile) ? { [SECRETS_KEYCHAIN_SLOW_ENV]: "1" } : {}),
+        ...(sealing.noKeychain ? { [SECRETS_NO_KEYCHAIN_ENV]: "1" } : {}),
+        // Test and development launches must leave the user's real agent settings alone.
+        ...(process.env.ZLI_DATABASE_PATH ? { ZLI_BROWSER_USER_SETTINGS: "0" } : {}),
+      };
+    },
   });
   const descriptor = await environment.start();
   const environmentId = process.env.ZLI_ENVIRONMENT_ID ?? DEFAULT_ENVIRONMENT_ID;
@@ -1024,4 +1028,13 @@ async function shutdownRuntime(): Promise<void> {
 function defaultRendererRoot(): string {
   const candidates = [join(app.getAppPath(), "renderer"), resolve(DESKTOP_DIST, "..", "renderer")];
   return candidates.find((candidate) => existsSync(join(candidate, "index.html"))) ?? candidates[0] ?? "renderer";
+}
+
+/** The handoff file's path, or undefined when it cannot be written; the server then starts without the key. */
+function handOffKeyOrNothing(dir: string, key: string): string | undefined {
+  try {
+    return handOffKey(dir, key);
+  } catch {
+    return undefined;
+  }
 }

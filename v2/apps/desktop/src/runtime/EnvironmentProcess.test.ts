@@ -194,4 +194,33 @@ describe("EnvironmentProcess", () => {
     expect(seen).toEqual(["file-1", "file-2"]);
     expect(exits).toBe(1);
   });
+  it("tries again on the next start when preparing a server's start throws", async () => {
+    let calls = 0;
+    const process = new EnvironmentProcess({
+      serverEntryPath: "server.js",
+      databasePath: "runtime.sqlite",
+      extraEnv: () => {
+        calls += 1;
+        if (calls === 1) throw new Error("ENOSPC");
+        return {};
+      },
+      launcher: () => {
+        let output: ((chunk: string) => void) | undefined;
+        queueMicrotask(() => output?.('{"url":"ws://127.0.0.1:1/rpc","token":"t"}\n'));
+        return {
+          stdout: {
+            on: (_event: "data", listener: (chunk: string) => void) => {
+              output = listener;
+            },
+          },
+          stderr: { on: () => undefined },
+          once: () => undefined,
+          kill: () => undefined,
+        };
+      },
+      timeoutMs: 500,
+    });
+    await expect(process.start()).rejects.toThrow("ENOSPC");
+    await expect(process.start()).resolves.toEqual({ url: "ws://127.0.0.1:1/rpc", token: "t" });
+  });
 });

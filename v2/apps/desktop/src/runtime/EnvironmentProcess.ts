@@ -44,15 +44,32 @@ export class EnvironmentProcess {
 
   start(): Promise<EnvironmentDescriptorLine> {
     if (this.startPromise) return this.startPromise;
-    this.startPromise = new Promise<EnvironmentDescriptorLine>((resolve, reject) => {
+    // Prepared before the start is cached: a failure here (a key file that cannot be written) is returned once, and
+    // the next start tries again instead of getting the same failure back.
+    let extraEnv: Readonly<Record<string, string>> | undefined;
+    try {
       const extra = this.options.extraEnv;
-      const extraEnv = typeof extra === "function" ? extra() : extra;
-      const child = (this.options.launcher ?? defaultLauncher)({
-        serverEntryPath: this.options.serverEntryPath,
-        databasePath: this.options.databasePath,
-        token: this.token,
-        ...(extraEnv ? { extraEnv } : {}),
-      });
+      extraEnv = typeof extra === "function" ? extra() : extra;
+    } catch (error) {
+      return Promise.reject(error instanceof Error ? error : new Error("ZLI server failed to start."));
+    }
+    const starting = new Promise<EnvironmentDescriptorLine>((resolve, reject) => {
+      let child: EnvironmentChild;
+      try {
+        child = (this.options.launcher ?? defaultLauncher)({
+          serverEntryPath: this.options.serverEntryPath,
+          databasePath: this.options.databasePath,
+          token: this.token,
+          ...(extraEnv ? { extraEnv } : {}),
+        });
+      } catch (error) {
+        // No child to close, so nothing else clears the cached start: it is cleared once it is set, just below.
+        queueMicrotask(() => {
+          if (this.startPromise === starting) this.startPromise = undefined;
+        });
+        reject(error instanceof Error ? error : new Error("ZLI server failed to start."));
+        return;
+      }
       this.child = child;
       let buffer = "";
       let settled = false;
@@ -99,7 +116,8 @@ export class EnvironmentProcess {
         finish(new Error(`ZLI server exited before ready (${String(args[0] ?? "unknown")}).`));
       });
     });
-    return this.startPromise;
+    this.startPromise = starting;
+    return starting;
   }
 
   stop(): void {
