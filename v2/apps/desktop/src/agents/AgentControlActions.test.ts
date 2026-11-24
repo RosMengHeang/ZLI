@@ -72,6 +72,8 @@ function harness(
     servers?: unknown[];
     signIns?: unknown[];
     reach?: (request: ReachAsk) => Promise<"allowed" | "declined" | "unanswered">;
+    /** Replies for commands by type, for commands whose answer matters. */
+    results?: Record<string, unknown>;
   } = {},
 ) {
   let state = baseProjection();
@@ -111,7 +113,8 @@ function harness(
         } as RpcResponse;
       // Projection updates arrive after the command is accepted, as they do from the runtime.
       queueMicrotask(() => options.onCommand?.(command, state));
-      return { commandId: request.commandId, accepted: true } as RpcResponse;
+      const result = options.results?.[command.type];
+      return { commandId: request.commandId, accepted: true, ...(result ? { result } : {}) } as RpcResponse;
     },
     platform: "linux",
     sleep: async () => undefined,
@@ -303,6 +306,26 @@ describe("agent control", () => {
     await expect(off.dispatch("agentconnect", { cwd: "/work/app", service: "github" })).rejects.toMatchObject({
       status: 403,
     });
+  });
+
+  it("finds and uses connected services' tools for the caller's worktree, even with agent tools off", async () => {
+    const { dispatch, sent } = harness({
+      access: "off",
+      results: {
+        "mcp.tools.find": { services: [{ name: "vercel", status: "ready", toolCount: 1 }], tools: [] },
+        "mcp.tools.call": { content: [{ type: "text", text: "ok" }] },
+      },
+    });
+    await expect(dispatch("toolfind", { cwd: "/work/app-worktrees/ui", query: "deploy" })).resolves.toMatchObject({
+      services: [{ name: "vercel" }],
+    });
+    await expect(
+      dispatch("tooluse", { cwd: "/work/app-worktrees/ui", service: "vercel", tool: "deploy", arguments: { a: 1 } }),
+    ).resolves.toEqual({ content: [{ type: "text", text: "ok" }] });
+    expect(sent).toEqual([
+      { type: "mcp.tools.find", query: "deploy", worktreeId: FEATURE },
+      { type: "mcp.tools.call", server: "vercel", tool: "deploy", arguments: { a: 1 }, worktreeId: FEATURE },
+    ]);
   });
 
   it("asks the person to connect a catalog service and says what to do next", async () => {
@@ -544,7 +567,7 @@ describe("agents in other projects", () => {
     await expect(h.dispatch("agentsend", { cwd: "/work/app", agent: "kim", text: "hi" })).rejects.toMatchObject({
       status: 403,
       message:
-        "Kim works in another ZLI project, and the person chose to keep agents to their own project. Tell them what you needed. They can change this in ZLI Settings, under Agent messages.",
+        "Kim works in another ZLI project, and the person chose to keep agents to their own project. Tell them what you needed. They can change this in ZLI Settings, under Agents.",
     });
     outcome = "unanswered";
     await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "kim" })).rejects.toThrow(
@@ -842,7 +865,7 @@ describe("agents in other projects", () => {
       const off = asking(() => "allowed", "off");
       withNames(off, { [FOREIGN]: "Kim" });
       await expect(off.dispatch("agentread", { cwd: "/work/app", agent: "Kim" })).rejects.toThrow(
-        "Agent tools are turned off in ZLI Settings, under Agent messages.",
+        "Agent tools are turned off in ZLI Settings, under Agents.",
       );
       expect(off.asks).toEqual([]);
 
@@ -877,7 +900,7 @@ describe("agents in other projects", () => {
       } as RuntimeProjection);
       withNames(h, { [FOREIGN]: "Kim" });
       const declined =
-        "That needs another ZLI project, and the person chose to keep agents to their own project. Tell them what you needed. They can change this in ZLI Settings, under Agent messages.";
+        "That needs another ZLI project, and the person chose to keep agents to their own project. Tell them what you needed. They can change this in ZLI Settings, under Agents.";
       await expect(h.dispatch("agentread", { cwd: "/work/app", agent: "Kim" })).rejects.toThrow(declined);
       await expect(h.dispatch("agentlist", { cwd: "/work/app", allProjects: true })).rejects.toMatchObject({
         status: 403,
@@ -1064,310 +1087,5 @@ describe("sub-agents", () => {
     await expect(
       h.dispatch("agentstart", { cwd: "/work/app", provider: "codex", prompt: "x", branch: "docs" }),
     ).rejects.toThrow("app is a folder without Git, so it has no worktrees or branches.");
-  });
-});
-
-describe("huddles", () => {
-  const HUDDLE = "00000000-0000-4000-8000-0000000000e1";
-  const post = (number: number, from: string | undefined, text: string, extra: Record<string, unknown> = {}) => ({
-    postId: `00000000-0000-4000-8000-0000000001${String(number).padStart(2, "0")}`,
-    huddleId: HUDDLE,
-    number,
-    from: from === undefined ? { kind: "person" } : { kind: "agent", agentId: from },
-    to: "everyone",
-    kind: "ask",
-    text,
-    createdAt: "2026-01-03T00:00:00.000Z",
-    deliveries: [],
-    ...extra,
-  });
-  const inHuddle = (members: string[], posts: unknown[] = [], options: { scope?: string; access?: string } = {}) => {
-    const h = harness({
-      ...options,
-      onCommand: (command, current) => {
-        if (command.type === "huddle.read")
-          h.update({
-            ...current,
-            huddles: current.huddles?.map((huddle) => ({
-              ...huddle,
-              members: huddle.members.map((member) =>
-                member.agentId === command.agentId
-                  ? { ...member, readUpTo: Math.max(member.readUpTo ?? 0, command.upTo as number) }
-                  : member,
-              ),
-            })),
-          });
-        if (command.type === "thread.start")
-          h.update({
-            ...current,
-            threads: [
-              ...current.threads,
-              {
-                ...thread(command.threadId as string, command.worktreeId as string, "idle", "2026-01-02T00:00:00.000Z"),
-                name: command.name,
-                startedBy: command.startedBy,
-              },
-            ],
-          } as RuntimeProjection);
-      },
-    });
-    const state = h.state();
-    h.update({
-      ...state,
-      threads: state.threads.map((entry) =>
-        entry.threadId === ME
-          ? { ...entry, name: "Lead" }
-          : entry.threadId === PEER
-            ? { ...entry, name: "Helper" }
-            : entry,
-      ),
-      huddles: [
-        {
-          huddleId: HUDDLE,
-          name: "Login",
-          members: members.map((agentId) => ({
-            agentId,
-            kind: agentId === TERMINAL ? "terminal" : "chat",
-            joinedAt: "2026-01-03T00:00:00.000Z",
-          })),
-          createdAt: "2026-01-03T00:00:00.000Z",
-          updatedAt: "2026-01-03T00:00:00.000Z",
-          agentTurns: 0,
-          nextNumber: posts.length + 1,
-        },
-      ],
-      huddlePosts: posts,
-    } as unknown as RuntimeProjection);
-    return h;
-  };
-
-  it("reads only what the agent has not read yet, with names relative to the reader", async () => {
-    const h = inHuddle(
-      [ME, PEER],
-      [post(1, undefined, "Plan the login form"), post(2, PEER, "I take the API", { to: [ME] })],
-    );
-    const first = (await h.dispatch("huddleread", { cwd: "/work/app" })) as {
-      huddle: string;
-      id: string;
-      members: Array<{ name: string; you?: boolean }>;
-      messages: Array<{ number: number; from: string; to: unknown; text: string }>;
-    };
-    expect(first.huddle).toBe("Login");
-    expect(first.id).toBe("00000000");
-    expect(first.members.map((member) => [member.name, member.you ?? false])).toEqual([
-      ["Lead", true],
-      ["Helper", false],
-    ]);
-    expect(first.messages.map((message) => [message.number, message.from, message.to])).toEqual([
-      [1, "the person", "everyone"],
-      [2, "Helper", ["you"]],
-    ]);
-    const again = (await h.dispatch("huddleread", { cwd: "/work/app" })) as { messages: unknown[] };
-    expect(again.messages).toEqual([]);
-  });
-
-  it("reads a long backlog a page at a time without skipping, and pages back with before", async () => {
-    const many = (from: number, to: number) =>
-      Array.from({ length: to - from + 1 }, (_, index) =>
-        post(from + index, PEER, `Update ${from + index}`, {
-          postId: `00000000-0000-4000-8000-${String(1_000 + from + index).padStart(12, "0")}`,
-        }),
-      );
-    const h = inHuddle([ME, PEER], many(1, 60));
-    type Read = { messages: Array<{ number: number }>; moreUnread?: number; earlierNotShown?: number; next?: string };
-    const read = async (input: Record<string, unknown> = {}) => {
-      const result = (await h.dispatch("huddleread", { cwd: "/work/app", ...input })) as Read;
-      const numbers = result.messages.map((message) => message.number);
-      return { ...result, first: numbers[0], last: numbers.at(-1), count: numbers.length };
-    };
-
-    // The first read catches up on the latest and points at the rest.
-    expect(await read()).toMatchObject({ first: 11, last: 60, earlierNotShown: 10 });
-    expect((await read()).next).toBeUndefined();
-    const back = await read({ before: 11 });
-    expect(back).toMatchObject({ first: 1, last: 10, count: 10 });
-    expect(back.earlierNotShown).toBeUndefined();
-    expect(await read({ before: 11, limit: 4 })).toMatchObject({ first: 7, last: 10, earlierNotShown: 6 });
-
-    // Sixty more arrive: the next reads return all of them, oldest first, in two pages.
-    h.update({ ...h.state(), huddlePosts: [...(h.state().huddlePosts ?? []), ...many(61, 120)] } as RuntimeProjection);
-    expect(await read()).toMatchObject({ first: 61, last: 110, moreUnread: 10 });
-    const rest = await read();
-    expect(rest).toMatchObject({ first: 111, last: 120, count: 10 });
-    expect(rest.moreUnread).toBeUndefined();
-    expect((await read()).count).toBe(0);
-  });
-
-  it("tells two members with one name apart by project", async () => {
-    const h = inHuddle([ME, PEER, FOREIGN], [], { scope: "all" });
-    h.update({
-      ...h.state(),
-      threads: h
-        .state()
-        .threads.map((entry) =>
-          entry.threadId === PEER || entry.threadId === FOREIGN ? { ...entry, name: "Bob" } : entry,
-        ),
-    } as RuntimeProjection);
-    const sendTo = async (to: string[]) => {
-      await h.dispatch("huddlepost", { cwd: "/work/app", text: "hi", to });
-      return h.sent.at(-1)?.to;
-    };
-    expect(await sendTo(["other/bob"])).toEqual([FOREIGN]);
-    expect(await sendTo(["app/Bob"])).toEqual([PEER]);
-    // The reader sees its own project's Bob as plain Bob, so a plain name means that one.
-    expect(await sendTo(["bob"])).toEqual([PEER]);
-    await expect(sendTo(["nowhere/bob"])).rejects.toThrow("ZLI has no project called nowhere.");
-  });
-
-  it("closes a huddle across projects to its agents while Settings keep agents to their own project", async () => {
-    const posts = [post(1, undefined, "Plan"), post(2, FOREIGN, "Use OAuth", { decision: true })];
-    const open = inHuddle([ME, FOREIGN], posts, { scope: "all" });
-    expect(
-      ((await open.dispatch("huddleread", { cwd: "/work/app" })) as { messages: unknown[] }).messages,
-    ).toHaveLength(2);
-    const narrowed = inHuddle([ME, FOREIGN], posts, { scope: "project" });
-    const refused =
-      "The huddle Login has agents from more than one project, and ZLI Settings keep agents to their own project.";
-    for (const [action, input] of [
-      ["huddleread", {}],
-      ["huddlepost", { text: "hi" }],
-      ["huddlewait", { timeoutSeconds: 1 }],
-      ["huddledecisions", {}],
-    ] as const)
-      await expect(narrowed.dispatch(action, { cwd: "/work/app", ...input })).rejects.toThrow(refused);
-    expect(narrowed.sent.some((command) => command.type === "huddle.post")).toBe(false);
-  });
-
-  it("says when a huddle was archived", async () => {
-    const h = inHuddle([ME, PEER]);
-    h.update({
-      ...h.state(),
-      huddles: h.state().huddles?.map((huddle) => ({ ...huddle, archived: true })),
-    } as RuntimeProjection);
-    const archived = "The person archived the huddle Login, so nobody can read or post there.";
-    await expect(h.dispatch("huddleread", { cwd: "/work/app" })).rejects.toThrow(archived);
-    await expect(h.dispatch("huddlepost", { cwd: "/work/app", huddle: "login", text: "hi" })).rejects.toThrow(archived);
-  });
-
-  it("posts as the caller, to members by name, as a note unless told otherwise", async () => {
-    const h = inHuddle([ME, PEER, TERMINAL], [post(1, undefined, "Plan")]);
-    await h.dispatch("huddlepost", { cwd: "/work/app", text: "Helper, take the API", to: ["helper"], replyTo: 1 });
-    expect(h.sent.at(-1)).toMatchObject({
-      type: "huddle.post",
-      huddleId: HUDDLE,
-      from: ME,
-      to: [PEER],
-      kind: "note",
-      text: "Helper, take the API",
-      replyTo: "00000000-0000-4000-8000-000000000101",
-    });
-    await h.dispatch("huddlepost", { cwd: "/work/app", text: "Done?", to: ["person"], kind: "ask" });
-    expect(h.sent.at(-1)).toMatchObject({ to: "person", kind: "ask" });
-    await expect(h.dispatch("huddlepost", { cwd: "/work/app", text: "hi", to: ["stranger"] })).rejects.toThrow(
-      "stranger is not in the huddle Login. Its other members: Helper, Claude Code.",
-    );
-  });
-
-  it("ends access as soon as the agent leaves, and keeps read access from posting", async () => {
-    const h = inHuddle([PEER, TERMINAL]);
-    await expect(h.dispatch("huddleread", { cwd: "/work/app" })).rejects.toThrow(
-      "You are not in a huddle. The person adds agents to huddles in ZLI.",
-    );
-    await expect(h.dispatch("huddleread", { cwd: "/work/app", huddle: "Login" })).rejects.toThrow(
-      "You are not in the huddle Login, so you cannot read or post there.",
-    );
-    const reader = inHuddle([ME, PEER], [], { access: "read" });
-    await expect(reader.dispatch("huddlepost", { cwd: "/work/app", text: "hi" })).rejects.toThrow(
-      "ZLI Settings let agents list and read other agents, but not start or message them.",
-    );
-  });
-
-  it("waits until someone else writes, and stops waiting when taken out", async () => {
-    const h = inHuddle([ME, PEER], [post(1, undefined, "Plan")]);
-    await h.dispatch("huddleread", { cwd: "/work/app" });
-    const waiting = h.dispatch("huddlewait", { cwd: "/work/app", timeoutSeconds: 5 }) as Promise<{
-      messages: Array<{ text: string }>;
-    }>;
-    const state = h.state();
-    h.update({ ...state, huddlePosts: [...(state.huddlePosts ?? []), post(2, ME, "mine")] } as RuntimeProjection);
-    h.update({
-      ...h.state(),
-      huddlePosts: [...(h.state().huddlePosts ?? []), post(3, PEER, "API is ready")],
-    } as RuntimeProjection);
-    expect((await waiting).messages.map((message) => message.text)).toEqual(["mine", "API is ready"]);
-
-    const left = h.dispatch("huddlewait", { cwd: "/work/app", timeoutSeconds: 5 });
-    // The wait starts after the settings check, so the removal has to come later.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    h.update({
-      ...h.state(),
-      huddles: h.state().huddles?.map((huddle) => ({ ...huddle, members: huddle.members.slice(1) })),
-    } as RuntimeProjection);
-    await expect(left).rejects.toThrow("You were taken out of the huddle, so you can no longer read it.");
-  });
-
-  it("keeps the read place in the runtime, so it survives a restart of the tool", async () => {
-    const h = inHuddle([ME, PEER], [post(1, undefined, "Plan"), post(2, PEER, "API is ready")]);
-    await h.dispatch("huddleread", { cwd: "/work/app" });
-    expect(h.sent.filter((command) => command.type === "huddle.read")).toEqual([
-      { type: "huddle.read", huddleId: HUDDLE, agentId: ME, upTo: 2 },
-    ]);
-    expect(h.state().huddles?.[0]?.members[0]?.readUpTo).toBe(2);
-  });
-
-  it("writes to the lead by default in lead mode, and to everyone as the lead", async () => {
-    const h = inHuddle([ME, PEER, TERMINAL]);
-    const lead = (agentId: string) =>
-      h.update({
-        ...h.state(),
-        huddles: h.state().huddles?.map((huddle) => ({ ...huddle, lead: agentId })),
-      } as RuntimeProjection);
-    lead(PEER);
-    const result = (await h.dispatch("huddlepost", { cwd: "/work/app", text: "Login form done", kind: "done" })) as {
-      to: unknown;
-    };
-    expect(h.sent.at(-1)).toMatchObject({ type: "huddle.post", to: [PEER], kind: "done" });
-    expect(result.to).toEqual(["Helper"]);
-    const read = (await h.dispatch("huddleread", { cwd: "/work/app" })) as { lead?: string };
-    expect(read.lead).toBe("Helper leads this huddle. Your posts go to the lead unless you name someone else.");
-    lead(ME);
-    await h.dispatch("huddlepost", { cwd: "/work/app", text: "Split the work", kind: "assign" });
-    expect(h.sent.at(-1)).toMatchObject({ to: "everyone" });
-  });
-
-  it("lists pinned decisions", async () => {
-    const h = inHuddle([ME, PEER], [post(1, undefined, "Plan"), post(2, PEER, "Use OAuth", { decision: true })]);
-    const result = (await h.dispatch("huddledecisions", { cwd: "/work/app" })) as {
-      decisions: Array<{ number: number; text: string }>;
-    };
-    expect(result.decisions.map((decision) => [decision.number, decision.text])).toEqual([[2, "Use OAuth"]]);
-  });
-
-  it("starts a named sub-agent, adds it to the huddle, and gives it the task there", async () => {
-    const h = inHuddle([ME, PEER]);
-    const result = (await h.dispatch("huddlepost", {
-      cwd: "/work/app",
-      text: "Write the login tests",
-      start: { name: "Tester", provider: "codex", worktree: "same" },
-    })) as { started?: { name?: string; startedBy?: { id: string } } };
-    const started = h.sent.find((command) => command.type === "thread.start");
-    expect(started).toMatchObject({ name: "Tester", startedBy: ME, worktreeId: MAIN });
-    expect(h.sent.some((command) => command.type === "thread.send")).toBe(false);
-    expect(h.sent.find((command) => command.type === "huddle.join")).toEqual({
-      type: "huddle.join",
-      huddleId: HUDDLE,
-      agentId: started?.threadId,
-    });
-    expect(h.sent.at(-1)).toMatchObject({ type: "huddle.post", to: [started?.threadId], kind: "assign" });
-    expect(result.started).toMatchObject({ name: "Tester", startedBy: { id: ME } });
-    await expect(
-      h.dispatch("huddlepost", {
-        cwd: "/work/app",
-        text: "x",
-        as: "Lead",
-        kind: "note",
-        start: { name: "Other", provider: "codex" },
-      }),
-    ).rejects.toThrow("start goes with kind assign");
   });
 });

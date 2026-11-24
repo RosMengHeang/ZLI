@@ -30,6 +30,8 @@ export type McpProbeOptions = {
   clientVersion?: string;
   /** Replaces starting a local server. */
   spawn?: (spec: StdioServerSpec) => ChildProcess;
+  /** The folder a local server starts in, such as the agent's worktree. */
+  cwd?: string;
 };
 
 export type McpProbe = (server: McpServerConfig, options?: McpProbeOptions) => Promise<McpProbeOutcome>;
@@ -63,7 +65,12 @@ class ProbeFailure extends Error {}
  * listed too, so the person sees everything the server offers.
  */
 export const probeMcpServer: McpProbe = (server, options = {}) =>
-  runProbe(server.name, isHttpServer(server) ? remoteConnect(server, options) : stdioConnect(server, options), options);
+  runProbe(server.name, serverConnect(server, options), options);
+
+/** How to reach one server: a local process, or the connect bridge for a remote one. */
+export function serverConnect(server: McpServerConfig, options: McpProbeOptions = {}): ProbeConnect {
+  return isHttpServer(server) ? remoteConnect(server, options) : stdioConnect(server, options);
+}
 
 export async function runProbe(
   name: string,
@@ -217,7 +224,11 @@ function stdioConnect(server: Exclude<McpServerConfig, { transport: "http" }>, o
     const spec: StdioServerSpec = { command: server.command, args: [...server.args], env: { ...server.env } };
     let child: ChildProcess;
     try {
-      child = (options.spawn ?? ((value) => spawnMcpServer(value, ["pipe", "pipe", "pipe"])))(spec);
+      child = (
+        options.spawn ??
+        ((value) =>
+          spawnMcpServer({ ...value, ...(options.cwd ? { cwd: options.cwd } : {}) }, ["pipe", "pipe", "pipe"]))
+      )(spec);
     } catch (error) {
       throw new ProbeFailure(startProblem(server.command, error));
     }

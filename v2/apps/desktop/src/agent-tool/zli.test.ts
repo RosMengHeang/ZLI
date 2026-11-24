@@ -58,41 +58,6 @@ describe("zli command", () => {
       action: "agentstart",
       input: { provider: "codex", prompt: "Review auth", name: "John" },
     });
-    expect(parseZliArgs(["huddle", "read", "--all", "--huddle", "Login"])).toEqual({
-      kind: "call",
-      action: "huddleread",
-      input: { huddle: "Login", all: true },
-    });
-    expect(parseZliArgs(["huddle", "read", "--before", "11", "--limit", "5"])).toEqual({
-      kind: "call",
-      action: "huddleread",
-      input: { before: 11, limit: 5 },
-    });
-    expect(() => parseZliArgs(["huddle", "read", "--before", "0"])).toThrow("--before must be a whole number above 0.");
-    expect(parseZliArgs(["huddle", "post", "API", "is", "ready", "--to", "lead,ana", "--reply-to", "3"])).toEqual({
-      kind: "call",
-      action: "huddlepost",
-      input: { text: "API is ready", to: ["lead", "ana"], replyTo: 3 },
-    });
-    expect(
-      parseZliArgs(["huddle", "post", "Write", "tests", "--new-agent", "tester", "--provider", "codex", "--terminal"]),
-    ).toEqual({
-      kind: "call",
-      action: "huddlepost",
-      input: { text: "Write tests", start: { name: "tester", provider: "codex", mode: "terminal" } },
-    });
-    expect(parseZliArgs(["huddle", "post", "Done", "--to", "person", "--as", "helper"])).toEqual({
-      kind: "call",
-      action: "huddlepost",
-      input: { text: "Done", to: "person", as: "helper" },
-    });
-    expect(parseZliArgs(["huddle", "wait", "--timeout", "30"])).toEqual({
-      kind: "call",
-      action: "huddlewait",
-      input: { timeoutSeconds: 30 },
-    });
-    expect(parseZliArgs(["huddle", "decisions"])).toEqual({ kind: "call", action: "huddledecisions", input: {} });
-    expect(() => parseZliArgs(["huddle", "shout"])).toThrow("zli huddle takes read, post, wait, or decisions.");
     expect(parseZliArgs(["--help"])).toEqual({ kind: "help" });
     expect(parseZliArgs(["mcp"])).toEqual({ kind: "mcp" });
   });
@@ -146,10 +111,8 @@ describe("zli MCP server", () => {
       "read_agent",
       "message_agent",
       "start_agent",
-      "huddle_read",
-      "huddle_post",
-      "huddle_wait",
-      "huddle_decisions",
+      "find_tools",
+      "use_tool",
       "connect_service",
       "task_done",
       "ask_person",
@@ -167,9 +130,8 @@ describe("zli MCP server", () => {
     expect(await listNames("read")).toEqual([
       "list_agents",
       "read_agent",
-      "huddle_read",
-      "huddle_wait",
-      "huddle_decisions",
+      "find_tools",
+      "use_tool",
       "connect_service",
       "task_done",
       "ask_person",
@@ -179,7 +141,26 @@ describe("zli MCP server", () => {
       "task_status",
       "goal_done",
     ]);
-    expect(await listNames("off")).toEqual([]);
+    // Connected services' tools are not about other agents, so turning agent tools off leaves them.
+    expect(await listNames("off")).toEqual(["find_tools", "use_tool"]);
+  });
+
+  it("passes a connected service's tool result through use_tool as the service gave it", async () => {
+    const calls: [string, unknown][] = [];
+    const server = createAgentMcpServer(async (action, input) => {
+      calls.push([action, input]);
+      return { content: [{ type: "text", text: "Deployed to https://web.vercel.app" }] };
+    });
+    const called = (await server.handleMessage({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "use_tool", arguments: { service: "vercel", tool: "deploy", arguments: { project: "web" } } },
+    })) as { result: { content: unknown[]; isError?: boolean } };
+    expect(called.result.content).toEqual([{ type: "text", text: "Deployed to https://web.vercel.app" }]);
+    expect(called.result.isError).toBeUndefined();
+    expect(calls[0]?.[0]).toBe("tooluse");
+    expect(calls[0]?.[1]).toMatchObject({ service: "vercel", tool: "deploy", arguments: { project: "web" } });
   });
 
   it("lists every tool when ZLI cannot be reached, so calls explain the problem", async () => {

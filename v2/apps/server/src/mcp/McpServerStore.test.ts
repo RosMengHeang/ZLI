@@ -87,19 +87,20 @@ describe("McpServerStore", () => {
 
   it("saves, reloads, and hands only enabled servers to agents", async () => {
     const path = await storePath();
-    const store = new McpServerStore({ path });
+    const store = new McpServerStore({ toolLoading: "upfront", path });
     await store.load();
     expect(store.list()).toEqual({
       servers: [],
       agentAccess: "full",
       agentScope: "project",
+      toolLoading: "upfront",
       signIns: [],
       health: [],
       secrets: { sealed: false, unreadable: [] },
     });
 
     await store.save([github, linear]);
-    const reloaded = new McpServerStore({ path });
+    const reloaded = new McpServerStore({ toolLoading: "upfront", path });
     await reloaded.load();
     expect(reloaded.list().servers).toEqual([github, linear]);
     expect(reloaded.specs()).toEqual([{ name: "github", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } }]);
@@ -173,7 +174,7 @@ describe("McpServerStore", () => {
   it("loads lists saved before remote servers existed as local commands", async () => {
     const path = await storePath();
     await writeFile(path, JSON.stringify({ version: 1, servers: [github], owned: {}, agentAccess: "read" }), "utf8");
-    const store = new McpServerStore({ path });
+    const store = new McpServerStore({ toolLoading: "upfront", path });
     await store.load();
     expect(store.list().problem).toBeUndefined();
     expect(store.list().servers).toEqual([github]);
@@ -184,7 +185,7 @@ describe("McpServerStore", () => {
     const path = await storePath();
     const signIns = new McpSignIns({ dir: join(dirname(path), "mcp-sign-in") });
     const connectTool = { command: "/apps/ZLI", script: "/apps/zli-connect.js" };
-    const store = new McpServerStore({ path, signIns, connectTool });
+    const store = new McpServerStore({ toolLoading: "upfront", path, signIns, connectTool });
     await store.load();
     const context7 = {
       name: "context7",
@@ -203,7 +204,7 @@ describe("McpServerStore", () => {
     };
     await store.save([context7, sentry]);
 
-    const reloaded = new McpServerStore({ path, signIns, connectTool });
+    const reloaded = new McpServerStore({ toolLoading: "upfront", path, signIns, connectTool });
     await reloaded.load();
     expect(reloaded.list().servers).toEqual([context7, sentry]);
     expect(reloaded.list().signIns).toEqual([{ name: "sentry", url: sentry.url, signedIn: false }]);
@@ -336,7 +337,7 @@ describe("McpServerStore launch rules", () => {
 
   it("runs local servers with turned-off tools through the bridge, from private files", async () => {
     const path = await storePath();
-    const store = new McpServerStore({ path, connectTool });
+    const store = new McpServerStore({ toolLoading: "upfront", path, connectTool });
     await store.load();
     const quiet = { ...github, disabledTools: ["delete_repo"] };
     await store.save([quiet]);
@@ -411,6 +412,7 @@ describe("McpServerStore launch rules", () => {
   it("gives servers limited to projects only to agents in those projects", async () => {
     const path = await storePath();
     const store = new McpServerStore({
+      toolLoading: "upfront",
       path,
       extraServers: () => [{ ...linear, name: "plugin", enabled: true, projects: ["/elsewhere"] }],
     });
@@ -537,5 +539,20 @@ describe("McpServerStore import", () => {
       ["github", true],
       ["fetch", false],
     ]);
+  });
+
+  it("hands agents only the connected apps' server when tools load on demand, and finds the rest through the gateway", async () => {
+    const path = await storePath();
+    const store = new McpServerStore({ path });
+    await store.load();
+    expect(store.list().toolLoading).toBe("on-demand");
+    await store.save([github, linear]);
+    expect(store.specs()).toEqual([]);
+
+    await store.setToolLoading("upfront");
+    expect(store.specs().map((spec) => spec.name)).toEqual(["github"]);
+    const reloaded = new McpServerStore({ path });
+    await reloaded.load();
+    expect(reloaded.toolLoading()).toBe("upfront");
   });
 });
