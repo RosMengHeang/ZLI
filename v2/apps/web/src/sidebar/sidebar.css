@@ -670,7 +670,7 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .shelf-heading { color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 500; }
 .shelf-row { align-items: flex-start; gap: 10px; padding: 7px 8px; border-radius: 9px; }
 .shelf-row:hover { background: var(--zli-active); }
-.shelf-row > .session-dot { flex: 0 0 auto; margin: 6px 4px 0 3px; }
+.shelf-row > :is(.session-dot, .session-pixels) { flex: 0 0 auto; margin: 6px 4px 0 3px; }
 .shelf-title { font-size: var(--zli-text-base); font-weight: 500; }
 .shelf-reason { font-size: var(--zli-text-sm); }
 
@@ -896,18 +896,42 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 /* One even wash, lighter than the chat's: sidebar text runs edge to edge, so there is no reading column to clear. */
 .sidebar.has-backdrop > .chat-backdrop .chat-backdrop-veil { background: color-mix(in srgb, var(--zli-surface) 40%, transparent); }
 
-/* Working: three bars rising in turn, in the accent; the other states keep their dot. */
-.session-bars { display: inline-flex; height: 10px; align-items: flex-end; gap: 1.5px; }
-.session-bars > span { width: 2px; height: 4px; border-radius: 1px; background: var(--zli-blue); animation: session-bars 1s ease-in-out infinite; }
-.session-bars > span:nth-child(2) { animation-delay: .15s; }
-.session-bars > span:nth-child(3) { animation-delay: .3s; }
-@keyframes session-bars { 0%, 100% { height: 4px; opacity: .55; } 50% { height: 10px; opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .session-bars > span { height: 7px; animation: none; } }
-/* Recent: the agent's logo always shows. A thin ring turns around it while it works; a dot on its corner says it
-   waits or failed. */
-.activity-mark { position: relative; }
-.activity-mark.is-busy::after { position: absolute; inset: -3px; border: 1.5px solid transparent; border-top-color: var(--zli-blue); border-right-color: var(--zli-blue); border-radius: 50%; content: ""; animation: zli-spin 900ms linear infinite; }
-.activity-badge { position: absolute; top: -1px; right: -2px; width: 6px; height: 6px; border: 1.5px solid var(--zli-sidebar, var(--zli-surface)); border-radius: 50%; background: var(--zli-amber); box-sizing: content-box; }
-.activity-mark.is-failed .activity-badge { background: var(--zli-red); }
-.activity-mark.is-failed, .activity-mark.is-working, .activity-mark.is-starting { color: var(--zli-muted); }
-@media (prefers-reduced-motion: reduce) { .activity-mark.is-busy::after { animation: none; } }
+/* A chat's state as a small orb of nine soft dots. Working: a ripple runs out from the centre with a faint glow.
+   Needs input: the orb breathes in amber. Failed: still and red. Done out of sight: still and green. At rest:
+   faint and still, the centre a touch stronger. */
+.session-pixels { --orb: var(--zli-dim); display: inline-grid; flex: 0 0 auto; grid-template-columns: repeat(3, 2px); grid-auto-rows: 2px; gap: 1px; place-items: center; }
+.session-pixels > span { width: 2px; height: 2px; border-radius: 50%; background: var(--orb); opacity: .32; }
+.session-pixels > span:nth-child(5) { opacity: .7; }
+.session-row:is(:hover, .is-active) .session-pixels.is-idle > span { opacity: .5; }
+.session-row:is(:hover, .is-active) .session-pixels.is-idle > span:nth-child(5) { opacity: .9; }
+.session-pixels.is-working { --orb: var(--zli-blue); filter: drop-shadow(0 0 2px color-mix(in srgb, var(--zli-blue) 60%, transparent)); }
+.session-pixels.is-waiting { --orb: var(--zli-amber); animation: session-orb-breathe 2.4s ease-in-out infinite; }
+.session-pixels.is-failed { --orb: var(--zli-red); }
+.session-pixels.is-unread { --orb: var(--zli-green); }
+.session-pixels:is(.is-waiting, .is-failed, .is-unread) > span { opacity: .55; }
+.session-pixels:is(.is-waiting, .is-failed, .is-unread) > span:nth-child(5) { opacity: 1; }
+/* The ripple: centre first, then the edges, then the corners, by distance from the middle. */
+.session-pixels.is-working > span { --d: 0s; animation: session-orb-ripple 1.4s cubic-bezier(.4, 0, .2, 1) var(--d) infinite; }
+.session-pixels.is-working > span:is(:nth-child(2), :nth-child(4), :nth-child(6), :nth-child(8)) { --d: .18s; }
+.session-pixels.is-working > span:is(:nth-child(1), :nth-child(3), :nth-child(7), :nth-child(9)) { --d: .26s; }
+@keyframes session-orb-ripple { 0%, 100% { opacity: .25; transform: scale(.6); } 35% { opacity: 1; transform: scale(1.15); } 70% { opacity: .45; transform: scale(.8); } }
+@keyframes session-orb-breathe { 0%, 100% { opacity: .65; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .session-pixels.is-working > span, .session-pixels.is-waiting { animation: none; }
+  .session-pixels.is-working > span { opacity: .6; }
+  .session-pixels.is-working > span:nth-child(5) { opacity: 1; }
+}
+/* Recent: the agent's logos sit plain. The end of the title line says the state (Working with its pixels, Needs
+   input, Failed, Done) or the time; on hover the "..." menu takes its place. The branch sits bottom right. */
+.activity-mark { position: relative; color: var(--zli-muted); }
+.session-row.is-activity { min-height: 54px; padding-top: 9px; padding-bottom: 9px; }
+.session-row.is-activity ~ .row-more { top: 18px; }
+.activity-state { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; margin-left: auto; padding-left: 6px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 400; line-height: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.activity-state.is-working { color: var(--zli-blue); }
+.activity-state.is-waiting { color: var(--zli-amber); }
+.activity-state.is-failed { color: var(--zli-muted); }
+.activity-state.is-done { color: var(--zli-green); }
+.session-entry:is(:has(> .session-row:hover), :has(> .row-more:hover), :has(> .row-more :focus-visible), :has(> .row-more [aria-expanded="true"])) > .session-row.is-activity .activity-state { visibility: hidden; }
+.session-entry:is(:has(> .session-row:hover), :has(> .row-more:hover), :has(> .row-more :focus-visible), :has(> .row-more [aria-expanded="true"])) > .session-row.is-activity .activity-title { padding-right: 0; }
+.sidebar.is-dense .session-row.is-activity { min-height: 46px; padding-top: 6px; padding-bottom: 6px; }
+.sidebar.is-dense .session-row.is-activity ~ .row-more { top: 15px; }

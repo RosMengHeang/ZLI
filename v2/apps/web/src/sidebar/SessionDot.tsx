@@ -18,9 +18,11 @@ export function sessionTone(status: SessionStatus, unread: boolean, quietStart =
   return tone === "idle" && unread ? "unread" : tone;
 }
 
+const PIXELS = 9;
+
 /**
- * A chat's state at the start of its row: three bars rising in turn while it works, an amber dot when it needs the
- * person, red when it failed, a filled dot when it finished out of sight, and a faint ring at rest.
+ * A chat's state as a small orb of nine soft dots: a ripple runs out from the centre while it works, amber when it needs the person,
+ * red when it failed, green when it finished out of sight, and grey and still at rest.
  */
 export function SessionDot({
   session,
@@ -31,14 +33,16 @@ export function SessionDot({
   unread?: boolean;
   quietStart?: boolean;
 }) {
-  const tone = sessionTone(session.status, unread, quietStart);
-  if (tone === "working")
-    return (
-      <span className="session-bars" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
-    );
-  return <span className={`session-dot is-${tone}`} aria-hidden="true" />;
+  return <PixelGrid tone={sessionTone(session.status, unread, quietStart)} />;
+}
+
+export function PixelGrid({ tone }: { tone: DotTone }) {
+  return (
+    <span className={`session-pixels is-${tone}`} aria-hidden="true">
+      {Array.from({ length: PIXELS }, (_, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: the pixels are a fixed grid that never reorders.
+        <span key={index} />
+      ))}
+    </span>
+  );
 }

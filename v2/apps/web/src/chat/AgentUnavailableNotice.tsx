@@ -28,6 +28,8 @@ export function AgentUnavailableNotice({
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<string>();
   const [copied, setCopied] = useState(false);
+  // Closing it only hides the card for this agent and problem; it comes back if the problem changes.
+  const [dismissedFor, setDismissedFor] = useState<string>();
   const listed = isSelectableProvider(provider) ? provider : undefined;
   const command = status.kind === "signed-out" && listed ? signInCommand(listed) : undefined;
   const problem = status.kind === "signed-out" || status.kind === "no-plan" ? status.problem : undefined;
@@ -55,6 +57,9 @@ export function AgentUnavailableNotice({
       if (!agentUsable(next)) setResult(next.kind === "missing" ? "Still not found." : "Still not signed in.");
     });
   };
+
+  const dismissKey = `${provider}:${status.kind}`;
+  if (dismissedFor === dismissKey) return null;
 
   return (
     <div className="chat-ended chat-sign-in" role="status">
@@ -98,6 +103,7 @@ export function AgentUnavailableNotice({
       <Button size="sm" disabled={checking} onClick={check}>
         {checking ? "Checking…" : status.kind === "no-plan" ? "Try again" : "Check again"}
       </Button>
+      <IconButton label="Dismiss" tooltip="Dismiss" icon="x" size="sm" onClick={() => setDismissedFor(dismissKey)} />
     </div>
   );
 }
