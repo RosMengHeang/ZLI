@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import { runMcpBridge } from "./mcp/bridge/mcpBridge.js";
 import { parseStdioSpec, runStdioRelay, type StdioServerSpec } from "./mcp/bridge/stdioRelay.js";
 import { parseHiddenTools } from "./mcp/bridge/toolFilter.js";
+import { parseSignInGrant, reportRejectedToken, requestAccessToken } from "./mcp/signIn/SignInBroker.js";
 import { freshAccessToken, markSignInExpired } from "./mcp/signIn/tokenFile.js";
 
 const USAGE = [
-  "Usage: zli-connect mcp --url <url> --name <name> [--token-file <path>] [--header-file <path>] [--header-env <name>] [--hide-tools <path>]",
+  "Usage: zli-connect mcp --url <url> --name <name> [--token-env <name>] [--header-file <path>] [--header-env <name>] [--hide-tools <path>]",
   "       zli-connect stdio --name <name> --spec-file <path> [--hide-tools <path>]",
 ].join("\n");
 
@@ -16,7 +17,10 @@ type RemoteArgs = {
   mode: "mcp";
   url: string;
   name: string;
+  /** Saved login read directly. Only works for logins saved before sealing; kept for settings files from then. */
   tokenFile?: string;
+  /** Environment variable holding where to ask ZLI for the login's access token. */
+  tokenEnv?: string;
   headerFile?: string;
   /** Environment variable holding the headers as a JSON object. */
   headerEnv?: string;
@@ -26,7 +30,7 @@ type StdioArgs = { mode: "stdio"; name: string; specFile: string; hideTools?: st
 type ConnectArgs = RemoteArgs | StdioArgs;
 
 const FLAGS = {
-  mcp: ["--url", "--name", "--token-file", "--header-file", "--header-env", "--hide-tools"],
+  mcp: ["--url", "--name", "--token-file", "--token-env", "--header-file", "--header-env", "--hide-tools"],
   stdio: ["--name", "--spec-file", "--hide-tools"],
 } as const;
 
@@ -62,6 +66,7 @@ function parseConnectArgs(argv: readonly string[]): ConnectArgs {
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new UsageError(`Not an http(s) URL: ${url}`);
   const tokenFile = values.get("--token-file");
+  const tokenEnv = values.get("--token-env");
   const headerFile = values.get("--header-file");
   const headerEnv = values.get("--header-env");
   return {
@@ -69,6 +74,7 @@ function parseConnectArgs(argv: readonly string[]): ConnectArgs {
     url,
     name,
     ...(tokenFile ? { tokenFile } : {}),
+    ...(tokenEnv ? { tokenEnv } : {}),
     ...(headerFile ? { headerFile } : {}),
     ...(headerEnv ? { headerEnv } : {}),
     ...hidden,
@@ -143,13 +149,22 @@ async function main(argv: readonly string[]): Promise<number> {
       ...(args.headerEnv ? headersFromEnv(args.headerEnv, name) : {}),
     };
     const tokenFile = args.tokenFile;
+    const grant = args.tokenEnv ? parseSignInGrant(process.env[args.tokenEnv]) : undefined;
+    if (args.tokenEnv && !grant) throw new SetupError(`The sign-in for ${name} was not passed in ${args.tokenEnv}.`);
+    // The grant is only for this process: servers it starts never see it.
+    if (args.tokenEnv) delete process.env[args.tokenEnv];
     await runMcpBridge({
       url: args.url,
       name,
       headers,
       hiddenTools,
-      getToken: async (force) => (tokenFile ? freshAccessToken(tokenFile, { force }) : undefined),
-      ...(tokenFile ? { onSignInRejected: (token: string) => markSignInExpired(tokenFile, token) } : {}),
+      getToken: async (force) =>
+        grant ? requestAccessToken(grant, force) : tokenFile ? freshAccessToken(tokenFile, { force }) : undefined,
+      ...(grant
+        ? { onSignInRejected: (token: string) => reportRejectedToken(grant, token) }
+        : tokenFile
+          ? { onSignInRejected: (token: string) => markSignInExpired(tokenFile, token) }
+          : {}),
       input: process.stdin,
       output: process.stdout,
       log,

@@ -84,7 +84,7 @@ import { registerMobileAccess } from "./remote/electronMobileAccess.js";
 import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDaemon.js";
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
-import { shouldOpenExternal } from "./security/NavigationPolicy.js";
+import { shouldOpenExternal, withRendererPolicy } from "./security/NavigationPolicy.js";
 import {
   handOffKey,
   removeHandoffs,
@@ -187,10 +187,10 @@ async function main(): Promise<void> {
   const dockIcon = process.platform === "darwin" && !app.isPackaged ? appIcon("icon.png") : undefined;
   if (dockIcon) app.dock?.setIcon(dockIcon);
   const rendererRoot = process.env.ZLI_RENDERER_ROOT ?? defaultRendererRoot();
-  protocol.handle("zli-v2", (request) => {
+  protocol.handle("zli-v2", async (request) => {
     const asset = resolveAppAsset(rendererRoot, request.url);
     if (!asset) return new Response("Not found", { status: 404 });
-    return net.fetch(pathToFileURL(asset).toString());
+    return withRendererPolicy(await net.fetch(pathToFileURL(asset).toString()));
   });
   const databasePath = process.env.ZLI_DATABASE_PATH ?? join(app.getPath("userData"), "runtime.sqlite");
   // Test launches keep scratch chats next to their throwaway database.

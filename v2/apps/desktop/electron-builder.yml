@@ -6,6 +6,17 @@ npmRebuild: false
 directories:
   output: release
 afterPack: ./scripts/after-pack.mjs
+# Electron fuses, flipped in the packaged binary. runAsNode stays on: the runtime, the terminal daemon, and the
+# connect bridge all run as ZLI with ELECTRON_RUN_AS_NODE=1. The rest close ways for another program on the computer
+# to run its own code as ZLI: NODE_OPTIONS and --inspect flags are ignored, the app loads only from app.asar, and
+# app.asar is checked against the hash built into the binary. The integration tests attach through --inspect, so
+# tests/e2e/global-setup.ts turns it on in a copy of the packaged app that only the tests run.
+electronFuses:
+  runAsNode: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
 files:
   - dist/**
   - renderer/**

@@ -36,7 +36,7 @@
       "@expo/cli>zod": "4.6.7",
       "esbuild": "0.28.1",
       "http-cache-semantics": "4.3.0",
-      "node-forge": "1.4.2",
+      "node-forge": "1.4.3",
       "source-map-js": "1.2.2"
     },
     "patchedDependencies": {
@@ -45,6 +45,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
+    "@electron/fuses": "1.8.0",
     "@playwright/test": "1.60.0",
     "electron": "44.10.0",
     "electron-builder": "26.18.0",

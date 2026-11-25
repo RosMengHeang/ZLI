@@ -41,7 +41,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     title: "Builder",
     color: "sky",
     look: "blob",
-    permissionMode: "full-access",
+    permissionMode: "supervised",
     blurb: "Builds features and fixes bugs",
     instructions:
       "Make the change the job asks for, in small steps. Match the code style around you. Run the project's checks before you finish, and say in your summary which ones you ran.",
@@ -52,7 +52,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     title: "Tester",
     color: "jade",
     look: "critter",
-    permissionMode: "full-access",
+    permissionMode: "supervised",
     blurb: "Writes tests and checks other buddies' work",
     instructions:
       "Write tests that fail without the change and pass with it. When you check someone's work, run it, try the edge cases, and report concrete notes. Don't rewrite their code.",
@@ -74,7 +74,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     title: "Docs",
     color: "butter",
     look: "sprout",
-    permissionMode: "full-access",
+    permissionMode: "supervised",
     blurb: "Keeps READMEs, guides and changelogs current",
     instructions:
       "Write for someone new to the project. Short sentences, real examples, and nothing the code doesn't do.",
@@ -104,6 +104,13 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     sampleReply: "Reproduced it. The cache key ignores the locale, so French users get English prices.",
   },
 ];
+
+/**
+ * Shown wherever a buddy is set to full access. Buddies read web pages, issues, and files other people wrote, and
+ * text in them can steer the agent. With full access, nothing stops for the person first.
+ */
+export const FULL_ACCESS_WARNING =
+  "With full access, a web page, issue, or file this buddy reads can make it run commands on your computer without asking you. Pick it only when you trust everything the buddy will read.";
 
 export function template(title: string): BuddyTemplate | undefined {
   return BUDDY_TEMPLATES.find((entry) => entry.title === title);

@@ -37,7 +37,7 @@ import {
   type PluginScan,
   scanPlugins,
 } from "./pluginPackage.js";
-import { type PluginContext, pluginServerConfig, substitute } from "./pluginRuntime.js";
+import { environmentReads, type PluginContext, pluginServerConfig, substitute } from "./pluginRuntime.js";
 import { exportPlugin, type PluginExportRequest, type PluginExportSources } from "./exportPlugin.js";
 import { PluginDirectory } from "./pluginDirectory.js";
 
@@ -104,6 +104,8 @@ export class PluginStore {
   private problem: string | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly previews = new Map<string, { at: number; scan: PluginScan; label: string }>();
+  /** The commit each GitHub branch or tag was fixed at for a preview, so the install that follows gets the same files. */
+  private readonly pins = new Map<string, { at: number; sha: string }>();
   /** The newest commit GitHub reported for each plugin's folder, and when. */
   private readonly updateChecks = new Map<string, { at: number; latest: string }>();
   /** Newer sources Anthropic's directory lists for pinned plugins installed from it, by plugin name. */
@@ -232,7 +234,7 @@ export class PluginStore {
   }
 
   async previewInstall(text: string): Promise<PluginInstallPreview> {
-    const { scan, label } = await this.scan(parseSource(text), true);
+    const { scan, label } = await this.scan(await this.pin(parseSource(text)), true);
     return {
       label,
       ...(scan.marketplace ? { marketplace: scan.marketplace } : {}),
@@ -248,6 +250,10 @@ export class PluginStore {
         files: candidate.files.length,
         bytes: candidate.bytes,
         exists: candidate.descriptor.name in this.plugins,
+        ...(() => {
+          const reads = environmentReads(candidate.descriptor.mcpServers);
+          return reads.length > 0 ? { envReads: reads } : {};
+        })(),
         ...(candidate.problem ? { problem: candidate.problem } : {}),
       })),
       elsewhere: scan.elsewhere,
@@ -266,7 +272,8 @@ export class PluginStore {
   ): Promise<string[]> {
     return this.serialize(async () => {
       const source = parseSource(text);
-      const { scan } = await this.scan(source, true);
+      const fixed = await this.pin(source);
+      const { scan } = await this.scan(fixed, true);
       const chosen = names.map((name) => {
         const candidate = scan.candidates.find((entry) => entry.descriptor.name === name);
         if (!candidate) throw new PluginError(`${name} is not in that source.`);
@@ -280,7 +287,7 @@ export class PluginStore {
           return {
             candidate,
             stored,
-            meta: { ...(await this.commitOf(source, candidate.root)), origin: this.matchOrigin(stored) },
+            meta: { ...(await this.commitOf(fixed, candidate.root, source)), origin: this.matchOrigin(stored) },
           };
         }),
       );
@@ -298,7 +305,8 @@ export class PluginStore {
       const moved = this.directoryMoves.get(name);
       const text = moved ?? plugin.source;
       const source = parseSource(text);
-      const { scan } = await this.scan(source, false);
+      const fixed = await this.pin(source, true);
+      const { scan } = await this.scan(fixed, false);
       const candidate =
         scan.candidates.find((entry) => entry.descriptor.name === name) ??
         (scan.candidates.length === 1 ? scan.candidates[0] : undefined);
@@ -309,7 +317,7 @@ export class PluginStore {
       }
       const origin = moved ? "anthropic-directory" : plugin.origin;
       const meta = {
-        ...(await this.commitOf(source, candidate.root)),
+        ...(await this.commitOf(fixed, candidate.root, source)),
         ...(origin ? { origin } : {}),
       };
       await this.place(candidate, moved ? sourceFor(source, candidate.root) : plugin.source, {}, meta);
@@ -506,10 +514,37 @@ export class PluginStore {
     };
   }
 
-  /** The commit a GitHub plugin's folder is at. Not finding it never stops an install. */
-  private async commitOf(source: ParsedSource, root: string): Promise<Pick<StoredPlugin, "commit" | "ref">> {
+  /**
+   * The source fixed at one commit, so the files installed are the files of the commit ZLI records, not whatever the
+   * branch holds a moment later. A branch or tag is looked up once and kept for ten minutes, so an install right after
+   * a preview gets the files the person saw. `fresh` looks it up again (updates). If GitHub does not answer, the
+   * source stays as given.
+   */
+  private async pin(source: ParsedSource, fresh = false): Promise<ParsedSource> {
+    if (source.kind !== "github" || isCommitSha(source.source.ref)) return source;
+    const key = sourceKey({ ...source.source, path: "" });
+    const now = (this.options.now ?? Date.now)();
+    let pinned = fresh ? undefined : this.pins.get(key);
+    if (!pinned || now - pinned.at > PREVIEW_TTL_MS) {
+      const sha = await latestGithubCommit({ ...source.source, path: "" }, this.githubOptions()).catch(() => undefined);
+      if (!sha) return source;
+      pinned = { at: now, sha };
+      this.pins.set(key, pinned);
+    }
+    return { kind: "github", source: { ...source.source, ref: pinned.sha } };
+  }
+
+  /**
+   * The commit a GitHub plugin's folder is at in `source`, and the branch or tag `asked` named. Not finding it never
+   * stops an install.
+   */
+  private async commitOf(
+    source: ParsedSource,
+    root: string,
+    asked: ParsedSource = source,
+  ): Promise<Pick<StoredPlugin, "commit" | "ref">> {
     if (source.kind !== "github") return {};
-    const { ref } = source.source;
+    const ref = asked.kind === "github" ? asked.source.ref : undefined;
     if (isCommitSha(ref)) return { commit: (ref ?? "").toLowerCase(), ...(ref ? { ref } : {}) };
     const path = [source.source.path, root].filter(Boolean).join("/");
     const commit = await latestGithubCommit({ ...source.source, path }, this.githubOptions()).catch(() => undefined);

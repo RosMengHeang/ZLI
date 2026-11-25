@@ -8,7 +8,7 @@ import { BODIES, BUDDY_LOOKS, lookOf } from "../teammates/pixelBuddies.js";
 import { Button } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Segmented } from "../ui/Segmented.js";
-import { BUDDY_TEMPLATES, buddyFromTemplate, freeName, template } from "./team.js";
+import { BUDDY_TEMPLATES, buddyFromTemplate, FULL_ACCESS_WARNING, freeName, template } from "./team.js";
 import { type Run, useRun } from "./useRun.js";
 
 const ROLES = BUDDY_TEMPLATES.filter((entry) => entry.title !== "Primary");
@@ -166,6 +166,11 @@ export function NewBuddyDialog({
             <span className="new-buddy-label">Most it may do</span>
             <Segmented<PermissionMode> label="Most it may do" value={access} options={ACCESS} onChange={setAccess} />
             <span className="new-buddy-hint">{ACCESS.find((entry) => entry.value === access)?.tooltip}.</span>
+            {access === "full-access" ? (
+              <span className="new-buddy-hint is-warning" role="note">
+                {FULL_ACCESS_WARNING}
+              </span>
+            ) : null}
           </div>
 
           <label className="new-buddy-field">

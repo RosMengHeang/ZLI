@@ -10,6 +10,7 @@
 .buddies-heading { display: flex; align-items: center; gap: var(--zli-space-1-5); margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 600; }
 .buddies-count { display: inline-flex; min-width: 18px; height: 18px; align-items: center; justify-content: center; padding: 0 5px; border-radius: var(--zli-radius-pill); background: var(--zli-active); color: var(--zli-text); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; }
 .buddies-hint { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
+.buddies-hint.is-warning { color: var(--zli-amber-ink); }
 .buddies-hint kbd { padding: 0 4px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xs); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
 .buddy-spacer { flex: 1; }
 

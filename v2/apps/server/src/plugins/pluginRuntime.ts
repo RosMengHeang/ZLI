@@ -40,6 +40,25 @@ export function substitute(text: string, context: PluginContext): { value: strin
 }
 
 /**
+ * The environment variables a plugin's MCP servers read through `${NAME}` placeholders, leaving out the plugin's own
+ * folders and its settings. Their values go to the plugin's servers, so the install preview lists them.
+ */
+export function environmentReads(entries: readonly PluginMcpEntry[]): string[] {
+  const names = new Set<string>();
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") {
+      for (const match of value.matchAll(/\$\{([^}]{1,200})\}/gu)) {
+        const name = /^([A-Za-z_][A-Za-z0-9_]*)(?::-.*)?$/su.exec((match[1] ?? "").trim())?.[1];
+        if (name && !ROOT_NAMES.has(name) && !DATA_NAMES.has(name)) names.add(name);
+      }
+    } else if (Array.isArray(value)) value.forEach(visit);
+    else if (isPlainObject(value)) Object.values(value).forEach(visit);
+  };
+  for (const entry of entries) visit(entry.raw);
+  return [...names].sort();
+}
+
+/**
  * One plugin MCP server in the form ZLI's own list uses. Remote servers without an Authorization header
  * go through the sign-in bridge, since hosted servers in plugins usually expect the agent to log in.
  */

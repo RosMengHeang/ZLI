@@ -39,6 +39,7 @@ import {
   buddyStats,
   duration,
   exportBuddy,
+  FULL_ACCESS_WARNING,
   freeName,
   money,
   parseBuddyFile,
@@ -227,7 +228,7 @@ export function useTeammatesToBuddies(projection: RuntimeProjection | undefined)
               ? { mode: "locked", provider: teammate.provider, model: teammate.model }
               : { mode: "prefer", provider: teammate.provider },
             ...(teammate.instructions ? { instructions: teammate.instructions } : {}),
-            permissionMode: teammate.permissionMode ?? "full-access",
+            permissionMode: teammate.permissionMode ?? "supervised",
             maxActiveJobs: 2,
             handoffs: [],
           },
@@ -1457,6 +1458,11 @@ function SettingsTab({
           ]}
           onChange={(permissionMode) => void update({ permissionMode })}
         />
+        {buddy.permissionMode === "full-access" ? (
+          <p className="buddies-hint is-warning" role="note">
+            {FULL_ACCESS_WARNING}
+          </p>
+        ) : null}
       </section>
 
       <PersonalityField buddy={buddy} run={run} />

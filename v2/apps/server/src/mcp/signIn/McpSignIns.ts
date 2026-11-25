@@ -25,7 +25,14 @@ import {
   SignInError,
   tokenRequest,
 } from "./oauth.js";
-import { readSignIn, type SignInMethod, type StoredSignIn, signInUsable, writeSignIn } from "./tokenFile.js";
+import {
+  readSignIn,
+  readSignInFile,
+  type SignInMethod,
+  type StoredSignIn,
+  signInUsable,
+  writeSignIn,
+} from "./tokenFile.js";
 
 /** How long ZLI waits for the person to finish in the browser. */
 const ATTEMPT_TIMEOUT_MS = 10 * 60_000;
@@ -68,8 +75,9 @@ function hostOf(url: string): string {
 }
 
 /**
- * Signs in to remote MCP servers for every agent at once. Logins live in one private file per server,
- * which the connect bridge reads and refreshes, so a sign-in here reaches agents in terminals and chats.
+ * Signs in to remote MCP servers for every agent at once. Logins live in one sealed file per server. The connect
+ * bridge an agent starts gets a fresh access token from SignInBroker, so a sign-in here reaches agents in terminals
+ * and chats without any agent holding the refresh token.
  */
 export class McpSignIns {
   private readonly cache = new Map<string, StoredSignIn>();
@@ -99,16 +107,20 @@ export class McpSignIns {
       this.cache.clear();
       return;
     }
-    // A full reread: bridges may have refreshed, expired, or removed logins since the last one.
+    // A full reread: the broker may have refreshed or expired logins for bridges since the last one.
     this.cache.clear();
     for (const name of names) {
       if (!name.endsWith(".json") || name === CLIENTS_FILE) continue;
-      const stored = await readSignIn(join(this.options.dir, name));
-      if (stored) this.cache.set(normalizeServerUrl(stored.serverUrl), stored);
+      const path = join(this.options.dir, name);
+      const read = await readSignInFile(path);
+      if (!read) continue;
+      // A login saved before sealing is written again, sealed, so agents can no longer read it.
+      if (read.plain) await writeSignIn(path, read.stored).catch(() => undefined);
+      this.cache.set(normalizeServerUrl(read.stored.serverUrl), read.stored);
     }
   }
 
-  /** Where the login for one server is saved. The bridge an agent starts reads this file. */
+  /** Where the login for one server is saved, sealed. Only this process reads it; bridges ask SignInBroker. */
   tokenFile(serverUrl: string): string {
     const key = createHash("sha256").update(normalizeServerUrl(serverUrl)).digest("hex").slice(0, 24);
     return join(this.options.dir, `${key}.json`);

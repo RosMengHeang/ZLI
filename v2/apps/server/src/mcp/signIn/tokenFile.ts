@@ -1,11 +1,12 @@
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 
 import { isPlainObject, writeFileAtomic } from "../../browser-tool/browserTool.js";
+import { SecretBox } from "../../secrets/SecretBox.js";
 import { type ClientAuth, type FetchLike, oauthErrorCode, tokenRequest } from "./oauth.js";
 
 export type SignInMethod = "browser" | "github-cli" | "github-code";
 
-/** One saved login, shared by ZLI and every connect bridge an agent starts. */
+/** One saved login. Only the runtime reads it; connect bridges get an access token from SignInBroker. */
 export type StoredSignIn = {
   version: 1;
   serverUrl: string;
@@ -35,24 +36,46 @@ const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 15_000;
 const LOCK_POLL_MS = 150;
 
-export async function readSignIn(path: string): Promise<StoredSignIn | undefined> {
+let signInBox: SecretBox | undefined;
+
+/**
+ * Seals every login this process saves from now on, and lets it open sealed ones. The runtime sets this at start
+ * with the desktop app's keychain key. Without a key (tests, no keychain) logins are saved as plain JSON, as before.
+ */
+export function sealSignIns(box: SecretBox | undefined): void {
+  signInBox = box;
+}
+
+/** The login, and whether the file still holds it unsealed while a key is there to seal it. */
+export async function readSignInFile(path: string): Promise<{ stored: StoredSignIn; plain: boolean } | undefined> {
   let text: string;
   try {
     text = await readFile(path, "utf8");
   } catch {
     return undefined;
   }
+  const sealed = SecretBox.isSealed(text.trim());
+  if (sealed) {
+    const opened = signInBox?.open(text.trim());
+    if (opened === undefined) return undefined;
+    text = opened;
+  }
   try {
     const parsed: unknown = JSON.parse(text);
     if (!isPlainObject(parsed) || parsed.version !== 1 || typeof parsed.accessToken !== "string") return undefined;
-    return parsed as StoredSignIn;
+    return { stored: parsed as StoredSignIn, plain: !sealed && signInBox !== undefined };
   } catch {
     return undefined;
   }
 }
 
+export async function readSignIn(path: string): Promise<StoredSignIn | undefined> {
+  return (await readSignInFile(path))?.stored;
+}
+
 export async function writeSignIn(path: string, value: StoredSignIn): Promise<void> {
-  await writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  const json = `${JSON.stringify(value, null, 2)}\n`;
+  await writeFileAtomic(path, signInBox ? `${signInBox.seal(json)}\n` : json, { mode: 0o600 });
 }
 
 export function needsRefresh(stored: StoredSignIn, now: number): boolean {

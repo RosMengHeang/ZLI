@@ -1,5 +1,5 @@
 import { type ChildProcess, execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -18,6 +18,7 @@ import {
 import { closeChildProcess } from "../closeChildProcess.js";
 import { electronChildProcess } from "../electronChildProcess.js";
 import { getProcessTreeTerminationOrder } from "../processTree.js";
+import { testAppExecutable } from "./packagedApp.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -153,7 +154,7 @@ export async function desktopCommand(
   const packagedExecutable = externalExecutable
     ? undefined
     : process.env.ZLI_E2E_PACKAGED === "1"
-      ? await findPackagedExecutable()
+      ? await testAppExecutable()
       : undefined;
   const executablePath = externalExecutable ?? packagedExecutable;
   return {
@@ -278,29 +279,6 @@ class WindowTimeout extends Error {
   constructor(cause: unknown) {
     super("The app window did not open.", { cause });
   }
-}
-
-async function findPackagedExecutable(): Promise<string> {
-  const releaseRoot = join(V2_ROOT, "apps/desktop/release");
-  const candidates =
-    process.platform === "win32"
-      ? [join(releaseRoot, "win-unpacked", "ZLI.exe")]
-      : process.platform === "darwin"
-        ? [
-            join(releaseRoot, "mac", "ZLI.app", "Contents", "MacOS", "ZLI"),
-            join(releaseRoot, "mac-arm64", "ZLI.app", "Contents", "MacOS", "ZLI"),
-            join(releaseRoot, "mac-x64", "ZLI.app", "Contents", "MacOS", "ZLI"),
-          ]
-        : [join(releaseRoot, "linux-unpacked", "ZLI"), join(releaseRoot, "linux-unpacked", "zli")];
-  for (const candidate of candidates) {
-    try {
-      await access(candidate);
-      return candidate;
-    } catch {
-      // Try the next electron-builder layout for this platform.
-    }
-  }
-  throw new Error(`Packaged ZLI executable was not found under ${releaseRoot}.`);
 }
 
 export async function closeDesktop(fixture: DesktopFixture): Promise<void> {
