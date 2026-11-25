@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 
+import { loadLocalFonts } from "../theme/localFonts.js";
 import {
-  cleanFontName,
   DEFAULT_TYPOGRAPHY,
   type FontChoice,
   fontStack,
@@ -15,7 +15,7 @@ import { Picker } from "../ui/Picker.js";
 import { updateAppSettings, useAppSettings } from "./appSettings.js";
 import { SettingsGroup, SettingsRow } from "./SettingsLayout.js";
 
-const CUSTOM = "custom";
+const CUSTOM_PREFIX = "custom:";
 
 const update = (change: Partial<Typography>) =>
   updateAppSettings((current) => ({ ...current, typography: { ...current.typography, ...change } }));
@@ -83,7 +83,7 @@ export function TypographySettings() {
   );
 }
 
-/** A font picked from the bundled ones, or any font on the computer typed by name. */
+/** A font picked from the bundled ones or from the fonts installed on this computer. */
 function FontRow({
   label,
   description,
@@ -100,61 +100,39 @@ function FontRow({
   onChange(value: FontChoice): void;
 }) {
   const id = useId();
-  const custom = value.startsWith("custom:");
-  const [typing, setTyping] = useState(custom);
-  const [name, setName] = useState(custom ? value.slice("custom:".length) : "");
+  const [installed, setInstalled] = useState<readonly string[]>([]);
+  const custom = value.startsWith(CUSTOM_PREFIX) ? value.slice(CUSTOM_PREFIX.length) : undefined;
+  const sample = (choice: FontChoice) => (
+    <span className="type-sample" style={{ fontFamily: fontStack(choice, kind) }} aria-hidden="true">
+      Aa
+    </span>
+  );
+  const families = custom && !installed.includes(custom) ? [custom, ...installed] : installed;
   const options = [
     ...presets.map((preset) => ({
       value: preset.id,
       label: preset.name,
-      icon: (
-        <span className="type-sample" style={{ fontFamily: fontStack(preset.id, kind) }} aria-hidden="true">
-          Aa
-        </span>
-      ),
+      icon: sample(preset.id),
+      group: "Comes with ZLI",
     })),
-    { value: CUSTOM, label: "Another font…" },
+    ...families.map((family) => ({
+      value: `${CUSTOM_PREFIX}${family}`,
+      label: family,
+      icon: sample(`${CUSTOM_PREFIX}${family}`),
+      group: "On this computer",
+    })),
   ];
-  const picked = typing || custom ? CUSTOM : value;
-  const shown = presets.find((preset) => preset.id === value)?.name ?? (custom ? value.slice(7) : "Another font");
-  const save = (text: string) => {
-    const clean = cleanFontName(text);
-    if (clean) onChange(`custom:${clean}`);
-  };
+  const shown = presets.find((preset) => preset.id === value)?.name ?? custom ?? value;
   return (
     <SettingsRow label={label} description={description} htmlFor={id}>
-      <span className="type-font">
-        {typing ? (
-          <input
-            className="input input-sm type-font-name"
-            aria-label={`${label} name`}
-            placeholder="Font name, e.g. Fira Code"
-            value={name}
-            spellCheck={false}
-            onChange={(event) => setName(event.target.value)}
-            onBlur={() => save(name)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") save(name);
-            }}
-            style={{ fontFamily: name ? fontStack(`custom:${cleanFontName(name)}`, kind) : undefined }}
-          />
-        ) : null}
-        <Picker
-          id={id}
-          label={label}
-          variant="field"
-          value={picked}
-          options={options}
-          onChange={(next) => {
-            if (next === CUSTOM) {
-              setTyping(true);
-              return;
-            }
-            setTyping(false);
-            onChange(next);
-          }}
-        >
-          <span style={{ fontFamily: fontStack(value, kind) }}>{typing ? "Another font" : shown}</span>
+      {/* The installed fonts can only be listed after a click, so the list is read when the picker is opened. */}
+      <span
+        className="type-font"
+        onPointerDownCapture={() => void loadLocalFonts().then(setInstalled)}
+        onKeyDownCapture={() => void loadLocalFonts().then(setInstalled)}
+      >
+        <Picker id={id} label={label} variant="field" value={value} options={options} onChange={onChange}>
+          <span style={{ fontFamily: fontStack(value, kind) }}>{shown}</span>
         </Picker>
       </span>
     </SettingsRow>

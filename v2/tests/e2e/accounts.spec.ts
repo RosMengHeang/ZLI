@@ -25,13 +25,17 @@ test("runs a chat under an API key account picked in the New agent dialog", asyn
 
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
-    await settings.getByRole("tab", { name: "Accounts" }).click();
+    await settings.getByRole("tab", { name: "Providers" }).click();
     const codex = settings.getByRole("region", { name: "Codex accounts" });
     await codex.getByRole("button", { name: "Add Codex account" }).click();
     const form = settings.getByRole("form", { name: "New Codex account" });
     await form.getByLabel("Name").fill("Work key");
-    await form.getByRole("button", { name: /^Kind:/u }).click();
-    await page.getByRole("option", { name: "API key", exact: true }).click();
+    // Settings scrolls the form into view as it opens, and a scroll closes an open picker: open and pick in one retry.
+    await expect(async () => {
+      const kind = form.getByRole("button", { name: /^Kind:/u });
+      if ((await kind.getAttribute("aria-expanded")) !== "true") await kind.click();
+      await page.getByRole("option", { name: "API key", exact: true }).click({ timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
     await form.getByRole("textbox", { name: "API key" }).fill(API_KEY);
     await form.getByRole("button", { name: "Add account" }).click();
     await expect(form).toHaveCount(0);

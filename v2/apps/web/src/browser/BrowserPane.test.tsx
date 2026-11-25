@@ -231,6 +231,26 @@ describe("BrowserPane", () => {
     expect(fake.calls).toEqual(["hide"]);
   });
 
+  it("holds a still picture of the page in its place while the app covers it", async () => {
+    const fake = createBridge(baseTab);
+    const shot = vi.fn(async () => ({ data: "aGVsbG8=", mimeType: "image/jpeg" }));
+    fake.bridge.browser.screenshot = shot as unknown as typeof fake.bridge.browser.screenshot;
+    const view = await renderPane(fake.bridge, false);
+    expect(view.container.querySelector(".browser-frozen")).toBeNull();
+
+    fake.calls.length = 0;
+    await view.rerender(true);
+    // The picture is taken while the page still shows, then the native page steps aside under it.
+    expect(shot).toHaveBeenCalled();
+    expect(fake.calls).toContain("hide");
+    expect(view.container.querySelector<HTMLImageElement>(".browser-frozen")?.src).toBe(
+      "data:image/jpeg;base64,aGVsbG8=",
+    );
+
+    await view.rerender(false);
+    expect(view.container.querySelector(".browser-frozen")).toBeNull();
+  });
+
   it("keeps the address bar in sync with in-page navigation unless the user is typing", async () => {
     const fake = createBridge(baseTab);
     const { container } = await renderPane(fake.bridge, false);

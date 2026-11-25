@@ -27,7 +27,7 @@
 .buddy-info-hero { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-1); margin-top: calc(-1 * var(--zli-space-2)); text-align: center; }
 .buddy-info-hero h2 { margin: var(--zli-space-2) 0 0; color: var(--zli-text); font-size: var(--zli-text-lg, 18px); font-weight: 600; }
 .buddy-info-hero span { color: var(--zli-muted); font-size: var(--zli-text-xs); }
-.buddy-tabs.segmented { align-self: center; border: 0; background: transparent; }
+.buddy-tabs.segmented { align-self: center; border: 0; background: transparent; box-shadow: none; }
 .buddy-tabs .segmented-item { padding: 4px 12px; border-radius: 15px; color: var(--zli-muted); }
 .buddy-tabs .segmented-item[aria-pressed="true"] { background: var(--zli-raised); color: var(--zli-text); }
 .buddy-view-info .buddy-profile { gap: var(--zli-space-4); }
@@ -191,7 +191,7 @@
 
 /* Calm chat: the same soft bubble and round box as an agent's chat. */
 .buddy-chat-you { padding: 10px 18px; border-radius: 22px; background: var(--zli-overlay); }
-.buddy-chat-composer, .buddy-chat-dock .buddy-chat-composer { border-color: transparent; border-radius: 26px; background: var(--zli-overlay); box-shadow: 0 0 0 1px var(--zli-border), 0 10px 30px -14px rgba(0, 0, 0, .55); }
+.buddy-chat-composer, .buddy-chat-dock .buddy-chat-composer { border-color: transparent; border-radius: 26px; background: var(--zli-overlay); box-shadow: 0 0 0 1px var(--zli-border), var(--zli-shadow-lift); }
 .buddy-chat-composer:focus-within { border-color: transparent; }
 
 /* A job handed to a teammate: their face (its mood is the job's), the job, and a word for how it is going. */
@@ -537,3 +537,7 @@ button.goal-card-lead:hover { color: var(--zli-text); }
 .team-chat-send { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .team-chat-send button { min-height: 32px; padding: 0 14px; border: 1px solid var(--zli-border); border-radius: 10px; background: var(--zli-raised); color: var(--zli-text); font: inherit; }
 .team-chat-send button:disabled { opacity: 0.55; }
+
+/* The @ list in the team chat. */
+.mention-option { display: flex; flex-direction: row; align-items: center; gap: var(--zli-space-2); }
+.mention-option-copy { display: flex; min-width: 0; flex-direction: column; }

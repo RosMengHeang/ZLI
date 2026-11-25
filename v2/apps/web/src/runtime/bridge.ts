@@ -25,6 +25,7 @@ import type {
   MobileStreamInfo,
   MobileWifiConnectInput,
   MobileWifiPairInput,
+  MobileWifiQrPairInput,
   MobileWifiResult,
   OpenInApp,
   RpcResponse,
@@ -34,8 +35,8 @@ import type {
   UpdateStatus,
   WhatsNew,
 } from "@zli-v2/contracts";
-
 import type { MobileDevBridge } from "../mobile/dev/bridge.js";
+import type { NotificationTone } from "../notifications/sounds.js";
 
 export type ZliBridge = {
   runtime: {
@@ -137,6 +138,8 @@ export type ZliBridge = {
     /** Each chat's buddy as a PNG data URL, shown as the icon of that chat's notifications. */
     setFaces?(faces: Readonly<Record<string, string>>): Promise<unknown>;
     onActivate(listener: (event: { sessionId: string }) => void): () => void;
+    /** Fires when a notification uses one of ZLI's own sounds, which the window plays. */
+    onPlaySound?(listener: (event: { tone: string; volume: number }) => void): () => void;
     /** Fires when the person clicks an agent's request to connect a service. */
     onOpenConnector?(listener: (event: { connectorId: string }) => void): () => void;
   };
@@ -191,6 +194,9 @@ export type MobileBridge = {
   shutdown(deviceId: string): Promise<void>;
   /** Wireless debugging for Android 11 and newer phones. Absent in test bridges without it. */
   pairWifi?(input: MobileWifiPairInput): Promise<MobileWifiResult>;
+  /** Waits for a phone to scan the pairing QR code, then pairs and connects to it. */
+  pairWifiQr?(input: MobileWifiQrPairInput): Promise<MobileWifiResult>;
+  cancelWifiQr?(): Promise<void>;
   connectWifi?(input: MobileWifiConnectInput): Promise<MobileWifiResult>;
   /** Only for a phone connected over Wi-Fi. */
   disconnectWifi?(deviceId: string): Promise<void>;
@@ -227,7 +233,8 @@ export type MobileBridge = {
 /** "Unlock connected apps with Windows Hello": unsupported off Windows, unavailable when Hello isn't set up. */
 export type PresenceStatus = { status: "unsupported" | "unavailable" | "off" | "on"; error?: string };
 
-export type NotificationSettings = { enabled: boolean; sound: boolean };
+/** The window plays `tone` itself at `volume` (0 to 100); the system notification stays silent. */
+export type NotificationSettings = { enabled: boolean; sound: boolean; tone?: NotificationTone; volume?: number };
 
 /** A window or screen that can be attached as a picture. The thumbnail is a data URL. */
 export type CaptureSource = { id: string; name: string; kind: "window" | "screen"; thumbnail?: string };

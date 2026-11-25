@@ -130,6 +130,23 @@ async function type(container: HTMLElement, text: string) {
   });
 }
 
+const chipLabels = () =>
+  [...document.querySelectorAll<HTMLElement>(".composer-chip-label")].map((chip) => chip.textContent);
+
+/** Opens "Ask an agent" from the message box's + menu. */
+async function openAskMenu(container: HTMLElement) {
+  await act(async () => button(container, "Add")?.click());
+  const ask = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) =>
+    node.textContent?.includes("Ask an agent"),
+  );
+  await act(async () => ask?.click());
+}
+
+const menuChoice = (label: string) =>
+  [...document.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"]')].find((node) =>
+    node.textContent?.includes(label),
+  );
+
 afterEach(() => {
   document.body.replaceChildren();
   updateAppSettings(() => structuredClone(DEFAULT_SETTINGS));
@@ -168,20 +185,23 @@ describe("ChatView with more than one agent", () => {
     expect(toGuest.text).toBe("@Owl check again");
   });
 
-  it("brings a buddy in from the people icon, on its own agent", async () => {
+  it("brings a buddy in from the + menu, on its own agent", async () => {
     const onBringIn = vi.fn(async () => ({ threadId: guestId }));
     const { container } = await render(projectionWith({ buddies: [reviewer] }), { onBringIn });
-    await act(async () => button(container, "Other agents")?.click());
-    const bring = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) =>
-      node.textContent?.includes("Bring in an agent"),
-    );
-    await act(async () => bring?.click());
+    await openAskMenu(container);
     const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
       (node) => node.textContent === "Reviewer",
     );
     await act(async () => item?.click());
-    expect(onBringIn).toHaveBeenCalledWith({ provider: "codex", name: "Reviewer", permissionMode: "read-only" });
-    expect(container.querySelector("textarea")?.value).toBe("@Reviewer ");
+    expect(onBringIn).toHaveBeenCalledWith({
+      provider: "codex",
+      name: "Reviewer",
+      mode: "ask",
+      permissionMode: "read-only",
+    });
+    // The newcomer goes in as a chip the person can remove, not as loose text.
+    expect(chipLabels()).toEqual(["Reviewer"]);
+    expect(container.querySelector("textarea")?.value).toBe("");
   });
 
   it("gives a buddy in the chat its instructions and what it remembers", async () => {
@@ -199,15 +219,11 @@ describe("ChatView with more than one agent", () => {
     expect(sent.context).toContain("- Prefers small PRs.");
   });
 
-  it("brings any installed agent in from the people icon, named after the buddy it wears", async () => {
+  it("brings any installed agent in from the + menu, named after the buddy it wears", async () => {
     const onBringIn = vi.fn(async () => ({ threadId: guestId }));
     const { container } = await render(projectionWith(), { onBringIn });
-    // Bring in sits behind the people icon beside the paperclip while the agent is alone in the chat.
-    await act(async () => button(container, "Other agents")?.click());
-    const bring = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) =>
-      node.textContent?.includes("Bring in an agent"),
-    );
-    await act(async () => bring?.click());
+    // Ask an agent sits in the message box's + menu while the agent is alone in the chat.
+    await openAskMenu(container);
     const item = [...document.querySelectorAll('[role="menuitem"]')].find((node) =>
       node.textContent?.includes("Codex"),
     );
@@ -229,6 +245,160 @@ describe("ChatView with more than one agent", () => {
       "Paper",
       "Slate",
     ]).toContain(request.name);
-    expect(container.querySelector("textarea")?.value).toBe(`@${request.name} `);
+    expect(chipLabels()).toEqual([request.name]);
+  });
+});
+
+describe("Ask and Work", () => {
+  const copyId = "00000000-0000-4000-8000-000000000012";
+  const worker = { ...guest, worktreeId: copyId, permissionMode: "full-access" } as ThreadProjection;
+  const asker = { ...guest, permissionMode: "read-only" } as ThreadProjection;
+  const withCopy = (overrides: Partial<RuntimeProjection> = {}) =>
+    projectionWith({
+      threads: [host, worker],
+      worktrees: [
+        { worktreeId, projectId, path: "C:/repo", branch: "main", status: "ready" },
+        { worktreeId: copyId, projectId, path: "C:/repo-worktrees/main-owl", branch: "main-owl", status: "ready" },
+      ] as RuntimeProjection["worktrees"],
+      ...overrides,
+    });
+  const review = {
+    worktreeId: copyId,
+    baseRef: "main",
+    branch: "main-owl",
+    state: "changes",
+    files: [
+      {
+        path: "src/login.ts",
+        kind: "modified",
+        staged: false,
+        unstaged: true,
+        additions: 12,
+        deletions: 3,
+        binary: false,
+      },
+    ],
+    conflictFiles: [],
+    updatedAt: "2026-11-20T10:00:00.000Z",
+  } as unknown as NonNullable<RuntimeProjection["reviews"]>[number];
+  const commandsOf = (dispatched: Array<{ command: Record<string, unknown> }>) =>
+    dispatched.map((entry) => entry.command);
+
+  it("asks by default, and picking Work brings the agent in to work on a copy", async () => {
+    const onBringIn = vi.fn(async () => ({ threadId: guestId }));
+    const { container } = await render(projectionWith(), { onBringIn });
+    await openAskMenu(container);
+    expect(menuChoice("Ask, read only")?.getAttribute("aria-checked")).toBe("true");
+    expect(menuChoice("Work on a copy")?.getAttribute("aria-checked")).toBe("false");
+    await act(async () => menuChoice("Work on a copy")?.click());
+    // The menu stays open with the same agents, now set to work.
+    expect(menuChoice("Work on a copy")?.getAttribute("aria-checked")).toBe("true");
+    const codex = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) =>
+      node.textContent?.includes("Codex"),
+    );
+    expect(codex?.getAttribute("title")).toMatch(/Works on main-[a-z]+, on Codex/u);
+    await act(async () => codex?.click());
+    const [request] = onBringIn.mock.calls[0] as unknown as [{ provider: string; mode: string }];
+    expect(request).toMatchObject({ provider: "codex", mode: "work" });
+  });
+
+  it("offers only Ask in a folder without Git", async () => {
+    const { container } = await render(
+      projectionWith({
+        projects: [{ projectId, path: "C:/repo", name: "repo", git: false }] as RuntimeProjection["projects"],
+      }),
+      { onBringIn: vi.fn(async () => ({ threadId: guestId })) },
+    );
+    await openAskMenu(container);
+    expect(menuChoice("Ask, read only")).toBeDefined();
+    expect(menuChoice("Work on a copy")).toBeUndefined();
+  });
+
+  it("badges each guest with how it joined", async () => {
+    const { container } = await render(withCopy());
+    expect(container.querySelector(".room-person-mode")?.textContent).toBe("Work");
+    document.body.replaceChildren();
+    const asked = await render(projectionWith({ threads: [host, asker] }));
+    expect(asked.container.querySelector(".room-person-mode")?.textContent).toBe("Ask");
+  });
+
+  it("tells an Ask guest it is read-only, and a Work guest that it works on a copy", async () => {
+    const asked = await render(projectionWith({ threads: [host, asker] }));
+    await type(asked.container, "@Owl look at login.ts");
+    await act(async () => button(asked.container, "Send")?.click());
+    const toAsker = asked.dispatched.at(-1)?.command as { context?: string } | undefined;
+    expect(toAsker?.context).toContain("your access is read-only");
+    document.body.replaceChildren();
+
+    const working = await render(withCopy());
+    await type(working.container, "@Owl fix login.ts");
+    await act(async () => button(working.container, "Send")?.click());
+    const sent = working.dispatched.filter((entry) => entry.command.type === "thread.queue").at(-1)?.command as {
+      threadId: string;
+      context?: string;
+    };
+    expect(sent.threadId).toBe(guestId);
+    expect(sent.context).toContain("You work on a copy: your own worktree on branch main-owl, made from main.");
+  });
+
+  it("shows a Work guest's changes in a card, and merges them into the chat's branch", async () => {
+    const { container, dispatched } = await render(withCopy({ reviews: [review] }));
+    expect(commandsOf(dispatched)).toContainEqual({ type: "review.refresh", worktreeId: copyId, baseRef: "main" });
+    const card = container.querySelector<HTMLElement>(`[aria-label="Owl's copy"]`) as HTMLElement;
+    expect(card.textContent).toContain("main-owl");
+    expect(card.textContent).toContain("src/login.ts");
+    await act(async () => button(card, "src/login.ts+12−3")?.click());
+    expect(commandsOf(dispatched)).toContainEqual({ type: "review.diff", worktreeId: copyId, path: "src/login.ts" });
+    await act(async () => button(card, "Merge into my branch")?.click());
+    expect(commandsOf(dispatched)).toContainEqual({
+      type: "review.merge",
+      worktreeId: copyId,
+      targetRef: "main",
+      commitMessage: "Work from Owl",
+    });
+  });
+
+  it("discards a Work guest's copy after asking", async () => {
+    const onDiscardGuest = vi.fn(async () => undefined);
+    const { container } = await render(withCopy({ reviews: [review] }), { onDiscardGuest });
+    const card = container.querySelector<HTMLElement>(`[aria-label="Owl's copy"]`) as HTMLElement;
+    await act(async () => button(card, "Discard")?.click());
+    expect(card.textContent).toContain("Discard Owl's copy and its branch?");
+    expect(onDiscardGuest).not.toHaveBeenCalled();
+    await act(async () => button(card, "Discard")?.click());
+    expect(onDiscardGuest).toHaveBeenCalledWith(guestId);
+  });
+
+  it("puts a removable chip in the message box from Message Owl on the chip", async () => {
+    const { container } = await render(projectionWith({ threads: [host, guest] }));
+    await act(async () => button(container, "Owl, Codex")?.click());
+    const message = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (node) => node.textContent === "Message Owl",
+    );
+    await act(async () => message?.click());
+    expect(chipLabels()).toEqual(["Owl"]);
+    expect(container.querySelector("textarea")?.value).toBe("");
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Remove Owl"]')?.click());
+    expect(chipLabels()).toEqual([]);
+  });
+
+  it("lists agents in other chats of the project under @, and sends to them in their own chat", async () => {
+    const other = {
+      threadId: "00000000-0000-4000-8000-000000000403",
+      worktreeId,
+      provider: "codex",
+      status: "idle",
+      capabilities: {},
+      name: "Fox",
+    } as ThreadProjection;
+    const { container, dispatched } = await render(projectionWith({ threads: [host, other] }));
+    await type(container, "@Fox can you check the login flow?");
+    await act(async () => button(container, "Send")?.click());
+    expect(dispatched.at(-1)?.command).toMatchObject({
+      type: "thread.a2a",
+      sourceThreadId: hostId,
+      targetThreadId: other.threadId,
+      text: "can you check the login flow?",
+    });
   });
 });

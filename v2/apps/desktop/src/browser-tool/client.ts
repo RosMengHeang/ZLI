@@ -94,6 +94,9 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/** Past the gateway's five-minute limit for a service's tool, so the gateway always answers first. */
+const TOOL_USE_TIMEOUT_MS = 5 * 60_000 + 30_000;
+
 const postJson: ZliBrowserPost = (endpoint, action, body) =>
   new Promise((resolve, reject) => {
     const outgoing = request(
@@ -107,7 +110,9 @@ const postJson: ZliBrowserPost = (endpoint, action, body) =>
           "content-type": "application/json",
           "content-length": Buffer.byteLength(body),
         },
-        timeout: 170_000,
+        // use_tool waits on a connected service for up to five minutes (the gateway's own limit), so its answer
+        // has longer to come back than other actions.
+        timeout: action === "tooluse" ? TOOL_USE_TIMEOUT_MS : 170_000,
       },
       (incoming) => {
         const chunks: Buffer[] = [];

@@ -4,6 +4,7 @@ import { SettingsGroup, SettingsPageHeader, SettingsRow } from "../settings/Sett
 import { Button } from "../ui/Button.js";
 import { Select } from "../ui/Field.js";
 import { Switch } from "../ui/Switch.js";
+import { AgentUpdates } from "./AgentUpdates.js";
 import { lastCheckedText, updateStatusText } from "./updateCopy.js";
 import type { Updates } from "./useUpdates.js";
 
@@ -18,6 +19,7 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
         <SettingsGroup title="This version" bare>
           <p className="settings-empty">Updates are only available in the ZLI desktop app.</p>
         </SettingsGroup>
+        <AgentUpdates />
       </>
     );
   }
@@ -98,6 +100,7 @@ export function UpdatesSection({ updates, onRestart }: { updates: Updates | unde
           onChange={(autoInstall) => void updates.setAutoInstall(autoInstall)}
         />
       </SettingsGroup>
+      <AgentUpdates />
     </>
   );
 }

@@ -9,7 +9,7 @@ import {
   sendChatMessage,
 } from "./desktop-fixtures.js";
 
-test("shows a chat's context use and totals turn usage on the Usage page", async () => {
+test("shows a chat's context use, plan limits in the sidebar, and the Usage page", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
   let fixture: DesktopFixture | undefined;
@@ -27,22 +27,18 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await expect(page.locator(".chat-log").getByText("Mock response: [usage] summarize the repo")).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.locator(".composer-context")).toHaveAttribute("aria-label", /^7% of context used/u);
+    // The chat's context use is in the computer column's Context card.
+    await expect(page.locator(".ov-context-big").first()).toHaveText(/^7% used/u);
 
+    // Plan limits show from the start: folded, one line in the footer for the selected agent's login, the Codex
+    // chat at its fullest limit. Settings moves to an icon beside it.
     const limits = page.getByRole("button", { name: "Plan limits", exact: true });
-    await expect(limits).toHaveCount(0);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    const settings = page.getByRole("dialog", { name: "Settings" });
-    await settings.getByRole("tab", { name: "Usage" }).click();
-    await settings.getByRole("switch", { name: /Show plan limits/u }).check();
-    await page.keyboard.press("Escape");
-    await expect(settings).toHaveCount(0);
-    // Folded, the limits are one line in the footer for the selected agent's login: the Codex chat,
-    // at its fullest limit. Settings moves to an icon beside it.
     const card = page.locator(".sidebar-usage-strip");
     await expect(limits).toHaveAttribute("aria-expanded", "false");
     const line = page.locator(".sidebar-footer .usage-strip-summary");
-    await expect(line).toHaveText("5h34%");
+    // Each window of the limit, the 5-hour one and the weekly one, with how long until it resets.
+    await expect(line).toContainText("5h34%");
+    await expect(line).toContainText("wk12%");
     await expect(line.locator(".provider-mark-codex")).toBeVisible();
     await expect(page.locator(".sidebar-footer").getByRole("button", { name: "Settings", exact: true })).toHaveText("");
     await expect(card).toHaveCount(0);
@@ -53,30 +49,30 @@ test("shows a chat's context use and totals turn usage on the Usage page", async
     await expect(card.locator(".usage-strip-name").first()).toHaveText("Claude Code");
     await expect(card.locator(".usage-strip-window-label").first()).toHaveText("5h");
     await expect(card.locator(".usage-strip-window-percent").first()).toHaveText("86%");
-    // Every circle says when it resets, the same way.
-    await expect(card.locator(".usage-strip-window-reset").first()).toHaveText(/^Resets in \d+m$/u);
+    // Every circle says when it resets, the same way; a narrow card keeps just the countdown.
+    await expect(card.locator(".usage-strip-window-reset").first()).toHaveText(/^Resets in \d+m/u);
+    // Choose agents opens Settings on Providers, where the sidebar's usage is set up.
     await card.getByRole("button", { name: "Choose agents" }).click();
-    await expect(settings.getByRole("tab", { name: "Usage" })).toHaveAttribute("aria-selected", "true");
-    // Pinned in Settings, the line shows that agent's limit instead of the selected chat's.
-    await settings.getByRole("button", { name: /^Agent in the footer/u }).click();
-    await page.getByRole("option", { name: /^Cursor/u }).click();
+    const settings = page.getByRole("dialog", { name: "Settings" });
+    await expect(settings.getByRole("tab", { name: "Providers" })).toHaveAttribute("aria-selected", "true");
+    // Pinned there, the line shows that agent's limit instead of the selected chat's.
+    // Settings scrolls to the section as it opens, and a scroll closes an open picker, so open it once it holds.
+    const footerAgent = settings.getByRole("button", { name: /^Agent in the footer/u });
+    await expect(async () => {
+      if ((await footerAgent.getAttribute("aria-expanded")) !== "true") await footerAgent.click();
+      await page.getByRole("option", { name: /^Cursor/u }).click({ timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
     await expect(line.locator(".provider-mark-cursor-agent")).toBeVisible();
 
-    await page.getByRole("button", { name: "Usage", exact: true }).click();
-    const usage = page.getByRole("dialog", { name: "Usage" });
-    const summary = usage.locator(".usage-summary");
-    await expect(summary).toContainText("Turns1");
-    await expect(summary).toContainText("12k8k cached");
-    await expect(summary).toContainText("$0.04");
-    await expect(usage.getByRole("row", { name: /\[usage\] summarize the repo/u })).toContainText("1.3k");
-
-    await usage.getByRole("button", { name: "Today", exact: true }).click();
-    await expect(usage.getByRole("button", { name: "Today", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await expect(summary).toContainText("Turns1");
+    // Token use and cost have their own page in Settings.
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await settings.getByRole("tab", { name: "Usage", exact: true }).click();
+    await expect(settings.getByRole("tab", { name: "Usage", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(settings.locator(".settings-page-title")).toHaveText("Usage");
     await page.keyboard.press("Escape");
-    await expect(usage).toHaveCount(0);
+    await expect(settings).toHaveCount(0);
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

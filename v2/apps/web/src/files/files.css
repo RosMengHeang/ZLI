@@ -224,3 +224,17 @@
 .md-file-link:hover code, .md-file-link.is-plain:hover { text-decoration: underline; text-underline-offset: 2px; }
 .md-file-link.is-plain { color: var(--zli-blue); }
 .md-file-link:focus-visible { border-radius: var(--zli-radius-xs); outline-width: 1px; }
+
+/* In the right panel the open files are tabs in its strip, so the pane keeps one quiet bar: where the file is, a
+   few actions, and the rest in a menu. Its own header and the path bar step aside. */
+.files-pane.is-compact > .pane-header, .files-pane.is-compact .file-path-bar { display: none; }
+.files-bar { display: flex; min-width: 0; height: 40px; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); padding: 0 var(--zli-space-2) 0 var(--zli-space-4); }
+.files-crumbs { display: flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); white-space: nowrap; }
+.files-crumbs > svg { flex: 0 0 auto; color: var(--zli-disabled, var(--zli-dim)); }
+.files-crumb { flex: 0 0 auto; }
+.files-crumb.is-dir { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; direction: rtl; }
+.files-crumb.is-current { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--zli-text); font-weight: 600; text-overflow: ellipsis; }
+.files-bar .file-view-tabs { margin: 0 2px; }
+.files-pane.is-compact > .files-body { min-height: 0; flex: 1; }
+.files-foot { display: flex; min-width: 0; height: 32px; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); padding: 0 var(--zli-space-2) 0 var(--zli-space-4); border-top: 1px solid var(--zli-border); }
+.files-foot-meta { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }

@@ -31,7 +31,9 @@
 .tile-spacer { min-width: var(--zli-space-2); flex: 1; }
 .tile-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1px; }
 .tile-actions .tile-stop { margin: 0 var(--zli-space-1); }
-.tile-body { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; }
+/* The body is a row: the chat, then the computer column beside it in chat mode. */
+.tile-body { position: relative; display: flex; min-height: 0; flex: 1; }
+.tile-main { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
 .tile-terminal { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; background: var(--zli-terminal); }
 .tile-ended {
   display: flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); margin: 0 var(--zli-space-2) var(--zli-space-2); padding: var(--zli-space-1-5) var(--zli-space-1-5) var(--zli-space-1-5) var(--zli-space-3);
@@ -75,17 +77,35 @@
 /* ---------- Environment card (chat mode) ---------- */
 /* Pinned to the chat's top-right corner as one list of rows: where the agent works, then its Git state.
    The host lets clicks through, so only the card itself takes them. The header's screen button hides it. */
-.env-card-host { position: absolute; top: var(--zli-space-3); right: var(--zli-space-3); z-index: 4; display: flex; pointer-events: none; }
-.env-card { display: flex; width: 272px; max-height: min(70vh, 560px); flex-direction: column; overflow: auto; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xl); background: var(--zli-raised); box-shadow: var(--zli-highlight), 0 16px 36px -20px rgba(0, 0, 0, .9); pointer-events: auto; animation: env-card-in var(--zli-duration-base) var(--zli-ease) both; }
+/* The chat's computer column: the environment card, then the Changes and Context cards, at the tile's right edge
+   over the chat, shown whether the right panel is open or not. A tile narrower than 680px opens it as a drawer with
+   a close button instead (the tile knows its width and sets .is-overlay). */
+.tile-body { --env-column-width: clamp(264px, 32cqw, 320px); }
+.env-card-host { position: absolute; top: 0; right: 0; bottom: 0; z-index: 3; display: flex; width: var(--env-column-width); min-height: 0; flex-direction: column; padding: var(--zli-space-2); pointer-events: none; }
+.env-card-host:empty { display: none; }
+.env-card-host:not(.is-overlay) .env-card { flex: 0 1 auto; max-height: 100%; pointer-events: auto; }
+.env-card { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: var(--zli-space-2); overflow-y: auto; scrollbar-width: thin; }
+.env-card-host.is-overlay { position: absolute; top: var(--zli-space-2); right: var(--zli-space-2); bottom: var(--zli-space-2); z-index: 4; width: auto; padding: 0; pointer-events: none; }
+.env-card-host.is-overlay .env-card { width: min(320px, calc(100cqw - 2 * var(--zli-space-2))); max-height: 100%; flex: 0 1 auto; padding: var(--zli-space-2); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-xl); background: var(--zli-surface); box-shadow: var(--zli-shadow-pop); pointer-events: auto; animation: env-card-in var(--zli-duration-base) var(--zli-ease) both; }
+.env-card-close { flex: 0 0 auto; align-self: flex-end; margin-bottom: calc(-1 * var(--zli-space-1)); }
+@media (prefers-reduced-motion: reduce) { .env-card-host.is-overlay .env-card { animation: none; } }
+/* The environment itself keeps its own card look, as before the column. */
+.env-panel { display: flex; flex: 0 0 auto; flex-direction: column; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-xl); background: var(--zli-raised); box-shadow: var(--zli-highlight), var(--zli-shadow-lift); animation: env-card-in var(--zli-duration-base) var(--zli-ease) both; }
 @keyframes env-card-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
 .env-card-group { display: flex; flex-direction: column; gap: 1px; padding: var(--zli-space-1-5); }
 .env-card-group + .env-card-group { border-top: 1px solid var(--zli-border); }
-.env-card .env-row { min-height: 34px; padding: 0 var(--zli-space-2-5); }
-.env-card .env-row > svg:last-child { flex: 0 0 auto; color: var(--zli-dim); }
+.env-panel .env-row { min-height: 34px; padding: 0 var(--zli-space-2-5); }
+.env-panel .env-row > svg:last-child { flex: 0 0 auto; color: var(--zli-dim); }
 .env-card-folder .env-row-label { font-weight: 500; }
 .env-card-kind { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 7px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: 20px; }
 .env-card-kind.is-worktree { background: var(--zli-accent-soft); color: var(--zli-accent-hover); }
 .env-card-kind > svg { color: currentColor; }
+/* Context and Running, added under the card's own rows: a small label, then the overview's rows. */
+.env-card-label { margin: 0; padding: 2px var(--zli-space-2-5) 4px; color: var(--zli-dim); font-size: var(--zli-text-xs); font-weight: 500; }
+.env-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); padding-right: var(--zli-space-1); }
+.env-card-head .env-card-label { padding-bottom: 2px; }
+.env-card-extra .ov-rows { margin: 0; }
+.env-card-extra > :not(.env-card-label):not(.env-card-head):not(.ov-rows) { padding-inline: var(--zli-space-2-5); }
 /* "Open in <app>": the row opens the last-used app, the chevron at its end picks another. */
 .open-in-row { gap: 0; padding: 0 !important; }
 .open-in-row-main { display: flex; min-width: 0; height: 34px; flex: 1; align-items: center; gap: var(--zli-space-2-5); padding: 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-sm) 0 0 var(--zli-radius-sm); background: transparent; color: var(--zli-text); cursor: default; font: inherit; font-size: var(--zli-text-sm); text-align: left; }
@@ -103,6 +123,11 @@
 .env-checks.is-pending { color: var(--zli-amber); }
 /* The header button that toggles the card reads as pressed while the card shows. */
 .tile-actions .btn-icon.is-on { background: var(--zli-active); color: var(--zli-text); }
+
+/* A chat title renames in place. */
+.tile-title.is-editable { margin: -1px -4px; padding: 1px 4px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; font: inherit; font-size: var(--zli-text-base); font-weight: 600; cursor: text; text-align: left; }
+.tile-title.is-editable:hover { background: var(--zli-hover); color: var(--zli-text); }
+.tile-title-input { min-width: 120px; max-width: 360px; height: 24px; flex: 0 1 280px; padding: 0 6px; border: 1px solid var(--zli-focus); border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-text); font: inherit; font-size: var(--zli-text-base); font-weight: 600; outline: none; }
 /* The pull request: its title on up to two lines, then its number, checks, and one Merge button. */
 .env-pr-card { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: var(--zli-space-2-5); row-gap: 4px; align-items: start; padding: var(--zli-space-2) var(--zli-space-2-5); border-radius: var(--zli-radius-sm); }
 .env-pr-card > svg { margin-top: 2px; color: var(--zli-green); }
@@ -125,8 +150,11 @@
 .env-commit-message { width: 100%; }
 .env-commit-actions { display: flex; align-items: center; gap: var(--zli-space-1-5); }
 .env-commit-actions > .btn-primary { flex: 1; justify-content: center; }
-
-/* A chat title renames in place. */
-.tile-title.is-editable { margin: -1px -4px; padding: 1px 4px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; font: inherit; font-size: var(--zli-text-base); font-weight: 600; cursor: text; text-align: left; }
-.tile-title.is-editable:hover { background: var(--zli-hover); color: var(--zli-text); }
-.tile-title-input { min-width: 120px; max-width: 360px; height: 24px; flex: 0 1 280px; padding: 0 6px; border: 1px solid var(--zli-focus); border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-text); font: inherit; font-size: var(--zli-text-base); font-weight: 600; outline: none; }
+.env-branch-error { margin: 2px var(--zli-space-2-5) var(--zli-space-1); }
+.env-branch-error > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.env-branch-error > .btn-icon { flex: 0 0 auto; margin: -3px -4px 0 0; }
+/* As a drawer the column is one floating card: the environment inside it sits flat, so no card floats in a card. */
+.env-card-host.is-overlay .env-panel { border-color: var(--zli-border); box-shadow: none; animation: none; }
+/* The computer column sits beside the chat, never over it: while it shows, the chat's log and message box keep
+   clear of its width, so nothing in the chat hides under it. As a drawer on a narrow tile it floats over instead. */
+.tile-body:has(> .env-card-host:not(.is-overlay):not(:empty)) :is(.chat-log, .chat-dock) { padding-right: var(--env-column-width); }

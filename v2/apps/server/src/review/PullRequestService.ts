@@ -21,6 +21,7 @@ import {
   type PullRequestReviewEvent,
   type PullRequestReviewSummary,
   type PullRequestReviewThread,
+  PullRequestLookupResult,
   PullRequestStatusResult,
   PullRequestUpdateResult,
   type RuntimeProjection,
@@ -790,6 +791,19 @@ export class PullRequestService {
     return parseUpstream(name, track);
   }
 
+  /** Reads each pull request by its link, a few at a time; one GitHub cannot read is left out. */
+  async lookup(input: PullRequestInput, urls: readonly string[]): Promise<PullRequestLookupResult> {
+    const cwd = input.worktreePath;
+    const found: (PullRequestInfo | undefined)[] = [];
+    for (let start = 0; start < urls.length; start += 4) {
+      const batch = urls.slice(start, start + 4);
+      found.push(...(await Promise.all(batch.map((url) => this.view(cwd, url).catch(() => undefined)))));
+    }
+    return PullRequestLookupResult.parse({
+      pullRequests: found.filter((entry): entry is PullRequestInfo => entry !== undefined),
+    });
+  }
+
   private async view(cwd: string, target: string): Promise<PullRequestInfo | undefined> {
     const view = await this.gh(["pr", "view", target, "--json", PR_FIELDS], cwd);
     return view.code === 0 ? parsePullRequest(view.stdout) : undefined;
@@ -939,15 +953,19 @@ async function runCommand(
   const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
   if (!worktree) throw new PullRequestError("Worktree does not exist.");
   if (worktree.status !== "ready") throw new PullRequestError("Worktree is not ready.");
+  // A review read against HEAD (before Changes knew the base branch) names no branch a pull request can target.
+  const reviewBase = projection.reviews?.find((review) => review.worktreeId === command.worktreeId)?.baseRef;
   const input: PullRequestInput = {
     worktreePath: worktree.path,
-    fallbackBase: projection.reviews?.find((review) => review.worktreeId === command.worktreeId)?.baseRef ?? "main",
+    fallbackBase: reviewBase && reviewBase !== "HEAD" ? reviewBase : "main",
   };
   switch (command.type) {
     case "review.pr.status":
       return service.status(input, command.base);
     case "review.pr.push":
       return service.push(input);
+    case "review.pr.lookup":
+      return service.lookup(input, command.urls);
     case "review.pr.checkLog":
       return service.checkLog(input, command.url);
     case "review.pr.comments":

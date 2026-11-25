@@ -284,8 +284,8 @@ test("shows a pull request's checks and sends a failed check's log to an agent",
     await expect(send).toHaveCount(0);
     await expect(page.getByText(/Mock response: The CI check/u)).toBeVisible({ timeout: 20_000 });
 
-    // The sidebar shows the same pull request on the branch line of the agent's card.
-    await expect(page.locator(".session-branch", { hasText: "checks" })).toContainText("#7", { timeout: 30_000 });
+    // The chat's footer shows the same pull request, with its failed check.
+    await expect(page.locator(".pr-chip.is-failed .pr-chip-number")).toHaveText("#7", { timeout: 30_000 });
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

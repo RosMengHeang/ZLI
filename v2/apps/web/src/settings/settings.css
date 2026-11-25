@@ -65,24 +65,37 @@
 .settings-done .text-link, .settings-empty .text-link, .settings-footnote .text-link { font-size: inherit; }
 /* Projects: one row per folder; the selected one shows its defaults and its Remove action below the list. */
 .project-list { padding: 0; overflow: hidden; }
-.project-row { display: flex; flex-direction: column; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
-.project-row:hover { background: var(--zli-hover); }
-.project-row.is-selected { background: var(--zli-active); }
-.project-pick { display: flex; width: 100%; align-items: center; gap: var(--zli-space-3); min-width: 0; min-height: 52px; padding: var(--zli-space-2-5) var(--zli-space-4); border: 0; background: transparent; color: inherit; cursor: default; font: inherit; text-align: left; }
-.project-pick > svg { flex: 0 0 auto; color: var(--zli-dim); }
-.project-row.is-selected .project-pick > svg { color: var(--zli-text); }
-.project-pick:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
-.project-pick-copy { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
-.project-pick-title { display: flex; align-items: center; gap: var(--zli-space-1-5); min-width: 0; }
-.project-pick-title strong { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.project-pick-path { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.project-row { display: flex; flex-direction: column; }
+.project-open { display: flex; width: 100%; min-width: 0; align-items: center; gap: var(--zli-space-3); min-height: 52px; padding: var(--zli-space-2-5) var(--zli-space-3) var(--zli-space-2-5) var(--zli-space-4); border: 0; background: transparent; color: inherit; cursor: default; font: inherit; text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.project-open:hover { background: var(--zli-hover); }
+.project-open:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.project-open > svg { flex: 0 0 auto; color: var(--zli-dim); }
+.project-open:hover > svg { color: var(--zli-muted); }
+.project-copy { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
+.project-name { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.project-path { overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.project-running { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; color: var(--zli-dim); font-size: var(--zli-text-xs); white-space: nowrap; }
+.project-running-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--zli-green); }
+.project-page-back { margin: calc(-1 * var(--zli-space-2)) 0 calc(-1 * var(--zli-space-3)) calc(-1 * var(--zli-space-2)); }
+.settings-page-note .is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-xs); overflow-wrap: anywhere; }
+.project-config-list { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--zli-space-1); margin: 0; padding: 0; list-style: none; }
+.project-config-list code { display: inline-block; max-width: 300px; overflow: hidden; padding: 1px 6px; border-radius: var(--zli-radius-sm); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.settings-value.is-dim { color: var(--zli-dim); }
+.branch-tokens { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--zli-space-1); }
+.branch-token { height: 24px; padding: 0 var(--zli-space-2); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: default; font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+.branch-token:hover:not(:disabled) { background: var(--zli-hover); color: var(--zli-text); }
+.branch-token:disabled { opacity: .45; }
+.branch-token:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 .project-remove { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-3) var(--zli-space-6); min-height: 52px; padding: var(--zli-space-3) 0; }
 .project-remove-copy { display: flex; min-width: 200px; flex: 1; flex-direction: column; gap: 2px; }
 .project-remove-title { margin: 0; color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; }
 .project-remove-detail { margin: 0; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .project-remove-problem { margin: var(--zli-space-1) 0 0; color: var(--zli-red); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
 .project-remove-actions { display: flex; flex: 0 0 auto; gap: var(--zli-space-1-5); }
-.integrations-tabs { display: flex; gap: 2px; padding: 3px; align-self: flex-start; border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); }
+.integrations-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--zli-space-2) var(--zli-space-3); }
+.integrations-search { width: 260px; max-width: 100%; flex: 0 1 260px; }
+@media (max-width: 640px) { .integrations-search { flex: 1 1 100%; width: auto; } }
+.integrations-tabs { flex: 0 0 auto; display: flex; gap: 2px; padding: 3px; align-self: flex-start; border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); }
 .integrations-tab {
   height: var(--zli-control-sm); padding: 0 var(--zli-space-3); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; font-size: var(--zli-text-sm); font-weight: 500;
   transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
@@ -112,6 +125,7 @@
 .shortcut-label { min-width: 0; color: var(--zli-text); font-size: var(--zli-text-base); }
 .shortcut-key { display: inline-flex; min-width: 104px; height: var(--zli-control-md); align-items: center; justify-content: flex-end; padding: 0 var(--zli-space-1-5); border: 1px solid transparent; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-muted); cursor: default; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
 .shortcut-key:hover { border-color: var(--zli-border-strong); background: var(--zli-hover); }
+.shortcut-key.is-fixed:hover { border-color: transparent; background: transparent; }
 .shortcut-key.is-recording { justify-content: center; border-color: var(--zli-accent-line); background: var(--zli-surface); }
 .shortcut-waiting { color: var(--zli-text); font-size: var(--zli-text-sm); }
 .shortcut-reset { display: inline-flex; justify-content: center; }
@@ -126,7 +140,69 @@
 .mcp-row-detail { color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 /* Accounts: the line that says who an agent is signed in as reads in body text, so it is the first thing seen in each group; the sentence under it stays dim. */
 .accounts-status { color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
-.accounts-usual .mcp-row-detail code { font-size: var(--zli-text-xs); }
+/* Accounts: one card per login, the default one lifted, like the sidebar's cards. */
+.account-deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--zli-space-2-5); margin: 0; padding: 0; list-style: none; }
+.account-card {
+  container: usage-card / inline-size;
+  display: flex; min-width: 0; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-3);
+  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg);
+  background: color-mix(in srgb, var(--zli-raised) 45%, var(--zli-surface));
+}
+.account-card.is-default {
+  border-color: var(--zli-border-strong);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--zli-text) 5%, var(--zli-raised)), color-mix(in srgb, var(--zli-raised) 45%, var(--zli-surface)) 75%);
+}
+.account-card-top { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2-5); }
+.account-card-avatar {
+  display: grid; width: 28px; height: 28px; flex: 0 0 auto; place-items: center; border-radius: 8px;
+  background: var(--zli-active); color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 600;
+}
+.account-card-who { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.account-card-who strong { overflow: hidden; color: var(--zli-text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.account-card-sub { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.account-signin { display: flex; flex-direction: column; align-items: flex-start; gap: var(--zli-space-1); }
+.account-signin.is-warning { color: var(--zli-amber); }
+.account-signin.is-done { color: var(--zli-green); }
+.account-signin-line { display: inline-flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); }
+.account-signin-code { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-2); }
+.account-signin-code code { font-size: 13px; letter-spacing: 0.08em; color: var(--zli-text); }
+.account-signin-copy {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--zli-muted);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.account-signin-copy:hover { color: var(--zli-text); }
+.account-card-badges { display: inline-flex; flex: 0 0 auto; align-self: flex-start; gap: var(--zli-space-1); }
+.account-card-menu { display: inline-flex; flex: 0 0 auto; gap: 2px; margin-right: auto; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.account-card:hover .account-card-menu, .account-card-menu:focus-within { opacity: 1; }
+.account-card-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); }
+.account-chip { padding: 1px 8px; border-radius: var(--zli-radius-pill); background: var(--zli-active); color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.account-chip.is-on { background: var(--zli-text); color: var(--zli-canvas); font-weight: 500; }
+.account-card-chips .accounts-status { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.account-card-chips .accounts-status.is-warning { color: var(--zli-amber); }
+/* The same circles and reset times as the sidebar's limits card. */
+.account-card-limits { padding: var(--zli-space-1) 0 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.account-card-limits .usage-strip-window-label { max-width: 96px; }
+.account-card-note { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); overflow-wrap: anywhere; }
+.account-card-note code { font-size: var(--zli-text-xs); }
+.account-card-note.is-warning { color: var(--zli-amber); }
+.account-card-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--zli-space-1); margin-top: auto; }
+.account-card-actions:empty { display: none; }
+.account-card-ask { margin-right: auto; color: var(--zli-text); font-size: var(--zli-text-xs); }
+.account-card-add > button {
+  display: flex; width: 100%; height: 100%; min-height: 112px; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: var(--zli-space-3); border: 1px dashed var(--zli-border-strong); border-radius: var(--zli-radius-lg);
+  background: transparent; color: var(--zli-muted); cursor: default; font: inherit;
+  transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
+}
+.account-card-add > button:hover { background: var(--zli-hover); color: var(--zli-text); }
+.account-card-add > button:disabled { opacity: .5; }
+.account-card-add small { color: var(--zli-dim); font-size: var(--zli-text-xs); }
 .accounts-check { display: flex; min-height: 28px; align-items: center; justify-content: space-between; gap: var(--zli-space-3); }
 .accounts-check > p { margin: 0; }
 .mcp-row > .picker-field { width: auto; flex: 0 0 auto; }
@@ -234,3 +310,11 @@ fieldset.mobile-device-confirm { margin: 0; padding: 0; border: 0; gap: var(--zl
 @media (max-width: 720px) {
   .mobile-pairing { grid-template-columns: minmax(0, 1fr); justify-items: start; }
 }
+
+/* Agents: the buddies on the team, one 13px row each. */
+.settings-buddies { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.settings-buddy { display: flex; align-items: center; gap: var(--zli-space-2); min-height: 34px; padding: var(--zli-space-1) 0; }
+.settings-buddy + .settings-buddy { border-top: 1px solid var(--zli-border); }
+.settings-buddy-name { color: var(--zli-text); font-size: 13px; }
+.settings-buddy-meta { overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.notification-sound { display: inline-flex; align-items: center; gap: var(--zli-space-2); }

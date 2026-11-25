@@ -185,7 +185,7 @@ kbd {
 .count { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-width: 18px; height: 16px; padding: 0 5px; border-radius: var(--zli-radius-pill); background: var(--zli-hover); color: var(--zli-muted); font-size: var(--zli-text-2xs); font-variant-numeric: tabular-nums; line-height: 1; }
 
 /* ---------- Segmented control and tabs ---------- */
-.segmented { min-width: 0; margin: 0; border: 0; display: inline-flex; flex: 0 0 auto; gap: 2px; padding: 2px; border-radius: var(--zli-radius-md); background: var(--zli-well); }
+.segmented { min-width: 0; margin: 0; border: 0; display: inline-flex; flex: 0 0 auto; gap: 2px; padding: 2px; border-radius: var(--zli-radius-md); background: var(--zli-well); box-shadow: inset 0 0 0 1px var(--zli-border); }
 .segmented-item {
   display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 var(--zli-space-2); border: 0; border-radius: var(--zli-radius-sm);
   background: transparent; color: var(--zli-dim); cursor: default; font-size: var(--zli-text-sm); font-weight: 500; white-space: nowrap;

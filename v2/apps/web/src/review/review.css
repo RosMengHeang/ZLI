@@ -274,6 +274,38 @@ span.review-file-check { cursor: default; }
 .review-file-row:hover .review-file-check, .review-file-check:checked, .review-file-check:indeterminate, .review-file-check:focus-visible,
 .review-file-list:has(.review-file-check:checked) .review-file-check { opacity: 1; }
 
+/*
+ * The list fills the pane. Each row reads name, folder, counts, then the kind as a plain coloured letter, so the
+ * name is never what gets cut. Opening a file shows its diff in the list's place, with a way back.
+ */
+.review-file-list { max-height: none; flex: 1 1 auto; scrollbar-width: thin; }
+.review-file-row { min-height: 30px; }
+.review-file { height: 28px; gap: var(--zli-space-2); }
+.review-file .review-file-name { display: flex; min-width: 0; align-items: baseline; gap: var(--zli-space-2); font-size: var(--zli-text-sm); }
+.review-file-base { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.review-file-dir { flex: 1 1 0; min-width: 0; overflow: hidden; font-size: var(--zli-text-xs); text-overflow: ellipsis; direction: rtl; text-align: left; }
+.review-file .file-stat { flex: 0 0 auto; gap: var(--zli-space-1); }
+.file-kind { width: 12px; height: auto; background: transparent; font-size: var(--zli-text-xs); font-weight: 600; }
+.file-kind-added, .file-kind-untracked, .file-kind-modified, .file-kind-renamed, .file-kind-deleted { background: transparent; }
+.review-body.is-reading { gap: 0; }
+.review-diff-head { display: flex; min-width: 0; height: 36px; flex: 0 0 auto; align-items: center; gap: var(--zli-space-1); padding: 0 var(--zli-space-2); border-bottom: 1px solid var(--zli-border); }
+.review-diff-head .review-file-name { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: var(--zli-space-2); margin-left: var(--zli-space-1); font-family: inherit; }
+.review-diff-place { flex: 0 0 auto; margin-right: var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.review-body.is-reading .review-diff-panel { margin: 0; border: 0; border-radius: 0; background: transparent; }
+
+/* The commit area: a message box, then Commit with its menu and Push, then merging on one quiet line. */
+.review-actions { gap: var(--zli-space-2); padding: var(--zli-space-2-5) var(--zli-space-3) var(--zli-space-3); background: var(--zli-surface); }
+.review-commit { flex-direction: column; align-items: stretch; gap: var(--zli-space-2); }
+.review-commit-message { min-height: 52px; max-height: 160px; padding: var(--zli-space-2) var(--zli-space-2-5); border-radius: var(--zli-radius-md); background: var(--zli-well); font: inherit; font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); resize: vertical; }
+.review-commit-row { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
+.review-commit-split { display: flex; min-width: 0; flex: 1; }
+.review-commit-split > .btn:first-child { min-width: 0; flex: 1; justify-content: center; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.review-commit-split > .review-commit-more { flex: 0 0 auto; border-top-left-radius: 0; border-bottom-left-radius: 0; box-shadow: inset 1px 0 0 rgba(0, 0, 0, .22); }
+.review-merge { gap: var(--zli-space-1-5); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.review-merge-label { flex: 0 0 auto; white-space: nowrap; }
+.review-merge .review-branch-picker { flex: 0 1 auto; min-width: 72px; max-width: 160px; }
+.review-merge > .btn:first-of-type { margin-left: auto; }
+
 /* ---------- Pull requests page ---------- */
 /* Every pull request down the left like an inbox, the chosen one on the right. */
 .pr-page { display: flex; min-width: 0; height: 100%; min-height: 0; flex: 1; background: var(--zli-surface); }
@@ -310,3 +342,29 @@ span.review-file-check { cursor: default; }
 .pr-page-detail > * { width: 100%; max-width: 860px; margin: 0 auto; }
 .pr-page-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); }
 @media (max-width: 860px) { .pr-list { width: 240px; } }
+
+/* A chat's stack of pull requests, in the computer column: the newest first, the rest behind Show more. */
+.pr-stack { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px; }
+.pr-stack-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pr-stack-item { display: flex; flex-direction: column; gap: 3px; padding: 4px var(--zli-space-2-5); }
+.pr-stack-open { display: flex; align-items: flex-start; gap: var(--zli-space-2); padding: 0; border: 0; background: transparent; color: var(--zli-text); cursor: default; font: inherit; text-align: left; }
+.pr-stack-open > svg { flex: 0 0 auto; margin-top: 2px; color: var(--zli-green); }
+.pr-stack-item.is-merged .pr-stack-open > svg { color: #b48cf0; }
+.pr-stack-item.is-closed .pr-stack-open > svg { color: var(--zli-dim); }
+.pr-stack-open:hover .pr-stack-title { text-decoration: underline; text-underline-offset: 2px; }
+.pr-stack-title { display: -webkit-box; overflow: hidden; font-size: var(--zli-text-sm); font-weight: 500; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.pr-stack-meta { display: flex; align-items: center; gap: var(--zli-space-2); padding-left: 22px; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.pr-stack-number { font-variant-numeric: tabular-nums; }
+.pr-stack-checks { display: inline-flex; align-items: center; gap: 3px; }
+.pr-stack-item.is-failed .pr-stack-checks { color: var(--zli-red); }
+.pr-stack-item.is-passed .pr-stack-checks { color: var(--zli-green); }
+.pr-stack-item.is-pending .pr-stack-checks { color: var(--zli-amber); }
+.pr-stack-fix { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; padding: 1px 6px; border: 0; border-radius: var(--zli-radius-sm); background: color-mix(in srgb, var(--zli-red) 14%, transparent); color: var(--zli-red); cursor: default; font: inherit; font-size: var(--zli-text-xs); font-weight: 500; }
+.pr-stack-fix:hover { background: color-mix(in srgb, var(--zli-red) 22%, transparent); }
+.pr-stack-more { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; margin-left: var(--zli-space-1); padding: 2px 6px; border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-dim); cursor: default; font: inherit; font-size: var(--zli-text-xs); }
+.pr-stack-more:hover { background: var(--zli-hover); color: var(--zli-text); }
+/* In Recent: the stack's count beside the title, coloured by the worst checks across it. */
+.pr-stack-mark { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; margin-left: auto; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.pr-stack-mark.is-passed { color: var(--zli-green); }
+.pr-stack-mark.is-failed { color: var(--zli-red); }
+.pr-stack-mark.is-pending { color: var(--zli-amber); }

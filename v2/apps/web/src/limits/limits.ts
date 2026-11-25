@@ -46,13 +46,13 @@ export function limitKey(provider: string, accountId: string | undefined): strin
 }
 
 /**
- * Whether a login belongs on the card. A login with no plan limits (an API key, say) never does. The
- * usual login shows only once its windows were read: a CLI that is installed but signed out, turned
- * down, or unreachable is not a plan the person uses. A saved account was set up in ZLI, so it always
- * says why it has no numbers.
+ * Whether a login belongs on the card. A login with no plan limits (an API key, say) never does, and
+ * neither does one that is signed out or whose sign-in went stale: it cannot run, so Settings is where it
+ * shows. The usual login shows only once its windows were read. A saved, signed-in account says why it
+ * has no numbers.
  */
 export function showsReading(reading: PlanLimitReading): boolean {
-  if (reading.state === "unavailable") return false;
+  if (reading.state === "unavailable" || reading.state === "signed-out" || reading.state === "expired") return false;
   if (reading.accountId === USUAL_LOGIN_ACCOUNT_ID) return reading.windows.length > 0;
   return reading.state !== "ok" || reading.windows.length > 0;
 }
@@ -196,10 +196,26 @@ async function load(dispatch: Dispatch): Promise<void> {
   }
 }
 
+/** Reads every login again now, as after a sign-in, for the card and Settings alike. */
+export async function reloadPlanLimits(dispatch: Dispatch): Promise<void> {
+  try {
+    publish({ status: "ready", readings: await readPlanLimits(dispatch, true) });
+  } catch {
+    // The next regular read tries again.
+  }
+}
+
 /** Forgets the shared readings, for tests that start a new runtime. */
 export function resetPlanLimitsStore(): void {
   publish({ status: "loading" });
 }
+
+/** The readings already loaded, without asking for new ones. Empty until the sidebar card reads them. */
+export function useKnownPlanLimits(): readonly PlanLimitReading[] {
+  const state = useSyncExternalStore(subscribe, () => shared);
+  return state.status === "loading" ? NO_READINGS : state.readings;
+}
+const NO_READINGS: readonly PlanLimitReading[] = [];
 
 /**
  * Plan limits for every login, read when the window opens, every few minutes, when ZLI comes back to

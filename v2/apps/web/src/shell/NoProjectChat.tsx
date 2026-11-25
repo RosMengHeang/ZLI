@@ -1,5 +1,6 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { ChatBackdrop } from "../chat/ChatBackdrop.js";
 import { scrollMovesAnchor, useAnchoredPlacement } from "../ui/anchoredPopup.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
@@ -70,6 +71,7 @@ export function NoProjectChat({
 
   return (
     <div className="chat-view no-project-chat has-start-glow">
+      <ChatBackdrop />
       <div className="chat-log" role="log" aria-label="Agent conversation">
         <div className="chat-column">
           <div className="chat-start no-project-start">

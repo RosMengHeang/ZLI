@@ -120,8 +120,9 @@ describe("showsReading", () => {
     expect(showsReading(reading({ state: "expired", windows: [] }))).toBe(false);
     expect(showsReading(reading({ state: "error", windows: [] }))).toBe(false);
     expect(showsReading(reading({ state: "error" }))).toBe(true);
-    expect(showsReading(reading({ state: "signed-out", accountId: "work", windows: [] }))).toBe(true);
-    expect(showsReading(reading({ state: "expired", accountId: "work", windows: [] }))).toBe(true);
+    expect(showsReading(reading({ state: "signed-out", accountId: "work", windows: [] }))).toBe(false);
+    expect(showsReading(reading({ state: "expired", accountId: "work", windows: [] }))).toBe(false);
+    expect(showsReading(reading({ state: "error", accountId: "work", windows: [] }))).toBe(true);
   });
 
   it("lists each agent with a login on the card once, in a fixed order", () => {

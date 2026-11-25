@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { TerminalId, WorktreeId } from "./ids.js";
+import { TerminalId, ThreadId, WorktreeId } from "./ids.js";
 import type { RuntimeProjection } from "./projections.js";
 
 /** Hosts a dev server prints for itself. Wildcard binds are opened as localhost. */
@@ -101,3 +101,25 @@ export function worktreeDevServers(
   if (!devServers || !worktreeId) return [];
   return devServers.filter((devServer) => devServer.worktreeId === worktreeId).reverse();
 }
+
+/** Most local servers one agent-servers lookup reports. */
+export const MAX_AGENT_SERVERS = 8;
+
+/**
+ * A local server a chat's agent started with its own shell tool: its output announced the address, and
+ * something answers on the port right now. The agent owns the process, so ZLI can open it but not stop it.
+ */
+export const AgentServer = z.object({
+  threadId: ThreadId,
+  activityId: z.string().min(1).max(200),
+  url: DevServerProjection.shape.url,
+  port: DevServerProjection.shape.port,
+  /** The command line of the step that printed the address, when the agent reported one. */
+  command: z.string().min(1).max(2_000).optional(),
+  /** The step's title, such as "Start the dev server". */
+  title: z.string().min(1).max(500),
+});
+export type AgentServer = z.infer<typeof AgentServer>;
+
+export const AgentServersResult = z.object({ servers: z.array(AgentServer).max(MAX_AGENT_SERVERS) });
+export type AgentServersResult = z.infer<typeof AgentServersResult>;

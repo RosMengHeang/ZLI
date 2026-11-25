@@ -23,12 +23,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 
 import { agentUsable, chatAgentStatus } from "../agent/agentStatus.js";
 import { isSelectableProvider, listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { type FileLinks, useFileIndexContext, useFileLinks } from "../files/FileIndex.js";
-import { useCopyFeedback } from "../review/links.js";
+import { useKnownPlanLimits } from "../limits/limits.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import { entriesForThread, entriesForThreads, entriesInOrder, shallowArrayEqual } from "../runtime/runtimeStore.js";
@@ -36,6 +35,8 @@ import type { RunAgent, RunStart } from "../sessions/bestOf.js";
 import { takeoverContext } from "../sessions/handoff.js";
 import type { ChatPlace } from "../sessions/launch.js";
 import { buildTimeline, conversationThreads, type TimelineItem } from "../sessions/sessions.js";
+import { useAppSettings } from "../settings/appSettings.js";
+import { useShortcut } from "../shell/keybindings.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { type Buddy, buddyName } from "../teammates/buddies.js";
 import { useChatBuddy } from "../teammates/chatBuddies.js";
@@ -50,13 +51,13 @@ import {
 } from "../teammates/teammates.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Collapse } from "../ui/Collapse.js";
-import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
 import { AgentUnavailableNotice } from "./AgentUnavailableNotice.js";
-import { accountPlan, otherAgents } from "./agentModels.js";
+import { accountChoices, accountPlan, otherAgents } from "./agentModels.js";
+import { splitAttachedContext } from "./attachedContext.js";
 import { fileName, splitAttachedFiles } from "./attachedFiles.js";
 import type { BestOfAgentOption } from "./BestOfPopover.js";
 import {
@@ -68,24 +69,45 @@ import {
   PullRequestStrip,
   ReviewCard,
   reviewFindings,
-  SideChat,
-  StartSuggestions,
 } from "./ChatExtras.js";
-import { ChatImage, ChatImageScope, isImagePath } from "./ChatImage.js";
+import { ChatImageScope } from "./ChatImage.js";
+import { AssistantMessage, UserMessage, WorkingStatus } from "./ChatMessages.js";
+import { CompactionDivider, type CompactionState } from "./CompactionDivider.js";
 import { Composer, type ComposerAttachment, type ComposerBestOf } from "./Composer.js";
 import { ConnectorCard } from "./ConnectorCard.js";
 import { clearCodeReferences, removeCodeReference, useCodeReferences } from "./codeReferences.js";
+import { type CompactAction, CompactActionContext, publishCompactAction } from "./compactAction.js";
+import {
+  type Compaction,
+  compactFocus,
+  compactionMode,
+  compactionRequestId,
+  compactRequestText,
+  DEFAULT_COMPACT_FOCUS,
+  endsWithCompaction,
+  foldCompactions,
+  isCompactCommand,
+  isCompactionNotice,
+  isCompactionRequest,
+  latestSummary,
+  nativeTokensSaved,
+  shouldAutoCompact,
+  summaryContext,
+  summaryTokensSaved,
+  withKnownWindow,
+} from "./compaction.js";
+import type { ComposerCommand, MentionOption } from "./composerTriggers.js";
 import { DockSlot, firstDockItem } from "./DockSlot.js";
-import { FileBadge } from "./FileBadge.js";
+import { type GuestCardAction, GuestWorkCard } from "./GuestWorkCard.js";
+import { type GuestMode, guestBranchName, guestModeHint, guestModeOf } from "./guestWork.js";
 import { liveStepLabel } from "./liveStatus.js";
-import { Markdown } from "./Markdown.js";
-import type { MentionOption } from "./MentionPicker.js";
 import { type PendingRequest, RequestPager } from "./RequestCard.js";
 import { RoomBar, RoomLive, type RoomPerson, RoomSpeaker } from "./RoomParts.js";
 import { fastFor, reasoningLevels } from "./reasoning.js";
 import { loadReplaced, type ReplacedRange, replacedIndexes, replaceNote, saveReplaced } from "./replaced.js";
 import { mergeRoomTimeline, missedBy, roomBrief, roomGuests, roomHelpers, runningStep } from "./room.js";
-import { CitationContext, citationsFor, type Source, SourcesRow, turnSources } from "./Sources.js";
+import { onSideQuestionRequest, SideChat, sideQuestionContext, sideQuestionUpdate } from "./SideChat.js";
+import { type Source, turnSources } from "./Sources.js";
 import { ErrorText } from "./StackTrace.js";
 import { isSideChat } from "./sideChats.js";
 import { isSwitchNotice, switchNotice } from "./switchNotice.js";
@@ -94,7 +116,7 @@ import { TurnRail } from "./TurnRail.js";
 import { groupTurns, trailSummary, workedFor } from "./turns.js";
 import { UsageLimitNote } from "./UsageLimitNote.js";
 import { useDockHeight } from "./useDockHeight.js";
-import { ChangedFiles, elapsedLabel, WorkSteps } from "./WorkLog.js";
+import { ChangedFiles, WorkSteps } from "./WorkLog.js";
 import { WorkspaceBar } from "./WorkspaceBar.js";
 import "./chat.css";
 
@@ -110,12 +132,12 @@ export function ChatView({
   onOpenConnectors,
   onStartRuns,
   onBringIn,
+  onDiscardGuest,
   onOpenAgent,
   onBranch,
   onNewChatWithPrompt,
   onAskAside,
   onCloseAside,
-  sideChatSlot,
   active,
 }: {
   projection: RuntimeProjection;
@@ -141,6 +163,8 @@ export function ChatView({
   onStartRuns?: ((request: StartRunsRequest) => Promise<string | undefined>) | undefined;
   /** Starts another agent inside this chat. Absent where agents cannot start from here, such as a scratch chat. */
   onBringIn?: ((request: GuestRequest) => Promise<{ threadId: string } | { error: string }>) | undefined;
+  /** Lets an agent that worked on its own copy go: stops it and removes its worktree and branch. */
+  onDiscardGuest?: ((threadId: string) => Promise<void>) | undefined;
   /** Shows an agent's own chat or terminal, found by its thread or terminal id. */
   onOpenAgent?: ((agentId: string) => void) | undefined;
   /** Starts a new chat that carries this conversation up to a reply. */
@@ -153,8 +177,6 @@ export function ChatView({
     | undefined;
   /** Ends a side question and removes its chat. */
   onCloseAside?: ((threadId: string) => void) | undefined;
-  /** The right panel is showing the side chat: the side question is drawn there instead of on the message box. */
-  sideChatSlot?: HTMLElement | undefined;
   active?: boolean;
 }) {
   const { bridge, dispatch } = useRuntime();
@@ -165,8 +187,6 @@ export function ChatView({
   const permissionSwitch = thread.capabilities.permissionSwitch === "in-session";
   useEffect(() => setPermissionMode(threadMode), [threadMode]);
   const references = useCodeReferences(thread.threadId);
-  const [peerDraft, setPeerDraft] = useState("");
-  const [peerTargetId, setPeerTargetId] = useState<string>();
   const logRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
@@ -223,7 +243,11 @@ export function ChatView({
     useCallback((value: RuntimeProjection | undefined) => entriesForThread(value?.usage, threadId), [threadId]),
     shallowArrayEqual,
   );
-  const context = useMemo(() => latestContext(usage), [usage]);
+  // An agent that leaves its window out of its report gets the model's known window, so the ring can fill.
+  const context = useMemo(
+    () => withKnownWindow(latestContext(usage), model ?? thread.model),
+    [usage, model, thread.model],
+  );
   // A chat that moved to another agent or model is one conversation across the threads it went through.
   const chain = useMemo(() => conversationThreads(thread, projection.threads), [thread, projection.threads]);
   const earlierKey = chain
@@ -291,15 +315,19 @@ export function ChatView({
   const ownTimeline = useMemo(() => {
     const items: TimelineItem[] = [];
     let before: (typeof chain)[number] | undefined;
+    let beforeCompacted = false;
     for (const entry of chain) {
       const own = entry.threadId === threadId;
-      const said = own ? messages : earlierMessages.filter((message) => message.threadId === entry.threadId);
+      const written = own ? messages : earlierMessages.filter((message) => message.threadId === entry.threadId);
       const done = own ? activities : earlierActivities.filter((activity) => activity.threadId === entry.threadId);
       // A thread nobody wrote in adds nothing to read, so the notice spans it.
-      if (!own && said.length === 0 && done.length === 0) continue;
-      if (before) items.push({ kind: "message", message: switchNotice(before, entry, projection.providers) });
-      items.push(...buildTimeline(said, done, previousTimeline.current));
+      if (!own && written.length === 0 && done.length === 0) continue;
+      // A thread that ended on its compaction summary already has its divider; a switch notice would repeat it.
+      if (before && !beforeCompacted)
+        items.push({ kind: "message", message: switchNotice(before, entry, projection.providers) });
+      items.push(...buildTimeline(foldCompactions(written).messages, done, previousTimeline.current));
       before = entry;
+      beforeCompacted = endsWithCompaction(written) && latestSummary(written) !== undefined;
     }
     return items;
   }, [chain, threadId, messages, activities, earlierMessages, earlierActivities, projection.providers]);
@@ -313,6 +341,65 @@ export function ChatView({
     return mergeRoomTimeline(ownTimeline, guestSaid, order);
   }, [ownTimeline, guests.length, roomMessages, guestIds]);
   const turns = useMemo(() => groupTurns(timeline), [timeline]);
+  // Each compaction in the chat, how it went, and about how much it freed, for the divider in its place.
+  const chainUsage = useRuntimeSelector(
+    useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.usage, chainKey), [chainKey]),
+    shallowArrayEqual,
+  );
+  const threadStatus = thread.status;
+  // The summary that could not move to a fresh session, so its divider stops waiting and Compact works again.
+  const [handoffFailed, setHandoffFailed] = useState<string>();
+  const compactions = useMemo(() => {
+    const all = [...earlierMessages, ...messages];
+    const views = new Map<string, { compaction: Compaction; state: CompactionState; saved: number | undefined }>();
+    for (const compaction of foldCompactions(all).compactions.values()) {
+      const request = all.find((message) => message.messageId === compaction.requestId);
+      if (!request) continue;
+      const said = all.filter((message) => message.threadId === request.threadId);
+      const usageOf = chainUsage.filter((record) => record.threadId === request.threadId);
+      const own = request.threadId === threadId;
+      const running = own && (threadStatus === "working" || threadStatus === "starting");
+      const sentAfter = said
+        .slice(said.indexOf(request) + 1)
+        .some((message) => (message.role === "user" || message.role === "agent") && !isCompactionRequest(message));
+      if (compaction.mode === "native") {
+        views.set(compaction.requestId, {
+          compaction,
+          state: running && !sentAfter ? "compacting" : "done",
+          saved: nativeTokensSaved({
+            requestId: request.messageId,
+            messages: said,
+            turns: turnTimes.filter((turn) => turn.threadId === request.threadId),
+            usage: usageOf,
+          }),
+        });
+        continue;
+      }
+      const next = chain[chain.findIndex((entry) => entry.threadId === request.threadId) + 1];
+      const before = usageOf.findLast((record) => record.usage.contextTokens !== undefined)?.usage.contextTokens;
+      const fresh = next
+        ? chainUsage.find((record) => record.threadId === next.threadId && record.usage.contextTokens !== undefined)
+            ?.usage.contextTokens
+        : undefined;
+      // The summary way finishes once the chat carries on in its fresh session.
+      const state: CompactionState = next
+        ? "done"
+        : running ||
+            (own &&
+              threadStatus === "idle" &&
+              compaction.summary &&
+              !sentAfter &&
+              handoffFailed !== compaction.requestId)
+          ? "compacting"
+          : "stopped";
+      views.set(compaction.requestId, {
+        compaction,
+        state,
+        saved: summaryTokensSaved({ before, freshContext: fresh, summary: compaction.summary }),
+      });
+    }
+    return views;
+  }, [earlierMessages, messages, chainUsage, chain, threadId, threadStatus, turnTimes, handoffFailed]);
   const worked = useMemo(() => {
     const labels = new Map<string, string>();
     for (const turn of turnTimes) {
@@ -390,14 +477,13 @@ export function ChatView({
   const peers = useMemo(() => {
     if (!worktree) return [];
     return projection.threads.filter((candidate) => {
-      if (candidate.threadId === thread.threadId) return false;
+      if (candidate.threadId === thread.threadId || candidate.joins === thread.threadId) return false;
       if (candidate.status === "stopped" || candidate.status === "failed") return false;
       if (candidate.sessionId && isSideChat(candidate.sessionId)) return false;
       const peerWorktree = projection.worktrees.find((item) => item.worktreeId === candidate.worktreeId);
       return peerWorktree?.projectId === worktree.projectId;
     });
   }, [projection.threads, projection.worktrees, thread.threadId, worktree]);
-  const selectedPeerId = peers.some((peer) => peer.threadId === peerTargetId) ? peerTargetId : peers[0]?.threadId;
   const placedCheckpoints = useMemo(() => placeCheckpoints(timeline, checkpoints), [timeline, checkpoints]);
   const worktreeBusy = projection.threads.some(
     (candidate) =>
@@ -453,8 +539,20 @@ export function ChatView({
     setError(undefined);
     // The first message to an agent that took the chat over brings it the conversation so far. The chat
     // shows the message alone.
-    const takeover =
-      earlierMessages.length > 0 && queued.length === 0 && !messages.some((message) => message.role === "user")
+    const firstHere =
+      earlierMessages.length > 0 && queued.length === 0 && !messages.some((message) => message.role === "user");
+    // After a compaction the fresh session reads the summary instead of the full conversation.
+    const compacted = firstHere ? latestSummary(earlierMessages) : undefined;
+    const takeover = compacted
+      ? summaryContext({
+          ...compacted,
+          branch: worktree?.branch ?? "the current branch",
+          nameOf: (message) => {
+            const writer = chain.find((entry) => entry.threadId === message.threadId);
+            return writer ? (writer.name ?? providerDisplayName(writer.provider, projection.providers)) : "Agent";
+          },
+        })
+      : firstHere
         ? takeoverContext({
             branch: worktree?.branch ?? "the current branch",
             messages: earlierMessages,
@@ -522,28 +620,6 @@ export function ChatView({
       ...(thread.activeTurnId ? { turnId: thread.activeTurnId } : {}),
     });
 
-  const sendToPeer = async () => {
-    if (!selectedPeerId || !peerDraft.trim()) return;
-    const text = peerDraft.trim();
-    setPeerDraft("");
-    setError(undefined);
-    const response = await dispatch({
-      protocolVersion: 1,
-      commandId: makeCommandId(),
-      command: {
-        type: "thread.a2a",
-        messageId: makeCommandId(),
-        sourceThreadId: thread.threadId,
-        targetThreadId: selectedPeerId,
-        text,
-      },
-    });
-    if (response?.accepted === false) {
-      setPeerDraft(text);
-      setError(response.error.message);
-    }
-  };
-
   const runAgents = useMemo(
     (): BestOfAgentOption[] =>
       listedDiscoveries(projection.providers).flatMap((entry) =>
@@ -596,9 +672,20 @@ export function ChatView({
   // Not while the agent works, so a click in the model list never cuts off a reply.
   const switchable = onSwitchAgent !== undefined && !working && queued.length === 0;
   const modelLocked = thread.capabilities.modelSwitch === "unsupported" && messages.length > 0;
+  const readings = useKnownPlanLimits();
+  // An agent the plan readings say is signed out is left out as well. Accounts are not offered here:
+  // a switch carries the conversation to the agent's default login.
   const others = useMemo(
-    () => (switchable ? otherAgents(projection.providers, thread.provider) : []),
-    [switchable, projection.providers, thread.provider],
+    () =>
+      switchable
+        ? accountChoices(otherAgents(projection.providers, thread.provider), {
+            accounts: [],
+            readings,
+            providers: projection.providers,
+            current: { provider: thread.provider, accountId: undefined },
+          })
+        : [],
+    [switchable, projection.providers, thread.provider, readings],
   );
   const agentName = providerDisplayName(thread.provider, projection.providers);
   const accountStatus = chatAgentStatus(discovery, thread.accountId);
@@ -665,6 +752,7 @@ export function ChatView({
           status: guest.status,
           step: guest.status === "working" ? stepOf(guestActivities, guest.threadId) : undefined,
           role: "guest",
+          mode: guestModeOf(guest, thread.worktreeId),
         }),
       ),
       ...helpers.map((helper): RoomPerson => {
@@ -745,11 +833,23 @@ export function ChatView({
     ];
   };
   const [bringing, setBringing] = useState<string>();
-  const [insertRequest, setInsertRequest] = useState<{ text: string; nonce: number; replace?: boolean }>();
-  const callOut = (name: string) => setInsertRequest({ text: `@${name} `, nonce: Date.now() });
+  const [insertRequest, setInsertRequest] = useState<{
+    text: string;
+    nonce: number;
+    replace?: boolean;
+    mention?: MentionOption;
+  }>();
+  // Calling someone puts a removable chip for them at the start of the message box.
+  const callOut = (person: { name: string; buddy: Buddy; provider: string; detail?: string }) =>
+    setInsertRequest({
+      text: "",
+      nonce: Date.now(),
+      mention: { name: person.name, buddy: person.buddy, provider: person.provider, detail: person.detail ?? "" },
+    });
   const bringIn = async (
     request: GuestRequest,
     announce: boolean,
+    buddy?: Buddy,
   ): Promise<{ threadId: string; name: string } | undefined> => {
     if (!onBringIn) return undefined;
     setError(undefined);
@@ -761,20 +861,57 @@ export function ChatView({
       setError(result.error);
       return undefined;
     }
-    if (announce) callOut(name);
+    if (announce)
+      callOut({
+        name,
+        buddy: buddy ?? defaultBuddy(request.provider),
+        provider: request.provider,
+        detail: `${providerDisplayName(request.provider, projection.providers)} · in this chat`,
+      });
     return { threadId: result.threadId, name };
   };
   const nextBuddy = (provider: string): Buddy => freeBuddy(provider, buddies.values());
   const presentNames = new Set(
     people.filter((person) => person.role !== "host").map((person) => agentNameKey(person.name)),
   );
-  // Bring in opens from the + menu of the message box, anchored to the + button that opened it.
+  // Bring in opens from the + menu of the message box, or the Bring in button by the chips, anchored to it.
   const [bringMenu, setBringMenu] = useState<MenuRequest>();
-  const [peerOpen, setPeerOpen] = useState(false);
+  const [bringMode, setBringMode] = useState<GuestMode>("ask");
+  // Working on a copy needs Git and a branch to copy.
+  const canWork = gitProject && worktree !== undefined && worktree.branch !== "HEAD";
+  const takenBranches = () => projection.worktrees.map((entry) => entry.branch);
   const bringInItems =
     onBringIn && canSend && worktree
-      ? (): MenuItem[] => {
+      ? (mode: GuestMode, reopen: (mode: GuestMode) => void): MenuItem[] => {
           const items: MenuItem[] = [];
+          // The mode comes first: picking one shows the same agents again, set to join that way.
+          items.push(
+            {
+              id: "mode-ask",
+              label: "Ask, read only",
+              icon: "message",
+              checked: mode === "ask",
+              title: guestModeHint.ask,
+              run: () => reopen("ask"),
+            },
+            ...(canWork
+              ? [
+                  {
+                    id: "mode-work",
+                    label: "Work on a copy",
+                    icon: "branch" as const,
+                    checked: mode === "work",
+                    title: guestModeHint.work,
+                    run: () => reopen("work"),
+                  },
+                ]
+              : []),
+            { separator: true },
+          );
+          const joins = (name: string, agent: string) =>
+            mode === "work"
+              ? `Works on ${guestBranchName(worktree.branch, name, takenBranches())}, on ${agent}`
+              : `Joins to answer, read only, on ${agent}`;
           const saved = teammates.filter((teammate) => !presentNames.has(agentNameKey(teammate.name)));
           if (saved.length > 0) {
             items.push({ heading: "Your buddies" });
@@ -783,16 +920,21 @@ export function ChatView({
                 id: `teammate-${teammate.id}`,
                 label: teammate.name,
                 media: <BuddyAvatar buddy={teammate.buddy} provider={teammate.provider} size={20} />,
-                title: `Joins this chat on ${providerDisplayName(teammate.provider, projection.providers)}${teammate.model ? `, ${teammate.model}` : ""}`,
+                title: joins(
+                  teammate.name,
+                  `${providerDisplayName(teammate.provider, projection.providers)}${teammate.model ? `, ${teammate.model}` : ""}`,
+                ),
                 run: () =>
                   void bringIn(
                     {
                       provider: teammate.provider,
                       name: teammate.name,
+                      mode,
                       ...(teammate.model ? { model: teammate.model } : {}),
                       ...(teammate.permissionMode ? { permissionMode: teammate.permissionMode } : {}),
                     },
                     true,
+                    teammate.buddy,
                   ),
               });
             }
@@ -808,18 +950,71 @@ export function ChatView({
                 id: `agent-${entry.provider}`,
                 label: entry.displayName,
                 media: <BuddyAvatar buddy={buddy} provider={entry.provider} size={20} />,
-                title: `Joins as ${buddyName(buddy)}`,
-                run: () => void bringIn({ provider: entry.provider, name: buddyName(buddy) }, true),
+                title: `${buddyName(buddy)}. ${joins(buddyName(buddy), entry.displayName)}`,
+                run: () => void bringIn({ provider: entry.provider, name: buddyName(buddy), mode }, true, buddy),
               });
             }
           }
           return items;
         }
       : undefined;
+  // Agents working on their own copy, each with the card that shows its changes.
+  const guestCopies = guests.flatMap((guest) => {
+    if (guestModeOf(guest, thread.worktreeId) !== "work") return [];
+    const copy = projection.worktrees.find((entry) => entry.worktreeId === guest.worktreeId);
+    return copy && copy.status !== "cancelled" ? [{ guest, worktree: copy }] : [];
+  });
+  // The chip's menu works through the card, so a merge or discard reads the same from either place.
+  const [cardAsk, setCardAsk] = useState<{ threadId: string; action: GuestCardAction; nonce: number }>();
+  const askCard = (threadId: string, action: GuestCardAction) => setCardAsk({ threadId, action, nonce: Date.now() });
+  const openBringMenu = (anchor: HTMLElement | undefined, mode: GuestMode = bringMode) => {
+    if (!bringInItems) return;
+    const rect = anchor?.getBoundingClientRect();
+    setBringMode(mode);
+    setBringMenu({
+      x: rect?.left ?? 0,
+      y: (rect?.bottom ?? 0) + 4,
+      align: "start",
+      anchor,
+      label: "Ask an agent",
+      items: bringInItems(mode, (next) => openBringMenu(anchor, next)),
+    });
+  };
   const personItems = (person: RoomPerson): MenuItem[] => {
     const items: MenuItem[] = [];
     if (!person.terminal) {
-      items.push({ id: "call", label: `Message ${person.name}`, icon: "message", run: () => callOut(person.name) });
+      items.push({
+        id: "call",
+        label: `Message ${person.name}`,
+        icon: "message",
+        run: () => callOut({ ...person, detail: `${person.agent} · in this chat` }),
+      });
+    }
+    const copy = person.mode === "work" ? guestCopies.find((entry) => entry.guest.threadId === person.id) : undefined;
+    if (copy) {
+      items.push({
+        id: "changes",
+        label: `Show ${person.name}'s changes`,
+        icon: "diff",
+        run: () => askCard(copy.guest.threadId, "show"),
+      });
+      if (copy.guest.status !== "working") {
+        items.push({
+          id: "merge",
+          label: "Merge into my branch",
+          icon: "merge",
+          run: () => askCard(copy.guest.threadId, "merge"),
+        });
+      }
+      if (onDiscardGuest) {
+        items.push({
+          id: "discard",
+          label: `Discard ${person.name}'s copy`,
+          icon: "trash",
+          tone: "danger",
+          run: () => askCard(copy.guest.threadId, "discard"),
+        });
+      }
     }
     if (onOpenAgent) {
       items.push({
@@ -855,6 +1050,21 @@ export function ChatView({
         detail: `${person.agent} · ${person.role === "helper" ? "helper" : "in this chat"}`,
       }));
     const present = new Set(inChat.map((option) => agentNameKey(option.name)));
+    // An agent in another chat of the project gets the message in its own chat.
+    const elsewhere: MentionOption[] = [];
+    for (const peer of peers) {
+      const name = peer.name ?? providerDisplayName(peer.provider, projection.providers);
+      if (present.has(agentNameKey(name))) continue;
+      present.add(agentNameKey(name));
+      const branch = projection.worktrees.find((entry) => entry.worktreeId === peer.worktreeId)?.branch;
+      elsewhere.push({
+        name,
+        buddy: defaultBuddy(peer.provider),
+        provider: peer.provider,
+        detail: `${providerDisplayName(peer.provider, projection.providers)} · another chat${branch ? `, ${branch}` : ""}`,
+        kind: "peer",
+      });
+    }
     const taken = present;
     // A buddy called with @Name gets the message as a job, in its own worktree and chat.
     const team = (projection.buddies ?? [])
@@ -864,9 +1074,35 @@ export function ChatView({
         buddy: buddy.color,
         provider: buddy.engine.mode === "auto" ? "" : buddy.engine.provider,
         detail: `${buddy.title ? `${buddy.title} · ` : ""}gets this as a job`,
+        kind: "buddy" as const,
       }));
-    return [...inChat, ...team];
-  }, [people, projection.buddies]);
+    return [...inChat, ...elsewhere, ...team];
+  }, [people, peers, projection.buddies, projection.worktrees, projection.providers]);
+
+  /** A message for an agent in another chat of the project, which it reads in its own chat. */
+  const sendToPeer = async (targetThreadId: string, text: string): Promise<boolean> => {
+    try {
+      const response = await dispatch({
+        protocolVersion: 1,
+        commandId: makeCommandId(),
+        command: {
+          type: "thread.a2a",
+          messageId: makeCommandId(),
+          sourceThreadId: thread.threadId,
+          targetThreadId,
+          text,
+        },
+      });
+      if (response?.accepted === false) {
+        setError(response.error.message);
+        return false;
+      }
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The message could not be sent.");
+      return false;
+    }
+  };
 
   const queueTo = async (
     targetId: string,
@@ -910,6 +1146,15 @@ export function ChatView({
     if (aside) {
       openAside(text.trim().slice(aside[0].length));
       return true;
+    }
+    // "/compact" compacts the way this agent can. Focus text after it goes along where the agent takes it.
+    if (isCompactCommand(text) && attachments.length === 0) {
+      const refused = compactUnavailable ?? (compacting ? undefined : compactBlocked);
+      if (refused) {
+        setError(refused);
+        return false;
+      }
+      return compacting ? true : compactNow(compactFocus(text));
     }
     const callable = people.filter((person) => person.role !== "host" && !person.terminal);
     const team = (projection.buddies ?? []).filter(
@@ -957,10 +1202,15 @@ export function ChatView({
       }
       return true;
     }
-    const { names } = leadingMentions(
-      text,
-      callable.map((person) => person.name),
-    );
+    // An agent in another chat of the project, called by name, when nobody here answers to it.
+    const peerNamed = (name: string) =>
+      callable.some((person) => agentNameKey(person.name) === agentNameKey(name))
+        ? undefined
+        : peers.find((peer) => agentNameKey(nameOfThread(peer)) === agentNameKey(name));
+    const { names, rest } = leadingMentions(text, [
+      ...callable.map((person) => person.name),
+      ...peers.map((peer) => nameOfThread(peer)),
+    ]);
     if (names.length === 0) {
       const edited = editing ? editedMessage(editing) : undefined;
       const older = edited && edited.index !== lastUserIndex ? edited : undefined;
@@ -979,17 +1229,38 @@ export function ChatView({
       }
       return sent;
     }
+    // A message to another chat carries only its text: rather than drop pasted images or files, the send waits and
+    // keeps them, before anything goes out.
+    const peerCalled = names.find((called) => peerNamed(called) !== undefined);
+    if (peerCalled && attachments.length > 0) {
+      setError(
+        `A message for @${peerCalled} in another chat can't take attached files yet. Remove them, or send them here.`,
+      );
+      return false;
+    }
     let sent = true;
     for (const called of names) {
       const target = callable.find((person) => agentNameKey(person.name) === agentNameKey(called));
+      const peer = target ? undefined : peerNamed(called);
+      if (peer) {
+        sent = (await sendToPeer(peer.threadId, rest.trim() || text)) && sent;
+        continue;
+      }
       if (!target) continue;
       const targetId = target.id;
       const name = target.name;
       let joining = false;
       // A buddy brought into the chat reads its standing instructions and what it remembers.
       const instructions = teammateNamed(teammates, name)?.instructions;
+      let mode: { kind: "ask" } | { kind: "work"; branch: string } | undefined;
       if (target.role === "guest") {
         joining = !roomMessages.some((message) => message.threadId === target.id && message.role === "user");
+        const copy = guestCopies.find((entry) => entry.guest.threadId === target.id);
+        mode = copy
+          ? { kind: "work", branch: copy.worktree.branch }
+          : target.mode === "ask"
+            ? { kind: "ask" }
+            : undefined;
       }
       const id = targetId;
       const context =
@@ -1003,6 +1274,7 @@ export function ChatView({
               missed: missedBy(new Set([id]), roomMessages),
               nameOf: speakerName,
               instructions,
+              mode,
             });
       sent = (await queueTo(id, text, attachments, context)) && sent;
     }
@@ -1130,7 +1402,9 @@ export function ChatView({
   };
   const editMessage = useCallback((message: ThreadMessageProjection) => {
     setEditing(message.messageId);
-    setInsertRequest({ text: splitAttachedFiles(message.text).text, nonce: Date.now(), replace: true });
+    // Only the typed words go back in the box, as with attached files; the agent has the old blocks already.
+    const typed = splitAttachedContext(splitAttachedFiles(message.text).text).body;
+    setInsertRequest({ text: typed, nonce: Date.now(), replace: true });
   }, []);
 
   // Branching: a new chat that carries the conversation up to a reply.
@@ -1164,26 +1438,26 @@ export function ChatView({
   const closeAside = useCallback(() => {
     const threadIdOfAside = asideRef.current?.threadId;
     if (threadIdOfAside) onCloseAside?.(threadIdOfAside);
+    asideSeenRef.current = undefined;
     setAside(undefined);
   }, [onCloseAside]);
+  // The last main chat message the side agent has read, so a follow-up carries only what was said since.
+  const asideSeenRef = useRef<string | undefined>(undefined);
   const askAside = async (question: string) => {
     const current = asideRef.current;
+    const said = roomMessages.filter((message) => message.role === "user" || message.role === "assistant");
+    const seen = asideSeenRef.current;
+    asideSeenRef.current = said.at(-1)?.messageId ?? seen;
     if (current?.threadId) {
       setAside({ ...current, error: undefined });
-      const ok = await queueTo(current.threadId, question, [], undefined);
+      const update = sideQuestionUpdate(said, seen, speakerName);
+      const ok = await queueTo(current.threadId, question, [], update);
       if (!ok) setAside((value) => (value ? { ...value, error: "The question could not be sent." } : value));
       return;
     }
     if (!onAskAside) return;
     setAside({ starting: true });
-    const context = takeoverContext({
-      branch: worktree?.branch ?? "the current branch",
-      messages: roomMessages.filter((message) => message.role === "user" || message.role === "assistant"),
-      nameOf: speakerName,
-    });
-    const note =
-      "This is a side question about the conversation above. Answer it briefly. Do not change any files or run anything that changes state.";
-    const started = await onAskAside(question, [context, note].filter(Boolean).join("\n\n"));
+    const started = await onAskAside(question, sideQuestionContext(said, speakerName));
     setAside(
       "error" in started ? { starting: false, error: started.error } : { starting: false, threadId: started.threadId },
     );
@@ -1193,17 +1467,129 @@ export function ChatView({
     if (!asideRef.current) setAside({ starting: false });
     if (question.trim()) void askAside(question.trim());
   };
-  // Ctrl+; (Cmd+; on a Mac) opens a side question in the chat in focus.
+  // Compacting: the agent's own /compact where its CLI has one, else a summary and a fresh session of the
+  // same agent. It always goes through the queue, so it runs between turns and never cuts one short.
+  const compactWay = compactionMode(thread);
+  const { autoCompact } = useAppSettings();
+  const conversationStarted = messages.some((message) => message.role === "user" && !isCompactionRequest(message));
+  const compactUnavailable = ended
+    ? "This chat has ended."
+    : compactWay === "summary" && !onSwitchAgent
+      ? "This chat cannot move to a fresh session."
+      : !conversationStarted
+        ? "Nothing to compact yet."
+        : undefined;
+  const compacting =
+    queued.some((entry) =>
+      isCompactionRequest({ messageId: entry.queueId, threadId, role: "user", text: entry.text }),
+    ) || [...compactions.values()].some((view) => view.state === "compacting");
+  // For now only: a turn is running, a request waits on the person, or the chat has just compacted.
+  const compactBlocked =
+    threadStatus === "working" || threadStatus === "starting"
+      ? "Wait for the current turn to finish before compacting."
+      : threadStatus === "waiting" || waitingCount > 0
+        ? "Answer the open request before compacting."
+        : endsWithCompaction(messages)
+          ? "This chat was just compacted. Send a message before compacting again."
+          : undefined;
+  const compactNow = async (focus?: string): Promise<boolean> => {
+    if (compactUnavailable || compacting) return false;
+    if (compactBlocked) {
+      setError(compactBlocked);
+      return false;
+    }
+    setError(undefined);
+    return queueTo(thread.threadId, compactRequestText(thread, focus), [], undefined);
+  };
+  const compactRefusal = compactUnavailable ?? compactBlocked;
+  const compactAction: CompactAction = {
+    status: compacting ? "compacting" : compactRefusal ? "unavailable" : "ready",
+    run: () => void compactNow(),
+    ...(compactRefusal && !compacting
+      ? { note: compactRefusal }
+      : compactWay === "summary"
+        ? { note: `${displayName} has no compact command, so it writes a summary and carries on in a fresh session.` }
+        : {}),
+    ...(autoCompact.enabled ? { autoAt: autoCompact.at } : {}),
+  };
+  // The right panel's overview offers the same action for the chat in view. It is published by value, with a
+  // run that always reaches this render's compactNow.
+  const compactRun = useRef(compactAction.run);
+  compactRun.current = compactAction.run;
+  const offersCompact = !(ended && !resumable);
+  const { status: compactStatus, note: compactNote, autoAt: compactAutoAt } = compactAction;
+  useEffect(() => {
+    publishCompactAction(
+      threadId,
+      offersCompact
+        ? {
+            status: compactStatus,
+            run: () => compactRun.current(),
+            ...(compactNote !== undefined ? { note: compactNote } : {}),
+            ...(compactAutoAt !== undefined ? { autoAt: compactAutoAt } : {}),
+          }
+        : undefined,
+    );
+  }, [threadId, offersCompact, compactStatus, compactNote, compactAutoAt]);
+  useEffect(() => () => publishCompactAction(threadId, undefined), [threadId]);
+  // Once the summary is in, the chat carries on in a fresh session of the same agent and model. The
+  // summary goes to it with the person's next message.
+  const handedOff = useRef<string>(undefined);
+  const pendingSummary =
+    compactWay === "summary" && threadStatus === "idle" && queued.length === 0 ? latestSummary(messages) : undefined;
+  const summaryRequestId =
+    pendingSummary && pendingSummary.after.length === 0 ? messages.findLast(isCompactionRequest)?.messageId : undefined;
+  useEffect(() => {
+    if (!summaryRequestId || !onSwitchAgent || handedOff.current === summaryRequestId) return;
+    handedOff.current = summaryRequestId;
+    void onSwitchAgent(thread.provider, model ?? thread.model).then((failure) => {
+      if (!failure) return;
+      setHandoffFailed(summaryRequestId);
+      setError(`The chat could not move to a fresh session. ${failure}`);
+    });
+  }, [summaryRequestId, onSwitchAgent, thread.provider, thread.model, model]);
+  // After a turn that leaves the context nearly full, the chat compacts by itself, once per turn.
+  const autoFor = useRef<string>(undefined);
+  const latestUsageId = usage.at(-1)?.usageId;
+  const autoDue = shouldAutoCompact({
+    enabled: autoCompact.enabled && !compactUnavailable,
+    threshold: autoCompact.at,
+    context,
+    idle: threadStatus === "idle",
+    busy: compacting || queued.length > 0 || waitingCount > 0,
+    justCompacted: endsWithCompaction(messages),
+  });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: compactNow reads the same state autoDue comes from.
+  useEffect(() => {
+    if (!autoDue || !latestUsageId || autoFor.current === latestUsageId) return;
+    autoFor.current = latestUsageId;
+    // Automatic compacting asks the agent to keep the work in hand, where its command takes a focus.
+    void compactNow(thread.capabilities.compactionInstructions ? DEFAULT_COMPACT_FOCUS : undefined);
+  }, [autoDue, latestUsageId]);
+  // "/" in the message box: what this chat can do, and what the agent's own CLI takes as a message.
+  const composerCommands: ComposerCommand[] = [
+    { name: "new", description: "Start a new chat", run: onRestart },
+    ...(onAskAside ? [{ name: "btw", description: "Ask a side question while the agent works", insert: "/btw" }] : []),
+    // Native compaction is the agent's own command; the summary way is ZLI's. Both wait for the turn to end.
+    ...(!compactUnavailable
+      ? [
+          {
+            name: "compact",
+            description:
+              compactWay === "native"
+                ? "Compact the conversation to free up context"
+                : "Summarize the conversation and carry on in a fresh session",
+            run: () => void compactNow(),
+            source: compactWay === "native" ? ("agent" as const) : ("zli" as const),
+          },
+        ]
+      : []),
+  ];
+  // The side question shortcut (Ctrl+; by default, set in Settings) opens a side question in the chat in focus.
+  const sideQuestionShortcut = useShortcut("sideQuestion");
   useEffect(() => {
     if (!active || !onAskAside) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === ";" && (event.ctrlKey || event.metaKey) && !event.altKey) {
-        event.preventDefault();
-        setAside((current) => current ?? { starting: false });
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return onSideQuestionRequest(() => setAside((current) => current ?? { starting: false }));
   }, [active, onAskAside]);
 
   const renderItem = (index: number, withChanges: boolean) => {
@@ -1235,6 +1621,13 @@ export function ChatView({
             onOpenDiff={openDiff}
             links={fileLinks}
           />
+        ) : isCompactionNotice(item.message) ? (
+          (() => {
+            const view = compactions.get(compactionRequestId(item.message));
+            return view ? (
+              <CompactionDivider compaction={view.compaction} state={view.state} saved={view.saved} />
+            ) : null;
+          })()
         ) : isSwitchNotice(item.message) ? (
           <div className="chat-switch" role="note">
             <span className="chat-switch-line" aria-hidden="true" />
@@ -1279,19 +1672,20 @@ export function ChatView({
 
   // What waits on the person sits on the message box, above the workspace tab: the plan, with its go-ahead
   // when the agent only planned, and a side question.
-  // With the side chat open in the right panel, the side question lives there, ready before anything is asked.
-  const sideChat =
-    aside || sideChatSlot ? (
-      <SideChat
-        buddy={hostBuddy}
-        threadId={aside?.threadId}
-        starting={aside?.starting ?? false}
-        error={aside?.error}
-        onAsk={(question) => void askAside(question)}
-        onClose={closeAside}
-      />
-    ) : null;
-  const trayAside = sideChatSlot ? null : sideChat;
+  const sideChat = aside ? (
+    <SideChat
+      threadId={aside?.threadId}
+      starting={aside?.starting ?? false}
+      error={aside?.error}
+      onAsk={(question) => void askAside(question)}
+      onClose={closeAside}
+      // The answer goes to the top of the message box, to read over and send from there.
+      onSendToChat={
+        ended && !resumable ? undefined : (text) => setInsertRequest({ text: `${text}\n\n`, nonce: Date.now() })
+      }
+    />
+  ) : null;
+  const trayAside = sideChat;
   const planTodos = showPlan ? plan?.todos : undefined;
   const planApproval: PlanApprovalAction | undefined =
     planToApprove && !request
@@ -1342,15 +1736,7 @@ export function ChatView({
           >
             <div className="chat-column">
               {timeline.length === 0 && earlyMessages.length === 0 ? (
-                <>
-                  <ChatStart provider={thread.provider} folder={project?.name} />
-                  {canSend ? (
-                    <StartSuggestions
-                      folder={project?.name}
-                      onPick={(text) => setInsertRequest({ text, nonce: Date.now(), replace: true })}
-                    />
-                  ) : null}
-                </>
+                <ChatStart provider={thread.provider} folder={project?.name} />
               ) : (
                 turns.rows.map((row) =>
                   row.kind === "item" ? (
@@ -1385,6 +1771,21 @@ export function ChatView({
                   onOpenFile={fileLinks ? openFile : undefined}
                 />
               ) : null}
+              {worktree
+                ? guestCopies.map((copy) => (
+                    <GuestWorkCard
+                      key={copy.guest.threadId}
+                      name={nameOfThread(copy.guest)}
+                      hostBranch={worktree.branch}
+                      worktree={copy.worktree}
+                      review={projection.reviews?.find((entry) => entry.worktreeId === copy.worktree.worktreeId)}
+                      working={copy.guest.status === "working" || copy.guest.status === "starting"}
+                      onOpenChanges={() => onOpenDiff()}
+                      onDiscard={onDiscardGuest ? () => onDiscardGuest(copy.guest.threadId) : undefined}
+                      ask={cardAsk?.threadId === copy.guest.threadId ? cardAsk : undefined}
+                    />
+                  ))
+                : null}
               {cutOff ? (
                 <ContinueRow
                   onContinue={() => {
@@ -1541,7 +1942,6 @@ export function ChatView({
                 },
             ])}
           />
-          {sideChatSlot && sideChat ? createPortal(sideChat, sideChatSlot) : null}
           {ended && !resumable && traySections ? <div className="composer-tray is-loose">{traySections}</div> : null}
           {ended && !resumable ? (
             <div className={`chat-ended${thread.status === "failed" ? " is-failed" : ""}`} role="status">
@@ -1583,7 +1983,7 @@ export function ChatView({
               />
             </div>
           ) : (
-            <>
+            <CompactActionContext.Provider value={compactAction}>
               {bringMenu ? <Menu request={bringMenu} onClose={() => setBringMenu(undefined)} /> : null}
               <Composer
                 peopleItems={[
@@ -1591,31 +1991,25 @@ export function ChatView({
                     ? [
                         {
                           id: "bring-in",
-                          label: "Bring in an agent",
+                          label: "Ask an agent",
                           icon: "users" as const,
-                          run: () => {
-                            const anchor =
-                              document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-                            const rect = anchor?.getBoundingClientRect();
-                            setBringMenu({
-                              x: rect?.left ?? 0,
-                              y: (rect?.bottom ?? 0) + 4,
-                              align: "start",
-                              anchor,
-                              label: "Bring in an agent",
-                              items: bringInItems(),
-                            });
-                          },
+                          title: "Bring an agent into this chat to answer, or to work on a copy",
+                          run: () =>
+                            openBringMenu(
+                              document.activeElement instanceof HTMLElement ? document.activeElement : undefined,
+                            ),
                         },
                       ]
                     : []),
-                  ...(peers.length > 0 && selectedPeerId
+                  ...(onAskAside && !aside
                     ? [
                         {
-                          id: "peer",
-                          label: "Message another agent",
+                          id: "side-question",
+                          label: "Ask a side question",
                           icon: "message" as const,
-                          run: () => setPeerOpen(true),
+                          title: "Side question, not added to the chat",
+                          shortcut: sideQuestionShortcut || undefined,
+                          run: () => setAside((current) => current ?? { starting: false }),
                         },
                       ]
                     : []),
@@ -1632,7 +2026,7 @@ export function ChatView({
                   <>
                     <RoomBar
                       people={people}
-                      bringInItems={bringInItems}
+                      onBringIn={bringInItems ? (anchor) => openBringMenu(anchor) : undefined}
                       bringing={bringing}
                       personItems={personItems}
                     />
@@ -1667,7 +2061,7 @@ export function ChatView({
                 agentName={agentName}
                 agentPlan={discovery?.status === "found" ? accountPlan(discovery.login) : undefined}
                 otherAgents={others}
-                onAgentChange={switchable ? switchAgent : undefined}
+                onAgentChange={switchable ? (next, nextModel) => switchAgent(next, nextModel) : undefined}
                 reasoningLevels={reasoning.levels}
                 defaultReasoning={startingReasoning ?? reasoning.defaultLevel}
                 reasoningEffort={reasoningEffort}
@@ -1677,7 +2071,8 @@ export function ChatView({
                 permissionMode={permissionMode}
                 onPermissionModeChange={permissionSwitch ? setPermissionMode : undefined}
                 projectId={worktree?.projectId}
-                context={context}
+                worktreeId={worktree?.worktreeId}
+                commands={composerCommands}
                 references={references}
                 onRemoveReference={(id) => removeCodeReference(thread.threadId, id)}
                 onReferencesSent={() => clearCodeReferences(thread.threadId)}
@@ -1687,46 +2082,8 @@ export function ChatView({
                 active={active}
                 draftKey={thread.sessionId ?? thread.threadId}
               />
-            </>
+            </CompactActionContext.Provider>
           )}
-          {peerOpen && peers.length > 0 && selectedPeerId && !ended ? (
-            <section className="chat-peer" aria-label="Message another agent">
-              <header className="chat-peer-head">
-                <span>Message another agent</span>
-                <IconButton label="Close" icon="x" size="xs" onClick={() => setPeerOpen(false)} />
-              </header>
-              <form
-                aria-label="Send to another agent"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void sendToPeer();
-                }}
-              >
-                <Select<string>
-                  className="input-sm"
-                  label="Another thread in this project"
-                  value={selectedPeerId}
-                  options={peers.map((peer) => ({
-                    value: peer.threadId,
-                    label: peerOptionLabel(projection, peer.threadId),
-                    icon: <ProviderMark provider={peer.provider} size={15} />,
-                  }))}
-                  onChange={setPeerTargetId}
-                />
-                <textarea
-                  className="textarea"
-                  value={peerDraft}
-                  onChange={(event) => setPeerDraft(event.target.value)}
-                  placeholder="Message for that agent"
-                  aria-label="Message for the other agent"
-                  rows={2}
-                />
-                <Button size="sm" type="submit" disabled={!peerDraft.trim()}>
-                  Send to agent
-                </Button>
-              </form>
-            </section>
-          ) : null}
         </div>
       </div>
     </div>
@@ -1759,7 +2116,7 @@ function QueuedMessages({
       <ol className="chat-queue-list">
         {queued.map((message, index) => {
           const typed = splitAttachedFiles(message.text);
-          const preview = typed.text.trim().split(/\r?\n/u)[0] ?? "";
+          const preview = splitAttachedContext(typed.text).body.trim().split(/\r?\n/u)[0] ?? "";
           const uploads = message.attachments ?? [];
           const files = [...uploads.map((file) => file.name), ...typed.paths.map(fileName)];
           const onlyImages = typed.paths.length === 0 && uploads.every((file) => file.mimeType !== "text/plain");
@@ -1808,29 +2165,6 @@ function QueuedMessages({
         })}
       </ol>
     </section>
-  );
-}
-
-/**
- * Mounted for as long as the agent works. The time counts from when the turn started, or, before the
- * turn is known, from the moment the message went out.
- */
-function WorkingStatus({ label, live, since }: { label: string; live: boolean; since?: string | undefined }) {
-  const [mountedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(mountedAt);
-  const sinceAt = since ? Date.parse(since) : Number.NaN;
-  const startedAt = Number.isFinite(sinceAt) ? Math.min(sinceAt, now) : mountedAt;
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(timer);
-  }, []);
-  return (
-    <p className="chat-working">
-      <span className={`chat-working-label${live ? " shimmer-text" : ""}`} role="status">
-        {label}
-      </span>
-      <span className="chat-working-time">{elapsedLabel(now - startedAt)}</span>
-    </p>
   );
 }
 
@@ -1899,10 +2233,14 @@ export function placeCheckpoints(
   return { after, unplaced, turns: new Set(checkpoints.map((checkpoint) => checkpoint.turnId)) };
 }
 
-/** An agent the person brings into a chat: which agent, its name there, and optionally its model and access. */
+/**
+ * An agent the person brings into a chat: which agent, its name there, how it joins (to ask, read-only, or to
+ * work on its own copy; Ask when left out), and optionally its model and access.
+ */
 export type GuestRequest = {
   provider: string;
   name: string;
+  mode?: GuestMode;
   model?: string;
   permissionMode?: PermissionMode;
 };
@@ -1940,178 +2278,6 @@ function TurnFold({
         <div className="turn-fold-body">{children}</div>
       </Collapse>
     </section>
-  );
-}
-
-/** Past this, a sent message shows its start and opens on request, so a pasted log does not fill the chat. */
-const LONG_MESSAGE_LINES = 14;
-const LONG_MESSAGE_CHARS = 1_400;
-
-function UserMessage({
-  message,
-  links,
-  onEdit,
-}: {
-  message: ThreadMessageProjection;
-  links: FileLinks | undefined;
-  onEdit?: ((message: ThreadMessageProjection) => void) | undefined;
-}) {
-  const typed = splitAttachedFiles(message.text);
-  const uploads = message.attachments ?? [];
-  const [copyState, copy] = useCopyFeedback();
-  const [expanded, setExpanded] = useState(false);
-  const long = typed.text.length > LONG_MESSAGE_CHARS || typed.text.split("\n").length > LONG_MESSAGE_LINES;
-  const files = typed.paths.map((path) => ({ path, location: links?.resolve(path) }));
-  const pictures = files.flatMap((file) =>
-    file.location && isImagePath(file.location.path) ? [file.location.path] : [],
-  );
-  const sentPictures = uploads.filter((attachment) => attachment.mimeType !== "text/plain");
-  const sentFiles = uploads.filter((attachment) => attachment.mimeType === "text/plain");
-  return (
-    <article className="chat-message chat-message-user" data-turn={message.messageId}>
-      <span className="chat-message-actions">
-        {onEdit && typed.text ? (
-          <IconButton
-            label="Edit message"
-            tooltip="Edit and send again"
-            icon="pencil"
-            size="xs"
-            iconSize={12}
-            onClick={() => onEdit(message)}
-          />
-        ) : null}
-        {typed.text ? (
-          <IconButton
-            label="Copy message"
-            tooltip={copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy message"}
-            icon={copyState === "copied" ? "check" : "copy"}
-            size="xs"
-            iconSize={12}
-            onClick={() => copy(typed.text)}
-          />
-        ) : null}
-      </span>
-      {pictures.length > 0 || sentPictures.length > 0 ? (
-        <div className="chat-attachment-pictures">
-          {sentPictures.map((attachment) => (
-            <ChatImage
-              key={attachment.path}
-              source={{ attachment: attachment.path, threadId: message.threadId, name: attachment.name }}
-            />
-          ))}
-          {pictures.map((path) => (
-            <ChatImage key={path} source={{ path }} />
-          ))}
-        </div>
-      ) : null}
-      {sentFiles.length > 0 || files.length > 0 ? (
-        <ul className="chat-attachments" aria-label="Attachments">
-          {sentFiles.map((attachment) => (
-            <li key={attachment.path} title={attachment.name}>
-              <span
-                className={`file-badge is-sm ${attachment.mimeType === "text/plain" ? "is-doc" : "is-media"}`}
-                aria-hidden="true"
-              >
-                <Icon name={attachment.mimeType === "text/plain" ? "fileText" : "image"} size={11} />
-              </span>
-              <span className="chat-attachment-name">{attachment.name}</span>
-            </li>
-          ))}
-          {files.map(({ path, location }) => {
-            const label = (
-              <>
-                <FileBadge path={path} size="sm" />
-                <span className="chat-attachment-name">{fileName(path)}</span>
-              </>
-            );
-            return location && links ? (
-              <li key={path} className="is-link">
-                <button type="button" title={`Open ${location.path}`} onClick={() => links.open(location)}>
-                  {label}
-                </button>
-              </li>
-            ) : (
-              <li key={path} title={path}>
-                {label}
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-      {typed.text ? <p className={long && !expanded ? "is-clamped" : undefined}>{typed.text}</p> : null}
-      {long ? (
-        <button
-          type="button"
-          className="chat-message-more"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? "Show less" : "Show all"}
-        </button>
-      ) : null}
-    </article>
-  );
-}
-
-function AssistantMessage({
-  message,
-  links,
-  reply,
-  sources,
-  workedFor,
-  onBranch,
-  onRegenerate,
-}: {
-  message: ThreadMessageProjection;
-  links: FileLinks | undefined;
-  reply: string | undefined;
-  sources?: readonly Source[] | undefined;
-  workedFor?: string | undefined;
-  onBranch?: (() => void) | undefined;
-  onRegenerate?: (() => void) | undefined;
-}) {
-  const [copyState, copy] = useCopyFeedback();
-  const citations = useMemo(() => (sources ? citationsFor(sources) : undefined), [sources]);
-  return (
-    <article className="chat-message chat-message-assistant">
-      <CitationContext.Provider value={citations}>
-        <Markdown text={message.text} links={links} showImages />
-      </CitationContext.Provider>
-      {reply && sources?.length ? <SourcesRow sources={sources} /> : null}
-      {reply ? (
-        <div className="chat-reply-foot">
-          <IconButton
-            label="Copy reply"
-            tooltip={copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy reply"}
-            icon={copyState === "copied" ? "check" : "copy"}
-            size="xs"
-            iconSize={12}
-            onClick={() => copy(reply)}
-          />
-          {onBranch ? (
-            <IconButton
-              label="Branch from here"
-              tooltip="New chat from this reply, on any agent"
-              icon="branch"
-              size="xs"
-              iconSize={12}
-              onClick={onBranch}
-            />
-          ) : null}
-          {onRegenerate ? (
-            <IconButton
-              label="Regenerate"
-              tooltip="Send your last message again for a new answer"
-              icon="reload"
-              size="xs"
-              iconSize={12}
-              onClick={onRegenerate}
-            />
-          ) : null}
-          {workedFor ? <span className="chat-reply-time">{workedFor}</span> : null}
-        </div>
-      ) : null}
-    </article>
   );
 }
 
@@ -2179,13 +2345,6 @@ function sourceLabel(projection: RuntimeProjection, sourceThreadId: ThreadId | u
   return `From another agent, ${worktree.branch}`;
 }
 
-function peerOptionLabel(projection: RuntimeProjection, threadId: string): string {
-  const thread = projection.threads.find((candidate) => candidate.threadId === threadId);
-  const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === thread?.worktreeId);
-  const provider = thread ? providerDisplayName(thread.provider, projection.providers) : "Agent";
-  return `${provider} in ${worktree?.branch ?? "a worktree"}`;
-}
-
 /**
  * A new chat opens straight onto the message box, like any chat app. The agent may still be starting; the
  * header says so, and a message sent meanwhile waits until it is up.
@@ -2232,6 +2391,6 @@ function lastTurnId(messages: readonly ThreadMessageProjection[]): string | unde
 /** A short name for the chat, from its first message, for the chats branched from it. */
 function displayTitle(messages: readonly ThreadMessageProjection[]): string {
   const first = messages.find((message) => message.role === "user" && message.text.trim())?.text.trim() ?? "a chat";
-  const line = splitAttachedFiles(first).text.split(/\r?\n/u)[0]?.trim() || "a chat";
+  const line = splitAttachedContext(splitAttachedFiles(first).text).body.split(/\r?\n/u)[0]?.trim() || "a chat";
   return line.length > 60 ? `${line.slice(0, 59)}…` : line;
 }

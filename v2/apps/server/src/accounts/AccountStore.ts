@@ -192,10 +192,33 @@ export class AccountStore {
     return { accountId: account.id, env: await this.launchEnv(account) };
   }
 
+  /** What a sign-in account's login runs with: its agent, its environment, and the folder that keeps it. */
+  async signInTarget(
+    accountId: string,
+  ): Promise<{ provider: ListedProviderKind; env: Record<string, string>; dir: string }> {
+    const account = this.accounts.find((candidate) => candidate.id === accountId);
+    if (!account) throw new AccountError("This account was removed.");
+    if (account.kind !== "sign-in") throw new AccountError("Only sign-in accounts sign in.");
+    return { provider: account.provider, env: await this.launchEnv(account), dir: this.accountDir(account.id) };
+  }
+
   /** Sign-in accounts of agents whose plans report limits, with the folder that holds each login. */
   limitTargets(): Array<{ provider: PlanLimitProvider; accountId: string; configDir: string }> {
     return this.accounts.flatMap((account) =>
       account.kind === "sign-in" && isPlanLimitProvider(account.provider)
+        ? [{ provider: account.provider, accountId: account.id, configDir: this.accountDir(account.id) }]
+        : [],
+    );
+  }
+
+  /**
+   * Every saved account that runs from a folder of its own, where its agent writes session logs: sign-ins, and
+   * Codex API keys, which run from their own CODEX_HOME. Wider than `limitTargets`, which only lists accounts
+   * with a plan to read.
+   */
+  usageHomes(): Array<{ provider: StoredAccount["provider"]; accountId: string; configDir: string }> {
+    return this.accounts.flatMap((account) =>
+      account.kind === "sign-in" || account.provider === "codex"
         ? [{ provider: account.provider, accountId: account.id, configDir: this.accountDir(account.id) }]
         : [],
     );

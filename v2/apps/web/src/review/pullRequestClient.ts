@@ -1,6 +1,7 @@
 import {
   GitBranchesResult,
   GitChangeResult,
+  GitCopyFromResult,
   type GitHunkAction,
   GitPullResult,
   type GitStashAction,
@@ -15,6 +16,7 @@ import {
   PullRequestReplyResult,
   PullRequestResolveResult,
   type PullRequestReviewEvent,
+  PullRequestLookupResult,
   PullRequestStatusResult,
   PullRequestUpdateResult,
   type RpcResponse,
@@ -40,6 +42,19 @@ async function request<T>(
   } catch {
     throw new PullRequestRequestError("The runtime sent an unexpected reply. Restart ZLI and try again.");
   }
+}
+
+/** Reads pull requests by their links, such as a stack a chat's agent opened on several branches. */
+export function lookupPullRequests(
+  dispatch: Dispatch,
+  worktreeId: string,
+  urls: readonly string[],
+): Promise<PullRequestLookupResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.lookup", worktreeId: WorktreeId.parse(worktreeId), urls: [...urls] },
+    PullRequestLookupResult,
+  );
 }
 
 export function pullRequestStatus(
@@ -245,6 +260,25 @@ export function runStashAction(
     dispatch,
     { type: "review.git.stashAction", worktreeId: WorktreeId.parse(worktreeId), ...input },
     GitStashResult,
+  );
+}
+
+/** Makes `paths` in one worktree match the same files in another worktree of the project, as they are on disk. */
+export function copyFilesFrom(
+  dispatch: Dispatch,
+  worktreeId: string,
+  fromWorktreeId: string,
+  paths: readonly string[],
+): Promise<GitCopyFromResult> {
+  return request(
+    dispatch,
+    {
+      type: "review.git.copyFrom",
+      worktreeId: WorktreeId.parse(worktreeId),
+      fromWorktreeId: WorktreeId.parse(fromWorktreeId),
+      paths: [...paths],
+    },
+    GitCopyFromResult,
   );
 }
 

@@ -93,7 +93,7 @@ export function AgentUnavailableNotice({
       ) : null}
       {status.kind === "missing" && listed ? <InstallAgentButton provider={listed} name={name} /> : null}
       <Button size="sm" variant="ghost" onClick={() => requestSettings("accounts")}>
-        Accounts
+        Providers
       </Button>
       <Button size="sm" disabled={checking} onClick={check}>
         {checking ? "Checking…" : status.kind === "no-plan" ? "Try again" : "Check again"}

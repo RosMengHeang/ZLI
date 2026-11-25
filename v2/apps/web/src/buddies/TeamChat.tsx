@@ -7,7 +7,7 @@ import {
 } from "@zli-v2/contracts";
 import { type FormEvent, useRef, useState } from "react";
 
-import { type MentionOption, useMentionPicker } from "../chat/MentionPicker.js";
+import { type MentionOption, useMentionPicker } from "./MentionPicker.js";
 import { makeCommandId } from "../runtime/commandId.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { lookOf } from "../teammates/pixelBuddies.js";

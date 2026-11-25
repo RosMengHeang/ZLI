@@ -34,6 +34,7 @@ import { BuddyList } from "./BuddyList.js";
 import { BuddyLookEditor } from "./BuddyLookEditor.js";
 import { GoalComposer, GoalList, isPlanTurn, isWebTask } from "./Goals.js";
 import { TEAM_CHAT_ID, TeamChat } from "./TeamChat.js";
+import { NewTeam, TeamView, teamFromPageId, teamPageId } from "./TeamView.js";
 import {
   buddyStats,
   duration,
@@ -77,6 +78,7 @@ export function BuddiesPane(props: BuddiesPaneProps) {
   const run = useRun(setError);
   const team = buddiesInOrder(projection);
   const selected = team.find((buddy) => buddy.buddyId === selectedId);
+  const teamId = teamFromPageId(selectedId);
   const paused = projection.buddySettings?.paused ?? false;
 
   const errorLine = error ? (
@@ -114,6 +116,28 @@ export function BuddiesPane(props: BuddiesPaneProps) {
             </header>
             {errorLine}
             <TeamChat projection={projection} run={run} />
+          </div>
+        ) : teamId === "new" ? (
+          <div className="buddies-home">
+            {errorLine}
+            <NewTeam
+              projection={projection}
+              run={run}
+              projectId={props.projectId}
+              onCreated={(goalId) => props.onSelect(teamPageId(goalId))}
+            />
+          </div>
+        ) : teamId ? (
+          <div className="buddies-home">
+            {errorLine}
+            <TeamView
+              key={teamId}
+              projection={projection}
+              goalId={teamId}
+              run={run}
+              onOpenThread={props.onOpenThread}
+              onSelect={props.onSelect}
+            />
           </div>
         ) : selected ? (
           // Keyed by buddy: what one buddy's Settings were editing never carries over to the next.
@@ -319,7 +343,12 @@ function TeamPage({
   return (
     <>
       <section className="buddies-section" aria-label="Goals">
-        <GoalComposer projection={projection} run={run} projectId={projectId} />
+        <GoalComposer
+          projection={projection}
+          run={run}
+          projectId={projectId}
+          onCreated={(goalId) => onSelect(teamPageId(goalId))}
+        />
         <GoalList projection={projection} run={run} onSelect={onSelect} />
       </section>
 

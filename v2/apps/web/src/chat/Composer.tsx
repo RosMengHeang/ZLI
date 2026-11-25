@@ -16,32 +16,38 @@ import { formatFileSize } from "../files/ImagePreview.js";
 import { requestIssue } from "../issues/issueRequest.js";
 import { issuePrompt } from "../issues/issueStart.js";
 import { usePluginContributions } from "../plugins/plugins.js";
-import { PromptList, usePromptPicker } from "../prompts/PromptPicker.js";
-import { combinePrompts, requestPromptManager, slashQuery, usePersonalPrompts } from "../prompts/prompts.js";
+import { combinePrompts, requestPromptManager, usePersonalPrompts } from "../prompts/prompts.js";
 import { useSharedPrompts } from "../prompts/useSharedPrompts.js";
 import { getBridge, type ZliBridge } from "../runtime/bridge.js";
 import type { RunAgent } from "../sessions/bestOf.js";
+import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { Kbd } from "../ui/Kbd.js";
 import { MenuButton, type MenuEntry } from "../ui/Menu.js";
 import { DEFAULT_MODEL, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
 import { StopButton } from "../ui/StopButton.js";
-import { ariaShortcut } from "../ui/shortcuts.js";
-import type { ContextUsage } from "../usage/usage.js";
 import { AgentModelPicker } from "./AgentModelPicker.js";
 import type { AgentChoice } from "./agentModels.js";
 import { fileName, parentName, type SkippedFile, skippedFilesMessage, withAttachedFiles } from "./attachedFiles.js";
 import { type BestOfAgentOption, BestOfPopover } from "./BestOfPopover.js";
 import { ImageViewer } from "./ChatImage.js";
-import { ContextMeter } from "./ContextMeter.js";
+import { CONTEXT_ICONS, useComposerMenu } from "./ComposerMenu.js";
 import { CHAT_DRAG_TYPE, readDraggedChat } from "./chatDrag.js";
 import { type CodeReference, referenceLabel, withReferences } from "./codeReferences.js";
+import {
+  addChip,
+  type ComposerChip,
+  type ComposerCommand,
+  type MentionOption,
+  personChip,
+  withChips,
+  withPersonChips,
+} from "./composerTriggers.js";
 import { moveDraft, readDraft, writeDraft } from "./drafts.js";
 import { EffortSlider } from "./EffortSlider.js";
 import { FileBadge } from "./FileBadge.js";
-import { type MentionOption, useMentionPicker } from "./MentionPicker.js";
+import "./composerChips.css";
 import {
   attachmentOnlyMessage,
   isLongPaste,
@@ -101,7 +107,6 @@ const MAX_ATTACHMENTS = 8;
 /** Files from disk go out as paths, so they do not count toward the upload limit. */
 const MAX_FILES = 20;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-
 function isImageType(value: string): value is ImageMimeType {
   return (IMAGE_TYPES as readonly string[]).includes(value);
 }
@@ -119,6 +124,7 @@ function readBase64(file: Blob): Promise<string> {
 }
 
 const NO_MENTIONS: readonly MentionOption[] = [];
+const NO_COMMANDS: readonly ComposerCommand[] = [];
 
 export function Composer({
   mentions = NO_MENTIONS,
@@ -138,6 +144,7 @@ export function Composer({
   onModelChange,
   agentName,
   agentPlan,
+  agentAccount,
   otherAgents = NO_AGENTS,
   onAgentChange,
   carriesOver = false,
@@ -150,7 +157,6 @@ export function Composer({
   permissionMode,
   onPermissionModeChange,
   projectId,
-  context,
   capture,
   references = [],
   onRemoveReference,
@@ -162,12 +168,16 @@ export function Composer({
   draftKey,
   peopleItems,
   issueRequest,
+  worktreeId,
+  commands = NO_COMMANDS,
 }: {
   /** Who "@" offers: the chat's other members and the buddies. Empty turns the list off. */
   mentions?: readonly MentionOption[] | undefined;
-  /** Puts text such as "@Owl " at the start of the message box; a new nonce asks again. */
-  /** Text to put in the message box. replace swaps the draft for it, as editing a sent message does. */
-  insertRequest?: { text: string; nonce: number; replace?: boolean } | undefined;
+  /**
+   * Text to put at the start of the message box; a new nonce asks again. replace swaps the draft for it, as
+   * editing a sent message does. With `mention`, the person goes in as a removable chip instead.
+   */
+  insertRequest?: { text: string; nonce: number; replace?: boolean; mention?: MentionOption } | undefined;
   displayName: string;
   /** The agent's provider. Its mark stands for the default model. */
   provider?: string | undefined;
@@ -196,8 +206,10 @@ export function Composer({
    * Other installed agents, listed under the chat's own so the chat can move to any of them. Empty while
    * the agent works.
    */
+  /** The chat's own login, once its agent has saved accounts. */
+  agentAccount?: { id: string; label: string; tag: string } | undefined;
   otherAgents?: readonly AgentChoice[] | undefined;
-  onAgentChange?: ((provider: string, model: string | undefined) => void) | undefined;
+  onAgentChange?: ((provider: string, model: string | undefined, accountId?: string) => void) | undefined;
   /** The conversation has begun: another agent or model picks it up from the next message. */
   carriesOver?: boolean | undefined;
   /** Levels the current model takes. Empty hides the picker. */
@@ -214,8 +226,6 @@ export function Composer({
   onPermissionModeChange?: ((mode: PermissionMode) => void) | undefined;
   /** Where shared prompts come from. */
   projectId: string | undefined;
-  /** How full the context window was after the agent's latest turn, when it reports that. */
-  context?: ContextUsage | undefined;
   /** Window capture from the desktop app. Absent where it is not available. */
   capture?: ZliBridge["capture"] | undefined;
   /** Files and lines picked in the Files panel. They go out ahead of the next message. */
@@ -232,8 +242,15 @@ export function Composer({
   draftKey?: string | undefined;
   /** Changes to a new number to open the issue picker, as the new-chat screen's "Start from an issue" does. */
   issueRequest?: number | undefined;
-  /** Other agents: bringing one in, or messaging one. A second icon beside the paperclip, when there are any. */
+  /**
+   * What the chat around the box adds to its "+" menu after the attach items: bringing in or messaging another
+   * agent, a side question.
+   */
   peopleItems?: readonly Exclude<MenuEntry, "separator">[] | undefined;
+  /** The worktree "@" lists files from. */
+  worktreeId?: string | undefined;
+  /** "/" commands the chat around the box handles, such as starting a new chat. */
+  commands?: readonly ComposerCommand[] | undefined;
 }) {
   const [draft, setDraft] = useState(() => (draftKey ? readDraft(draftKey) : ""));
   const savedUnder = useRef(draftKey);
@@ -245,6 +262,8 @@ export function Composer({
     else writeDraft(draftKey, draft);
   }, [draftKey, draft]);
   const [images, setImages] = useState<Draft[]>([]);
+  // Teammates, files, skills, and "#" items picked from the menu. They go out with the next message.
+  const [picks, setPicks] = useState<ComposerChip[]>([]);
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
   const sendingNow = useRef(false);
@@ -252,11 +271,9 @@ export function Composer({
   const [preview, setPreview] = useState<{ url: string; name: string }>();
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
-  const [sendMenuOpen, setSendMenuOpen] = useState(false);
   const [bestOfOpen, setBestOfOpen] = useState(false);
   const [bestOfStarting, setBestOfStarting] = useState(false);
   const [bestOfError, setBestOfError] = useState<string>();
-  const sendSplitRef = useRef<HTMLSpanElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // A tile goes active on mousedown, and the browser then moves focus to whatever was clicked.
@@ -277,19 +294,21 @@ export function Composer({
   }, [active]);
   const personalPrompts = usePersonalPrompts();
   const sharedPrompts = useSharedPrompts(projectId);
-  const pluginPrompts = usePluginContributions(slashQuery(draft) !== undefined).prompts;
+  const pluginPrompts = usePluginContributions(draft.startsWith("/")).prompts;
   const prompts = useMemo(
     () => combinePrompts(sharedPrompts.prompts, personalPrompts, pluginPrompts),
     [sharedPrompts.prompts, personalPrompts, pluginPrompts],
   );
-  const picker = usePromptPicker({ draft, setDraft, prompts });
-  const mention = useMentionPicker({ draft, setDraft, textareaRef, options: mentions });
+  const formRef = useRef<HTMLFormElement>(null);
   const insertNonce = insertRequest?.nonce;
   // biome-ignore lint/correctness/useExhaustiveDependencies: only a new request inserts, not a new text.
   useEffect(() => {
     if (!insertRequest) return;
+    const mention = insertRequest.mention;
+    if (mention) setPicks((current) => addChip(current, personChip(mention)));
     const text = insertRequest.text;
-    setDraft((current) => (insertRequest.replace ? text : text + current.replace(/^@\S+\s*/u, "")));
+    if (text || insertRequest.replace)
+      setDraft((current) => (insertRequest.replace ? text : text + current.replace(/^@\S+\s*/u, "")));
     requestAnimationFrame(() => {
       const textarea = textareaRef.current;
       if (!textarea) return;
@@ -417,7 +436,7 @@ export function Composer({
     const text = draft.trim();
     // The ref turns a second Enter away at once, before the state that disables Send has rendered.
     if (
-      (!text && images.length === 0 && references.length === 0) ||
+      (!text && images.length === 0 && references.length === 0 && picks.length === 0) ||
       disabled ||
       blocked ||
       sending ||
@@ -427,7 +446,9 @@ export function Composer({
     sendingNow.current = true;
     setSending(true);
     setError(undefined);
+    const sentChips = picks;
     try {
+      const blocks = await loadChipBlocks(sentChips);
       const uploads = images.filter(isUpload);
       const paths = images.flatMap((image) => (image.kind === "file" ? [image.path] : []));
       const attachments = await Promise.all(
@@ -446,8 +467,13 @@ export function Composer({
       const texts = uploads.filter((image) => image.kind === "text").length;
       const message =
         text || (images.length > 0 ? attachmentOnlyMessage(uploads.length - texts, texts, paths.length) : "");
-      const sent = await onSubmit(withReferences(references, withAttachedFiles(paths, message)), attachments);
+      const asked = withChips(message, sentChips, { knownSkills: menu.skillNames, provider, blocks });
+      const sent = await onSubmit(
+        withPersonChips(sentChips, withReferences(references, withAttachedFiles(paths, asked))),
+        attachments,
+      );
       if (sent) {
+        setPicks((current) => current.filter((chip) => !sentChips.includes(chip)));
         if (references.length > 0) onReferencesSent?.();
         for (const image of images)
           if (image.kind === "image" && image.previewUrl) URL.revokeObjectURL(image.previewUrl);
@@ -471,17 +497,7 @@ export function Composer({
     void submit({ preventDefault() {} } as FormEvent);
   });
 
-  useEffect(() => {
-    if (!sendMenuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!(event.target instanceof Node) || !sendSplitRef.current?.contains(event.target)) setSendMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [sendMenuOpen]);
-
   const openBestOf = () => {
-    setSendMenuOpen(false);
     if (!bestOf) return;
     setBestOfError(undefined);
     setBestOfOpen(true);
@@ -503,20 +519,24 @@ export function Composer({
     const pasted = images.flatMap((image) => (image.kind === "text" ? [image.text] : []));
     const paths = images.flatMap((image) => (image.kind === "file" ? [image.path] : []));
     const message = [draft.trim(), ...pasted].filter(Boolean).join("\n\n");
-    if (!message && references.length === 0 && paths.length === 0) {
+    if (!message && references.length === 0 && paths.length === 0 && picks.length === 0) {
       setBestOfError("Type the message every run starts with.");
       return;
     }
-    const text = withReferences(references, withAttachedFiles(paths, message));
+    const sentChips = picks;
     setBestOfStarting(true);
     setBestOfError(undefined);
     try {
+      const blocks = await loadChipBlocks(sentChips);
+      const asked = withChips(message, sentChips, { knownSkills: menu.skillNames, provider, blocks });
+      const text = withPersonChips(sentChips, withReferences(references, withAttachedFiles(paths, asked)));
       const failure = await bestOf.onStart({ text, runs });
       if (failure) {
         setBestOfError(failure);
         return;
       }
       setDraft("");
+      setPicks([]);
       if (references.length > 0) onReferencesSent?.();
       setImages([]);
       setBestOfOpen(false);
@@ -540,12 +560,130 @@ export function Composer({
     if (issueNonce) pickIssue();
   }, [issueNonce]);
 
-  // Files, a picture of an open window in the desktop app, and an issue from the project's tracker.
-  const attachItems: MenuEntry[] = [
+  const effortShown = reasoningLevels.length > 0 && onReasoningEffortChange !== undefined;
+  // One "+" holds what the footer used to spread out: files, a picture of an open window, an issue, the other
+  // agents, a side question, Best of N, and fast mode where the effort popup does not carry it.
+  const addItems: MenuEntry[] = [
     { id: "files", label: "Files", icon: "file", run: () => fileInputRef.current?.click() },
     ...(capture ? [{ id: "window", label: "A window", icon: "camera" as const, run: () => setCapturing(true) }] : []),
     ...(projectId ? [{ id: "issue", label: "An issue", icon: "issue" as const, run: pickIssue }] : []),
+    ...(peopleItems && peopleItems.length > 0 ? ["separator" as const, ...peopleItems] : []),
+    ...(bestOf
+      ? [
+          "separator" as const,
+          {
+            id: "best-of",
+            label: "Send as Best of N",
+            icon: "split" as const,
+            title: "Run this message several ways, then keep one",
+            shortcut: BEST_OF_SHORTCUT,
+            run: openBestOf,
+          },
+        ]
+      : []),
+    ...(fast !== undefined && onFastChange && !effortShown
+      ? [
+          {
+            id: "fast",
+            label: "Fast mode",
+            icon: "zap" as const,
+            checked: fast,
+            title: "Quicker answers from the same model, billed at a higher rate",
+            run: () => onFastChange(!fast),
+          },
+        ]
+      : []),
   ];
+  const hasContent = draft.trim() !== "" || images.length > 0 || references.length > 0 || picks.length > 0;
+
+  const plan = permissionText(provider, "read-only");
+  const standard = permissionText(provider, "supervised");
+  // What "/" offers. Each one is something this box or the chat around it already does.
+  const builtInCommands: ComposerCommand[] = [
+    ...commands.filter((command) => command.source !== "agent"),
+    ...(!modelLocked || others.length > 0
+      ? [
+          {
+            name: "model",
+            description: others.length > 0 ? "Pick the agent and model" : "Pick the model",
+            run: () => formRef.current?.querySelector<HTMLButtonElement>(".composer-model")?.click(),
+          },
+        ]
+      : []),
+    ...(onPermissionModeChange && permissionMode !== "read-only"
+      ? [{ name: "plan", description: `${plan.label}. ${plan.hint}`, run: () => onPermissionModeChange("read-only") }]
+      : []),
+    ...(onPermissionModeChange && permissionMode !== "supervised"
+      ? [
+          {
+            name: "default",
+            description: `${standard.label}. ${standard.hint}`,
+            run: () => onPermissionModeChange("supervised"),
+          },
+        ]
+      : []),
+    ...(fast !== undefined && onFastChange
+      ? [
+          {
+            name: "fast",
+            description: fast ? "Turn fast mode off" : "Turn fast mode on: quicker answers, billed at a higher rate",
+            run: () => onFastChange(!fast),
+          },
+        ]
+      : []),
+    { name: "attach", description: "Attach files from your computer", run: () => fileInputRef.current?.click() },
+    ...(capture
+      ? [{ name: "window", description: "Attach a picture of an open window", run: () => setCapturing(true) }]
+      : []),
+    ...(projectId
+      ? [{ name: "issue", description: "Attach an issue from the project's tracker", run: pickIssue }]
+      : []),
+    ...(bestOf
+      ? [{ name: "best-of", description: "Run this message several ways, then keep one", run: openBestOf }]
+      : []),
+    { name: "prompts", description: "Manage saved prompts", run: () => requestPromptManager({ projectId }) },
+  ];
+  const allCommands = [
+    ...builtInCommands.map((command) => ({ ...command, source: "zli" as const })),
+    ...commands.filter((command) => command.source === "agent"),
+  ];
+  const menu = useComposerMenu({
+    draft,
+    setDraft,
+    textareaRef,
+    mentions,
+    worktreeId,
+    projectId,
+    provider,
+    agentName: agentName ?? displayName,
+    commands: allCommands,
+    prompts,
+    onChip: (chip) => setPicks((current) => addChip(current, chip)),
+    currentChat: draftKey,
+    promptWarning: sharedPrompts.error,
+    promptFooter: (
+      <Button
+        variant="ghost"
+        size="xs"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          setDraft("");
+          requestPromptManager({ projectId });
+        }}
+      >
+        Manage prompts
+      </Button>
+    ),
+  });
+  // The keys that open the menu, named in the placeholder.
+  const keyHints = [
+    worktreeId ? "@ files" : mentions.length > 0 ? "@ buddies" : undefined,
+    worktreeId || projectId ? "# context" : undefined,
+    "$ skills",
+    "/ commands",
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
@@ -597,6 +735,7 @@ export function Composer({
         </div>
       ) : null}
       <form
+        ref={formRef}
         className={`composer prompt-anchor${dragging ? " is-dragging" : ""}`}
         onSubmit={(event) => void submit(event)}
         onDragEnter={(event) => {
@@ -735,54 +874,52 @@ export function Composer({
             })}
           </ul>
         ) : null}
-        {mention.list}
-        <PromptList
-          picker={picker}
-          emptyHint="No saved prompts yet."
-          sharedError={sharedPrompts.error}
-          footer={
-            <>
-              {draft.trim() && slashQuery(draft) === undefined ? (
-                <Button
-                  variant="ghost"
+        {menu.list}
+        {picks.length > 0 ? (
+          <ul className="composer-chips" aria-label="Picked for this message">
+            {picks.map((chip) => (
+              <li className={`composer-chip is-${chip.kind}`} key={chip.key} title={chipTitle(chip)}>
+                <ChipMark chip={chip} />
+                <span className="composer-chip-label">{chip.label}</span>
+                <IconButton
+                  className="composer-chip-remove"
+                  label={`Remove ${chip.label}`}
+                  icon="x"
                   size="xs"
-                  onMouseDown={(event) => event.preventDefault()}
+                  iconSize={10}
                   onClick={() => {
-                    picker.close();
-                    requestPromptManager({ projectId, draft });
+                    setPicks((current) => current.filter((entry) => entry.key !== chip.key));
+                    textareaRef.current?.focus();
                   }}
-                >
-                  Save draft
-                </Button>
-              ) : null}
-              <Button
-                variant="ghost"
-                size="xs"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  picker.close();
-                  requestPromptManager({ projectId });
-                }}
-              >
-                Manage
-              </Button>
-            </>
-          }
-        />
+                />
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <textarea
           ref={textareaRef}
           value={draft}
           onChange={(event) => {
             setDraft(event.target.value);
-            mention.trackCaret(event);
+            menu.trackCaret(event);
           }}
-          onSelect={mention.trackCaret}
+          onSelect={menu.trackCaret}
           onPaste={onPaste}
-          {...picker.inputProps}
-          {...mention.inputProps}
+          {...menu.inputProps}
           onKeyDown={(event) => {
-            if (mention.onKeyDown(event)) return;
-            if (picker.onKeyDown(event)) return;
+            if (menu.onKeyDown(event)) return;
+            // The chips sit before the text, so Backspace at its start takes the last one off.
+            if (
+              event.key === "Backspace" &&
+              picks.length > 0 &&
+              event.currentTarget.selectionStart === 0 &&
+              event.currentTarget.selectionEnd === 0 &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault();
+              setPicks((current) => current.slice(0, -1));
+              return;
+            }
             if (
               bestOf &&
               event.key === "Enter" &&
@@ -800,49 +937,35 @@ export function Composer({
             }
           }}
           placeholder={
-            mentions.length > 0
-              ? `Message ${displayName}, or type @ to call a teammate`
-              : workspace
-                ? `Ask ${displayName} anything`
-                : `Ask ${displayName} to change ${branch}`
+            workspace || mentions.length > 0
+              ? `Ask ${displayName} anything. ${keyHints}`
+              : `Ask ${displayName} to change ${branch}. ${keyHints}`
           }
           aria-label={`Message ${displayName}`}
           rows={2}
         />
         <div className="composer-footer">
-          {attachItems.length > 1 ? (
+          {addItems.length > 1 ? (
             <MenuButton
-              label="Attach"
-              tooltip={capture ? "Attach files, a window, or an issue" : "Attach files or an issue"}
-              icon="paperclip"
+              label="Add"
+              tooltip="Attach, bring in an agent, and more"
+              icon="plus"
               size="md"
-              iconSize={15}
+              iconSize={16}
               align="start"
               className="composer-add"
-              items={attachItems}
+              items={addItems}
             />
           ) : (
             <IconButton
               label="Attach files"
               tooltip="Attach files. You can also paste or drop them"
-              icon="paperclip"
-              iconSize={15}
+              icon="plus"
+              iconSize={16}
               className="composer-add"
               onClick={() => fileInputRef.current?.click()}
             />
           )}
-          {peopleItems && peopleItems.length > 0 ? (
-            <MenuButton
-              label="Other agents"
-              tooltip="Bring in or message another agent"
-              icon="users"
-              size="md"
-              iconSize={15}
-              align="start"
-              className="composer-add"
-              items={[...peopleItems]}
-            />
-          ) : null}
           <input
             ref={fileInputRef}
             className="sr-only"
@@ -855,12 +978,26 @@ export function Composer({
               event.target.value = "";
             }}
           />
+          {/* Fast mode is turned on from the "+" menu; while it is on, it shows here so it is never forgotten. */}
+          {fast && onFastChange && !effortShown ? (
+            <button
+              type="button"
+              className="composer-fast is-on"
+              aria-pressed={fast}
+              aria-label="Fast mode"
+              data-tooltip="Fast mode is on: quicker answers, billed at a higher rate. Click to turn it off."
+              onClick={() => onFastChange(false)}
+            >
+              <Icon name="zap" size={13} />
+              <span>Fast</span>
+            </button>
+          ) : null}
           <span className="composer-spacer" />
-          {context ? <ContextMeter context={context} /> : null}
           <AgentModelPicker
             provider={provider}
             agentName={agentName ?? displayName}
             agentPlan={agentPlan}
+            agentAccount={agentAccount}
             models={models}
             model={model}
             others={others}
@@ -877,9 +1014,9 @@ export function Composer({
                       : `The model ${displayName} is set to use. Pick another for your next message.`
             }
             onModelChange={onModelChange}
-            onAgentChange={(next, nextModel) => onAgentChange?.(next, nextModel)}
+            onAgentChange={(next, nextModel, accountId) => onAgentChange?.(next, nextModel, accountId)}
           />
-          {reasoningLevels.length > 0 && onReasoningEffortChange ? (
+          {effortShown ? (
             <EffortSlider
               noun={noun}
               levels={reasoningLevels}
@@ -892,33 +1029,17 @@ export function Composer({
               onFastChange={onFastChange}
             />
           ) : null}
-          {/* Fast lives in the effort popup; this stands in only for an agent with no effort levels. */}
-          {fast !== undefined && onFastChange && !(reasoningLevels.length > 0 && onReasoningEffortChange) ? (
-            <button
-              type="button"
-              className={`composer-fast${fast ? " is-on" : ""}`}
-              aria-pressed={fast}
-              aria-label="Fast mode"
-              data-tooltip={
-                fast
-                  ? "Fast mode is on: quicker answers, billed at a higher rate. Click to turn it off."
-                  : "Fast mode: quicker answers from the same model, billed at a higher rate."
-              }
-              onClick={() => onFastChange(!fast)}
-            >
-              <Icon name="zap" size={13} />
-              <span>Fast</span>
-            </button>
-          ) : null}
+          {/* While a turn runs, Stop takes Send's place; Send comes back beside it once there is something to queue. */}
           {onStop ? (
             <StopButton
               size="md"
+              className="composer-stop"
               label={`Stop ${displayName}`}
               tooltip={`Stop ${displayName}'s current turn`}
               onClick={onStop}
             />
           ) : null}
-          <span className={`send-split${bestOf ? " has-menu" : ""}`} ref={sendSplitRef}>
+          {!onStop || hasContent ? (
             <button
               className="send-button"
               type="submit"
@@ -926,60 +1047,11 @@ export function Composer({
               data-tooltip={queues ? `Queue. ${displayName} gets it after the current turn` : "Send"}
               data-shortcut="Enter"
               aria-keyshortcuts="Enter"
-              disabled={
-                disabled ||
-                Boolean(blocked) ||
-                sending ||
-                (!draft.trim() && images.length === 0 && references.length === 0)
-              }
+              disabled={disabled || Boolean(blocked) || sending || !hasContent}
             >
               <Icon name="arrowUp" size={15} />
             </button>
-            {bestOf ? (
-              <button
-                className="send-more"
-                type="button"
-                aria-label="More ways to send"
-                aria-haspopup="menu"
-                aria-expanded={sendMenuOpen}
-                data-tooltip={sendMenuOpen ? undefined : "More ways to send"}
-                disabled={disabled || Boolean(blocked)}
-                onClick={() => setSendMenuOpen((open) => !open)}
-              >
-                <Icon name="chevronDown" size={12} />
-              </button>
-            ) : null}
-            {sendMenuOpen ? (
-              <div
-                className="send-menu"
-                role="menu"
-                aria-label="Send options"
-                onKeyDown={(event) => {
-                  if (event.key !== "Escape") return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setSendMenuOpen(false);
-                }}
-              >
-                <button
-                  className="send-menu-item"
-                  type="button"
-                  role="menuitem"
-                  aria-keyshortcuts={ariaShortcut(BEST_OF_SHORTCUT)}
-                  // biome-ignore lint/a11y/noAutofocus: the menu opens from a click and its one item takes focus.
-                  autoFocus
-                  onClick={openBestOf}
-                >
-                  <Icon name="split" size={14} />
-                  <span className="send-menu-label">
-                    <span>Send as Best of N</span>
-                    <span className="send-menu-hint">Run this message several ways, then keep one</span>
-                  </span>
-                  <Kbd shortcut={BEST_OF_SHORTCUT} />
-                </button>
-              </div>
-            ) : null}
-          </span>
+          ) : null}
         </div>
         {error ? (
           <p className="composer-error" role="alert">
@@ -1015,6 +1087,50 @@ export function Composer({
       </div>
     </div>
   );
+}
+
+/** Reads every "#" chip's block, in order. A source that cannot be read stops the send and says which. */
+async function loadChipBlocks(chips: readonly ComposerChip[]): Promise<string[]> {
+  return Promise.all(
+    chips.flatMap((chip) =>
+      chip.kind === "context"
+        ? [
+            chip.choice.load().catch((cause: unknown) => {
+              const reason = cause instanceof Error ? ` ${cause.message}` : "";
+              throw new Error(`${chip.label} could not be read.${reason}`);
+            }),
+          ]
+        : [],
+    ),
+  );
+}
+
+function chipTitle(chip: ComposerChip): string {
+  switch (chip.kind) {
+    case "person":
+      return `@${chip.option.name}: ${chip.option.detail}`;
+    case "file":
+      return chip.path;
+    case "skill":
+      return `Use the ${chip.name} skill`;
+    case "context":
+      return chip.choice.detail ? `${chip.label} · ${chip.choice.detail}` : chip.label;
+  }
+}
+
+function ChipMark({ chip }: { chip: ComposerChip }) {
+  switch (chip.kind) {
+    case "person":
+      return <BuddyAvatar buddy={chip.option.buddy} provider={chip.option.provider} size={16} />;
+    case "file":
+      return <FileBadge path={chip.path} size="sm" />;
+    case "skill":
+      return <Icon className="composer-chip-icon" name="puzzle" size={12} aria-hidden="true" />;
+    case "context":
+      return (
+        <Icon className="composer-chip-icon" name={CONTEXT_ICONS[chip.choice.kind]} size={12} aria-hidden="true" />
+      );
+  }
 }
 
 /** Sits on the attachment's top-right corner, and shows while the attachment is hovered or focused. */

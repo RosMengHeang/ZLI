@@ -50,10 +50,10 @@ describe("themes", () => {
   });
 
   it("applies a theme to the root element", () => {
-    applyTheme(THEMES.sakura);
+    applyTheme(THEMES.onyx);
     const root = document.documentElement;
-    expect(root.dataset.theme).toBe("sakura");
-    expect(root.style.getPropertyValue("--zli-accent")).toBe(THEMES.sakura.tokens["--zli-accent"]);
+    expect(root.dataset.theme).toBe("onyx");
+    expect(root.style.getPropertyValue("--zli-accent")).toBe(THEMES.onyx.tokens["--zli-accent"]);
     applyTheme(THEMES.daylight);
     expect(root.style.getPropertyValue("--zli-canvas")).toBe(THEMES.daylight.tokens["--zli-canvas"]);
   });

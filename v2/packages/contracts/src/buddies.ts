@@ -475,6 +475,80 @@ export const RoutineProjection = z.object({
 });
 export type RoutineProjection = z.infer<typeof RoutineProjection>;
 
+/** The most tasks one team plan holds. */
+export const MAX_TEAM_TASKS = 12;
+
+/** One task of a team's plan: what to do, who does it, and the job made from it once the plan goes. */
+export const TeamPlanTask = z.object({
+  planTaskId: Id,
+  title: z.string().trim().min(1, "Say what the task is.").max(200),
+  /** Left out: the lead's pick when the plan goes. */
+  buddyId: Id.optional(),
+  notes: z.string().trim().max(2_000).optional(),
+  /** The buddy job doing it, once the plan went. */
+  taskId: Id.optional(),
+  /** The person took its work as it is, past the reviewer's notes. */
+  accepted: z.literal(true).optional(),
+});
+export type TeamPlanTask = z.infer<typeof TeamPlanTask>;
+
+/**
+ * planning: the lead's first turn makes the plan. plan_ready: the person checks it and presses Go. working: each
+ * task runs as a job and gets reviewed. combining: the approved branches are merged into the team branch.
+ * summing_up: the lead writes the summary. done: the summary is in.
+ */
+export const TeamPhase = z.enum(["planning", "plan_ready", "working", "combining", "summing_up", "done"]);
+export type TeamPhase = z.infer<typeof TeamPhase>;
+
+export const TeamDiff = z.object({
+  files: z.number().int().nonnegative(),
+  insertions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+});
+export type TeamDiff = z.infer<typeof TeamDiff>;
+
+export const TeamCombine = z.object({
+  /** The team branch, made from the base, that every approved task is merged into. */
+  branch: z.string().min(1).max(255),
+  worktreeId: Id,
+  /** Tasks (by job id) merged so far, in order. */
+  merged: z.array(Id).max(MAX_TEAM_TASKS),
+  /** A merge that conflicted, and the job resolving it. */
+  conflict: z
+    .object({ taskId: Id, files: z.array(z.string().min(1).max(4_000)).max(50), resolveTaskId: Id })
+    .optional(),
+  diff: TeamDiff.optional(),
+});
+export type TeamCombine = z.infer<typeof TeamCombine>;
+
+export const TeamState = z.object({
+  phase: TeamPhase,
+  /** The plan goes without the person checking it first. */
+  autoStart: z.boolean(),
+  /** Review rounds for each task; 0 skips review. */
+  reviewRounds: z.number().int().min(0).max(5),
+  /** Buddies the person picked for the team. Empty: the lead picks. */
+  buddyIds: z.array(Id).max(24),
+  plan: z.array(TeamPlanTask).max(MAX_TEAM_TASKS),
+  /** The branch the team starts from, read when the plan goes. */
+  baseRef: z.string().min(1).max(255).optional(),
+  /** The lead's latest notes for the person. */
+  notes: z.string().min(1).max(2_000).optional(),
+  combine: TeamCombine.optional(),
+  prUrl: z.string().url().max(2_000).optional(),
+});
+export type TeamState = z.infer<typeof TeamState>;
+
+export const TeamDefaults = z.object({
+  /** Start the plan at once, or let the person check it first. */
+  autoStart: z.boolean(),
+  /** Team jobs running at the same time, per team. */
+  maxParallel: z.number().int().min(1).max(6),
+  reviewRounds: z.number().int().min(0).max(5),
+});
+export type TeamDefaults = z.infer<typeof TeamDefaults>;
+export const DEFAULT_TEAM_DEFAULTS: TeamDefaults = { autoStart: false, maxParallel: 3, reviewRounds: 1 };
+
 /** A goal's lead plans this many times at most before it asks the person how to go on. */
 export const MAX_GOAL_ROUNDS = 8;
 export const MAX_GOALS_KEPT = 100;
@@ -499,11 +573,106 @@ export const GoalProjection = z.object({
   needs: Line.optional(),
   /** What the lead said when it finished. */
   summary: z.string().min(1).max(2_000).optional(),
+  /** Set on a team: the lead plans once, the person checks the plan, and the work is combined on one branch. */
+  team: TeamState.optional(),
   endedAt: Time.optional(),
   createdAt: Time,
   updatedAt: Time,
 });
 export type GoalProjection = z.infer<typeof GoalProjection>;
+
+/** A goal that runs as a team: planned once, worked in parallel, reviewed, then combined on one branch. */
+export function isTeam(goal: Pick<GoalProjection, "team">): goal is GoalProjection & { team: TeamState } {
+  return goal.team !== undefined;
+}
+
+/** The teams, newest first. */
+export function teamsOf(state: Pick<BuddyState, "goals">): (GoalProjection & { team: TeamState })[] {
+  return (state.goals ?? []).filter(isTeam).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export type TeamTaskState =
+  | "planned"
+  | "queued"
+  | "working"
+  | "needs_you"
+  | "in_review"
+  | "done"
+  | "failed"
+  | "dropped";
+
+/**
+ * The buddy that reviews a team task: someone other than the one who did it, from the team when the person
+ * picked one, a reviewer or tester by title first.
+ */
+export function teamReviewer(
+  state: Pick<BuddyState, "buddies">,
+  goal: Pick<GoalProjection, "buddyId"> & { team: Pick<TeamState, "buddyIds"> },
+  task: Pick<TaskProjection, "buddyId">,
+): BuddyProjection | undefined {
+  const live = (state.buddies ?? []).filter((buddy) => !buddy.archived && buddy.buddyId !== task.buddyId);
+  const picked = goal.team.buddyIds;
+  const pool =
+    picked.length > 0 ? live.filter((buddy) => picked.includes(buddy.buddyId) || buddy.buddyId === goal.buddyId) : live;
+  const reviewer = (list: readonly BuddyProjection[]) =>
+    list.find((buddy) => /review|test|qa|check/iu.test(`${buddy.title ?? ""} ${buddy.name}`));
+  return reviewer(pool) ?? reviewer(live) ?? pool.find((buddy) => buddy.role !== "primary") ?? pool[0];
+}
+
+/**
+ * Where one task of a team's plan is: not started, running, waiting on the person, being reviewed, approved
+ * (done), failed or stopped (the person decides), or dropped from the plan.
+ */
+export function teamTaskState(
+  state: Pick<BuddyState, "tasks" | "buddies">,
+  goal: Pick<GoalProjection, "buddyId"> & { team: Pick<TeamState, "buddyIds" | "reviewRounds"> },
+  item: Pick<TeamPlanTask, "taskId" | "accepted">,
+): TeamTaskState {
+  if (!item.taskId) return "planned";
+  const task = (state.tasks ?? []).find((candidate) => candidate.taskId === item.taskId);
+  if (!task) return "planned";
+  if (item.accepted && task.status !== "cancelled" && !task.undone) return "done";
+  switch (task.status) {
+    case "queued":
+      return "queued";
+    case "preparing":
+    case "working":
+      return "working";
+    case "needs_you":
+      return "needs_you";
+    case "failed":
+    case "stopped":
+      return "failed";
+    case "cancelled":
+      return "dropped";
+    case "closed":
+      return task.undone ? "dropped" : reviewState(state, goal, task);
+    case "ready":
+    case "shipped":
+      return reviewState(state, goal, task);
+  }
+}
+
+function reviewState(
+  state: Pick<BuddyState, "tasks" | "buddies">,
+  goal: Pick<GoalProjection, "buddyId"> & { team: Pick<TeamState, "buddyIds" | "reviewRounds"> },
+  task: TaskProjection,
+): "done" | "in_review" | "needs_you" {
+  if (goal.team.reviewRounds <= 0 || task.reviews.at(-1)?.verdict === "ok") return "done";
+  // No one else on the team to review it: it counts as done.
+  if (task.reviews.length === 0 && !teamReviewer(state, goal, task)) return "done";
+  const reviewing = (state.tasks ?? []).some(
+    (candidate) => candidate.kind === "review" && candidate.parentTaskId === task.taskId && isBusyTask(candidate),
+  );
+  if (reviewing) return "in_review";
+  if (task.reviews.length >= goal.team.reviewRounds) return "needs_you";
+  return "in_review";
+}
+
+/** The team defaults the person set, filled in. */
+export function teamDefaults(settings: BuddySettings | undefined): TeamDefaults {
+  return { ...DEFAULT_TEAM_DEFAULTS, ...settings?.team };
+}
 
 export const BuddyQuality = z.enum(["save", "balanced", "best"]);
 export type BuddyQuality = z.infer<typeof BuddyQuality>;
@@ -525,6 +694,8 @@ export const BuddySettings = z.object({
   quality: BuddyQuality,
   /** About the person: what every buddy knows about them. */
   aboutMe: z.array(AboutNote).max(MAX_ABOUT_NOTES).optional(),
+  /** How new teams run. Left out: DEFAULT_TEAM_DEFAULTS. */
+  team: TeamDefaults.optional(),
 });
 export type BuddySettings = z.infer<typeof BuddySettings>;
 export const DEFAULT_BUDDY_SETTINGS: BuddySettings = { paused: false, quality: "balanced" };
@@ -589,7 +760,17 @@ const NewGoal = z.object({
   text: z.string().trim().min(1, "Say what the goal is.").max(MAX_GOAL),
   /** Where the lead plans from. Left out: the web, from the lead's home. */
   projectId: Id.optional(),
+  /** Run it as a team. Settings left out come from the team defaults. */
+  team: z
+    .object({
+      buddyIds: z.array(Id).max(MAX_BUDDIES).optional(),
+      autoStart: z.boolean().optional(),
+    })
+    .optional(),
 });
+
+/** A plan task as the lead or the person writes it. */
+const NewPlanTask = TeamPlanTask.omit({ taskId: true, accepted: true });
 
 export const RoutineChanges = z
   .object({ goal: z.string().trim().min(1).max(MAX_GOAL), trigger: RoutineTrigger, buddyId: Id, projectId: Id })
@@ -731,6 +912,44 @@ export const BuddyCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("goal.finish"), goalId: Id, summary: z.string().trim().min(1).max(2_000) }),
   /** Internal: the goal waits on the person. */
   z.object({ type: z.literal("goal.needs"), goalId: Id, text: Line }),
+  /** The team's lead hands in its plan. */
+  z.object({
+    type: z.literal("goal.plan.submit"),
+    goalId: Id,
+    plan: z.array(NewPlanTask).min(1).max(MAX_TEAM_TASKS),
+    notes: z.string().trim().min(1).max(2_000).optional(),
+  }),
+  /** The person presses Go on the plan, as they edited it. */
+  z.object({ type: z.literal("goal.plan.approve"), goalId: Id, plan: z.array(NewPlanTask).min(1).max(MAX_TEAM_TASKS) }),
+  /** The person adds a task once the team is working. It starts at once. */
+  z.object({ type: z.literal("goal.task.add"), goalId: Id, task: NewPlanTask }),
+  /** The person takes a task's work as it is, past the reviewer's notes. */
+  z.object({ type: z.literal("goal.task.accept"), goalId: Id, taskId: Id }),
+  /** The person drops a task from the plan: a running job stops, and it is left out of the merge. */
+  z.object({ type: z.literal("goal.task.drop"), goalId: Id, taskId: Id }),
+  /** Internal: every task is approved; merging starts on the team branch. */
+  z.object({
+    type: z.literal("goal.combine"),
+    goalId: Id,
+    branch: z.string().min(1).max(255),
+    worktreeId: Id,
+  }),
+  /** Internal: one task's branch is merged into the team branch. */
+  z.object({ type: z.literal("goal.merge"), goalId: Id, taskId: Id }),
+  /** Internal: a task's branch conflicts with the team branch; a buddy job resolves it. */
+  z.object({
+    type: z.literal("goal.conflict"),
+    goalId: Id,
+    taskId: Id,
+    files: z.array(z.string().min(1).max(4_000)).max(50),
+    resolveTaskId: Id,
+    buddyId: Id,
+  }),
+  /** Internal: every approved task is on the team branch. */
+  z.object({ type: z.literal("goal.combine.done"), goalId: Id, diff: TeamDiff }),
+  /** The person opened a pull request for the team branch. */
+  z.object({ type: z.literal("goal.pr"), goalId: Id, prUrl: z.string().url().max(2_000) }),
+  z.object({ type: z.literal("buddies.team"), team: TeamDefaults }),
 ]);
 export type BuddyCommand = z.infer<typeof BuddyCommand>;
 export const BUDDY_COMMAND_TYPES: ReadonlySet<string> = new Set(
@@ -845,12 +1064,51 @@ export const BuddyEvent = z.discriminatedUnion("type", [
     worktreeId: Id,
     path: z.string().min(1).max(4_000),
   }),
-  z.object({ type: z.literal("goal.created"), goal: NewGoal.extend({ projectId: Id }) }),
+  z.object({
+    type: z.literal("goal.created"),
+    goal: NewGoal.omit({ team: true }).extend({
+      projectId: Id,
+      team: TeamState.pick({ autoStart: true, reviewRounds: true, buddyIds: true }).optional(),
+    }),
+  }),
   z.object({ type: z.literal("goal.round.started"), goalId: Id }),
   z.object({ type: z.literal("goal.finished"), goalId: Id, summary: z.string().min(1).max(2_000) }),
   z.object({ type: z.literal("goal.stopped"), goalId: Id }),
   z.object({ type: z.literal("goal.resumed"), goalId: Id }),
   z.object({ type: z.literal("goal.needed"), goalId: Id, text: Line }),
+  z.object({
+    type: z.literal("goal.plan.submitted"),
+    goalId: Id,
+    plan: z.array(TeamPlanTask).max(MAX_TEAM_TASKS),
+    notes: z.string().min(1).max(2_000).optional(),
+  }),
+  /** The plan went: each task has its job. */
+  z.object({
+    type: z.literal("goal.plan.approved"),
+    goalId: Id,
+    plan: z.array(TeamPlanTask).max(MAX_TEAM_TASKS),
+    baseRef: z.string().min(1).max(255).optional(),
+  }),
+  z.object({ type: z.literal("goal.task.added"), goalId: Id, task: TeamPlanTask }),
+  z.object({ type: z.literal("goal.task.accepted"), goalId: Id, taskId: Id }),
+  z.object({ type: z.literal("goal.task.dropped"), goalId: Id, taskId: Id }),
+  z.object({
+    type: z.literal("goal.combining"),
+    goalId: Id,
+    branch: z.string().min(1).max(255),
+    worktreeId: Id,
+  }),
+  z.object({ type: z.literal("goal.merged"), goalId: Id, taskId: Id }),
+  z.object({
+    type: z.literal("goal.conflicted"),
+    goalId: Id,
+    taskId: Id,
+    files: z.array(z.string().min(1).max(4_000)).max(50),
+    resolveTaskId: Id,
+  }),
+  z.object({ type: z.literal("goal.combined"), goalId: Id, diff: TeamDiff }),
+  z.object({ type: z.literal("goal.pr.set"), goalId: Id, prUrl: z.string().url().max(2_000) }),
+  z.object({ type: z.literal("buddies.team.changed"), team: TeamDefaults }),
 ]);
 export type BuddyEvent = z.infer<typeof BuddyEvent>;
 export const BUDDY_EVENT_TYPES: ReadonlySet<string> = new Set(
@@ -1029,6 +1287,8 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
   const updateGoal = (goalId: string, change: (goal: GoalProjection) => GoalProjection) => {
     goals = goals.map((goal) => (goal.goalId === goalId ? { ...change(goal), updatedAt: at } : goal));
   };
+  const updateTeam = (goalId: string, change: (team: TeamState) => TeamState) =>
+    updateGoal(goalId, (goal) => (goal.team ? { ...goal, team: change(goal.team) } : goal));
   const say = (
     buddyId: string,
     messageId: string,
@@ -1432,8 +1692,10 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       updateBuddy(event.buddyId, (buddy) => ({ ...buddy, home: { worktreeId: event.worktreeId, path: event.path } }));
       break;
     case "goal.created": {
+      const { team, ...made } = event.goal;
       const goal: GoalProjection = {
-        ...event.goal,
+        ...made,
+        ...(team ? { team: { ...team, phase: "planning", plan: [] } } : {}),
         status: "working",
         rounds: 0,
         resumes: 0,
@@ -1459,7 +1721,13 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       break;
     case "goal.finished":
       updateGoal(event.goalId, (goal) => {
-        const next: GoalProjection = { ...goal, status: "done", summary: event.summary, endedAt: at };
+        const next: GoalProjection = {
+          ...goal,
+          status: "done",
+          summary: event.summary,
+          endedAt: at,
+          ...(goal.team ? { team: { ...goal.team, phase: "done" } } : {}),
+        };
         delete next.needs;
         return next;
       });
@@ -1481,6 +1749,88 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
       break;
     case "goal.needed":
       updateGoal(event.goalId, (goal) => ({ ...goal, status: "needs_you", needs: event.text }));
+      break;
+    case "goal.plan.submitted":
+      updateTeam(event.goalId, (team) => ({
+        ...team,
+        phase: "plan_ready",
+        plan: event.plan,
+        ...(event.notes ? { notes: event.notes } : {}),
+      }));
+      break;
+    case "goal.plan.approved":
+      updateGoal(event.goalId, (goal) => {
+        if (!goal.team) return goal;
+        const next: GoalProjection = {
+          ...goal,
+          status: goal.status === "needs_you" ? "working" : goal.status,
+          team: {
+            ...goal.team,
+            phase: "working",
+            plan: event.plan,
+            ...(event.baseRef ? { baseRef: event.baseRef } : {}),
+          },
+        };
+        if (goal.status === "needs_you") delete next.needs;
+        return next;
+      });
+      break;
+    case "goal.task.added":
+      updateTeam(event.goalId, (team) => ({ ...team, plan: [...team.plan, event.task].slice(-MAX_TEAM_TASKS) }));
+      break;
+    case "goal.task.accepted":
+      updateTeam(event.goalId, (team) => ({
+        ...team,
+        plan: team.plan.map((item) => (item.taskId === event.taskId ? { ...item, accepted: true } : item)),
+      }));
+      break;
+    case "goal.task.dropped":
+      updateTeam(event.goalId, (team) => ({
+        ...team,
+        plan: team.plan.filter((item) => item.taskId !== event.taskId && item.planTaskId !== event.taskId),
+      }));
+      break;
+    case "goal.combining":
+      updateTeam(event.goalId, (team) => ({
+        ...team,
+        phase: "combining",
+        combine: { branch: event.branch, worktreeId: event.worktreeId, merged: team.combine?.merged ?? [] },
+      }));
+      break;
+    case "goal.merged":
+      updateTeam(event.goalId, (team) => {
+        if (!team.combine) return team;
+        const combine: TeamCombine = {
+          ...team.combine,
+          merged: [...team.combine.merged.filter((id) => id !== event.taskId), event.taskId].slice(-MAX_TEAM_TASKS),
+        };
+        if (combine.conflict?.taskId === event.taskId) delete combine.conflict;
+        return { ...team, combine };
+      });
+      break;
+    case "goal.conflicted":
+      updateTeam(event.goalId, (team) =>
+        team.combine
+          ? {
+              ...team,
+              combine: {
+                ...team.combine,
+                conflict: { taskId: event.taskId, files: event.files, resolveTaskId: event.resolveTaskId },
+              },
+            }
+          : team,
+      );
+      break;
+    case "goal.combined":
+      updateTeam(event.goalId, (team) =>
+        team.combine ? { ...team, phase: "summing_up", combine: { ...team.combine, diff: event.diff } } : team,
+      );
+      break;
+    case "goal.pr.set":
+      updateTeam(event.goalId, (team) => ({ ...team, prUrl: event.prUrl }));
+      break;
+    case "buddies.team.changed":
+      buddySettings = { ...buddySettings, team: event.team };
       break;
   }
 

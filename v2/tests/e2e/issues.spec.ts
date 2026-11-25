@@ -172,8 +172,13 @@ test("lists GitHub issues and starts an agent from one", async () => {
     await togglePanel(page, "Changes");
     await page.getByRole("button", { name: "Refresh changes" }).click();
     const section = page.getByRole("group", { name: "Pull request" });
-    await section.getByRole("button", { name: "Create PR" }).click({ timeout: 30_000 });
     const dialog = page.getByRole("dialog", { name: "Create pull request" });
+    // The section can redraw while the refresh lands, closing a dialog opened just before; open it once it holds.
+    await expect(async () => {
+      if ((await dialog.count()) === 0)
+        await section.getByRole("button", { name: "Create PR" }).click({ timeout: 5_000 });
+      await expect(dialog).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
     await expect(dialog.getByLabel("Description")).toHaveValue("- Fix the login button\n\nFixes #42", {
       timeout: 30_000,
     });

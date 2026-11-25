@@ -312,6 +312,27 @@ describe("ReviewService", () => {
     }
   });
 
+  it("commits uncommitted worktree changes before merging when given a message", async () => {
+    const fixture = await createRepository();
+    try {
+      await writeFile(join(fixture.worktreePath, "loose.txt"), "not committed yet\n", "utf8");
+      await new ReviewService(fixture.git).merge({
+        worktreeId: WORKTREE_ID,
+        worktreePath: fixture.worktreePath,
+        repositoryPath: fixture.repositoryPath,
+        branch: "feature/ui",
+        baseRef: "main",
+        targetRef: "main",
+        commitMessage: "Work from Fox",
+      });
+      await expect(fixture.git.run(["show", "main:loose.txt"], { cwd: fixture.repositoryPath })).resolves.toMatchObject(
+        { stdout: "not committed yet\n" },
+      );
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a dirty target without changing the feature worktree", async () => {
     const fixture = await createRepository();
     try {
@@ -378,6 +399,9 @@ describe("ReviewService", () => {
       await expect(fixture.git.run(["status", "--porcelain=v1"], { cwd: fixture.worktreePath })).resolves.toMatchObject(
         { stdout: "" },
       );
+      // Abort looks for the folder the merge stopped in: the target, not the feature worktree.
+      expect(await service.mergeInProgress(fixture.repositoryPath)).toBe(true);
+      expect(await service.mergeInProgress(fixture.worktreePath)).toBe(false);
       await expect(
         service.abortMerge({
           worktreeId: WORKTREE_ID,
@@ -390,6 +414,7 @@ describe("ReviewService", () => {
       await expect(
         fixture.git.run(["status", "--porcelain=v1"], { cwd: fixture.repositoryPath }),
       ).resolves.toMatchObject({ stdout: "" });
+      expect(await service.mergeInProgress(fixture.repositoryPath)).toBe(false);
     } finally {
       await rm(fixture.directory, { recursive: true, force: true });
     }

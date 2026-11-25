@@ -1,0 +1,149 @@
+/* ---------- The overview's cards ---------- */
+/* One column of quiet cards, in the chat's computer column. A card is a raised surface with a hairline, 12px
+   corners, and 14px of padding. Titles and rows are 13px; secondary text is muted and numbers are tabular.
+   Colour only marks state: check results, diff counts, the pull request's state, status and token dots. */
+
+.ov-card { --ov-pad: 14px; flex: 0 0 auto; min-width: 0; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); background: var(--zli-raised); }
+.ov-card-head { display: flex; min-height: 40px; align-items: center; gap: var(--zli-space-1); padding-right: calc(var(--ov-pad) - 6px); }
+.ov-card-toggle { display: flex; min-width: 0; height: 40px; flex: 1; align-items: center; gap: 6px; padding: 0 0 0 var(--ov-pad); border: 0; border-radius: var(--zli-radius-lg); background: transparent; color: var(--zli-text); cursor: default; font: inherit; text-align: left; }
+.ov-card-head:not(:has(.ov-card-action)) .ov-card-toggle { padding-right: 6px; }
+.ov-card-toggle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.ov-card-toggle h3 { margin: 0; flex: 0 0 auto; color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
+.ov-card-chevron { flex: 0 0 auto; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
+.ov-card.is-collapsed .ov-card-chevron { transform: rotate(-90deg); }
+.ov-card-meta { display: inline-flex; min-width: 0; margin-left: auto; overflow: hidden; }
+.ov-card-action { display: inline-flex; flex: 0 0 auto; align-items: center; }
+.ov-card-action .btn { color: var(--zli-muted); }
+.ov-card-body { display: flex; flex-direction: column; gap: var(--zli-space-1); padding: 0 var(--ov-pad) var(--ov-pad); }
+/* Rows sit on the card's padding; a row that opens something reaches a little past it so its hover has room. */
+.ov-card-body .ov-rows { margin-inline: -6px; }
+
+.ov-meta { display: inline-flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.ov-meta.is-passed { color: var(--zli-green); }
+.ov-meta.is-failed { color: var(--zli-red); }
+.ov-meta.is-pending { color: var(--zli-amber); }
+
+.ov-dot { display: inline-block; width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--zli-dim); }
+.ov-dot.is-accent { background: var(--zli-accent); }
+.ov-dot.is-green { background: var(--zli-green); }
+.ov-dot.is-red { background: var(--zli-red); }
+.ov-dot.is-amber { background: var(--zli-amber); }
+
+.ov-soft { color: var(--zli-dim); }
+.is-mono { font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+
+/* Rows: an icon, a value, and muted detail on the right. */
+.ov-rows { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.ov-row { display: flex; width: 100%; min-width: 0; min-height: 28px; align-items: center; gap: var(--zli-space-2); padding: 4px 6px; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); text-align: left; }
+.ov-row.is-button { cursor: default; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
+.ov-row.is-button:hover, .ov-row.is-button.is-open, .ov-row.is-button[aria-expanded="true"] { background: var(--zli-hover); }
+.ov-row.is-button:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.ov-row.is-tall { align-items: flex-start; padding-block: 6px; }
+.ov-row.is-tall .ov-row-icon { margin-top: 2px; }
+.ov-row.is-quiet { color: var(--zli-dim); }
+.ov-row-icon { flex: 0 0 auto; color: var(--zli-dim); }
+.ov-row-icon.is-red { color: var(--zli-red); }
+.ov-row-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-row-stack { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.ov-row-sub { display: flex; min-width: 0; flex-wrap: wrap; column-gap: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.ov-row-value { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ov-row-value.is-mono { min-width: 0; flex-shrink: 1; overflow: hidden; font-family: var(--zli-mono); text-overflow: ellipsis; }
+.ov-row-slot { display: flex; min-width: 0; }
+.ov-row-slot > .ov-row .ov-row-name.is-mono { overflow: hidden; font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.ov-row-share { width: 34px; flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: right; }
+.ov-row-note { flex: 0 0 auto; font-size: var(--zli-text-xs); }
+.ov-row-note.is-red { color: var(--zli-red); }
+.ov-num { font-variant-numeric: tabular-nums; }
+.ov-add { color: var(--zli-green); font-variant-numeric: tabular-nums; }
+.ov-del { color: var(--zli-red); font-variant-numeric: tabular-nums; }
+.ov-row .spinner { width: 14px; height: 14px; flex-basis: 14px; }
+
+/* The pull request: its title on up to two lines, its numbers under it, and Merge beside it in the chat's card. */
+.ov-pr { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1); }
+.ov-pr > .ov-row { flex: 1; }
+.ov-pr-title { display: -webkit-box; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.ov-pr-action { display: inline-flex; flex: 0 0 auto; padding-right: 2px; }
+.ov-pr-icon.is-open, .ov-pr-state.is-open { color: var(--zli-green); }
+.ov-pr-icon.is-merged, .ov-pr-state.is-merged { color: var(--zli-accent-hover); }
+.ov-pr-icon.is-closed, .ov-pr-state.is-closed { color: var(--zli-red); }
+.ov-pr-icon.is-draft { color: var(--zli-dim); }
+
+.ov-check.is-passed { color: var(--zli-green); }
+.ov-check.is-failed { color: var(--zli-red); }
+.ov-check.is-pending { color: var(--zli-amber); animation: ov-spin 1.2s linear infinite; }
+@keyframes ov-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ov-check.is-pending { animation: none; } }
+.ov-more { align-self: flex-start; margin: 2px -6px 0; padding: 4px 6px; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); cursor: default; font: inherit; font-size: var(--zli-text-xs); }
+.ov-more:hover { background: var(--zli-hover); color: var(--zli-text); }
+.ov-more:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+
+/* Running: a server opens from its row; Stop sits at the end of a row ZLI can stop. */
+.ov-run { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-1); }
+.ov-run > .ov-row { flex: 1; }
+.ov-run > .ov-row .ov-dot { align-self: center; }
+.ov-run > .btn { flex: 0 0 auto; color: var(--zli-muted); }
+.ov-run.is-exited .ov-row-name { color: var(--zli-dim); }
+
+/* Short lines under the rows: how compacting works, why Git is missing, what the last Git action said. */
+.ov-note { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: 1.45; overflow-wrap: anywhere; }
+.ov-note > svg { flex: 0 0 auto; margin-top: 1px; }
+.ov-note.is-error { color: var(--zli-red); }
+.ov-note.is-done > svg { color: var(--zli-green); }
+
+/* The chat's card: the commit or push action under the changes, quiet until opened. */
+.ov-card-foot { display: flex; flex-direction: column; gap: var(--zli-space-1); margin-top: var(--zli-space-1); padding-top: var(--zli-space-1-5); border-top: 1px solid var(--zli-border); }
+.ov-card-foot > .ov-row { margin-inline: -6px; width: calc(100% + 12px); }
+.ov-commit { display: flex; flex-direction: column; gap: var(--zli-space-2); padding: var(--zli-space-1) 0; animation: zli-fade-in var(--zli-duration-base) var(--zli-ease) both; }
+.ov-commit .input { width: 100%; }
+.ov-commit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); }
+
+/* Context: the share large, the counts beside it, a thin bar, then what the session read and wrote. */
+.ov-context { display: flex; flex-direction: column; gap: var(--zli-space-2); }
+.ov-context-line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--zli-space-2); }
+.ov-context-big { color: var(--zli-text); font-size: var(--zli-text-lg); font-variant-numeric: tabular-nums; font-weight: 500; letter-spacing: -0.01em; }
+.ov-context-of { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
+.ov-bar { height: 4px; overflow: hidden; border-radius: var(--zli-radius-pill); background: var(--zli-active); }
+.ov-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--zli-muted); transition: width var(--zli-duration-base, 200ms) var(--zli-ease); }
+.ov-bar.is-full > span { background: var(--zli-amber); }
+.ov-tokens { display: flex; flex-direction: column; gap: var(--zli-space-1); margin-top: var(--zli-space-1); padding-top: var(--zli-space-2-5); border-top: 1px solid var(--zli-border); }
+.ov-tokens-head { display: flex; justify-content: space-between; gap: var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.ov-tokens-head .ov-num { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.ov-token-dot { display: inline-block; width: 6px; height: 6px; flex: 0 0 auto; margin-inline: 4px; border-radius: 50%; }
+.ov-token-dot.is-cached { background: var(--zli-blue, var(--zli-accent)); }
+.ov-token-dot.is-uncached { background: var(--zli-amber); }
+.ov-token-dot.is-output { background: var(--zli-green); }
+/* The Environment card's list: folder, Open in, script, then the branch, Commit & push, and changes. */
+.ov-env { display: flex; flex-direction: column; gap: 1px; margin-inline: -6px; }
+.ov-env > .ov-row > .btn-icon { margin: -4px -2px -4px 0; flex: 0 0 auto; }
+.ov-env .open-in-row { display: flex; align-items: center; border-radius: var(--zli-radius-md); }
+.ov-env .open-in-row-main { height: 28px; gap: var(--zli-space-2); padding: 0 6px; border-radius: var(--zli-radius-md) 0 0 var(--zli-radius-md); }
+.ov-env .open-in-row-more { width: 28px; height: 28px; border-radius: 0 var(--zli-radius-md) var(--zli-radius-md) 0; }
+.ov-env .open-in-row .env-row-label { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.ov-divider { height: 1px; margin: var(--zli-space-1) 6px; border: 0; background: var(--zli-border); }
+.ov-split { padding: 0; }
+.ov-split-main { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-2); min-height: 28px; padding: 4px 6px; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: inherit; cursor: default; font: inherit; text-align: left; }
+.ov-split-main:hover { background: var(--zli-hover); }
+.ov-split-main:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.ov-split > .btn-icon { flex: 0 0 auto; margin-right: 2px; opacity: 0; }
+.ov-split:hover > .btn-icon, .ov-split > .btn-icon:focus-visible { opacity: 1; }
+.ov-env .ov-rows { margin-inline: 0; }
+.ov-split-more { display: grid; width: 26px; height: 28px; flex: 0 0 auto; place-items: center; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); cursor: default; }
+.ov-split-more:hover, .ov-split-more[aria-expanded="true"] { background: var(--zli-hover); color: var(--zli-text); }
+.ov-split-more:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }
+.ov-split-main:disabled { color: var(--zli-muted); }
+/* The branch dropdown: search, the refs, and a footer with the count and the full branch dialog. */
+.branch-picker { position: fixed; z-index: 60; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.branch-picker-search { display: flex; align-items: center; gap: var(--zli-space-2); margin: var(--zli-space-2); padding: 0 var(--zli-space-2); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); color: var(--zli-dim); }
+.branch-picker-search:focus-within { border-color: var(--zli-accent-line, var(--zli-focus)); }
+.branch-picker-input { min-width: 0; height: 30px; flex: 1; border: 0; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); outline: none; }
+.branch-picker-list { min-height: 0; flex: 1; overflow-y: auto; padding: 0 var(--zli-space-1-5) var(--zli-space-1); }
+.branch-picker-row { display: flex; align-items: center; gap: var(--zli-space-2); min-height: 28px; padding: 0 var(--zli-space-2); border-radius: var(--zli-radius-sm); color: var(--zli-text); cursor: default; font-size: var(--zli-text-sm); }
+.branch-picker-row.is-active { background: var(--zli-hover); }
+.branch-picker-row.is-blocked { color: var(--zli-muted); }
+.branch-picker-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-picker-tag { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.branch-picker-empty, .branch-picker-problem { margin: 0; padding: var(--zli-space-2) var(--zli-space-3); color: var(--zli-dim); font-size: var(--zli-text-sm); }
+.branch-picker-problem { color: var(--zli-red-ink, var(--zli-red)); }
+.branch-picker-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); padding: var(--zli-space-2) var(--zli-space-3); border-top: 1px solid var(--zli-border); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.branch-picker-manage { padding: 0; border: 0; background: transparent; color: var(--zli-muted); cursor: default; font: inherit; }
+.branch-picker-manage:hover { color: var(--zli-text); }

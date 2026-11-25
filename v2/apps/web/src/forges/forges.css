@@ -22,6 +22,8 @@
 .forge-state.is-error { color: var(--zli-red-ink); }
 .forge-state.is-error .forge-state-dot { background: var(--zli-red); }
 .forge-footnote { margin: var(--zli-space-1) 0 0; color: var(--zli-dim); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); }
+.forge-key { margin-top: var(--zli-space-2); max-width: 420px; }
+.forge-key > .input { flex: 1; min-width: 0; }
 @media (max-width: 640px) {
   .forge-row { flex-wrap: wrap; }
   .forge-side { width: 100%; justify-content: flex-end; }

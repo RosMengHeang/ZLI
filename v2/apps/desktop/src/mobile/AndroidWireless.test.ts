@@ -66,6 +66,60 @@ describe("Android over Wi-Fi", () => {
     expect(runner.calls[0]?.options).toMatchObject({ env: { ANDROID_HOME: "/sdk" } });
   });
 
+  it("waits for the phone that scanned the QR code, pairs with its password, and connects", async () => {
+    let lookups = 0;
+    const { runner, subject } = wireless((_command, args) => {
+      if (args.join(" ") === "mdns services") {
+        lookups += 1;
+        // The phone shows up under the code's name once it has scanned it.
+        return {
+          stdout:
+            lookups === 1
+              ? "List of discovered mdns services\n"
+              : `${MDNS}\nzli-k3f9q2\t_adb-tls-pairing._tcp.\t192.168.1.20:41234`,
+        };
+      }
+      if (args[0] === "pair")
+        return { stdout: "Successfully paired to 192.168.1.20:41234 [guid=adb-28041FDH2000ZK-vWgJpq]\n" };
+      if (args[0] === "connect") return { stdout: "connected to 192.168.1.20:39457\n" };
+      return undefined;
+    });
+    const result = await subject.pairQr({ name: "zli-k3f9q2", password: "Xy7pQ2mn" });
+    expect(result).toMatchObject({ connected: true, deviceId: "android:192.168.1.20:39457" });
+    expect(runner.argsOf("adb")).toContainEqual(["pair", "192.168.1.20:41234", "Xy7pQ2mn"]);
+    expect(runner.argsOf("adb").at(-1)).toEqual(["connect", "192.168.1.20:39457"]);
+  });
+
+  it("gives up on the QR code when no phone scans it in time, and stops when cancelled", async () => {
+    const quiet = () => ({ stdout: "List of discovered mdns services\n" });
+    const manager = { find: vi.fn(), list: vi.fn(async () => []), stopStream: vi.fn() };
+    const tools = async () => ({ adb: ADB, env: {} });
+    const late = new AndroidWireless({
+      runner: new FakeProcessRunner(quiet),
+      tools,
+      manager,
+      sleep: async () => undefined,
+      qrTimeoutMs: 0,
+    });
+    await expect(late.pairQr({ name: "zli-k3f9q2", password: "Xy7pQ2mn" })).rejects.toThrow(/No phone scanned/u);
+
+    let release: () => void = () => undefined;
+    const waiting = new AndroidWireless({
+      runner: new FakeProcessRunner(quiet),
+      tools,
+      manager,
+      sleep: () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    });
+    const pending = waiting.pairQr({ name: "zli-k3f9q2", password: "Xy7pQ2mn" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    waiting.cancelQr();
+    release();
+    expect(await pending).toEqual({ connected: false, message: "Stopped waiting for the phone." });
+  });
+
   it("looks the connect port up over mDNS when the person left it out", async () => {
     let lookups = 0;
     const { runner, subject } = wireless((_command, args) => {

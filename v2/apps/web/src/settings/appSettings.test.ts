@@ -6,6 +6,7 @@ import {
   type AppSettings,
   branchFromTemplate,
   DEFAULT_SETTINGS,
+  DEFAULT_SIDEBAR_LOOK,
   parseAppSettings,
   resolveLaunchDefaults,
 } from "./appSettings.js";
@@ -32,10 +33,11 @@ describe("app settings", () => {
       defaults: { provider: "codex", model: "gpt-5" },
       projects: { b: { permissionMode: "supervised" } },
       branchTemplate: "{agent}-{random}",
+      worktrees: { fromRemote: false, removeWithAgent: false },
       shortcuts: { newAgent: "Mod+Shift+N" },
       fileTreePosition: "right",
-      sidebarLimits: { enabled: false, hidden: ["codex"] },
-      theme: "midnight",
+      sidebarLimits: { enabled: true, hidden: ["codex"] },
+      theme: "system",
       customThemes: [],
       teammates: [],
       animateTeammates: true,
@@ -46,17 +48,22 @@ describe("app settings", () => {
       layout: "classic",
       compactChats: true,
       sidebarView: "activity",
+      sidebarLook: DEFAULT_SIDEBAR_LOOK,
       typography: DEFAULT_TYPOGRAPHY,
+      chatBackdrop: { style: "glow", intensity: 60, imageEffect: "photo" },
+      pinnedAgents: [],
+      pinnedModels: [],
+      autoCompact: { enabled: true, at: 0.85 },
     });
   });
 
-  it("starts on Midnight and keeps a chosen theme", () => {
-    expect(DEFAULT_SETTINGS.theme).toBe("midnight");
-    expect(parseAppSettings(JSON.stringify({ theme: "sakura" })).theme).toBe("sakura");
+  it("starts on System and keeps a chosen theme", () => {
+    expect(DEFAULT_SETTINGS.theme).toBe("system");
+    expect(parseAppSettings(JSON.stringify({ theme: "onyx" })).theme).toBe("onyx");
   });
 
   it("keeps plan limits out of the sidebar until they are turned on", () => {
-    expect(DEFAULT_SETTINGS.sidebarLimits).toEqual({ enabled: false, hidden: [] });
+    expect(DEFAULT_SETTINGS.sidebarLimits).toEqual({ enabled: true, hidden: [] });
     expect(parseAppSettings(JSON.stringify({ sidebarLimits: { enabled: true } })).sidebarLimits).toEqual({
       enabled: true,
       hidden: [],
@@ -64,6 +71,18 @@ describe("app settings", () => {
     expect(
       parseAppSettings(JSON.stringify({ sidebarLimits: { enabled: true, pinned: "cursor-agent" } })).sidebarLimits,
     ).toEqual({ enabled: true, hidden: [], pinned: "cursor-agent" });
+  });
+
+  it("compacts chats by itself at 85% unless the person changed it", () => {
+    expect(parseAppSettings(null).autoCompact).toEqual({ enabled: true, at: 0.85 });
+    expect(parseAppSettings(JSON.stringify({ autoCompact: { enabled: false, at: 0.7 } })).autoCompact).toEqual({
+      enabled: false,
+      at: 0.7,
+    });
+    expect(parseAppSettings(JSON.stringify({ autoCompact: { at: 2 } })).autoCompact).toEqual({
+      enabled: true,
+      at: 0.85,
+    });
   });
 
   it("keeps the file tree on the right unless left was chosen", () => {

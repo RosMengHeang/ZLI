@@ -26,6 +26,10 @@ class FakeClient {
     this.calls.push({ method: "turn", value: input });
     return { providerTurnId: "codex-turn-1" };
   }
+  async compactThread(providerThreadId: string) {
+    this.calls.push({ method: "compact", value: providerThreadId });
+    return { providerTurnId: "codex-compact-1" };
+  }
   async interruptTurn(threadId: string, turnId: string) {
     this.calls.push({ method: "interrupt", value: { threadId, turnId } });
   }
@@ -53,6 +57,24 @@ class FakeClient {
 }
 
 describe("CodexProviderAdapter", () => {
+  it("sends /compact to Codex's own compaction instead of a turn, without focus text", async () => {
+    const client = new FakeClient();
+    const adapter = new CodexProviderAdapter({ createClient: async () => client });
+    await adapter.startSession({ threadId, cwd: "C:/workspace/tree" });
+
+    await expect(adapter.sendTurn({ threadId, text: " /compact " })).resolves.toEqual({ turnId: "codex-compact-1" });
+    await adapter.sendTurn({ threadId, text: "/compact the tests too" });
+
+    await adapter.sendTurn({ threadId, text: "/compacted is a word" });
+
+    expect(client.calls.filter((call) => call.method === "compact" || call.method === "turn")).toEqual([
+      { method: "compact", value: "codex-thread-1" },
+      { method: "compact", value: "codex-thread-1" },
+      { method: "turn", value: { providerThreadId: "codex-thread-1", text: "/compacted is a word" } },
+    ]);
+    expect(adapter.capabilities.compaction).toBe("native");
+  });
+
   it("maps provider-native identifiers and structured events into the neutral adapter", async () => {
     const client = new FakeClient();
     const adapter = new CodexProviderAdapter({ createClient: async () => client });

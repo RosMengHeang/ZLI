@@ -331,6 +331,16 @@ export function claudeContextTokens(value: unknown): number | undefined {
 }
 
 /**
+ * The context left after Claude Code compacted, from its `compact_boundary` system message:
+ * `compact_metadata.post_tokens`, which older releases leave out.
+ */
+export function claudeCompactedTokens(value: unknown): number | undefined {
+  const record = asRecord(value);
+  if (record?.type !== "system" || record.subtype !== "compact_boundary") return undefined;
+  return tokenCount(asRecord(record.compact_metadata)?.post_tokens);
+}
+
+/**
  * A main-conversation request starting, read from its `message_start` stream event. A request
  * refreshes the prompt cache, which then lives for `ttlMs` from the request's start. `ttlMs` is
  * set only when the request wrote to the cache, since that is the only place the tier shows.

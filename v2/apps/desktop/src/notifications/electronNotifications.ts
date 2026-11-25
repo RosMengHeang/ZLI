@@ -31,7 +31,10 @@ export async function registerAgentNotifications(options: {
     show: ({ title, body, silent, sessionId }, onClick) => {
       if (!Notification.isSupported()) return;
       const icon = sessionId ? faces.get(sessionId) : undefined;
-      const notification = new Notification({ title, body, silent, ...(icon ? { icon } : {}) });
+      // The window plays the sound, and the system's own stays off so only one plays.
+      const { tone, volume } = store.current();
+      const notification = new Notification({ title, body, silent: true, ...(icon ? { icon } : {}) });
+      if (!silent && !window.isDestroyed()) window.webContents.send("zli:notifications:play-sound", { tone, volume });
       live.add(notification);
       if (live.size > MAX_LIVE_NOTIFICATIONS) {
         const oldest = live.values().next().value;

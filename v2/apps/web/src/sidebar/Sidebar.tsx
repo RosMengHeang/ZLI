@@ -5,15 +5,23 @@ import type {
   RuntimeProjection,
   WorktreeProjection,
 } from "@zli-v2/contracts";
-import { huddlesOf, MAX_HUDDLE_MEMBERS, threadOccupiesWorktree } from "@zli-v2/contracts";
-import { type CSSProperties, type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { threadOccupiesWorktree } from "@zli-v2/contracts";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { accountLabel, sessionAccountId } from "../accounts/accounts.js";
 import { providerDisplayName } from "../agent/providers.js";
 import { SidebarBuddies } from "../buddies/SidebarBuddies.js";
+import { ChatBackdrop } from "../chat/ChatBackdrop.js";
 import { CHAT_DRAG_TYPE, chatTranscript } from "../chat/chatDrag.js";
-import { fitHuddleName, huddleMarkText, liveHuddles, sessionAgentId, sessionHuddles } from "../huddle/huddles.js";
-import { useHuddleCommands } from "../huddle/useHuddleCommands.js";
 import { limitKey } from "../limits/limits.js";
 import { projectStats, removalDetail } from "../projects/removal.js";
 import { trackDescription, trackText } from "../review/branches.js";
@@ -31,7 +39,6 @@ import {
   sessionParents,
   sessionRenameCommand,
   sessionStatusLabel,
-  sessionStopCommands,
   sessionTitle,
 } from "../sessions/sessions.js";
 import { groupFinished } from "../sessions/useRunStates.js";
@@ -41,6 +48,7 @@ import { setupBadge, worktreeSetup } from "../setup/setup.js";
 import { useShortcut } from "../shell/keybindings.js";
 import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { assignChatBuddies } from "../teammates/chatBuddies.js";
+import { ChatPullRequestMark } from "../review/PullRequestStack.js";
 import { lookOf } from "../teammates/pixelBuddies.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -56,6 +64,7 @@ import { SessionDot } from "./SessionDot.js";
 import { SidebarPlanLimits } from "./SidebarUsageStrip.js";
 import { AskLine, LiveStep, ReplyPreview } from "./sessionLines.js";
 import { SIDEBAR_STYLE, type SidebarStyle, useBranchesProject, useSidebarCollapsed } from "./sidebarLayout.js";
+import { sidebarLookClass, sidebarLookStyle } from "./sidebarLook.js";
 import { agentNote, sessionIsLive, sessionNeedsPerson } from "./sidebarStages.js";
 import { useUnread } from "./unread.js";
 import "./sidebar.css";
@@ -153,7 +162,6 @@ type Props = {
   /** A project the person just added. The sidebar opens its folder and scrolls it into view. */
   selectedProjectId?: string | undefined;
   onSelectSession(session: AgentSession): void;
-  onStopSession(session: AgentSession): void;
   onDeleteSession(session: AgentSession): void;
   /** Opens the dialog that names or renames a started agent. */
   onRenameSession?: ((session: AgentSession) => void) | undefined;
@@ -168,20 +176,17 @@ type Props = {
   onWorktreeAction(worktree: WorktreeProjection, action: WorktreeAction): void;
   onReviewSetup(worktree: WorktreeProjection): void;
   onShowSetupOutput(worktree: WorktreeProjection): void;
-  onOpenHelp(): void;
   /** Opens Settings, at `section` when given. */
   onOpenSettings(section?: SettingsSection): void;
   onOpenUsage(): void;
+  /** New versions of ZLI and its agents, shown above the footer while there are any. */
+  updateCard?: ReactNode;
   /** Best-of runs still being compared; their sessions list under the chat they came from. */
   runGroups?: readonly RunGroup[];
   runStates?: ReadonlyMap<string, RunState>;
   onCompareRuns?(group: RunGroup): void;
   /** Undefined until the saved accounts have loaded. */
   accounts?: readonly Account[] | undefined;
-  /** Opens the Huddle panel on a huddle. Without it agent rows offer no huddle actions. */
-  onOpenHuddle?: ((huddleId: string) => void) | undefined;
-  /** Shows why a huddle action from an agent row was refused. */
-  onHuddleError?: ((message: string) => void) | undefined;
   /** Shows, opens, or closes all of a project's tiles at once. Without it project rows offer none of these. */
   projectAgentActions?: ((projectId: string) => ProjectAgentActions) | undefined;
   /** Opens the Buddies panel, on one buddy when given. Without it the sidebar lists no buddies. */
@@ -223,7 +228,6 @@ export function Sidebar({
   currentProjectId,
   selectedProjectId,
   onSelectSession,
-  onStopSession,
   onDeleteSession,
   onRenameSession,
   onSelectWorktree,
@@ -235,15 +239,13 @@ export function Sidebar({
   onWorktreeAction,
   onReviewSetup,
   onShowSetupOutput,
-  onOpenHelp,
   onOpenSettings,
   onOpenUsage,
+  updateCard,
   runGroups = noGroups,
   runStates = noStates,
   onCompareRuns = () => undefined,
   accounts,
-  onOpenHuddle,
-  onHuddleError = () => undefined,
   projectAgentActions,
   onOpenBuddies,
   activeBuddyId,
@@ -267,8 +269,6 @@ export function Sidebar({
     message: string;
   }>();
   const [renamingProjectId, setRenamingProjectId] = useState<string>();
-  const [huddleMenu, setHuddleMenu] = useState<MenuRequest>();
-  const huddleCommands = useHuddleCommands();
   const layout = useSidebarCollapsed();
   // Archived chats leave their project's list for the Archived section at the bottom.
   const archivedIds = useArchivedChats();
@@ -383,7 +383,7 @@ export function Sidebar({
   const quietProjects = fold ? quiet : [];
 
   const asideRef = useRef<HTMLElement>(null);
-  const { tintProjects, chatTint, compactChats, sidebarView } = useAppSettings();
+  const { tintProjects, chatTint, compactChats, sidebarView, sidebarLook, layout: windowLayout } = useAppSettings();
   const [branchesProjectId, chooseBranchesProject] = useBranchesProject();
   const branchesProject = projects.find((project) => project.projectId === branchesProjectId);
   // Which chats the activity list shows: all of them, or one project's. Remembered in this browser.
@@ -783,62 +783,6 @@ export function Sidebar({
     );
   };
 
-  const runHuddleCommand = async (command: Record<string, unknown>) => {
-    const error = await huddleCommands.run(command);
-    if (error) onHuddleError(error);
-  };
-  const createHuddle = async (name: string, members: string[]) => {
-    const result = await huddleCommands.create(fitHuddleName(name), members);
-    if ("error" in result) onHuddleError(result.error);
-    else onOpenHuddle?.(result.huddleId);
-  };
-  /** A second menu, at the row's "..." button, listing the huddles the agent can join or leave. */
-  const openHuddleMenu = (agentId: string, label: string) => {
-    if (!projection) return;
-    const anchor = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    const rect = anchor?.getBoundingClientRect();
-    const memberOf = new Set(huddlesOf(projection, agentId).map((huddle) => huddle.huddleId));
-    const live = liveHuddles(projection);
-    setHuddleMenu({
-      x: rect?.right ?? 0,
-      y: (rect?.bottom ?? 0) + 4,
-      align: "end",
-      anchor,
-      label: "Add to huddle",
-      items: [
-        ...live.map(
-          (huddle): MenuItem => ({
-            label: huddle.name,
-            checked: memberOf.has(huddle.huddleId),
-            title: memberOf.has(huddle.huddleId) ? `Remove ${label} from ${huddle.name}` : undefined,
-            run: () =>
-              void runHuddleCommand({
-                type: memberOf.has(huddle.huddleId) ? "huddle.leave" : "huddle.join",
-                huddleId: huddle.huddleId,
-                agentId,
-              }),
-          }),
-        ),
-        ...(live.length > 0 ? [{ separator: true } as const] : []),
-        {
-          label: "New huddle with this agent",
-          icon: "plus",
-          run: () => void createHuddle(`Huddle with ${label}`, [agentId]),
-        },
-      ],
-    });
-  };
-  const startSubAgentHuddle = (agentId: string, label: string, subAgents: readonly AgentSession[]) => {
-    const members = [agentId, ...subAgents.map(sessionAgentId).filter((id): id is string => id !== undefined)];
-    if (members.length > MAX_HUDDLE_MEMBERS) {
-      onHuddleError(
-        `A huddle holds up to ${MAX_HUDDLE_MEMBERS} agents, and ${label} has ${members.length - 1} sub-agents. Start an empty huddle and add the ones you need.`,
-      );
-      return;
-    }
-    void createHuddle(`${label} and sub-agents`, members);
-  };
-
   /** Opens a menu at the pointer. Shift+F10 or the Menu key fire this with no pointer position, so it opens under the row. */
   const openContextMenu = (event: MouseEvent<HTMLElement>, label: string, items: () => MenuItem[]) => {
     event.preventDefault();
@@ -853,14 +797,9 @@ export function Sidebar({
   };
 
   /** What the "..." menu on an agent row offers. */
-  const sessionMenuItems = (
-    session: AgentSession,
-    stoppable: boolean,
-    worktree: WorktreeProjection | undefined,
-    subAgents: readonly AgentSession[] = [],
-  ): MenuItem[] => {
+  const sessionMenuItems = (session: AgentSession, worktree: WorktreeProjection | undefined): MenuItem[] => {
     const items: MenuItem[] = [];
-    if (onRenameSession && sessionRenameCommand(session, null)) {
+    if (onRenameSession && session.mode !== "chat" && sessionRenameCommand(session, null)) {
       const label = sessionAgentName(session) ? "Rename agent" : "Name agent";
       items.push({ label, icon: "pencil", run: () => onRenameSession(session) });
     }
@@ -871,24 +810,6 @@ export function Sidebar({
       title: pinned ? undefined : "Keep this chat at the top of its project",
       run: () => layout.toggleChatPinned(session.sessionId),
     });
-    const agentId = onOpenHuddle ? sessionAgentId(session) : undefined;
-    if (agentId) {
-      const label = sessionAgentName(session) ?? sessionTitle(session, projection?.messages, projection?.providers);
-      // The tree stays as it was. The other styles mark huddles on the row, so the row's menu can go to them.
-      if (sidebarStyle !== "tree" && projection) {
-        for (const huddle of sessionHuddles(projection, session)) {
-          items.push({ label: `Open ${huddle.name}`, icon: "users", run: () => onOpenHuddle?.(huddle.huddleId) });
-        }
-      }
-      items.push({ label: "Add to huddle", icon: "users", run: () => openHuddleMenu(agentId, label) });
-      if (subAgents.length > 0) {
-        items.push({
-          label: "Start a huddle with its sub-agents",
-          icon: "users",
-          run: () => startSubAgentHuddle(agentId, label, subAgents),
-        });
-      }
-    }
     if (session.mode === "chat") {
       const archived = archivedIds.has(session.sessionId);
       items.push({
@@ -898,12 +819,6 @@ export function Sidebar({
         run: () => setChatArchived(session.sessionId, !archived),
       });
     }
-    if (stoppable)
-      items.push({
-        label: "Stop agent",
-        icon: "stop",
-        run: () => onStopSession(session),
-      });
     if (worktree) {
       const { branch } = worktree;
       items.push({
@@ -952,7 +867,6 @@ export function Sidebar({
     const status = runStatus ? runStateLabel[runStatus] : sessionStatusLabel[session.status];
     const active = session.sessionId === activeSessionId;
     const background = backgroundSessionIds.has(session.sessionId);
-    const stoppable = sessionStopCommands(session).length > 0;
     const agentName = sessionAgentName(session);
     const runName = runIndex === undefined ? title : `Run ${runIndex}`;
     const name = agentName ? `${agentName}, ${runName}` : runName;
@@ -981,25 +895,23 @@ export function Sidebar({
     const nestedAgents =
       sidebarStyle === "branches" ? helpers.filter((child) => child.worktreeId === session.worktreeId) : helpers;
     const note = sidebarStyle === "rail" && runIndex === undefined && !live && !failure ? noteOf(session) : undefined;
-    const huddles = onOpenHuddle && projection && sidebarStyle !== "tree" ? sessionHuddles(projection, session) : [];
-    const huddleText = huddles.length > 0 ? huddleMarkText(huddles) : undefined;
-    // A lead's mark already speaks for sub-agents in the same huddle. The tooltip and menu still name it on each row.
-    const leadHuddles = parent && projection ? sessionHuddles(projection, parent) : [];
-    const markedHuddles = huddles.filter((huddle) => !leadHuddles.some((other) => other.huddleId === huddle.huddleId));
     // The card's second line says what matters now: what the chat is doing, what it asks, why it failed, or
     // the last thing it said.
     const lastWord =
       !live && !failure && runIndex === undefined && isUnread && session.thread ? session.thread : undefined;
     // One line, title and time, unless the chat has something to say now; Appearance can show every second line.
     // A chat in a worktree of its own keeps its branch line: where it works is part of what it is.
+    // In the project view a chat is one line, title and time, and its mark on the left says what it is doing.
     const twoLine =
-      runIndex === undefined && (!compactChats || !!live || !!failure || !!lastWord || !!note || !!branchLine);
+      runIndex === undefined &&
+      !(sidebarView === "projects" && !withProject) &&
+      (!compactChats || !!live || !!failure || !!lastWord || !!note || !!branchLine);
     return (
       <li className={`session-entry${runIndex === undefined ? "" : " is-run"}`} key={session.sessionId}>
         <button
           className={`session-row${twoLine ? " is-two-line" : runIndex === undefined ? " is-one-line" : ""}${active ? " is-active" : ""}${isUnread ? " is-unread" : ""}`}
           type="button"
-          aria-label={`${name}, ${providerName}, ${note?.text ?? status}${background ? ", in the background" : ""}${isUnread ? ", unread" : ""}${huddleText ? `, ${huddleText}` : ""}`}
+          aria-label={`${name}, ${providerName}, ${note?.text ?? status}${background ? ", in the background" : ""}${isUnread ? ", unread" : ""}`}
           aria-current={active ? "true" : undefined}
           onClick={() => onSelectSession(session)}
           // A chat dragged onto a message box goes along with the next message as context.
@@ -1024,10 +936,10 @@ export function Sidebar({
           }
           onContextMenu={(event) =>
             openContextMenu(event, "Agent actions", () =>
-              sessionMenuItems(session, stoppable, runIndex === undefined ? worktree : undefined, subAgents),
+              sessionMenuItems(session, runIndex === undefined ? worktree : undefined),
             )
           }
-          title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}${parentName ? `\nStarted by ${parentName}` : ""}${failure ? `\n${failure}` : ""}${huddleText ? `\n${huddleText}` : ""}`}
+          title={`${agentName ? `${agentName}\n` : ""}${worktree ? `${title}\n${worktree.branch} · ${worktree.path}` : title}${account ? `\nAccount: ${account}` : ""}${parentName ? `\nStarted by ${parentName}` : ""}${failure ? `\n${failure}` : ""}`}
         >
           <span className="session-face">
             <SessionDot session={session} unread={isUnread} quietStart={session.mode === "chat"} />
@@ -1039,6 +951,8 @@ export function Sidebar({
                   {layout.chatPinned(session.sessionId) ? (
                     <Icon name="pin" size={11} className="session-pin" aria-label="Pinned" />
                   ) : null}
+                  {/* One line keeps the agent's own name, before the title, as the second line would. */}
+                  {!twoLine && agentName ? <span className="session-name">{agentName}</span> : null}
                   <span className="session-title">{title}</span>
                   {guests.length > 0 ? (
                     <span
@@ -1057,11 +971,6 @@ export function Sidebar({
               )}
               {withProject && runIndex === undefined ? (
                 <span className="session-project">{projectOf(session)?.name}</span>
-              ) : null}
-              {markedHuddles.length > 0 ? (
-                <span className={`session-huddle${markedHuddles.some((huddle) => huddle.paused) ? " is-paused" : ""}`}>
-                  <Icon name="users" size={12} />
-                </span>
               ) : null}
             </span>
             {twoLine ? (
@@ -1138,7 +1047,7 @@ export function Sidebar({
             label="Agent actions"
             tooltip="More"
             size="xs"
-            items={() => sessionMenuItems(session, stoppable, runIndex === undefined ? worktree : undefined, subAgents)}
+            items={() => sessionMenuItems(session, runIndex === undefined ? worktree : undefined)}
           />
         </span>{" "}
         {showWorktreeAlert && worktree && info?.needsAttention ? (
@@ -1195,12 +1104,7 @@ export function Sidebar({
   const branchMenuItems = (worktree: WorktreeProjection, soleAgent: AgentSession | undefined): MenuItem[] => {
     const forWorktree = worktreeMenuItems(worktree, worktreeInfo(worktree));
     const forBranch: MenuItem[] = soleAgent
-      ? sessionMenuItems(
-          soleAgent,
-          sessionStopCommands(soleAgent).length > 0,
-          worktree,
-          subAgentsOf.get(soleAgent.sessionId) ?? [],
-        )
+      ? sessionMenuItems(soleAgent, worktree)
       : [
           {
             label: "Copy branch name",
@@ -1244,14 +1148,14 @@ export function Sidebar({
     accounts,
     now,
     currentKey: activeSession ? limitKey(activeSession.provider, sessionAccountId(activeSession)) : undefined,
-    onOpenSettings: () => onOpenSettings("usage"),
+    onOpenSettings: () => onOpenSettings("accounts"),
+    onOpenUsage,
   };
 
   const overlays = (
     <>
       {contextMenu ? <Menu request={contextMenu} onClose={() => setContextMenu(undefined)} /> : null}
       {renderProjectConfirm()}
-      {huddleMenu ? <Menu request={huddleMenu} onClose={() => setHuddleMenu(undefined)} /> : null}
     </>
   );
 
@@ -1392,11 +1296,10 @@ export function Sidebar({
     const agentName = owner ? owner.buddy.name : sessionAgentName(session);
     const active = session.sessionId === activeSessionId;
     const isUnread = unread.has(session.sessionId);
-    const stoppable = sessionStopCommands(session).length > 0;
     const subAgents = subAgentsOf.get(session.sessionId) ?? [];
     const status = sessionStatusLabel[session.status];
     const busy = session.status === "working" || session.status === "starting";
-    const menu = () => sessionMenuItems(session, stoppable, worktree, subAgents);
+    const menu = () => sessionMenuItems(session, worktree);
     return (
       <li className="session-entry" key={session.sessionId}>
         <button
@@ -1408,16 +1311,9 @@ export function Sidebar({
           onClick={() => onSelectSession(session)}
           onContextMenu={(event) => openContextMenu(event, "Agent actions", menu)}
         >
-          <span className={`activity-mark is-${session.status}`} aria-hidden="true">
-            {busy ? (
-              <Icon name="loader" size={14} className="activity-spin" />
-            ) : session.status === "waiting" ? (
-              <span className="activity-dot" />
-            ) : session.status === "failed" ? (
-              <Icon name="alert" size={14} />
-            ) : (
-              <AgentStack providers={chatAgents(session, subAgents)} size={14} />
-            )}
+          <span className={`activity-mark is-${session.status}${busy ? " is-busy" : ""}`} aria-hidden="true">
+            <AgentStack providers={chatAgents(session, subAgents)} size={14} />
+            {session.status === "waiting" || session.status === "failed" ? <span className="activity-badge" /> : null}
           </span>
           <span className="activity-copy">
             <span className="activity-title">
@@ -1439,6 +1335,7 @@ export function Sidebar({
                 <span className="activity-agent">{agentName}</span>
               ) : null}
               <span className="session-title">{title}</span>
+              <ChatPullRequestMark session={session} />
             </span>
             <span className="activity-meta">
               {project ? (
@@ -1635,7 +1532,6 @@ export function Sidebar({
                     shortcut={settingsShortcut}
                     onClick={() => onOpenSettings()}
                   />
-                  <IconButton label="Help" tooltip="Help and diagnostics" icon="help" onClick={onOpenHelp} />
                   {onHideSidebar ? (
                     <IconButton
                       label="Hide sidebar"
@@ -1651,6 +1547,7 @@ export function Sidebar({
                   <span className="sr-only" role="status">
                     {projection ? "Runtime connected" : ""}
                   </span>
+                  {updateCard ? <div className="rail-panel-updates">{updateCard}</div> : null}
                   {!projection || line || panel ? (
                     <div className="rail-panel-foot">
                       {panel}
@@ -1676,10 +1573,12 @@ export function Sidebar({
 
   return (
     <aside
-      className={`sidebar${tintProjects ? " has-project-tint" : ""} chat-tint-${chatTint}`}
+      className={`sidebar${tintProjects ? " has-project-tint" : ""} chat-tint-${chatTint}${sidebarLookClass(sidebarLook, windowLayout)}`}
+      style={sidebarLookStyle(sidebarLook)}
       aria-label="Projects and agents"
       ref={asideRef}
     >
+      {sidebarLook.background === "surface" ? <ChatBackdrop place="sidebar" /> : null}
       <div className="sidebar-top">
         <span className="brand">
           <ZliLogo className="brand-mark" />
@@ -1798,7 +1697,6 @@ export function Sidebar({
           onNewAgent={onNewAgent}
           onCreateWorktree={onCreateWorktree ?? onNewAgent}
           onOpenProject={onOpenProject}
-          onOpenHuddle={onOpenHuddle}
           now={now}
         />
       ) : (
@@ -2052,6 +1950,7 @@ export function Sidebar({
       <SidebarPlanLimits {...limitsProps}>
         {({ line, panel }) => (
           <div className="sidebar-bottom">
+            {updateCard}
             {panel}
             <div className="sidebar-footer">
               <span className="sr-only" role="status">
@@ -2067,37 +1966,21 @@ export function Sidebar({
                   <Button
                     variant="ghost"
                     size="sm"
-                    icon="settings"
-                    className="sidebar-settings"
-                    tooltip="Settings"
-                    shortcut={settingsShortcut}
-                    onClick={() => onOpenSettings()}
+                    icon="gauge"
+                    className="sidebar-usage-open"
+                    tooltip="Usage and cost"
+                    onClick={onOpenUsage}
                   >
-                    Settings
+                    Usage
                   </Button>
                 ))
               )}
               <IconButton
-                className="sidebar-usage"
-                label="Usage"
-                tooltip="Usage and cost"
-                icon="gauge"
-                onClick={onOpenUsage}
-              />
-              {projection && !line ? null : (
-                <IconButton
-                  label="Settings"
-                  icon="settings"
-                  shortcut={settingsShortcut}
-                  onClick={() => onOpenSettings()}
-                />
-              )}
-              <IconButton
-                className="sidebar-help"
-                label="Help"
-                tooltip="Help and diagnostics"
-                icon="help"
-                onClick={onOpenHelp}
+                className="sidebar-settings"
+                label="Settings"
+                icon="settings"
+                shortcut={settingsShortcut}
+                onClick={() => onOpenSettings()}
               />
             </div>
           </div>

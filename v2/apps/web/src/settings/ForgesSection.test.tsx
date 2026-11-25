@@ -36,11 +36,16 @@ const status = {
   ],
 };
 
+const linearOff = { connected: false };
+const respond = (command: Record<string, unknown>) => ({
+  result: String(command.type).startsWith("issues.linear") ? linearOff : status,
+});
+
 describe("ForgesSection", () => {
   it("shows each forge's CLI, sign-in, and what to do next", async () => {
-    await renderWithRuntime(<ForgesSection />, () => ({ result: status }));
+    await renderWithRuntime(<ForgesSection />, respond);
     await act(async () => undefined);
-    const rows = [...document.querySelectorAll(".forge-row")].map((row) => row.textContent);
+    const rows = [...document.querySelectorAll('[aria-label="Forges"] .forge-row')].map((row) => row.textContent);
     expect(rows[0]).toContain("gh 2.98.0");
     expect(rows[0]).toContain("octo on github.com");
     expect(rows[0]).toContain("Connected");
@@ -48,14 +53,40 @@ describe("ForgesSection", () => {
     expect(rows[1]).toContain("glab auth login");
     expect(rows[2]).toContain("Not installed");
     expect(rows[2]).toContain("Install");
-    expect(document.querySelectorAll(".forge-row .connector-logo svg")).toHaveLength(3);
+    expect(document.querySelectorAll('[aria-label="Forges"] .connector-logo svg')).toHaveLength(3);
   });
 
   it("checks again on Rescan", async () => {
-    const commands = await renderWithRuntime(<ForgesSection />, () => ({ result: status }));
+    const commands = await renderWithRuntime(<ForgesSection />, respond);
     await act(async () => undefined);
     const rescan = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Rescan"));
     await act(async () => rescan?.click());
-    expect(commands.map((command) => command.type)).toEqual(["forges.status", "forges.rescan"]);
+    expect(commands.map((command) => command.type).filter((type) => String(type).startsWith("forges"))).toEqual([
+      "forges.status",
+      "forges.rescan",
+    ]);
+  });
+
+  it("sets up Linear issues on the same page", async () => {
+    const commands = await renderWithRuntime(<ForgesSection />, (command) =>
+      command.type === "issues.linear.connect"
+        ? { result: { connected: true, viewer: { name: "Sam" } } }
+        : respond(command),
+    );
+    await act(async () => undefined);
+    const linear = document.querySelector('[aria-label="Issue trackers"] .forge-row');
+    expect(linear?.textContent).toContain("Not connected");
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Linear API key"]');
+    expect(input).not.toBeNull();
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setValue?.call(input, "lin_api_test");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => input?.form?.requestSubmit());
+    expect(commands.at(-1)).toMatchObject({ type: "issues.linear.connect", apiKey: "lin_api_test" });
+    expect(document.querySelector('[aria-label="Issue trackers"] .forge-row')?.textContent).toContain(
+      "Connected as Sam",
+    );
   });
 });

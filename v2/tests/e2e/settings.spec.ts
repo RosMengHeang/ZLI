@@ -102,14 +102,21 @@ test("keeps MCP servers added in Settings for every agent", async () => {
     await expect(settings.locator(".mcp-row-command")).toHaveText("npx -y @modelcontextprotocol/server-github");
     await expect(settings).toContainText("ZLI gives these servers only to agents it starts.");
 
-    const saved = JSON.parse(await readFile(join(root, "mcp-servers.json"), "utf8"));
+    // With a system keychain the token is sealed on disk, never saved as typed; without one it is kept as typed.
+    const safety = settings.locator(".mcp-safety > li").first();
+    await expect(safety).toHaveClass(/is-(ok|warning)/u);
+    const sealed = (await safety.getAttribute("class"))?.includes("is-ok") === true;
+    if (process.platform === "win32") expect(sealed).toBe(true);
+    const savedText = await readFile(join(root, "mcp-servers.json"), "utf8");
+    if (sealed) expect(savedText).not.toContain("test-token");
+    const saved = JSON.parse(savedText);
     expect(saved.servers).toEqual([
       {
         name: "github",
         enabled: true,
         command: "npx",
         args: ["-y", "@modelcontextprotocol/server-github"],
-        env: { GITHUB_TOKEN: "test-token" },
+        env: { GITHUB_TOKEN: sealed ? expect.stringMatching(/^sealed:v1:/u) : "test-token" },
       },
     ]);
 
@@ -144,17 +151,19 @@ test("removes a project from Settings after asking, and leaves its folder on dis
     const projects = settings.getByRole("list", { name: "Projects" });
     await expect(projects.getByRole("listitem")).toHaveCount(1);
     await expect(projects).toContainText(repo);
-    await settings.getByRole("button", { name: "Remove repo" }).click();
+    // A project opens on its own page; Remove there asks first, with Keep in focus.
+    await settings.locator(".project-open").first().click();
+    await settings.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(settings).toContainText("Remove repo from ZLI?");
     await expect(settings.getByRole("button", { name: "Keep" })).toBeFocused();
     await settings.getByRole("button", { name: "Keep" }).click();
-    await expect(settings.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0);
+    await expect(settings).not.toContainText("Remove repo from ZLI?");
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await settings.getByRole("button", { name: "Remove repo" }).click();
     await settings.getByRole("button", { name: "Remove", exact: true }).click();
+    await settings.locator(".project-remove-actions").getByRole("button", { name: "Remove", exact: true }).click();
     await expect(settings).toContainText("Removed repo from ZLI. Its folder is still on disk.");
-    await expect(settings).toContainText("No projects yet.");
+    await expect(settings.getByRole("button", { name: "Add project" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.locator(".project-label")).toHaveCount(0);
     expect((await stat(join(repo, ".git"))).isDirectory()).toBe(true);

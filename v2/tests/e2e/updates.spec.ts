@@ -35,7 +35,10 @@ test("never checks for updates in test launches and shows why in Settings", asyn
     );
     await page.keyboard.press("Escape");
 
-    await page.getByRole("button", { name: "Help", exact: true }).click();
+    // Help and diagnostics is in the command palette.
+    await page.keyboard.press("Control+K");
+    await page.getByRole("textbox", { name: "Search commands" }).fill("Help and diagnostics");
+    await page.keyboard.press("Enter");
     const help = page.getByRole("dialog", { name: "Help and diagnostics" });
     const version = await page.evaluate(() => window.zli?.app.getVersion());
     await expect(help).toContainText(`ZLI ${version}`);

@@ -15,7 +15,7 @@ import { useRuntime, useRuntimeSelector } from "../runtime/RuntimeProvider.js";
 import type { SessionMode } from "../sessions/sessions.js";
 import { Button, cx, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
-import { EmptyState, PaneHeader } from "../ui/Pane.js";
+import { EmptyState } from "../ui/Pane.js";
 import { Picker } from "../ui/Picker.js";
 import { BrowserChromeHeader, type BrowserChromeOptions, SignedInSites } from "./BrowserChrome.js";
 import { DesignPanel } from "./DesignPanel.js";
@@ -47,6 +47,8 @@ export type BrowserReveal = { browserTabId: string; worktreeId: string; key: num
 export type BrowserOpenRequest = { url: string; worktreeId: string; key: number };
 
 type Props = {
+  /** Names the worktree's branch in the header, for when several of the same task run side by side. */
+  showBranch?: boolean | undefined;
   worktree: WorktreeProjection | undefined;
   /** True while app UI (dialogs, palette) must sit above the pane; the native view cannot be layered under DOM. */
   obscured?: boolean;
@@ -77,6 +79,7 @@ export function BrowserPane({
   projects = [],
   onOpenProject,
   chrome,
+  showBranch = false,
 }: Props) {
   const { bridge } = useRuntime();
   const browserTabs = useRuntimeSelector(selectBrowserTabs);
@@ -106,7 +109,9 @@ export function BrowserPane({
   const [frozen, setFrozen] = useState<string>();
   const [sitesOpen, setSitesOpen] = useState(false);
   // The native view draws over the DOM, so it is hidden while the send menu or dialog is open.
-  const obscured = obscuredByApp || sendingDesign || covered || sitesOpen;
+  /** The app covers the page and its still picture is in place, so the native page can step aside. */
+  const [appCovered, setAppCovered] = useState(false);
+  const obscured = appCovered || sendingDesign || covered || sitesOpen;
   const worktreeId = worktree?.worktreeId;
   const showUrl = useCallback((value: string) => {
     urlEditedRef.current = false;
@@ -116,6 +121,34 @@ export function BrowserPane({
   useEffect(() => {
     obscuredRef.current = obscured;
   }, [obscured]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only the app covering or uncovering the page is news.
+  useEffect(() => {
+    if (!obscuredByApp) {
+      setAppCovered(false);
+      return;
+    }
+    let live = true;
+    const browserTabId = tab?.browserTabId;
+    // Take the picture while the page still shows, but never hold the cover back for long.
+    const giveUp = setTimeout(() => live && setAppCovered(true), 250);
+    void (async () => {
+      if (bridge && browserTabId) {
+        try {
+          const shot = (await bridge.browser.screenshot({ browserTabId, format: "jpeg" })) as
+            | { data?: string; mimeType?: string }
+            | undefined;
+          if (live && shot?.data) setFrozen(`data:${shot.mimeType ?? "image/jpeg"};base64,${shot.data}`);
+        } catch {
+          // No picture; the page area stays empty while covered.
+        }
+      }
+      if (live) setAppCovered(true);
+    })();
+    return () => {
+      live = false;
+      clearTimeout(giveUp);
+    };
+  }, [obscuredByApp]);
   // A tab just closed stays in the projection until the runtime hears of it; it must not come back meanwhile.
   const [closedIds, setClosedIds] = useState<ReadonlySet<string>>(() => new Set());
   const worktreeTabs = useMemo(
@@ -681,30 +714,7 @@ export function BrowserPane({
       ) : null}
       {chrome ? null : (
         <>
-          <PaneHeader icon="globe" title={tab?.title || "Browser"} detail={worktree?.branch}>
-            {tab && worktreeTabs.length === 1 ? (
-              <IconButton
-                icon="x"
-                size="sm"
-                iconSize={14}
-                onClick={() => void closeTab(tab)}
-                disabled={busy}
-                label={`Close ${tab.title || tab.url}`}
-                tooltip="Close tab"
-              />
-            ) : null}
-            {worktree ? (
-              <IconButton
-                icon="plus"
-                size="sm"
-                iconSize={15}
-                onClick={() => void newTab()}
-                disabled={busy}
-                label="New browser tab"
-                tooltip="New tab"
-              />
-            ) : null}
-          </PaneHeader>
+          <h2 className="sr-only">{tab?.title || "Browser"}</h2>
           {worktree && worktreeTabs.length > 1 && (
             <div className="browser-tabs" role="tablist" aria-label="Worktree browser tabs">
               {worktreeTabs.map((candidate) => (
@@ -736,6 +746,11 @@ export function BrowserPane({
             </div>
           )}
           <div className="browser-toolbar">
+            {showBranch && worktree ? (
+              <span className="browser-branch" title={worktree.branch}>
+                {worktree.branch}
+              </span>
+            ) : null}
             <nav className="browser-controls" aria-label="Browser controls">
               <IconButton
                 icon="arrowLeft"
@@ -818,18 +833,17 @@ export function BrowserPane({
               </SendToAgentButton>
             ) : null}
             {canDesign ? (
-              <Button
+              <IconButton
+                icon="inspect"
                 size="sm"
-                variant="ghost"
-                icon="annotate"
+                iconSize={15}
+                label="Annotate"
                 className={cx("browser-annotate-toggle", annotating && "is-on")}
                 disabled={!tab}
-                aria-pressed={annotating}
+                pressed={annotating}
                 onClick={() => (annotating ? stopAnnotating() : void startAnnotating())}
-                tooltip={annotating ? "Stop annotating" : "Point at the page and leave notes for an agent"}
-              >
-                Annotate
-              </Button>
+                tooltip={annotating ? "Stop selecting" : "Select an element on the page and leave a note for an agent"}
+              />
             ) : null}
             <IconButton
               icon="smartphone"
@@ -852,6 +866,17 @@ export function BrowserPane({
               label="Open browser developer tools"
               tooltip="Open DevTools in a window"
             />
+            {worktree ? (
+              <IconButton
+                icon="plus"
+                size="sm"
+                iconSize={15}
+                onClick={() => void newTab()}
+                disabled={busy}
+                label="New browser tab"
+                tooltip="New tab"
+              />
+            ) : null}
           </div>
         </>
       )}
@@ -909,7 +934,7 @@ export function BrowserPane({
         </div>
       )}
       <div className={`browser-surface${tab ? " has-tab" : ""}`} ref={surfaceRef}>
-        {chrome && (covered || sitesOpen) && frozen && tab ? (
+        {((chrome && (covered || sitesOpen)) || appCovered) && frozen && tab ? (
           <img className="browser-frozen" src={frozen} alt="" />
         ) : null}
         {!worktree && onOpenProject && projects.length > 0 ? (

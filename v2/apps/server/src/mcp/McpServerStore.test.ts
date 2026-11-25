@@ -17,6 +17,7 @@ import {
   serverInProject,
 } from "./McpServerStore.js";
 import { McpSignIns } from "./signIn/McpSignIns.js";
+import { SecretBox } from "../secrets/SecretBox.js";
 
 const temps: string[] = [];
 afterEach(async () => {
@@ -33,20 +34,82 @@ const github = { name: "github", enabled: true, command: "npx", args: ["-y", "gh
 const linear = { name: "linear", enabled: false, command: "linear-mcp", args: [], env: {} };
 
 describe("McpServerStore", () => {
+  it("seals server keys and headers on disk, opens them on load, and keeps the file to this user", async () => {
+    const path = await storePath();
+    const box = SecretBox.withKey(Buffer.alloc(32, 7));
+    const remote = {
+      name: "notion",
+      enabled: true,
+      transport: "http" as const,
+      url: "https://mcp.example.com/mcp",
+      headers: { Authorization: "Bearer secret-header" },
+      oauth: false,
+    };
+    const store = new McpServerStore({ path, box });
+    await store.load();
+    await store.save([github, remote]);
+
+    const text = await readFile(path, "utf8");
+    expect(text).not.toContain('"t"');
+    expect(text).not.toContain("secret-header");
+    expect(text).toContain("sealed:v1:");
+    if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
+    expect(store.list().secrets).toEqual({ sealed: true, unreadable: [] });
+
+    const reloaded = new McpServerStore({ path, box });
+    await reloaded.load();
+    expect(reloaded.list().servers).toEqual([github, remote]);
+
+    // Another computer's key cannot open them: the values come back empty and the server is named.
+    const elsewhere = new McpServerStore({ path, box: SecretBox.withKey(Buffer.alloc(32, 9)) });
+    await elsewhere.load();
+    expect(elsewhere.list().secrets?.unreadable).toEqual(["github", "notion"]);
+    expect(elsewhere.list().servers[0]).toMatchObject({ env: { TOKEN: "" } });
+
+    // Saving something else there keeps the sealed values, so the right computer still opens them.
+    await elsewhere.save([...elsewhere.list().servers, linear]);
+    const back = new McpServerStore({ path, box });
+    await back.load();
+    expect(back.list().servers).toEqual([github, remote, linear]);
+    expect(back.list().secrets?.unreadable).toEqual([]);
+  });
+
+  it("saves no key unprotected while the keychain was too slow to answer", async () => {
+    const path = await storePath();
+    const store = new McpServerStore({ path, keychainSlow: true });
+    await store.load();
+    await expect(store.save([github])).rejects.toThrow(McpRequestError);
+    await expect(readFile(path, "utf8")).rejects.toThrow();
+    // A server without keys is still saved, and Integrations says why keys wait.
+    await store.save([{ ...github, env: {} }]);
+    expect((await store.list()).secrets).toMatchObject({ sealed: false, keychainSlow: true });
+  });
+
+  it("seals a list saved before sealing the first time it loads", async () => {
+    const path = await storePath();
+    await writeFile(path, JSON.stringify({ version: 1, servers: [github] }));
+    const store = new McpServerStore({ path, box: SecretBox.withKey(Buffer.alloc(32, 7)) });
+    await store.load();
+    expect(store.list().servers).toEqual([github]);
+    expect(await readFile(path, "utf8")).toContain("sealed:v1:");
+  });
+
   it("saves, reloads, and hands only enabled servers to agents", async () => {
     const path = await storePath();
-    const store = new McpServerStore({ path });
+    const store = new McpServerStore({ toolLoading: "upfront", path });
     await store.load();
     expect(store.list()).toEqual({
       servers: [],
       agentAccess: "full",
       agentScope: "project",
+      toolLoading: "upfront",
       signIns: [],
       health: [],
+      secrets: { sealed: false, unreadable: [] },
     });
 
     await store.save([github, linear]);
-    const reloaded = new McpServerStore({ path });
+    const reloaded = new McpServerStore({ toolLoading: "upfront", path });
     await reloaded.load();
     expect(reloaded.list().servers).toEqual([github, linear]);
     expect(reloaded.specs()).toEqual([{ name: "github", command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "t" } }]);
@@ -120,7 +183,7 @@ describe("McpServerStore", () => {
   it("loads lists saved before remote servers existed as local commands", async () => {
     const path = await storePath();
     await writeFile(path, JSON.stringify({ version: 1, servers: [github], owned: {}, agentAccess: "read" }), "utf8");
-    const store = new McpServerStore({ path });
+    const store = new McpServerStore({ toolLoading: "upfront", path });
     await store.load();
     expect(store.list().problem).toBeUndefined();
     expect(store.list().servers).toEqual([github]);
@@ -131,7 +194,7 @@ describe("McpServerStore", () => {
     const path = await storePath();
     const signIns = new McpSignIns({ dir: join(dirname(path), "mcp-sign-in") });
     const connectTool = { command: "/apps/ZLI", script: "/apps/zli-connect.js" };
-    const store = new McpServerStore({ path, signIns, connectTool });
+    const store = new McpServerStore({ toolLoading: "upfront", path, signIns, connectTool });
     await store.load();
     const context7 = {
       name: "context7",
@@ -150,7 +213,7 @@ describe("McpServerStore", () => {
     };
     await store.save([context7, sentry]);
 
-    const reloaded = new McpServerStore({ path, signIns, connectTool });
+    const reloaded = new McpServerStore({ toolLoading: "upfront", path, signIns, connectTool });
     await reloaded.load();
     expect(reloaded.list().servers).toEqual([context7, sentry]);
     expect(reloaded.list().signIns).toEqual([{ name: "sentry", url: sentry.url, signedIn: false }]);
@@ -312,7 +375,7 @@ describe("McpServerStore launch rules", () => {
 
   it("runs local servers with turned-off tools through the bridge, from private files", async () => {
     const path = await storePath();
-    const store = new McpServerStore({ path, connectTool });
+    const store = new McpServerStore({ toolLoading: "upfront", path, connectTool });
     await store.load();
     const quiet = { ...github, disabledTools: ["delete_repo"] };
     await store.save([quiet]);
@@ -387,6 +450,7 @@ describe("McpServerStore launch rules", () => {
   it("gives servers limited to projects only to agents in those projects", async () => {
     const path = await storePath();
     const store = new McpServerStore({
+      toolLoading: "upfront",
       path,
       extraServers: () => [{ ...linear, name: "plugin", enabled: true, projects: ["/elsewhere"] }],
     });
@@ -513,5 +577,20 @@ describe("McpServerStore import", () => {
       ["github", true],
       ["fetch", false],
     ]);
+  });
+
+  it("hands agents only the connected apps' server when tools load on demand, and finds the rest through the gateway", async () => {
+    const path = await storePath();
+    const store = new McpServerStore({ path });
+    await store.load();
+    expect(store.list().toolLoading).toBe("on-demand");
+    await store.save([github, linear]);
+    expect(store.specs()).toEqual([]);
+
+    await store.setToolLoading("upfront");
+    expect(store.specs().map((spec) => spec.name)).toEqual(["github"]);
+    const reloaded = new McpServerStore({ path });
+    await reloaded.load();
+    expect(reloaded.toolLoading()).toBe("upfront");
   });
 });

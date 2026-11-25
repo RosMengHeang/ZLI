@@ -45,7 +45,16 @@ export type ThreadCheckpoint = z.infer<typeof ThreadCheckpoint>;
 
 /** Handled directly by the runtime server; none of these reach the event log. */
 export const CheckpointCommand = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("checkpoint.diff"), checkpointId: z.string().uuid(), path: RelativePath }),
+  /**
+   * One file's diff in a saved turn. With `throughCheckpointId`, a later turn in the same worktree, the diff runs from
+   * the start of the first turn to the end of the later one, so several turns read as one change.
+   */
+  z.object({
+    type: z.literal("checkpoint.diff"),
+    checkpointId: z.string().uuid(),
+    path: RelativePath,
+    throughCheckpointId: z.string().uuid().optional(),
+  }),
   /** Puts the worktree's files back to how they were when the turn started. */
   z.object({ type: z.literal("checkpoint.restore"), checkpointId: z.string().uuid() }),
   /**

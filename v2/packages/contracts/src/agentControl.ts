@@ -43,10 +43,8 @@ export const AGENT_CONTROL_ACTIONS = [
   "agentsend",
   "agentstart",
   "agentconnect",
-  "huddleread",
-  "huddlepost",
-  "huddlewait",
-  "huddledecisions",
+  "toolfind",
+  "tooluse",
   "buddydone",
   "buddyask",
   "buddyremember",
@@ -58,6 +56,8 @@ export const AGENT_CONTROL_ACTIONS = [
   "buddyrevise",
   "buddyroutine",
   "buddygoaldone",
+  "buddyteamplan",
+  "buddystartteam",
 ] as const;
 export const AgentControlAction = z.enum(AGENT_CONTROL_ACTIONS);
 export type AgentControlAction = z.infer<typeof AgentControlAction>;
@@ -68,9 +68,6 @@ export const READ_AGENT_CONTROL_ACTIONS: readonly AgentControlAction[] = [
   "agentlist",
   "agentread",
   "agentconnect",
-  "huddleread",
-  "huddlewait",
-  "huddledecisions",
   "buddylist",
   "buddystatus",
   // A buddy reporting on its own job changes nothing outside it.
@@ -78,9 +75,16 @@ export const READ_AGENT_CONTROL_ACTIONS: readonly AgentControlAction[] = [
   "buddyask",
   "buddyremember",
   "buddyverdict",
-  // A lead closing its own goal, like a buddy reporting on its own job.
+  // A lead closing its own goal, or handing in its team's plan, like a buddy reporting on its own job.
   "buddygoaldone",
+  "buddyteamplan",
 ];
+
+/**
+ * Finding and using the tools of connected services. These are not about other agents, so the agent access
+ * setting does not limit them; each service's own sign-in and tool settings do.
+ */
+export const SERVICE_TOOL_ACTIONS: readonly AgentControlAction[] = ["toolfind", "tooluse"];
 
 /** An agent's name or id, or a unique id prefix. `project/agent` reaches an agent in another project. */
 const AgentRef = z.string().trim().min(1, "Name the agent with a name or id from list_agents.").max(300);
@@ -139,63 +143,24 @@ export const AgentControlStartInput = AgentControlTarget.extend({
 });
 export type AgentControlStartInput = z.infer<typeof AgentControlStartInput>;
 
-/** A huddle's name or id, or a unique id prefix. Optional when the caller is in one huddle only. */
-const HuddleRef = z.string().trim().min(1).max(200);
-
-/** The most messages one huddle read returns. */
-export const MAX_HUDDLE_READ = 50;
-
-export const AgentControlHuddleReadInput = AgentControlTarget.extend({
-  huddle: HuddleRef.optional(),
-  /** The latest messages, read before or not, instead of only the ones the caller has not read. */
-  all: z.boolean().optional(),
-  /** Messages numbered below this one, read before or not, for going back through history. */
-  before: z.number().int().positive().optional(),
-  /** How many messages to return, up to MAX_HUDDLE_READ. */
-  limit: z.number().int().min(1).max(MAX_HUDDLE_READ).optional(),
-  as: CallerRef.optional(),
-});
-export type AgentControlHuddleReadInput = z.infer<typeof AgentControlHuddleReadInput>;
-
-export const AgentControlHuddlePostInput = AgentControlTarget.extend({
-  huddle: HuddleRef.optional(),
-  text: z.string().trim().min(1, "Write the message to post.").max(8_000),
-  /** everyone (the default, or the lead in lead mode), person for only the person, or member names or ids. */
-  to: z.union([z.literal("everyone"), z.literal("person"), z.array(AgentRef).min(1).max(12)]).optional(),
-  kind: z.enum(["ask", "assign", "done", "blocked", "note"]).optional(),
-  /** The number of the message this answers. */
-  replyTo: z.number().int().positive().optional(),
-  /** Starts a new agent as the caller's sub-agent, adds it to the huddle, and sends it this message. */
-  start: z
-    .object({
-      name: AgentName,
-      provider: ListedProviderKind,
-      mode: z.enum(["chat", "terminal"]).optional(),
-      worktree: z.enum(["new", "same"]).optional(),
-      branch: z.string().trim().min(1).max(200).optional(),
-      model: z.string().trim().min(1).max(200).optional(),
-    })
-    .optional(),
-  as: CallerRef.optional(),
-});
-export type AgentControlHuddlePostInput = z.infer<typeof AgentControlHuddlePostInput>;
-
-export const AgentControlHuddleWaitInput = AgentControlTarget.extend({
-  huddle: HuddleRef.optional(),
-  timeoutSeconds: z.number().int().min(1).max(600).optional(),
-  as: CallerRef.optional(),
-});
-export type AgentControlHuddleWaitInput = z.infer<typeof AgentControlHuddleWaitInput>;
-
-export const AgentControlHuddleDecisionsInput = AgentControlTarget.extend({
-  huddle: HuddleRef.optional(),
-  as: CallerRef.optional(),
-});
-export type AgentControlHuddleDecisionsInput = z.infer<typeof AgentControlHuddleDecisionsInput>;
-
 export const AgentControlConnectInput = AgentControlTarget.extend({
   /** A connector id such as github, its name, or the name of a server the person added. */
   service: z.string().trim().min(1, "Name the service, such as github or linear.").max(100),
   reason: z.string().trim().max(500).optional(),
 });
 export type AgentControlConnectInput = z.infer<typeof AgentControlConnectInput>;
+
+/** Finds tools in the services connected in ZLI. An empty query lists the services. */
+export const AgentControlToolFindInput = AgentControlTarget.extend({
+  query: z.string().trim().max(300).default(""),
+  limit: z.number().int().min(1).max(25).optional(),
+});
+export type AgentControlToolFindInput = z.infer<typeof AgentControlToolFindInput>;
+
+/** Calls one tool that find_tools returned. */
+export const AgentControlToolUseInput = AgentControlTarget.extend({
+  service: z.string().trim().min(1, "Name the service, as find_tools listed it.").max(100),
+  tool: z.string().trim().min(1, "Name the tool, as find_tools listed it.").max(200),
+  arguments: z.record(z.string(), z.unknown()).optional(),
+});
+export type AgentControlToolUseInput = z.infer<typeof AgentControlToolUseInput>;

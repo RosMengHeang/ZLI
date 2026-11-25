@@ -4,7 +4,7 @@ import type { BuddyProjection, RuntimeProjection } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buttonNamed } from "../huddle/testHuddles.js";
+import { buttonNamed } from "./testDom.js";
 import { typeInto } from "../review/testRuntime.js";
 import { BuddyChat, buddyTranscript, continuesGroup } from "./BuddyChat.js";
 

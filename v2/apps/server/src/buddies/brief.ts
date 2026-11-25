@@ -4,12 +4,14 @@ import {
   goalTasks,
   type HandoffAction,
   isBuddyHome,
+  isTeam,
   type ProjectProjection,
   playbooksFor,
   type RuntimeProjection,
   rulesOf,
   rulesText,
   type TaskProjection,
+  type TeamState,
   taskLine,
   workProjects,
 } from "@zli-v2/contracts";
@@ -101,7 +103,7 @@ export function jobBrief(options: {
   if (options.primary)
     lines.push(
       "",
-      "You are the Primary buddy: you plan and hand out work. Use list_buddies to see the team, assign_task to give a buddy a job, task_status to check progress, and set_routine for recurring work. Do not edit files yourself.",
+      "You are the Primary buddy: you plan and hand out work. Use list_buddies to see the team, assign_task to give a buddy a job, start_team for a bigger goal that needs a plan and several buddies, task_status to check progress, and set_routine for recurring work. Do not edit files yourself.",
     );
   return lines.join("\n");
 }
@@ -117,6 +119,7 @@ export function leadBrief(options: {
   maxRounds: number;
 }): string {
   const { buddy, goal, state } = options;
+  if (isTeam(goal)) return teamLeadBrief({ buddy, goal, state });
   const nameOf = (buddyId: string) => state.buddies?.find((entry) => entry.buddyId === buddyId)?.name ?? "A buddy";
   const projectOf = (projectId: string) => {
     const project = state.projects.find((entry) => entry.projectId === projectId);
@@ -165,6 +168,65 @@ export function leadBrief(options: {
   if (about.length > 0)
     lines.push("", "About the person (every buddy knows this):", ...about.map((note) => `- ${note.text}`));
   if (notes.length > 0) lines.push("", "What you know:", ...notes.map((note) => `- ${note.text}`));
+  if (buddy.instructions?.trim()) lines.push("", "Your instructions:", buddy.instructions.trim());
+  return lines.join("\n");
+}
+
+/**
+ * A team lead's brief. On its first turn it writes the plan and hands it in with team_plan; the person checks it
+ * and presses Go (unless they chose to start at once). On its last turn the work is already merged on the team
+ * branch and it writes the summary with goal_done.
+ */
+function teamLeadBrief(options: {
+  buddy: BuddyProjection;
+  goal: GoalProjection & { team: TeamState };
+  state: RuntimeProjection;
+}): string {
+  const { buddy, goal, state } = options;
+  const nameOf = (buddyId: string | undefined) =>
+    state.buddies?.find((entry) => entry.buddyId === buddyId)?.name ?? "a buddy";
+  const live = (state.buddies ?? []).filter((entry) => !entry.archived);
+  const picked = goal.team.buddyIds;
+  const team = picked.length > 0 ? live.filter((entry) => picked.includes(entry.buddyId)) : live;
+  const project = state.projects.find((entry) => entry.projectId === goal.projectId);
+  const lines = [`You are ${buddy.name}, leading a team in ZLI.`, `Goal: ${goal.text}`, ""];
+  if (goal.team.phase === "summing_up") {
+    const combine = goal.team.combine;
+    lines.push(
+      `The team's work is merged on the branch ${combine?.branch ?? "of the team"}${goal.team.baseRef ? `, made from ${goal.team.baseRef}` : ""}.`,
+      combine?.diff
+        ? `It changes ${combine.diff.files} files (+${combine.diff.insertions} -${combine.diff.deletions}).`
+        : "",
+      "Tasks:",
+      ...goal.team.plan.map((item) => {
+        const task = state.tasks?.find((entry) => entry.taskId === item.taskId);
+        const merged = item.taskId && combine?.merged.includes(item.taskId);
+        return `- ${item.title} (${nameOf(task?.buddyId ?? item.buddyId)}): ${merged ? "merged" : "left out"}${task?.result ? `. ${task.result.summary.slice(0, 400)}` : ""}`;
+      }),
+      "",
+      "Write the summary for the person now. Read the team branch only as much as you need. Call goal_done with 3 to 6 short sentences: what changed, how it was tested, and anything left to do. Then call task_done with one line and end your turn. Do not change any files.",
+    );
+    return lines.filter((line, index) => line !== "" || lines[index - 1] !== "").join("\n");
+  }
+  lines.push(
+    "This is the planning turn. Break the goal into tasks that can run at the same time, each one a buddy can do alone in its own worktree and branch. Read code or files only as much as you need to plan.",
+    "Then call team_plan once with the tasks: a short title, the buddy by name, and notes with what done looks like. Keep it to the tasks needed, at most 12. Add notes for the person if they should know something before it starts.",
+    goal.team.autoStart
+      ? "The plan starts as soon as you hand it in."
+      : "The person checks the plan, may change it, and presses Go.",
+    "Each task is reviewed, then ZLI merges the branches into one team branch, and you write the summary on a later turn.",
+    "Do not use assign_task for this goal, and do not do the work yourself. End the turn with task_done and one line.",
+    "",
+    `Project: ${project && !isBuddyHome(project) ? project.name : "the web"}.`,
+    picked.length > 0 ? "The person picked this team:" : "Team:",
+    ...team.map(
+      (entry) =>
+        `- ${entry.name}${entry.title ? ` (${entry.title})` : ""}${entry.buddyId === buddy.buddyId ? " (you)" : ""}`,
+    ),
+  );
+  const about = state.buddySettings?.aboutMe ?? [];
+  if (about.length > 0)
+    lines.push("", "About the person (every buddy knows this):", ...about.map((note) => `- ${note.text}`));
   if (buddy.instructions?.trim()) lines.push("", "Your instructions:", buddy.instructions.trim());
   return lines.join("\n");
 }

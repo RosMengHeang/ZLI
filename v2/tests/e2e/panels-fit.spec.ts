@@ -9,6 +9,7 @@ import {
   launchDesktop,
   openCreateWorktree,
   openNewAgentOptions,
+  startTerminal,
   togglePanel,
 } from "./desktop-fixtures.js";
 
@@ -40,7 +41,7 @@ test("shrinks the side panel and terminal drawer to fit a smaller window", async
 
     const terminalToggle = page.getByRole("button", { name: "Terminal", exact: true });
     if ((await terminalToggle.getAttribute("aria-pressed")) !== "true") await terminalToggle.click();
-    await page.getByRole("button", { name: "Start terminal" }).click();
+    await startTerminal(page);
     const drawerHandle = page.getByRole("separator", { name: "Resize terminal drawer" });
     await expect(drawerHandle).toBeVisible({ timeout: 10_000 });
     await togglePanel(page, "Files");

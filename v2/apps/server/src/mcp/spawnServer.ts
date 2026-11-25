@@ -36,11 +36,16 @@ export function resolveServerCommand(
 
 /** Starts a local MCP server without a shell. Its env adds to ZLI's own, as agents do. */
 export function spawnMcpServer(
-  spec: { command: string; args: readonly string[]; env: Readonly<Record<string, string>> },
+  spec: { command: string; args: readonly string[]; env: Readonly<Record<string, string>>; cwd?: string },
   stdio: StdioOptions,
 ): ChildProcess {
   const env = { ...process.env, ...spec.env };
-  return spawnCli(resolveServerCommand(spec.command, env), spec.args, { env, stdio, windowsHide: true });
+  return spawnCli(resolveServerCommand(spec.command, env), spec.args, {
+    env,
+    stdio,
+    windowsHide: true,
+    ...(spec.cwd ? { cwd: spec.cwd } : {}),
+  });
 }
 
 /** Ends the server and, on Windows, anything it started, such as the node process behind npx. */

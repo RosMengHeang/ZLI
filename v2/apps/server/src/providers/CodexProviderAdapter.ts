@@ -16,6 +16,7 @@ type CodexClient = Pick<
   | "startSession"
   | "resumeSession"
   | "sendTurn"
+  | "compactThread"
   | "interruptTurn"
   | "respondToRequest"
   | "readThread"
@@ -26,6 +27,14 @@ type CodexClient = Pick<
 
 type Connection = { client: CodexClient; unsubscribe: () => void };
 type Context = { providerThreadId: string; session: ProviderSession; clientKey: string; account?: ProviderAccount };
+
+/**
+ * "/compact", which Codex takes as thread/compact/start. Codex takes no instructions for it, so any focus text
+ * after it is dropped.
+ */
+function isCompactCommand(text: string): boolean {
+  return /^\/compact(?:\s[\s\S]*)?$/iu.test(text.trim());
+}
 
 /** Threads on the usual login share this app server; each account gets its own, with its own CODEX_HOME. */
 const USUAL_CLIENT = "";
@@ -38,6 +47,8 @@ export class CodexProviderAdapter implements ProviderAdapter {
     structuredUserInput: true,
     conversationRollback: true,
     modelSwitch: "unsupported",
+    // "/compact" goes to the app server's thread/compact/start instead of a turn.
+    compaction: "native",
   };
   private readonly connections = new Map<string, Promise<Connection>>();
   private readonly sessions = new Map<string, Context>();
@@ -92,6 +103,9 @@ export class CodexProviderAdapter implements ProviderAdapter {
   async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
     const context = this.context(input.threadId);
     const client = await this.clientFor(context);
+    if (isCompactCommand(input.text) && (input.attachments ?? []).length === 0) {
+      return { turnId: (await client.compactThread(context.providerThreadId)).providerTurnId };
+    }
     const imagePaths = (input.attachments ?? [])
       .filter((attachment) => isImageMimeType(attachment.mimeType))
       .map((attachment) => attachment.path);

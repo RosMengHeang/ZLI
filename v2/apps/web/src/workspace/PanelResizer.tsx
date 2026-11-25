@@ -2,7 +2,7 @@ import type { KeyboardEvent, PointerEvent } from "react";
 import { useState } from "react";
 
 /** "panel" is the right panel's one width, kept whichever tab shows; the others name older per-panel sizes. */
-export type PanelId = "panel" | "files" | "review" | "browser" | "mobile" | "huddle" | "pullRequest";
+export type PanelId = "panel" | "files" | "review" | "browser" | "mobile" | "pullRequest";
 
 const STORAGE_PREFIX = "zli.toolPanelWidth.";
 export const MIN_PANEL_WIDTH = 320;
@@ -14,7 +14,6 @@ const DEFAULT_WIDTHS: Record<PanelId, number> = {
   browser: 560,
   mobile: 440,
   review: 520,
-  huddle: 440,
   pullRequest: 480,
 };
 const DEFAULT_SHARE = 0.45;

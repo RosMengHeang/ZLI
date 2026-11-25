@@ -7,6 +7,7 @@ import {
   isActiveTask,
   isBuddyHome,
   isOpenTask,
+  isTeam,
   MAX_ACTIVE_JOBS,
   MAX_GOAL_ROUNDS,
   overBudget,
@@ -17,6 +18,7 @@ import {
   type RuntimeProjection,
   type TaskProjection,
   type TaskResult,
+  teamDefaults,
   type WorktreeProjection,
 } from "@zli-v2/contracts";
 
@@ -187,8 +189,16 @@ export class TaskReactor {
       const place = isActiveTask(task) ? sharedPlace(state, task) : undefined;
       if (place) places.add(place);
     }
+    // A team runs only so many of its jobs at once, as the person set in its defaults.
+    const maxParallel = teamDefaults(state.buddySettings).maxParallel;
+    const perTeam = new Map<string, number>();
+    for (const task of tasks)
+      if (isActiveTask(task) && teamOf(state, task))
+        perTeam.set(task.origin.goalId as string, (perTeam.get(task.origin.goalId as string) ?? 0) + 1);
     for (const task of queued) {
       if (total >= MAX_ACTIVE_JOBS) return;
+      const team = teamOf(state, task);
+      if (team && (perTeam.get(team.goalId) ?? 0) >= maxParallel) continue;
       const buddy = findBuddy(state, task.buddyId);
       if (!buddy || buddy.archived) {
         await this.dispatch({ type: "task.cancel", taskId: task.taskId }, `task:${task.taskId}:orphan`);
@@ -205,6 +215,7 @@ export class TaskReactor {
       if (place && places.has(place)) continue;
       if (place) places.add(place);
       perBuddy.set(task.buddyId, active + 1);
+      if (team) perTeam.set(team.goalId, (perTeam.get(team.goalId) ?? 0) + 1);
       total += 1;
       await this.dispatch(
         { type: "task.prepare", taskId: task.taskId },
@@ -220,7 +231,8 @@ export class TaskReactor {
       : undefined;
     if (task.kind === "review" && parent?.worktreeId)
       return { worktreeId: parent.worktreeId, shared: true, create: false };
-    if (buddy.role === "primary") {
+    // A team's task needs a branch of its own to be merged, even when the Primary does it.
+    if (buddy.role === "primary" && !teamOf(state, task)) {
       const checkout = state.worktrees.find(
         (worktree) =>
           worktree.projectId === task.projectId && worktree.kind === "checkout" && worktree.status === "ready",
@@ -330,7 +342,8 @@ export class TaskReactor {
       project,
       branch: worktree.branch,
       parent,
-      primary: buddy.role === "primary" && !isBuddyHome(project),
+      // A team's task is the Primary's to do itself, on its own branch.
+      primary: buddy.role === "primary" && !isBuddyHome(project) && !teamOf(state, task),
       homePath: isBuddyHome(project) ? worktree.path : undefined,
       about: state.buddySettings?.aboutMe,
     });
@@ -775,6 +788,8 @@ export class TaskReactor {
     if (!buddy || task.kind === "review") return;
     // Handoff rules are for code: a planning turn or a web job is not handed on.
     if (task.profile?.kind === "plan" || task.profile?.kind === "web") return;
+    // A team's tasks get their reviews from the team, not from each buddy's own rules.
+    if (teamOf(state, task)) return;
     for (const rule of buddy.handoffs) {
       if (!rule.enabled || rule.when !== "finished") continue;
       const to = findBuddy(state, rule.to);
@@ -812,7 +827,7 @@ export class TaskReactor {
     const reviewer = findBuddy(state, review.buddyId);
     const owner = findBuddy(state, task.buddyId);
     const rule = owner?.handoffs.find((candidate) => candidate.to === review.buddyId && candidate.enabled);
-    const maxRounds = rule?.maxRounds ?? 2;
+    const maxRounds = teamOf(state, task)?.team.reviewRounds ?? rule?.maxRounds ?? 2;
     if (task.reviews.length >= maxRounds || task.status !== "ready") {
       if (task.status === "ready")
         await this.setStatus(task, "needs_you", {
@@ -860,6 +875,14 @@ export class TaskReactor {
   }
 }
 
+/** The team a job works for, when it is one of a team's tasks, reviews or merge fixes. */
+function teamOf(state: RuntimeProjection, task: TaskProjection) {
+  const goalId = task.origin.goalId;
+  if (!goalId || task.origin.kind === "goal") return undefined;
+  const goal = (state.goals ?? []).find((entry) => entry.goalId === goalId);
+  return goal && isTeam(goal) ? goal : undefined;
+}
+
 /** Whether a change request came from a reviewer buddy, not the person. */
 function isReviewNote(note: string): boolean {
   return note.includes(" checked your work and has notes:\n");
@@ -881,7 +904,7 @@ function sharedPlace(state: RuntimeProjection, task: TaskProjection): string | u
   const project = state.projects.find((candidate) => candidate.projectId === task.projectId);
   if (!project) return undefined;
   if (isBuddyHome(project)) return `home:${task.buddyId}`;
-  if (findBuddy(state, task.buddyId)?.role !== "primary") return undefined;
+  if (findBuddy(state, task.buddyId)?.role !== "primary" || teamOf(state, task)) return undefined;
   // As in placement: the Primary works in the project's checkout only when there is a ready one.
   const checkout = state.worktrees.some(
     (worktree) => worktree.projectId === task.projectId && worktree.kind === "checkout" && worktree.status === "ready",

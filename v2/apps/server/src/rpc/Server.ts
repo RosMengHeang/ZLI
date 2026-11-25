@@ -7,6 +7,8 @@ import {
   type AccountCommand,
   type AccountDraft,
   type AccountListResult,
+  type AccountSignIn,
+  type AccountSignInResult,
   AGENT_SETTINGS_COMMAND_TYPES,
   type AgentSettings,
   type AgentSettingsCommand,
@@ -45,6 +47,9 @@ import {
   type McpServerConfig,
   type McpSignInStart,
   type McpTestResult,
+  type McpToolLoading,
+  type McpToolsCallResult,
+  type McpToolsFindResult,
   PLUGIN_COMMAND_TYPES,
   type PlanLimitsResult,
   type PluginCommand,
@@ -58,10 +63,15 @@ import {
   type SkillCommand,
   TerminalId,
   type TerminalReadResult,
+  USAGE_COMMAND_TYPES,
+  type UsageCommand,
+  type UsageRange,
+  type UsageReport,
 } from "@zli-v2/contracts";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
 
 import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckpoints.js";
+import { findAgentServers } from "../devservers/agentServers.js";
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import { CloneError, cloneRepository } from "../forges/clone.js";
 import { ForgeService } from "../forges/ForgeService.js";
@@ -76,6 +86,13 @@ import type { Engine } from "../orchestration/Engine.js";
 import { isPluginError, type PluginStore } from "../plugins/PluginStore.js";
 import { runPluginCommand } from "../plugins/runPluginCommand.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
+import {
+  checkProviderUpdates,
+  forgetLatestVersions,
+  parseVersion,
+  planProviderUpdate,
+  runUpdateCommand,
+} from "../providers/providerUpdates.js";
 import { GitChangesError, GitChangesService, runGitChangesCommand } from "../review/GitChangesService.js";
 import {
   branchChanges,
@@ -135,8 +152,16 @@ type RpcServerOptions = {
     delete(accountId: string): Promise<AccountListResult>;
     setDefault(provider: ListedProviderKind, accountId?: string): Promise<AccountListResult>;
   };
+  /** Background sign-ins for saved accounts. Without it, Sign in answers that it runs in a terminal. */
+  accountSignIns?: {
+    start(accountId: string): Promise<AccountSignIn | undefined>;
+    status(accountId: string): AccountSignIn | undefined;
+    cancel(accountId: string): AccountSignIn | undefined;
+  };
   /** Plan limits per login. Without it, limits commands are answered as unavailable. */
   limits?: { read(refresh?: boolean): Promise<PlanLimitsResult> };
+  /** Tokens and cost from the agents' session logs. Without it, usage commands are answered as unavailable. */
+  usage?: { read(range: UsageRange, timeZone?: string): Promise<UsageReport> };
   /** Settings applied when chat agents start. Without it, agent settings commands are answered as unavailable. */
   agentSettings?: { read(): AgentSettings; save(settings: AgentSettings): Promise<AgentSettings> };
   /** Folders found in past Claude Code and Codex sessions. Without it, the scan is answered as unavailable. */
@@ -169,11 +194,13 @@ export class RpcServer {
   private readonly skills: SkillStore | undefined;
   private readonly plugins: PluginStore | undefined;
   private readonly accounts: RpcServerOptions["accounts"];
+  private readonly accountSignIns: RpcServerOptions["accountSignIns"];
   private readonly history: RpcServerOptions["history"];
   private readonly refreshProviders: RpcServerOptions["refreshProviders"];
   private readonly clearProviderProblem: RpcServerOptions["clearProviderProblem"];
   private readonly stopProvidersWatch: (() => void) | undefined;
   private readonly limits: RpcServerOptions["limits"];
+  private readonly usage: RpcServerOptions["usage"];
   private readonly agentSettings: RpcServerOptions["agentSettings"];
   private readonly host: string;
   private readonly port: number;
@@ -181,6 +208,8 @@ export class RpcServer {
   private webSocketServer: WebSocketServer | undefined;
   private boundPort: number | undefined;
   private lastProviders: ProviderDiscovery[] | undefined;
+  /** Agents whose CLI is being updated now, so a second click does not start a second install. */
+  private readonly updatingProviders = new Set<string>();
   private readonly clients = new Set<WebSocket>();
   private readonly clientCleanup = new Map<WebSocket, () => void>();
 
@@ -209,7 +238,9 @@ export class RpcServer {
     this.skills = options.skills;
     this.plugins = options.plugins;
     this.accounts = options.accounts;
+    this.accountSignIns = options.accountSignIns;
     this.limits = options.limits;
+    this.usage = options.usage;
     this.agentSettings = options.agentSettings;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
@@ -603,6 +634,23 @@ export class RpcServer {
       return true;
     }
     try {
+      if (
+        command.type === "accounts.signIn" ||
+        command.type === "accounts.signInStatus" ||
+        command.type === "accounts.signInCancel"
+      ) {
+        const signIns = this.accountSignIns;
+        const signIn = !signIns
+          ? undefined
+          : command.type === "accounts.signIn"
+            ? await signIns.start(command.accountId)
+            : command.type === "accounts.signInStatus"
+              ? signIns.status(command.accountId)
+              : signIns.cancel(command.accountId);
+        const result: AccountSignInResult = signIn ? { signIn } : {};
+        send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+        return true;
+      }
       const result =
         command.type === "accounts.list"
           ? await store.list()
@@ -619,7 +667,10 @@ export class RpcServer {
     return true;
   }
 
-  /** Setup asks for agents again and for the folders past agent sessions ran in. Neither writes anything. */
+  /**
+   * Setup asks for agents again and for the folders past agent sessions ran in; neither writes anything.
+   * Settings checks agent CLIs for new versions and updates one when the person asks.
+   */
   private async handleHistoryCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
     const command = request.command;
     if (!isHistoryCommand(command)) return false;
@@ -641,6 +692,71 @@ export class RpcServer {
         for (const other of this.clients) void this.sendWithProviders(other, providers);
       } catch {
         reject({ code: "internal", message: "ZLI could not look for agents. Try again.", retryable: true });
+      }
+      return true;
+    }
+    if (command.type === "providers.checkUpdates" || command.type === "providers.update") {
+      const discover = this.refreshProviders ?? this.discoverProviders;
+      if (!discover) {
+        reject({ code: "unavailable", message: "Agent updates are not available here.", retryable: false });
+        return true;
+      }
+      if (command.type === "providers.checkUpdates") {
+        try {
+          const providers = [...(await discover())];
+          this.lastProviders = providers;
+          respond({ updates: await checkProviderUpdates(providers) });
+        } catch {
+          reject({ code: "internal", message: "ZLI could not check for agent updates. Try again.", retryable: true });
+        }
+        return true;
+      }
+      const { provider } = command;
+      if (this.updatingProviders.has(provider)) {
+        reject({ code: "invalid_request", message: "This agent is already updating.", retryable: false });
+        return true;
+      }
+      this.updatingProviders.add(provider);
+      try {
+        const before = (this.lastProviders ?? [...(await discover())]).find((entry) => entry.provider === provider);
+        if (before?.status !== "found") {
+          reject({ code: "invalid_request", message: "This agent is not installed.", retryable: false });
+          return true;
+        }
+        const plan = planProviderUpdate(provider, before.path);
+        if (!plan.command || !plan.args) {
+          reject({
+            code: "invalid_request",
+            message: "ZLI cannot tell how this agent was installed. Run the update command yourself.",
+            retryable: false,
+          });
+          return true;
+        }
+        const run = await runUpdateCommand(plan.command, plan.args);
+        forgetLatestVersions();
+        const providers = [...(await discover())];
+        this.lastProviders = providers;
+        for (const other of this.clients) void this.sendWithProviders(other, providers);
+        const after = providers.find((entry) => entry.provider === provider);
+        const oldVersion = parseVersion(before.version);
+        const newVersion = after?.status === "found" ? parseVersion(after.version) : undefined;
+        const moved = newVersion !== undefined && newVersion !== oldVersion;
+        const name = before.displayName;
+        respond({
+          provider,
+          outcome: !run.ok ? "failed" : moved ? "updated" : "unchanged",
+          message: !run.ok
+            ? `${name} did not update.`
+            : moved
+              ? `${name} is now on ${newVersion}.`
+              : `${name} is already up to date${newVersion ? ` on ${newVersion}` : ""}.`,
+          ...(!run.ok && run.output ? { output: run.output } : {}),
+          updates: await checkProviderUpdates(providers),
+        });
+      } catch {
+        reject({ code: "internal", message: "The update could not start. Try again.", retryable: true });
+      } finally {
+        this.updatingProviders.delete(provider);
       }
       return true;
     }
@@ -672,6 +788,25 @@ export class RpcServer {
       send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
     } catch {
       reject({ code: "internal", message: "Plan limits could not be read.", retryable: true });
+    }
+    return true;
+  }
+
+  /** Token use and cost are read from the agents' own session logs on demand, outside the event log. */
+  private async handleUsageCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isUsageCommand(command)) return false;
+    const reject = (error: RuntimeError) =>
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: false, error } });
+    if (!this.usage) {
+      reject({ code: "unavailable", message: "Usage is not available here.", retryable: false });
+      return true;
+    }
+    try {
+      const result = await this.usage.read(command.range, command.timeZone);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch {
+      reject({ code: "internal", message: "Usage could not be read.", retryable: true });
     }
     return true;
   }
@@ -752,6 +887,29 @@ export class RpcServer {
             message: error instanceof AttachmentError ? error.message : "The attachment could not be read.",
             retryable: false,
           },
+        },
+      });
+    }
+    return true;
+  }
+
+  /** The local servers chat agents started themselves, read from their steps and a port check. */
+  private async handleAgentServers(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (command.type !== "devserver.agentServers") return false;
+    try {
+      const servers = await findAgentServers(await this.engine.projection(), command.threadIds);
+      send(client, {
+        type: "response",
+        response: { commandId: request.commandId, accepted: true, result: { servers } },
+      });
+    } catch {
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "internal", message: "ZLI could not check the agent's servers.", retryable: true },
         },
       });
     }
@@ -1009,6 +1167,7 @@ export class RpcServer {
     switch (message.data.type) {
       case "command":
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
+        if (await this.handleAgentServers(client, message.data.request)) return;
         if (await this.handleFileCommand(client, message.data.request)) return;
         if (await this.handleAttachmentRead(client, message.data.request)) return;
         if (await this.handlePullRequestCommand(client, message.data.request)) return;
@@ -1023,6 +1182,7 @@ export class RpcServer {
         if (await this.handlePluginCommand(client, message.data.request)) return;
         if (await this.handleAccountCommand(client, message.data.request)) return;
         if (await this.handleLimitsCommand(client, message.data.request)) return;
+        if (await this.handleUsageCommand(client, message.data.request)) return;
         if (await this.handleAgentSettingsCommand(client, message.data.request)) return;
         if (await this.handleHistoryCommand(client, message.data.request)) return;
         try {
@@ -1161,6 +1321,10 @@ function isLimitsCommand(command: RpcRequest["command"]): command is LimitsComma
   return (LIMITS_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
+function isUsageCommand(command: RpcRequest["command"]): command is UsageCommand {
+  return (USAGE_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
 function isAgentSettingsCommand(command: RpcRequest["command"]): command is AgentSettingsCommand {
   return (AGENT_SETTINGS_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
@@ -1178,6 +1342,14 @@ export type McpServerCommands = {
   save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
   setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
   setAgentScope(scope: AgentToolScope): Promise<McpListResult>;
+  setToolLoading?(loading: McpToolLoading): Promise<McpListResult>;
+  findTools?(command: { worktreeId?: string; query: string; limit?: number }): Promise<McpToolsFindResult>;
+  callTool?(command: {
+    worktreeId?: string;
+    server: string;
+    tool: string;
+    arguments?: Record<string, unknown>;
+  }): Promise<McpToolsCallResult>;
   signIn?(name: string): Promise<McpSignInStart>;
   waitForSignIn?(attemptId: string): Promise<McpListResult>;
   cancelSignIn?(attemptId: string): McpListResult;
@@ -1197,6 +1369,8 @@ function mcpFailurePrefix(command: McpCommand): string {
   if (command.type === "mcp.test") return "The test did not run.";
   if (command.type === "mcp.import.scan") return "ZLI could not look for servers in other apps.";
   if (command.type === "mcp.list") return "MCP servers could not be listed.";
+  if (command.type === "mcp.tools.find") return "ZLI could not look up tools.";
+  if (command.type === "mcp.tools.call") return "The tool call did not go through.";
   if (command.type.startsWith("mcp.apps")) return "Connected apps did not answer.";
   return "MCP servers were not saved.";
 }
@@ -1204,7 +1378,16 @@ function mcpFailurePrefix(command: McpCommand): string {
 function runMcpCommand(
   store: McpServerCommands,
   command: McpCommand,
-): Promise<McpListResult | McpSignInStart | McpTestResult | McpImportResult | ConnectedAppsStatus | { url: string }> {
+): Promise<
+  | McpListResult
+  | McpSignInStart
+  | McpTestResult
+  | McpImportResult
+  | ConnectedAppsStatus
+  | McpToolsFindResult
+  | McpToolsCallResult
+  | { url: string }
+> {
   const missing = () => Promise.reject(new SignInError("Signing in is not available here."));
   const unavailable = (what: string) => Promise.reject(new McpRequestError(`${what} is not available here.`));
   switch (command.type) {
@@ -1221,6 +1404,25 @@ function runMcpCommand(
       return store.setAgentAccess(command.access);
     case "mcp.agentScope":
       return store.setAgentScope(command.scope);
+    case "mcp.toolLoading":
+      return store.setToolLoading ? store.setToolLoading(command.loading) : unavailable("Loading tools on demand");
+    case "mcp.tools.find":
+      return store.findTools
+        ? store.findTools({
+            query: command.query,
+            ...(command.worktreeId ? { worktreeId: command.worktreeId } : {}),
+            ...(command.limit ? { limit: command.limit } : {}),
+          })
+        : unavailable("Finding tools");
+    case "mcp.tools.call":
+      return store.callTool
+        ? store.callTool({
+            server: command.server,
+            tool: command.tool,
+            ...(command.worktreeId ? { worktreeId: command.worktreeId } : {}),
+            ...(command.arguments ? { arguments: command.arguments } : {}),
+          })
+        : unavailable("Calling tools");
     case "mcp.signIn":
       return store.signIn ? store.signIn(command.name) : missing();
     case "mcp.signIn.wait":

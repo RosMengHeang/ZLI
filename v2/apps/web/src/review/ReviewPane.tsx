@@ -95,7 +95,7 @@ export function ReviewPane({
   const [targetRef, setTargetRef] = useState("main");
   const [targetTouched, setTargetTouched] = useState(false);
   const [prCheckKey, setPrCheckKey] = useState(0);
-  const commitRef = useRef<HTMLInputElement>(null);
+  const commitRef = useRef<HTMLTextAreaElement>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState<"pull" | "push">();
@@ -109,6 +109,8 @@ export function ReviewPane({
   const [changing, setChanging] = useState(false);
   const [diffPart, setDiffPart] = useState<DiffPart>("unstaged");
   const [discarding, setDiscarding] = useState<Discard>();
+  /** The loaded diff the person went back from. Any other loaded diff fills the pane in place of the list. */
+  const [closedDiff, setClosedDiff] = useState<string>();
   /** The file whose diff was open before a Git change; a refresh drops the diff, so it is loaded again. */
   const reopenRef = useRef<string | undefined>(undefined);
   const review = reviews?.find((candidate) => candidate.worktreeId === worktree?.worktreeId);
@@ -137,7 +139,10 @@ export function ReviewPane({
     }
   };
 
-  const loadDiff = (path: string) => run({ type: "review.diff", worktreeId: worktree?.worktreeId, path });
+  const loadDiff = (path: string) => {
+    setClosedDiff(undefined);
+    return run({ type: "review.diff", worktreeId: worktree?.worktreeId, path });
+  };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: only a new review projection can finish a reopen.
   useEffect(() => {
@@ -220,6 +225,7 @@ export function ReviewPane({
       if (!review?.files.some((file) => file.path === path)) {
         await run({ type: "review.refresh", worktreeId: worktree.worktreeId, baseRef: baseRef.trim() || "HEAD" });
       }
+      setClosedDiff(undefined);
       await run({ type: "review.diff", worktreeId: worktree.worktreeId, path });
     })();
   }, [focus?.nonce, worktree?.worktreeId]);
@@ -301,6 +307,25 @@ export function ReviewPane({
     autoLoaded.current = worktree.worktreeId;
     refresh();
   }, [worktree?.worktreeId, noGit]);
+
+  const canCommit = !!worktree && !busy && !changing && !!message.trim() && !conflicted;
+  /** Commits the staged changes, or every change when nothing is staged, then pushes when asked. */
+  // Commit and push: the push waits for the review the commit itself produced, so it never sends the branch as it
+  // was before the commit, and a commit that failed is not pushed.
+  const [pushAfter, setPushAfter] = useState<string>();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: acts once, on the commit's own result.
+  useEffect(() => {
+    if (!pushAfter || !review?.committedAt || review.committedAt < pushAfter) return;
+    setPushAfter(undefined);
+    if (!review.errorMessage) void sync("push");
+  }, [pushAfter, review]);
+
+  const commit = async (push: boolean) => {
+    if (!worktree || !message.trim()) return;
+    if (push) setPushAfter(new Date().toISOString());
+    const done = await run({ type: "review.commit", worktreeId: worktree.worktreeId, message: message.trim() });
+    if (!done) setPushAfter(undefined);
+  };
 
   // Comparing with another branch, pulling and pushing are a row of their own, out of the way until asked for
   // or until there are commits to move.
@@ -454,7 +479,24 @@ export function ReviewPane({
             detail={`Refresh to compare with ${baseRef || "the base branch"}.`}
           />
         )
-      ) : review.files.length === 0 && !conflicted ? null : (
+      ) : review.files.length === 0 && !conflicted ? null : review.diff && review.diff.path !== closedDiff ? (
+        <div className="review-body is-reading">
+          <ReviewDiffHeader
+            files={review.files}
+            path={review.diff.path}
+            onBack={() => setClosedDiff(review.diff?.path)}
+            onOpen={(path) => void loadDiff(path)}
+          />
+          <ReviewDiff
+            worktreeId={worktree.worktreeId}
+            diff={review.diff}
+            part={diffPart}
+            disabled={changing || busy}
+            onPart={setDiffPart}
+            onHunk={onHunk}
+          />
+        </div>
+      ) : (
         <div className="review-body">
           <div className="review-summary-row">
             <div className={`review-summary${conflicted ? " is-conflicted" : ""}`} role="status">
@@ -518,24 +560,11 @@ export function ReviewPane({
                       onClick={() => void loadDiff(file.path)}
                       aria-pressed={review.diff?.path === file.path}
                     >
-                      <span className={`file-kind file-kind-${file.kind}`} title={file.kind} aria-hidden="true">
-                        {kindLetter(file.kind)}
-                      </span>
                       <span
                         className="review-file-name"
                         title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
                       >
-                        {file.oldPath ? (
-                          <>
-                            <FilePath path={file.oldPath} />
-                            <span className="rename-arrow" aria-hidden="true">
-                              →
-                            </span>
-                            <FilePath path={file.path} />
-                          </>
-                        ) : (
-                          <FilePath path={file.path} />
-                        )}
+                        <FilePath path={file.path} renamedFrom={file.oldPath} />
                       </span>
                       <span className="file-stat">
                         {file.binary ? (
@@ -546,6 +575,9 @@ export function ReviewPane({
                             <span className="diff-del">−{file.deletions}</span>
                           </>
                         )}
+                      </span>
+                      <span className={`file-kind file-kind-${file.kind}`} title={file.kind} aria-hidden="true">
+                        {kindLetter(file.kind)}
                       </span>
                     </button>
                     {state === "committed" ? null : (
@@ -564,18 +596,6 @@ export function ReviewPane({
                 );
               })}
             </div>
-          ) : null}
-          {review.diff ? (
-            <ReviewDiff
-              worktreeId={worktree.worktreeId}
-              diff={review.diff}
-              part={diffPart}
-              disabled={changing || busy}
-              onPart={setDiffPart}
-              onHunk={onHunk}
-            />
-          ) : review.files.length > 0 ? (
-            <p className="review-hint">Select a file to see its diff.</p>
           ) : null}
         </div>
       )}
@@ -611,6 +631,7 @@ export function ReviewPane({
               worktree={worktree}
               base={targetTouched ? targetRef.trim() || undefined : undefined}
               checkKey={prCheckKey}
+              reviewedAt={review?.updatedAt}
               onCommitFirst={() => commitRef.current?.focus()}
               onShowAgent={onShowAgent}
               onMerged={(result) => {
@@ -633,56 +654,69 @@ export function ReviewPane({
             onChanged={(text) => void change(async () => undefined, text)}
           />
           <div className="review-commit">
-            <input
+            <textarea
               ref={commitRef}
-              className="input input-sm"
+              className="input review-commit-message"
               aria-label="Commit message"
+              rows={2}
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               placeholder="Commit message"
               onKeyDown={(event) => {
-                if (event.key === "Enter" && message.trim() && !busy && review.state !== "conflicted") {
+                if (event.key === "Enter" && !event.shiftKey && canCommit) {
                   event.preventDefault();
-                  void run({ type: "review.commit", worktreeId: worktree.worktreeId, message: message.trim() });
+                  void commit(false);
                 }
               }}
             />
-            <Button
-              variant="primary"
-              size="sm"
-              icon="commit"
-              disabled={busy || changing || !message.trim() || review.state === "conflicted"}
-              tooltip={
-                stagedCount > 0
-                  ? "Commit only the staged changes. Unstaged changes stay in the working tree."
-                  : "Nothing is staged, so every change is committed, new files included."
-              }
-              onClick={() =>
-                void run({ type: "review.commit", worktreeId: worktree.worktreeId, message: message.trim() })
-              }
-            >
-              {stagedCount > 0 ? `Commit ${plural(stagedCount, "staged file")}` : "Commit all changes"}
-            </Button>
+            <div className="review-commit-row">
+              <div className="review-commit-split">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon="commit"
+                  disabled={!canCommit}
+                  tooltip={
+                    stagedCount > 0
+                      ? "Commit only the staged changes. Unstaged changes stay in the working tree."
+                      : "Nothing is staged, so every change is committed, new files included."
+                  }
+                  onClick={() => void commit(false)}
+                >
+                  {stagedCount > 0 ? `Commit ${plural(stagedCount, "staged file")}` : "Commit all changes"}
+                </Button>
+                <MenuButton
+                  label="More ways to commit"
+                  icon="chevronDown"
+                  variant="primary"
+                  className="review-commit-more"
+                  disabled={!canCommit}
+                  items={() => [{ label: "Commit and push", icon: "upload", run: () => void commit(true) }]}
+                />
+              </div>
+              {/* Push and Pull sit in the bar above, which shows whenever there is something to move. */}
+            </div>
           </div>
           <div className="review-merge">
-            <span className="inline-field">
-              <span aria-hidden="true">Merge target</span>
-              <Picker
-                variant="field"
-                className="input-sm review-branch-picker"
-                label="Merge target"
-                value={targetRef}
-                options={targetChoices}
-                onChange={(next) => {
-                  setTargetRef(next);
-                  setTargetTouched(true);
-                }}
-              >
-                <span className="picker-trigger-label">{targetRef}</span>
-              </Picker>
+            <span className="review-merge-label" aria-hidden="true">
+              Merge into
             </span>
+            <Picker
+              variant="field"
+              className="input-sm review-branch-picker"
+              label="Merge target"
+              value={targetRef}
+              options={targetChoices}
+              onChange={(next) => {
+                setTargetRef(next);
+                setTargetTouched(true);
+              }}
+            >
+              <span className="picker-trigger-label">{targetRef}</span>
+            </Picker>
             <Button
-              size="sm"
+              size="xs"
+              variant="ghost"
               icon="merge"
               disabled={busy || !targetRef.trim() || review.state === "conflicted"}
               onClick={() =>
@@ -694,7 +728,7 @@ export function ReviewPane({
             {(review.state === "conflicted" || review.errorMessage) && (
               <Button
                 variant="ghost"
-                size="sm"
+                size="xs"
                 className="is-danger"
                 disabled={busy}
                 onClick={() => void run({ type: "review.abortMerge", worktreeId: worktree.worktreeId })}
@@ -707,6 +741,7 @@ export function ReviewPane({
             worktree={worktree}
             base={targetTouched ? targetRef.trim() || undefined : undefined}
             checkKey={prCheckKey}
+            reviewedAt={review?.updatedAt}
             onCommitFirst={() => commitRef.current?.focus()}
             onShowAgent={onShowAgent}
             onMerged={(result) => {
@@ -875,13 +910,66 @@ function kindLetter(kind: string): string {
   }
 }
 
-/** A changed file's path: its folder quiet, its name plain, so the names line up as the thing to read. */
-function FilePath({ path }: { path: string }) {
-  const cut = path.lastIndexOf("/") + 1;
+/**
+ * A changed file's name first and plain, then its folder, quiet, so the names line up as the thing to read and a
+ * long folder is what gets cut. A folder Git lists whole (an untracked one) keeps its trailing slash.
+ */
+function FilePath({ path, renamedFrom }: { path: string; renamedFrom?: string | undefined }) {
+  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
+  const cut = trimmed.lastIndexOf("/") + 1;
+  const folder = trimmed.slice(0, Math.max(0, cut - 1));
   return (
     <>
-      {cut > 0 ? <span className="review-file-dir">{path.slice(0, cut)}</span> : null}
       <span className="review-file-base">{path.slice(cut)}</span>
+      {renamedFrom ? (
+        <span className="review-file-dir">from {renamedFrom}</span>
+      ) : folder ? (
+        <span className="review-file-dir">{folder}</span>
+      ) : null}
     </>
+  );
+}
+
+/** Above an open diff: back to the list, the file, and the files before and after it. */
+function ReviewDiffHeader({
+  files,
+  path,
+  onBack,
+  onOpen,
+}: {
+  files: readonly ReviewFileProjection[];
+  path: string;
+  onBack(): void;
+  onOpen(path: string): void;
+}) {
+  const index = files.findIndex((file) => file.path === path);
+  const previous = index > 0 ? files[index - 1] : undefined;
+  const next = index >= 0 ? files[index + 1] : undefined;
+  return (
+    <div className="review-diff-head">
+      <IconButton label="Back to the changed files" icon="arrowLeft" size="sm" onClick={onBack} />
+      <span className="review-file-name" title={path}>
+        <FilePath path={path} renamedFrom={files[index]?.oldPath} />
+      </span>
+      {index >= 0 ? (
+        <span className="review-diff-place">
+          {index + 1} of {files.length}
+        </span>
+      ) : null}
+      <IconButton
+        label="Previous file"
+        icon="chevronUp"
+        size="sm"
+        disabled={!previous}
+        onClick={() => previous && onOpen(previous.path)}
+      />
+      <IconButton
+        label="Next file"
+        icon="chevronDown"
+        size="sm"
+        disabled={!next}
+        onClick={() => next && onOpen(next.path)}
+      />
+    </div>
   );
 }

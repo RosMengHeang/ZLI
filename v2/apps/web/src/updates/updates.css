@@ -26,3 +26,66 @@
 .whats-new-dialog { width: min(640px, 100%); }
 .whats-new-body { max-height: min(60vh, 520px); overflow: auto; }
 .file-md.whats-new-notes { padding: 0; font-size: var(--zli-text-base); }
+
+/* Agents: one quiet row per CLI, the button only where there is something to do. */
+.agent-updates { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border-radius: var(--zli-radius-lg); background: var(--zli-surface); }
+.agent-update { display: flex; align-items: center; gap: var(--zli-space-3); min-height: 52px; padding: var(--zli-space-2) var(--zli-space-3); }
+.agent-update + .agent-update { border-top: 1px solid var(--zli-border); }
+.agent-update > .provider-mark { flex: 0 0 auto; color: var(--zli-muted); }
+.agent-update-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.agent-update-name { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; }
+.agent-update-version { color: var(--zli-dim); font-size: var(--zli-text-sm); font-variant-numeric: tabular-nums; }
+.agent-update.is-behind .agent-update-version { color: var(--zli-muted); }
+.agent-update-note { font-size: var(--zli-text-sm); }
+.agent-update-note.is-ok { color: var(--zli-green); }
+.agent-update-note.is-error { color: var(--zli-red); }
+.agent-update-output { max-height: 140px; margin: var(--zli-space-1-5) 0 0; padding: var(--zli-space-2); overflow: auto; border-radius: var(--zli-radius-md); background: var(--zli-canvas); color: var(--zli-muted); font-family: var(--zli-font-code, ui-monospace, monospace); font-size: var(--zli-text-xs); white-space: pre-wrap; }
+.agent-update-action { flex: 0 0 auto; }
+
+/*
+ * The sidebar's update card: a soft surface above the footer, one row per thing to update. The accent
+ * appears only in the dot and the action, so it reads as news, not as an alarm.
+ */
+.sidebar-update-card {
+  display: flex; flex-direction: column; gap: var(--zli-space-1); margin: 0 var(--zli-space-2) var(--zli-space-1-5); padding: var(--zli-space-2) var(--zli-space-2) var(--zli-space-1-5);
+  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--zli-accent) 7%, var(--zli-surface)), var(--zli-surface) 70%);
+  color: var(--zli-muted); font-size: var(--zli-text-xs);
+  animation: sidebar-update-in var(--zli-duration-normal, 220ms) var(--zli-ease) both;
+}
+@keyframes sidebar-update-in { from { opacity: 0; transform: translateY(4px); } }
+.sidebar-update-head { display: flex; align-items: center; gap: var(--zli-space-1-5); height: 18px; padding: 0 2px; }
+.sidebar-update-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--zli-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--zli-accent) 22%, transparent); }
+.sidebar-update-title { flex: 1; color: var(--zli-text); font-weight: 500; }
+.sidebar-update-close { display: grid; width: 18px; height: 18px; place-items: center; padding: 0; border: 0; border-radius: var(--zli-radius-sm); background: none; color: var(--zli-dim); cursor: default; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-update-card:hover .sidebar-update-close, .sidebar-update-close:focus-visible { opacity: 1; }
+.sidebar-update-close:hover { background: var(--zli-hover); color: var(--zli-text); }
+.sidebar-update-row { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); min-height: 34px; padding: 2px; border-radius: var(--zli-radius-md); }
+.sidebar-update-icon { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; border-radius: 7px; background: var(--zli-active); color: var(--zli-text); }
+.sidebar-update-all {
+  height: 28px; margin-top: 2px; border: 0; border-radius: var(--zli-radius-pill); background: var(--zli-text); color: var(--zli-canvas);
+  cursor: default; font-size: var(--zli-text-xs); font-weight: 500; transition: opacity var(--zli-duration-fast) var(--zli-ease);
+}
+.sidebar-update-all:hover { opacity: 0.88; }
+.sidebar-update-done { flex: 0 0 auto; margin-right: var(--zli-space-1-5); color: var(--zli-green); }
+.sidebar-update-row.is-done .sidebar-update-detail { color: var(--zli-green); }
+.sidebar-update-row.is-failed .sidebar-update-detail { color: var(--zli-red); }
+.sidebar-update-more { align-self: flex-start; padding: 0 2px; border: 0; background: none; color: var(--zli-dim); cursor: default; font-size: var(--zli-text-xs); }
+.sidebar-update-more:hover { color: var(--zli-text); }
+.sidebar-update-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+.sidebar-update-copy.is-link { cursor: default; }
+.sidebar-update-copy.is-link:hover .sidebar-update-name { text-decoration: underline; text-underline-offset: 2px; }
+.sidebar-update-name { overflow: hidden; color: var(--zli-text); font-size: var(--zli-text-sm); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-update-detail { overflow: hidden; color: var(--zli-dim); text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-update-progress { display: block; height: 3px; margin-top: 3px; overflow: hidden; border-radius: 2px; background: var(--zli-active); }
+.sidebar-update-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--zli-accent); transition: width var(--zli-duration-fast) var(--zli-ease); }
+.sidebar-update-action {
+  flex: 0 0 auto; height: 24px; padding: 0 var(--zli-space-2-5); border: 0; border-radius: var(--zli-radius-pill);
+  background: var(--zli-text); color: var(--zli-canvas); cursor: default; font-size: var(--zli-text-xs); font-weight: 500;
+  transition: opacity var(--zli-duration-fast) var(--zli-ease);
+}
+.sidebar-update-action:hover { opacity: 0.88; }
+.sidebar-update-spinner { flex: 0 0 auto; margin-right: var(--zli-space-1-5); }
+.rail-panel-updates { padding: 0 var(--zli-space-2); }
+.rail-panel-updates .sidebar-update-card { margin: 0 0 var(--zli-space-1-5); }
+@media (prefers-reduced-motion: reduce) { .sidebar-update-card { animation: none; } }

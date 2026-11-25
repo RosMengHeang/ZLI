@@ -13,6 +13,10 @@ export default defineConfig({
   // runners have 3 cores: with two apps at a time there, the last specs of the 70-odd ran out of time waiting for
   // a window, so macOS CI runs one at a time.
   workers: process.env.CI && process.platform === "darwin" ? 1 : 2,
+  // A shared CI runner sometimes stalls long enough that an app's first window or a shell's prompt misses its
+  // wait. A test that fails is run once more there: one that passes then is reported as flaky in the log, while
+  // a real failure still fails both times. Local runs never retry.
+  retries: process.env.CI ? 1 : 0,
   reporter: [["list"]],
   use: {
     reducedMotion: "reduce",

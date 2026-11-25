@@ -3,7 +3,7 @@
 import type { BuddyProjection } from "@zli-v2/contracts";
 import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { typeInput } from "../huddle/testHuddles.js";
+import { typeInput } from "./testDom.js";
 import { cleanupRuntimeRenders, renderWithRuntime } from "../review/testRuntime.js";
 import { PersonalityField } from "./BuddyAutonomy.js";
 import { useRun } from "./useRun.js";
