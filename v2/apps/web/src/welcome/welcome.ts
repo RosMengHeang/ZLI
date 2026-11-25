@@ -10,13 +10,33 @@ import { agentReady } from "../agent/providers.js";
 
 export { agentReady, planLabel, signInCommand } from "../agent/providers.js";
 
-export type WelcomeStep = "agents" | "style" | "projects";
+export type WelcomeStep = "agents" | "tour" | "style" | "projects";
 
+/** The steps after the intro. The intro plays once before them and is not counted as a step. */
 export const WELCOME_STEPS: readonly { id: WelcomeStep; label: string }[] = [
   { id: "agents", label: "Agent" },
+  { id: "tour", label: "Buddies" },
   { id: "style", label: "Workspace" },
   { id: "projects", label: "Projects" },
 ];
+
+/** The line under the intro's progress bar: what is still being looked for, or what was found. */
+export function introStatus({
+  agents,
+  github,
+  projects,
+}: {
+  agents: number | undefined;
+  github: "ready" | "found" | "missing" | undefined;
+  projects: number | undefined;
+}): string {
+  if (agents === undefined) return "Looking for coding agents…";
+  if (github === undefined) return "Checking GitHub CLI…";
+  if (projects === undefined) return "Reading past sessions…";
+  const found = `${agents} ${agents === 1 ? "agent" : "agents"}`;
+  const folders = `${projects} ${projects === 1 ? "project" : "projects"}`;
+  return projects > 0 ? `Found ${found} and ${folders}` : `Found ${found}`;
+}
 
 /**
  * The project setup opens an agent in: the folder added by hand last, else the most recently used of

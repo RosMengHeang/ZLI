@@ -27,13 +27,15 @@
 
 .welcome-stage:focus { outline: none; }
 .welcome-stage { min-height: 0; flex: 1 1 auto; overflow: auto; scrollbar-gutter: stable both-edges; }
-.welcome-column { width: min(600px, 100% - 48px); margin: clamp(32px, 9vh, 96px) auto var(--zli-space-10); }
+.welcome-column { width: min(680px, 100% - 48px); margin: clamp(32px, 9vh, 96px) auto var(--zli-space-10); animation: welcome-step var(--zli-duration-base) var(--zli-ease) both; }
+@keyframes welcome-step { from { opacity: 0; transform: translateY(6px); } }
 
 /* ---------- Heading ---------- */
 .welcome-head { display: flex; flex-direction: column; margin-bottom: var(--zli-space-8); }
-.welcome-step-count { margin-bottom: var(--zli-space-3); color: var(--zli-dim); font-size: var(--zli-text-sm); font-variant-numeric: tabular-nums; }
 /* Larger than the app's 20px ceiling on purpose: this is the one screen that has a single message to give. */
-.welcome-title { margin: 0; color: var(--zli-text); font-size: 28px; font-weight: 600; letter-spacing: -.025em; line-height: 1.15; }
+.welcome-title { margin: 0; color: var(--zli-text); font-size: 30px; font-weight: 600; letter-spacing: -.03em; line-height: 1.2; text-wrap: balance; }
+/* The second half of a heading, set back in the dim step so the first half carries the message. */
+.welcome-title-dim { color: var(--zli-dim); }
 .welcome-lede { margin: var(--zli-space-2-5) 0 0; max-width: 520px; color: var(--zli-muted); font-size: var(--zli-text-md); line-height: var(--zli-leading-relaxed); }
 .welcome-loading { display: flex; align-items: center; gap: var(--zli-space-2); margin: 0 0 var(--zli-space-4); color: var(--zli-muted); font-size: var(--zli-text-base); }
 
@@ -157,24 +159,137 @@
   .welcome-note { display: none; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .welcome-dots li, .welcome-choice, .welcome-radio { transition: none; }
-}
-/* Installed but signed out: the agent cannot run yet, so the status reads as a warning, not as ready. */
-.welcome-ready.is-signed-out { color: var(--zli-amber); }
-.welcome-row-end { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--zli-space-2); }
 
-/* A ready agent's row picks it as the default agent: the whole row is the radio, with the dot at its end. */
-.welcome-row-pickable { display: block; }
-.welcome-row.is-pickable { display: flex; flex-wrap: nowrap; align-items: center; position: relative; margin: 0 calc(-1 * var(--zli-space-2)); padding-right: var(--zli-space-3); padding-left: var(--zli-space-3); border-radius: var(--zli-radius-md); cursor: default; transition: background-color var(--zli-duration-fast) var(--zli-ease); }
-.welcome-row.is-pickable:hover { background: var(--zli-hover); }
-.welcome-row.is-picked { background: var(--zli-accent-soft); }
-.welcome-row.is-picked:hover { background: var(--zli-accent-soft); }
-.welcome-agent-radio-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.welcome-agent-radio { display: block; align-self: center; position: relative; width: 16px; height: 16px; flex: 0 0 16px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--zli-border-hover); transition: box-shadow var(--zli-duration-fast) var(--zli-ease); }
-.welcome-row.is-picked .welcome-agent-radio { box-shadow: inset 0 0 0 5px var(--zli-accent); }
-.welcome-agent-radio-input:focus-visible ~ .welcome-agent-radio { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
-.welcome-tag.is-default { box-shadow: none; background: var(--zli-accent); color: var(--zli-accent-ink); }
+/* ---------- Intro ----------
+ * The one longer entrance in the app (see DESIGN.md, Motion): it plays once, on a fresh install, while ZLI
+ * runs its first checks. The tile lands, the Z is drawn, the greeting rises in, and the bar fills as the
+ * checks answer. Nothing loops. */
+.welcome-stage.is-intro { display: grid; place-items: center; }
+.welcome-intro { display: flex; flex-direction: column; align-items: center; padding: 0 var(--zli-space-6) 8vh; text-align: center; }
+.intro-mark { margin-bottom: var(--zli-space-8); overflow: visible; }
+.intro-mark-tile { transform-box: fill-box; transform-origin: center; animation: intro-tile 520ms var(--zli-ease) both; }
+.intro-mark-z { stroke-dasharray: 1 2; stroke-dashoffset: 1; opacity: 0; animation: intro-draw 560ms var(--zli-ease) 280ms forwards; }
+@keyframes intro-tile { from { opacity: 0; transform: scale(.8); } }
+@keyframes intro-draw { 0% { opacity: 0; stroke-dashoffset: 1; } 8% { opacity: 1; } 100% { opacity: 1; stroke-dashoffset: 0; } }
+
+/* Larger than the step titles: this is the single line the screen exists to say. */
+.intro-title { margin: 0; color: var(--zli-muted); font-size: clamp(34px, 5.2vw, 52px); font-weight: 600; letter-spacing: -.04em; line-height: 1.1; }
+.intro-word { display: inline-block; animation: intro-rise 560ms var(--zli-ease) both; }
+.intro-word.is-name { color: var(--zli-text); }
+.intro-sub { margin: var(--zli-space-4) 0 0; color: var(--zli-dim); font-size: var(--zli-text-lead, 15px); animation: intro-rise 560ms var(--zli-ease) 900ms both; }
+@keyframes intro-rise { from { opacity: 0; transform: translateY(10px); } }
+
+.intro-load { width: 240px; margin-top: var(--zli-space-10); animation: intro-fade 400ms var(--zli-ease) 1050ms both; }
+.intro-bar { height: 2px; overflow: hidden; border-radius: 1px; background: var(--zli-border-strong); }
+.intro-bar-fill { display: block; height: 100%; background: var(--zli-text); transform-origin: left; transition: transform 600ms var(--zli-ease); }
+.intro-status { min-height: 1.5em; margin: var(--zli-space-3) 0 0; color: var(--zli-dim); font-size: var(--zli-text-sm); font-variant-numeric: tabular-nums; }
+@keyframes intro-fade { from { opacity: 0; } }
+
+.intro-cta {
+  display: flex; align-items: center; gap: var(--zli-space-3); margin-top: var(--zli-space-8);
+  visibility: hidden; opacity: 0; transform: translateY(6px);
+  transition: opacity 320ms var(--zli-ease), transform 320ms var(--zli-ease), visibility 0s 320ms;
+}
+.intro-cta.is-ready { visibility: visible; opacity: 1; transform: none; transition-delay: 0s; }
+.intro-cta .btn { min-width: 140px; justify-content: center; }
+.intro-hint { color: var(--zli-dim); font-size: var(--zli-text-sm); }
+
+/* ---------- Agent tiles ---------- */
+.welcome-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--zli-space-2); }
+.welcome-tile {
+  position: relative; display: flex; min-width: 0; min-height: 132px; flex-direction: column; padding: var(--zli-space-4);
+  border-radius: var(--zli-radius-lg); background: var(--zli-raised); box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border);
+  color: var(--zli-text); cursor: default; animation: welcome-step var(--zli-duration-base) var(--zli-ease) both;
+  transition: box-shadow var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease);
+}
+.welcome-tile:nth-child(2) { animation-delay: 30ms; }
+.welcome-tile:nth-child(3) { animation-delay: 60ms; }
+.welcome-tile:nth-child(4) { animation-delay: 90ms; }
+.welcome-tile:nth-child(n + 5) { animation-delay: 120ms; }
+.welcome-tile.is-ready:hover { box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border-hover); }
+/* The picked agent gets an accent edge and a filled check, not a blue panel. */
+.welcome-tile.is-picked, .welcome-tile.is-picked:hover { box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-accent-line); }
+.welcome-tile:has(.welcome-tile-input:focus-visible) { outline: 2px solid var(--zli-focus); outline-offset: 2px; }
+.welcome-tile-input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.welcome-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--zli-space-2); min-height: 24px; }
+.welcome-tile-name { margin-top: auto; padding-top: var(--zli-space-6); overflow: hidden; font-size: var(--zli-text-md); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.welcome-tile-detail { margin-top: 2px; overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.welcome-tile.is-picked .welcome-tile-detail { color: var(--zli-text); }
+.welcome-tile.is-signed-out .welcome-tile-detail { color: var(--zli-amber); }
+.welcome-tile.is-missing .welcome-tile-name { color: var(--zli-muted); }
+.welcome-tile.is-missing .welcome-tile-top > :first-child { opacity: .5; }
+.welcome-tile-check {
+  display: grid; width: 20px; height: 20px; flex: 0 0 20px; place-items: center; border-radius: 50%; color: var(--zli-green);
+  transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease);
+}
+.welcome-tile.is-picked .welcome-tile-check { background: var(--zli-accent); color: var(--zli-accent-ink); animation: tile-pop 260ms var(--zli-ease-spring); }
+@keyframes tile-pop { from { transform: scale(.6); } }
+
+/* ---------- GitHub CLI ---------- */
+.welcome-forge {
+  display: flex; align-items: center; gap: var(--zli-space-3-5, 14px); min-height: 60px; margin-top: var(--zli-space-2);
+  padding: var(--zli-space-3) var(--zli-space-4); border-radius: var(--zli-radius-lg); background: var(--zli-raised);
+  box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border); animation: welcome-step var(--zli-duration-base) var(--zli-ease) 140ms both;
+}
+.welcome-forge-mark { display: grid; width: 24px; flex: 0 0 24px; place-items: center; color: var(--zli-text); }
+.welcome-forge.is-missing .welcome-forge-mark, .welcome-forge.is-error .welcome-forge-mark { opacity: .5; }
+.welcome-forge.is-signed_out .welcome-row-detail, .welcome-forge.is-outdated .welcome-row-detail { color: var(--zli-amber); }
+
+/* ---------- Meet your buddies ---------- */
+.welcome-tour { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--zli-space-2); margin: 0; padding: 0; list-style: none; }
+.welcome-feature {
+  display: flex; min-width: 0; flex-direction: column; overflow: hidden; border-radius: var(--zli-radius-lg); background: var(--zli-raised);
+  box-shadow: var(--zli-highlight), inset 0 0 0 1px var(--zli-border); animation: welcome-step var(--zli-duration-base) var(--zli-ease) both;
+}
+.feature-art {
+  display: flex; height: 164px; align-items: center; justify-content: center; padding: var(--zli-space-5);
+  border-bottom: 1px solid var(--zli-border); background: var(--zli-surface);
+}
+.feature-caption { margin: 0; padding: var(--zli-space-4) var(--zli-space-5) var(--zli-space-5); color: var(--zli-text); font-size: var(--zli-text-md); line-height: var(--zli-leading-normal); text-wrap: pretty; }
+
+.art-stack { display: flex; width: 100%; flex-direction: column; gap: var(--zli-space-1); font-size: var(--zli-text-xs); }
+.art-row { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); padding: var(--zli-space-1-5) var(--zli-space-2); border-radius: var(--zli-radius-md); color: var(--zli-text); }
+.art-row > svg { flex: 0 0 auto; color: var(--zli-muted); }
+.art-row.is-lit { background: var(--zli-hover); }
+.art-row-title { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.welcome-tour .is-mono { font-family: var(--zli-mono); font-variant-ligatures: none; }
+.art-state { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; font-size: var(--zli-text-2xs); }
+.art-state.is-work { color: var(--zli-blue); }
+.art-spinner { width: 9px; height: 9px; }
+.art-meta { flex: 0 0 auto; color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+.art-plus { color: var(--zli-green); }
+.art-minus { color: var(--zli-red); }
+
+.art-button { display: inline-flex; align-items: center; gap: var(--zli-space-1); padding: 3px var(--zli-space-2); border-radius: var(--zli-radius-sm); background: var(--zli-overlay); box-shadow: inset 0 0 0 1px var(--zli-border); color: var(--zli-text); }
+
+@media (max-width: 640px) {
+  .welcome-tour { grid-template-columns: minmax(0, 1fr); }
+  .welcome-tiles { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
+  .welcome-title { font-size: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-dots li, .welcome-choice, .welcome-radio, .welcome-tile, .welcome-tile-check, .intro-bar-fill, .intro-cta { transition: none; }
+  .welcome-column, .welcome-tile, .welcome-tile-check, .welcome-forge, .welcome-feature,
+  .intro-mark-tile, .intro-word, .intro-sub, .intro-load { animation: none; }
+  .intro-mark-z { animation: none; opacity: 1; stroke-dashoffset: 0; }
+}
+
 /* Above the found projects: how many are ticked, and one switch between ticking all and none. */
 .welcome-pick-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); }
 .welcome-pick-count { font-variant-numeric: tabular-nums; }
+
+/* Buddy tour drawings: a chat line, a check list and the Waiting on you card. */
+.welcome-lede kbd { padding: 0 var(--zli-space-1); border-radius: var(--zli-radius-xs); background: var(--zli-raised); box-shadow: inset 0 0 0 1px var(--zli-border-strong); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
+.art-chat { display: flex; width: 100%; flex-direction: column; gap: var(--zli-space-3); font-size: var(--zli-text-xs); }
+.art-bubble {
+  align-self: flex-end; max-width: 85%; padding: var(--zli-space-1-5) var(--zli-space-2-5); border-radius: var(--zli-radius-md);
+  background: var(--zli-accent); color: var(--zli-accent-ink);
+}
+.art-reply { display: flex; align-items: center; gap: var(--zli-space-2); color: var(--zli-text); }
+.art-check { display: grid; width: 14px; height: 14px; flex: 0 0 14px; place-items: center; border-radius: 50%; background: var(--zli-green-soft); color: var(--zli-green); }
+.art-row-copy { display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; gap: 1px; }
+.art-row-copy .art-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.art-card { display: flex; width: 100%; flex-direction: column; gap: 2px; padding: var(--zli-space-2); border-radius: var(--zli-radius-md); background: var(--zli-raised); box-shadow: inset 0 0 0 1px var(--zli-border); font-size: var(--zli-text-xs); }
+.art-card-head { padding: 0 var(--zli-space-2) var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-2xs); }
+.art-button.is-merge { flex: 0 0 auto; background: var(--zli-accent); box-shadow: none; color: var(--zli-accent-ink); font-size: var(--zli-text-2xs); font-weight: 500; }

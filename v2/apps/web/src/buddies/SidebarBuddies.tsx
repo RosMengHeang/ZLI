@@ -20,7 +20,8 @@ export function SidebarBuddies({
   /** Opens the Buddies page, on one buddy or team when given. */
   onOpen(buddyId?: string): void;
 }) {
-  if (!projection || projection.projects.length === 0) return null;
+  // Buddies are listed before any project is added: Primary can be talked to from the first launch.
+  if (!projection) return null;
   const waiting = needsYou(projection).length;
   const teams = liveTeams(projection);
   const onTeam = teams.some((team) => active === teamPageId(team.goalId));
