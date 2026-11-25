@@ -10,6 +10,7 @@ import {
 } from "@zli-v2/contracts";
 
 import { providerDisplayName } from "../agent/providers.js";
+import { splitAttachedContext } from "../chat/attachedContext.js";
 import { shallowArrayEqual } from "../runtime/runtimeStore.js";
 import type { RunStart } from "./bestOf.js";
 import { customChatTitle } from "./chatTitles.js";
@@ -362,7 +363,9 @@ export function sessionTitle(
     ? messages?.find((message) => chain.has(message.threadId) && message.role === "user" && message.text.trim())
     : undefined;
   if (first) {
-    const lines = first.text.trim().split(/\r?\n/u);
+    // Blocks attached with "#" are not what the chat is about; with nothing typed, the first one names it.
+    const split = splitAttachedContext(first.text.trim());
+    const lines = (split.body.trim() || split.attachments[0]?.label || first.text.trim()).split(/\r?\n/u);
     // A sub-agent's first message opens with a line on who started it, and a huddle message with a
     // line on who wrote it; the task or message itself follows.
     const heading =

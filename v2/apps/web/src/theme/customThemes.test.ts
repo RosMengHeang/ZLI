@@ -30,7 +30,7 @@ import {
 const rose: CustomTheme = {
   id: "custom-rose1",
   name: "Rose",
-  basedOn: "sakura",
+  basedOn: "onyx",
   seed: { background: "#120c10", terminal: "#18111a", accent: "#e9a3c4" },
   overrides: {},
 };
@@ -98,11 +98,11 @@ describe("themes people make", () => {
   });
 
   it("starts a new theme from a built-in one with its three colors", () => {
-    const made = customThemeFrom(THEMES.frost, "My Frost");
-    expect(made.basedOn).toBe("frost");
-    expect(made.seed.background).toBe(THEMES.frost.base.canvas);
-    expect(made.seed.accent).toBe(THEMES.frost.base.accent);
-    expect(made.seed.terminal).toBe(THEMES.frost.base.surface);
+    const made = customThemeFrom(THEMES.daylight, "My Light");
+    expect(made.basedOn).toBe("daylight");
+    expect(made.seed.background).toBe(THEMES.daylight.base.canvas);
+    expect(made.seed.accent).toBe(THEMES.daylight.base.accent);
+    expect(made.seed.terminal).toBe(THEMES.daylight.base.surface);
     expect(made.id).toMatch(/^custom-/u);
   });
 
@@ -135,8 +135,8 @@ describe("themes people make", () => {
       ...rose,
       id: `custom-full${index.toString().padStart(2, "0")}`,
     }));
-    updateAppSettings((current) => ({ ...current, theme: "frost", customThemes: full }));
-    const copy = customThemeFrom(THEMES.sakura, "Rose copy", rose);
+    updateAppSettings((current) => ({ ...current, theme: "daylight", customThemes: full }));
+    const copy = customThemeFrom(THEMES.onyx, "Rose copy", rose);
     openThemeEditor(copy, true);
     updateThemeDraft((draft) => ({ ...draft, seed: { ...draft.seed, accent: "#c58fe0" } }));
 
@@ -144,7 +144,7 @@ describe("themes people make", () => {
     expect(readThemeEditor()?.error).toBe(THEME_LIMIT_MESSAGE);
     expect(readThemeEditor()?.draft).toEqual({ ...copy, seed: { ...copy.seed, accent: "#c58fe0" } });
     expect(readAppSettings().customThemes.map((theme) => theme.id)).toEqual(full.map((theme) => theme.id));
-    expect(readAppSettings().theme).toBe("frost");
+    expect(readAppSettings().theme).toBe("daylight");
 
     // Editing a theme that is already saved still works at the limit.
     openThemeEditor({ ...(full[0] as CustomTheme), name: "Renamed" }, false);

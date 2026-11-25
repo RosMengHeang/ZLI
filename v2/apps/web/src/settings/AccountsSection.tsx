@@ -35,6 +35,7 @@ import { ProviderMark } from "../ui/ProviderMark.js";
 import { installCommand, installPlatform } from "../welcome/welcome.js";
 import { discoverProviders } from "../welcome/welcomeClient.js";
 import { SettingsGroup, SettingsPageHeader } from "./SettingsLayout.js";
+import { ClaudeContextGroup, CompactingGroup, SidebarUsageGroup } from "./SidebarUsageSettings.js";
 import { useBackgroundSignIns } from "./useBackgroundSignIns.js";
 
 type Check = { status: "idle" } | { status: "checking" } | { status: "error"; message: string };
@@ -130,6 +131,15 @@ export function AccountsSection({
       or API key you add here.
     </SettingsPageHeader>
   );
+  // Plan limits read from these same logins, so the sidebar card is set up here too. It works without the
+  // sign-in check, so it shows while that check runs or after it fails.
+  const usageGroups = (
+    <>
+      <SidebarUsageGroup providers={discovered} />
+      <CompactingGroup />
+      <ClaudeContextGroup />
+    </>
+  );
 
   const checkLine =
     check.status === "error" ? (
@@ -172,6 +182,7 @@ export function AccountsSection({
             Checking each agent's sign-in
           </p>
         )}
+        {usageGroups}
       </>
     );
   }
@@ -586,6 +597,7 @@ export function AccountsSection({
       <p className="settings-footnote">
         Agents keep the account they started with. {unsupported.join(" and ")} do not support accounts yet.
       </p>
+      {usageGroups}
     </>
   );
 }

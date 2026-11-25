@@ -1,0 +1,10 @@
+/* Picked teammates, files, skills, and "#" items, as pills in a row above the text. */
+.composer-chips { display: flex; flex-wrap: wrap; gap: var(--zli-space-1); margin: 0 0 var(--zli-space-1-5); padding: 0; list-style: none; }
+.composer-chip { display: inline-flex; min-width: 0; max-width: 260px; height: 24px; align-items: center; gap: 5px; padding: 0 2px 0 5px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-pill); background: var(--zli-overlay); color: var(--zli-text); font-size: var(--zli-text-xs); animation: zli-fade-in var(--zli-duration-base) var(--zli-ease) both; }
+.composer-chip:hover, .composer-chip:focus-within { border-color: var(--zli-border-hover); }
+.composer-chip.is-person { padding-left: 3px; }
+.composer-chip .file-badge.is-sm { width: 16px; height: 16px; }
+.composer-chip-icon { flex: 0 0 auto; color: var(--zli-muted); }
+.composer-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-chip .composer-chip-remove.btn-icon { width: 18px; height: 18px; flex: 0 0 auto; border-radius: var(--zli-radius-pill); color: var(--zli-dim); }
+.composer-chip .composer-chip-remove.btn-icon:hover:not(:disabled) { background: var(--zli-hover); color: var(--zli-text); }

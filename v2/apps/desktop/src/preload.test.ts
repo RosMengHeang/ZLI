@@ -198,6 +198,8 @@ describe("preload API", () => {
     expect(await api.notifications.setSettings({ enabled: false, extra: true } as never)).toEqual({
       enabled: false,
       sound: true,
+      tone: "chime",
+      volume: 70,
     });
     await api.notifications.setViewing(["s1", 4 as never]);
     expect(calls).toEqual([

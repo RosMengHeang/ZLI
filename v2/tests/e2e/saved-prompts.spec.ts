@@ -38,9 +38,9 @@ test("inserts a project's shared prompts with / in the composer", async () => {
     const composer = page.getByRole("textbox", { name: "Message Codex" });
     await expect(composer).toBeEnabled({ timeout: 30_000 });
     await composer.fill("/insp");
-    const options = page.getByRole("listbox", { name: "Saved prompts" });
-    await expect(options.getByRole("option")).toHaveCount(1);
-    await expect(options.getByRole("option")).toContainText("Inspect");
+    // / lists commands and saved prompts together; the shared prompt is the one match here.
+    const options = page.getByRole("listbox", { name: "Commands" });
+    await expect(options.getByRole("option").filter({ hasText: "Inspect" })).toHaveCount(1);
     await composer.press("Enter");
     await expect(composer).toHaveValue("inspect workspace");
     await expect(options).toHaveCount(0);

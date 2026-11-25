@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 
 import { getBridge } from "../runtime/bridge.js";
 import { readAppSettings, subscribeAppSettings } from "../settings/appSettings.js";
-import { buildCustomTheme, resolveTheme } from "./customThemes.js";
+import { buildCustomTheme, resolveTheme, subscribeSystemScheme } from "./customThemes.js";
 import { readThemeEditor, subscribeThemeEditor } from "./themeEditorStore.js";
 import { applyTypography } from "./typography.js";
 
@@ -74,8 +74,10 @@ export function startTheme(): () => void {
   refresh();
   const stopSettings = subscribeAppSettings(refresh);
   const stopEditor = subscribeThemeEditor(refresh);
+  const stopSystem = subscribeSystemScheme(refresh);
   return () => {
     stopSettings();
     stopEditor();
+    stopSystem();
   };
 }

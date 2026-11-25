@@ -111,8 +111,21 @@ const pages: readonly PageEntry[] = [
   },
   { id: "shortcuts", label: "Shortcuts", icon: "command", group: "App", keywords: "keys keyboard bindings" },
   { id: "updates", label: "Updates", icon: "download", group: "App", keywords: "version channel" },
-  { id: "accounts", label: "Accounts", icon: "user", group: "Agents", keywords: "sign in api key login" },
-  { id: "usage", label: "Usage", icon: "gauge", group: "Agents", keywords: "plan limits sidebar quota subscription" },
+  {
+    id: "accounts",
+    label: "Providers",
+    icon: "bot",
+    group: "Agents",
+    keywords:
+      "accounts sign in api key login agents plan limits quota subscription sidebar usage context compact compacting",
+  },
+  {
+    id: "usage",
+    label: "Usage",
+    icon: "gauge",
+    group: "Agents",
+    keywords: "tokens cost spend price models daily chart",
+  },
   { id: "skills", label: "Skills", icon: "sparkle", group: "Agents", keywords: "prompts instructions" },
   {
     id: "agentMessages",

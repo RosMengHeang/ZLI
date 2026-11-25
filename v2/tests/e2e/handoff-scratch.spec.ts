@@ -74,7 +74,8 @@ test("hands a chat to another agent, starts a scratch chat, and attaches a windo
 
     // Other platforms need screen recording permission that CI runners cannot grant.
     if (process.platform === "win32") {
-      await scratchTile.getByRole("button", { name: "Attach", exact: true }).click();
+      // Attaching a window is in the message box's + menu.
+      await scratchTile.getByRole("button", { name: "Add", exact: true }).click();
       await page.getByRole("menuitem", { name: /^A window/u }).click();
       const picker = scratchTile.getByRole("region", { name: "Attach a window" });
       // The whole screen is always there; a window in the list may have closed since it was read.

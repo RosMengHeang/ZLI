@@ -19,8 +19,8 @@ export function sessionTone(status: SessionStatus, unread: boolean, quietStart =
 }
 
 /**
- * A chat's state as one dot: blue and breathing while it works, amber when it needs the person, red when it
- * failed, white when it finished out of sight, and a faint ring at rest.
+ * A chat's state at the start of its row: three bars rising in turn while it works, an amber dot when it needs the
+ * person, red when it failed, a filled dot when it finished out of sight, and a faint ring at rest.
  */
 export function SessionDot({
   session,
@@ -31,5 +31,14 @@ export function SessionDot({
   unread?: boolean;
   quietStart?: boolean;
 }) {
-  return <span className={`session-dot is-${sessionTone(session.status, unread, quietStart)}`} aria-hidden="true" />;
+  const tone = sessionTone(session.status, unread, quietStart);
+  if (tone === "working")
+    return (
+      <span className="session-bars" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </span>
+    );
+  return <span className={`session-dot is-${tone}`} aria-hidden="true" />;
 }

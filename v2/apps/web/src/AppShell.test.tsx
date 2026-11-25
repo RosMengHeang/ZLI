@@ -503,7 +503,7 @@ describe("AppShell", () => {
     );
   });
 
-  it("starts a new chat in a tile and opens an earlier one from its history", async () => {
+  it("continues a chat in a new one and opens an earlier one from its history", async () => {
     const dispatched: unknown[] = [];
     const olderId = "00000000-0000-4000-8000-000000000402";
     const latestId = "00000000-0000-4000-8000-000000000403";
@@ -547,13 +547,17 @@ describe("AppShell", () => {
       );
 
     await act(async () => {
-      button(container, "More actions")?.click();
+      container
+        .querySelector(".tile-header")
+        ?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 20 }));
     });
     expect(menuItem("Add a test")?.getAttribute("aria-checked")).toBe("true");
-    // The chat list, new chat, and rename all share the header's one menu.
-    expect(menuItem("Blank chat")).toBeDefined();
-    expect(menuItem("Rename chat")).toBeDefined();
-    expect(container.querySelectorAll('.tile-header button[aria-haspopup="menu"]')).toHaveLength(1);
+    // The chat list and "Continue in new chat" share the header's right-click menu; the title renames on double-click.
+    expect(menuItem("Continue in new chat")).toBeDefined();
+    expect(menuItem("Blank chat")).toBeUndefined();
+    expect(menuItem("Rename chat")).toBeUndefined();
+    // The header has no "..." button: its actions open on a right-click.
+    expect(container.querySelectorAll('.tile-header button[aria-haspopup="menu"]')).toHaveLength(0);
     await act(async () => {
       menuItem("Fix the login form")?.click();
     });
@@ -563,13 +567,17 @@ describe("AppShell", () => {
     expect(container.querySelector(".agent-tile textarea")).not.toBeNull();
 
     await act(async () => {
-      button(container, "More actions")?.click();
+      container
+        .querySelector(".tile-header")
+        ?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 20 }));
     });
-    expect(menuItem("Start with recent context")?.getAttribute("aria-disabled")).toBeNull();
     await act(async () => {
-      menuItem("Blank chat")?.click();
+      menuItem("Continue in new chat")?.click();
     });
+    // A separate chat starts beside this one; the old chat keeps running and keeps its history.
     await vi.waitFor(() => expect(commands(dispatched).some((command) => command.type === "thread.start")).toBe(true));
+    const started = commands(dispatched).find((command) => command.type === "thread.start");
+    expect(started?.sessionId).not.toBe(agentSessionId);
     expect(commands(dispatched).filter((command) => command.type === "thread.stop")).toHaveLength(1);
   });
 

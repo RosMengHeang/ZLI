@@ -144,13 +144,21 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .sidebar-footer { display: flex; align-items: center; gap: var(--zli-space-1); height: 44px; flex: 0 0 auto; padding: 0 var(--zli-space-2); color: var(--zli-dim); font-size: var(--zli-text-sm); }
 .sidebar-waiting { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); padding-left: var(--zli-space-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .connection-dot { width: 6px; height: 6px; flex-basis: 6px; }
-.sidebar-settings { color: var(--zli-muted); }
+.sidebar-settings { flex: 0 0 auto; margin-left: auto; color: var(--zli-muted); }
+.sidebar-usage-open { color: var(--zli-muted); }
 .sidebar-bottom { display: flex; flex: 0 0 auto; flex-direction: column; }
 /* The unfolded list sits on the canvas by tone like the islands beside it, so the sidebar chrome keeps no box lines. */
+/* The same box as the update card, in plain grey: limits are a reading, not news. */
 .sidebar-usage-strip {
-  display: flex; flex-direction: column; gap: var(--zli-space-2); margin: 0 var(--zli-space-2) var(--zli-space-1); padding: var(--zli-space-2) var(--zli-space-2-5);
-  border-radius: var(--zli-radius-md); background: var(--zli-surface); color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column; gap: var(--zli-space-2); margin: 0 var(--zli-space-2) var(--zli-space-1-5); padding: var(--zli-space-2) var(--zli-space-2-5) var(--zli-space-2);
+  border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--zli-text) 4%, var(--zli-surface)), var(--zli-surface) 70%);
+  color: var(--zli-muted); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums;
+  container: usage-card / inline-size;
+  animation: sidebar-usage-in var(--zli-duration-normal, 220ms) var(--zli-ease) both;
 }
+@keyframes sidebar-usage-in { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .sidebar-usage-strip { animation: none; } }
 .usage-strip-toggle {
   display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: var(--zli-space-1-5); height: 30px; padding: 0 var(--zli-space-1-5);
   container-type: inline-size;
@@ -163,13 +171,42 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .usage-strip-toggle:focus-visible { outline-offset: -1px; }
 .usage-strip-chevron { flex: 0 0 auto; margin-left: auto; color: var(--zli-dim); transition: transform var(--zli-duration-fast) var(--zli-ease); }
 .usage-strip-toggle[aria-expanded="true"] .usage-strip-chevron { transform: rotate(180deg); }
-.usage-strip-head { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.usage-strip-head { padding: 0 2px; color: var(--zli-text); font-size: var(--zli-text-xs); font-weight: 500; }
 .usage-strip-summary { display: flex; min-width: 0; flex: 1; align-items: center; gap: var(--zli-space-1-5); overflow: hidden; white-space: nowrap; }
 .usage-strip-summary > .provider-mark { flex: 0 0 auto; color: var(--zli-muted); }
 /* The share never shrinks; a long model label gives way first. */
-.usage-strip-summary .usage-strip-window-label { min-width: 0; max-width: none; flex: 0 1 auto; color: var(--zli-muted); font-size: var(--zli-text-xs); }
-.usage-strip-summary .usage-strip-window-percent { flex: 0 0 auto; }
-.usage-strip-summary .usage-strip-state { margin-left: 0; }
+.usage-strip-summary .usage-strip-window-percent { flex: 0 0 auto; margin-left: -2px; color: var(--zli-text); }
+.usage-strip-summary > .usage-strip-ring { flex: 0 0 auto; }
+/* When the limit lifts, after a quiet dot; the first thing to go when the sidebar is narrow. */
+.usage-strip-summary-reset { min-width: 0; overflow: hidden; color: var(--zli-dim); text-overflow: ellipsis; }
+.usage-strip-summary-reset::before { content: "·"; margin-right: var(--zli-space-1-5); }
+.usage-strip-summary-window { display: inline-flex; min-width: 0; align-items: center; gap: var(--zli-space-1-5); }
+.usage-strip-summary-window > .usage-strip-ring { flex: 0 0 auto; }
+.usage-strip-summary-label { flex: 0 0 auto; color: var(--zli-dim); }
+.is-dual .usage-strip-summary-window + .usage-strip-summary-window { margin-left: var(--zli-space-1); }
+.usage-strip-summary-window.is-warning .usage-strip-ring-fill { stroke: var(--zli-amber); }
+.usage-strip-summary-window.is-warning .usage-strip-window-percent { color: var(--zli-amber); }
+.usage-strip-summary-window.is-full .usage-strip-ring-fill { stroke: var(--zli-red); }
+.usage-strip-summary-window.is-full .usage-strip-window-percent { color: var(--zli-red); }
+/*
+ * Two limits on one line: each keeps its own width, so they never run into each other. The agent's mark, the
+ * circles, and the shares always show. On a tight line the reset times go, and narrower still the "5h" and
+ * "wk" labels.
+ */
+.is-dual .usage-strip-summary-window { flex: 0 0 auto; gap: 4px; }
+@container (max-width: 259px) { .is-dual .usage-strip-summary-reset { display: none; } }
+@container (max-width: 159px) { .is-dual .usage-strip-summary-label { display: none; } }
+/* Narrow: "2h" and "2h 10m". Wide: "Resets in 2h 10m". */
+.reset-long { display: none; }
+@container (min-width: 220px) {
+  .usage-strip-toggle .reset-long { display: inline; }
+  .usage-strip-toggle .reset-short { display: none; }
+}
+@container usage-card (min-width: 250px) {
+  .reset-long { display: inline; }
+  .reset-short { display: none; }
+}
+.usage-strip-summary .usage-strip-state { margin-left: 0; flex: 0 0 auto; }
 .usage-strip-summary.is-warning .usage-strip-ring-fill { stroke: var(--zli-amber); }
 .usage-strip-summary.is-warning .usage-strip-window-percent { color: var(--zli-amber); }
 .usage-strip-summary.is-full .usage-strip-ring-fill { stroke: var(--zli-red); }
@@ -208,7 +245,7 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
   font-size: var(--zli-text-xs); text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px;
 }
 .usage-strip-settings:hover { color: var(--zli-text); text-decoration-color: currentColor; }
-.sidebar-usage { margin-left: auto; }
+.usage-strip-links { display: flex; flex-wrap: wrap; gap: var(--zli-space-3); padding-top: var(--zli-space-2); border-top: 1px solid var(--zli-border); }
 @media (max-width: 1240px) {
   .app-shell { --zli-sidebar-width: 236px; }
 }
@@ -261,7 +298,7 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .ship-line, .ship-sub { position: relative; display: flex; min-width: 0; align-items: center; pointer-events: none; }
 .ship-line { min-height: 18px; gap: var(--zli-space-2); }
 .ship-sub { min-height: 16px; gap: 6px; padding-left: 20px; }
-.ship-merge, .ship-marks-toggle, .ship-huddle { pointer-events: auto; }
+.ship-merge, .ship-marks-toggle { pointer-events: auto; }
 /* A fixed column for status, so spinner and dot line up and every title starts at the same x. Only this column carries color. */
 .ship-status { display: grid; width: 12px; height: 12px; flex: 0 0 12px; place-items: center; color: var(--zli-blue); }
 .ship-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--zli-border-hover); }
@@ -292,12 +329,6 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 /* The dot between parts belongs to the part after it, so a project name cut short never takes the dot with it. */
 .ship-project + :is(.ship-pr, .ship-text:not(:empty))::before, .ship-pr + .ship-text:has(.ship-text-words)::before { content: "·"; margin-right: 2px; color: var(--zli-dim); }
 /* Overlapping marks read as one group of agents on one branch. */
-/* The people icon matches the Huddle panel's. Amber means a paused huddle is waiting on the person. */
-.ship-huddle { display: inline-grid; width: 18px; height: 18px; flex: 0 0 auto; margin: -1px 0; padding: 0; place-items: center; border: 0; border-radius: var(--zli-radius-xs); background: transparent; color: var(--zli-muted); cursor: pointer; }
-.ship-huddle:hover { background: var(--zli-pressed); color: var(--zli-text); }
-.ship-huddle:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 0; }
-.ship-huddle.is-paused, .session-huddle.is-paused { color: var(--zli-amber); }
-.session-huddle { display: inline-flex; flex: 0 0 auto; align-items: center; color: var(--zli-dim); }
 /* Marks say who is on the branch. Grey at rest so the list is not a row of logos; their color comes back under the pointer. */
 .ship-marks, .ship-marks-toggle { display: inline-flex; flex: 0 0 auto; align-items: center; color: var(--zli-muted); }
 .ship-marks .provider-mark { filter: grayscale(1); opacity: .7; transition: filter var(--zli-duration-fast) var(--zli-ease), opacity var(--zli-duration-fast) var(--zli-ease); }
@@ -837,3 +868,46 @@ body.is-resizing-sidebar { cursor: col-resize; user-select: none; }
 .session-entry:is(:has(> .session-row:hover), :has(> .row-more:hover), :has(> .row-more :focus-visible), :has(> .row-more [aria-expanded="true"])) > .session-row.is-activity .activity-title { padding-right: 24px; }
 .session-row.is-one-line .session-copy { padding-top: 0; }
 .activity-agent.is-buddy { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ---------- The person's sidebar look (Settings > Appearance > Layout) ---------- */
+/* A tint mixes into the theme's own sidebar color, which the sidebar would otherwise shadow with its own value. */
+:root { --zli-sidebar-base: var(--zli-sidebar); }
+/* Classic layout: the sidebar is a box of its own, spaced like the chat and panels beside it. */
+.sidebar.is-floating { margin: var(--zli-gutter) var(--zli-gutter) var(--zli-gutter) var(--zli-gutter); border: 1px solid var(--zli-border); border-radius: var(--zli-radius-lg); overflow: hidden; }
+.sidebar.is-floating .sidebar-top { padding-left: max(var(--zli-space-3), calc(env(titlebar-area-x, 0px) - var(--zli-gutter))); }
+.app-shell:has(> .sidebar.is-floating) .sidebar-resizer { left: calc(clamp(200px, var(--zli-sidebar-width, 256px), max(200px, 40vw)) + var(--zli-gutter) * 2 - 3px); }
+/* Compact: shorter rows and tighter gaps, so more chats fit. Covers every row shape the list draws. */
+.sidebar.is-dense .sidebar-nav-item, .sidebar.is-dense .sidebar-nav .sidebar-primary-row .sidebar-nav-item { height: 30px; }
+.sidebar.is-dense .session-row.is-one-line { height: 28px; }
+.sidebar.is-dense .session-row.is-one-line ~ .row-more { top: 14px; }
+.sidebar.is-dense .session-row:is(.is-two-line, .is-activity) { min-height: 40px; padding-top: 3px; padding-bottom: 3px; }
+.sidebar.is-dense .session-row.is-two-line ~ .row-more { top: 11px; }
+.sidebar.is-dense .session-row.is-activity ~ .row-more { top: 20px; }
+.sidebar.is-dense .activity-copy { gap: 1px; }
+.sidebar.is-dense .sidebar-project > .project-label { height: 30px; }
+.sidebar.is-dense .sidebar-project:not(.is-collapsed) { margin-bottom: var(--zli-space-1); }
+.sidebar.is-dense .activity-group + .activity-group { margin-top: var(--zli-space-2); }
+
+/* Same as chats: the sidebar takes the chat's color and its background drawing, under everything else. */
+.sidebar.has-backdrop { position: relative; isolation: isolate; }
+.sidebar.has-backdrop > .chat-backdrop { z-index: -1; }
+/* Attached, the sidebar and the chat share a color, so a hairline marks where one ends. */
+.sidebar.has-backdrop:not(.is-floating) { border-right: 1px solid var(--zli-border); }
+/* One even wash, lighter than the chat's: sidebar text runs edge to edge, so there is no reading column to clear. */
+.sidebar.has-backdrop > .chat-backdrop .chat-backdrop-veil { background: color-mix(in srgb, var(--zli-surface) 40%, transparent); }
+
+/* Working: three bars rising in turn, in the accent; the other states keep their dot. */
+.session-bars { display: inline-flex; height: 10px; align-items: flex-end; gap: 1.5px; }
+.session-bars > span { width: 2px; height: 4px; border-radius: 1px; background: var(--zli-blue); animation: session-bars 1s ease-in-out infinite; }
+.session-bars > span:nth-child(2) { animation-delay: .15s; }
+.session-bars > span:nth-child(3) { animation-delay: .3s; }
+@keyframes session-bars { 0%, 100% { height: 4px; opacity: .55; } 50% { height: 10px; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .session-bars > span { height: 7px; animation: none; } }
+/* Recent: the agent's logo always shows. A thin ring turns around it while it works; a dot on its corner says it
+   waits or failed. */
+.activity-mark { position: relative; }
+.activity-mark.is-busy::after { position: absolute; inset: -3px; border: 1.5px solid transparent; border-top-color: var(--zli-blue); border-right-color: var(--zli-blue); border-radius: 50%; content: ""; animation: zli-spin 900ms linear infinite; }
+.activity-badge { position: absolute; top: -1px; right: -2px; width: 6px; height: 6px; border: 1.5px solid var(--zli-sidebar, var(--zli-surface)); border-radius: 50%; background: var(--zli-amber); box-sizing: content-box; }
+.activity-mark.is-failed .activity-badge { background: var(--zli-red); }
+.activity-mark.is-failed, .activity-mark.is-working, .activity-mark.is-starting { color: var(--zli-muted); }
+@media (prefers-reduced-motion: reduce) { .activity-mark.is-busy::after { animation: none; } }

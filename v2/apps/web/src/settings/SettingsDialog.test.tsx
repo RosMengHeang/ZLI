@@ -63,7 +63,7 @@ describe("matchingSections", () => {
     expect(matchingSections("notifications").map((entry) => entry.id)).toEqual(["general"]);
     expect(matchingSections("file tree").map((entry) => entry.id)).toEqual(["general"]);
     expect(matchingSections("branch template").map((entry) => entry.id)).toEqual(["worktrees"]);
-    expect(matchingSections("plan limits").map((entry) => entry.id)).toEqual(["usage"]);
+    expect(matchingSections("plan limits").map((entry) => entry.id)).toContain("accounts");
     expect(matchingSections("nothing like this")).toEqual([]);
   });
 });
@@ -136,7 +136,7 @@ describe("SettingsDialog", () => {
   });
 });
 
-describe("Usage settings", () => {
+describe("Usage in the sidebar, on the Providers page", () => {
   const ok = (provider: string, accountId = "usual") => ({
     provider,
     accountId,
@@ -159,7 +159,7 @@ describe("Usage settings", () => {
         <RuntimeProvider bridge={{ runtime: { ...bridge.runtime, dispatch } } as unknown as ZliBridge}>
           <SettingsDialog
             projection={undefined}
-            initialSection="usage"
+            initialSection="accounts"
             notifications={{ settings: undefined, update: () => undefined }}
             onClose={() => undefined}
           />
@@ -177,22 +177,41 @@ describe("Usage settings", () => {
       input,
     }));
 
-  it("is off by default and lists only the agents with a plan that reports limits", async () => {
+  it("is on by default and lists only the agents with a plan that reports limits", async () => {
     const container = await openUsage([
       ok("claude-code"),
       { provider: "codex", accountId: "usual", state: "error", windows: [] },
       { provider: "opencode", accountId: "usual", state: "expired", windows: [] },
       ok("gemini", "work"),
     ]);
+    expect(container.querySelector(".settings-page-title")?.textContent).toBe("Providers");
+    const groups = [...container.querySelectorAll(".settings-group-title")].map((node) => node.textContent);
+    expect(groups).toEqual(expect.arrayContaining(["Usage in the sidebar", "Claude context"]));
     expect(switches(container).map(({ input: _input, ...rest }) => rest)).toEqual([
-      { label: "Show plan limits", checked: false, disabled: false },
-      { label: "Claude Code", checked: true, disabled: true },
-      { label: "Gemini", checked: true, disabled: true },
+      { label: "Show plan limits", checked: true, disabled: false },
+      { label: "Claude Code", checked: true, disabled: false },
+      { label: "Gemini", checked: true, disabled: false },
+      { label: "Compact chats automatically", checked: true, disabled: false },
     ]);
   });
 
-  it("turns the card on and hides one agent", async () => {
+  it("turns automatic compacting off and back on", async () => {
+    const container = await openUsage([ok("claude-code")]);
+    const compacting = () => switches(container).find((entry) => entry.label === "Compact chats automatically");
+    await act(async () => compacting()?.input.click());
+    expect(readAppSettings().autoCompact).toEqual({ enabled: false, at: 0.85 });
+    expect(
+      container.querySelector('[aria-label="Compact when context reaches: 85%"]')?.getAttribute("aria-disabled"),
+    ).toBe("true");
+    await act(async () => compacting()?.input.click());
+    expect(readAppSettings().autoCompact).toEqual({ enabled: true, at: 0.85 });
+  });
+
+  it("turns the card off and on, and hides one agent", async () => {
     const container = await openUsage([ok("claude-code"), ok("codex")]);
+    await act(async () => switches(container)[0]?.input.click());
+    expect(readAppSettings().sidebarLimits).toEqual({ enabled: false, hidden: [] });
+    expect(switches(container).find((entry) => entry.label === "Codex")?.disabled).toBe(true);
     await act(async () => switches(container)[0]?.input.click());
     expect(readAppSettings().sidebarLimits).toEqual({ enabled: true, hidden: [] });
     const codex = switches(container).find((entry) => entry.label === "Codex");
@@ -211,8 +230,6 @@ describe("Usage settings", () => {
       );
       await act(async () => option?.click());
     };
-    expect(picker()?.getAttribute("aria-disabled")).toBe("true");
-    await act(async () => switches(container)[0]?.input.click());
     expect(picker()?.getAttribute("aria-label")).toBe("Agent in the footer: Automatic");
 
     await choose("Codex");
@@ -231,6 +248,9 @@ describe("Usage settings", () => {
   it("says so when no agent reports plan limits", async () => {
     const container = await openUsage([{ provider: "codex", accountId: "usual", state: "signed-out", windows: [] }]);
     expect(container.querySelector(".settings-panel")?.textContent).toContain("None of your agents report plan limits");
-    expect(switches(container)).toHaveLength(1);
+    expect(switches(container).map((entry) => entry.label)).toEqual([
+      "Show plan limits",
+      "Compact chats automatically",
+    ]);
   });
 });

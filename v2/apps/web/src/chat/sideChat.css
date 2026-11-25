@@ -1,0 +1,19 @@
+/* ---------- A side question ---------- */
+/* Asked and answered on the message box or in the right panel, so the conversation stays in view. The thread
+   uses the chat's own bubbles, replies, and working line; only the spacing and the smaller message box are its
+   own. On the message box the thread grows to a few messages, then scrolls. */
+.side-chat-head { display: flex; align-items: flex-start; gap: var(--zli-space-2); padding: var(--zli-space-2) 6px var(--zli-space-1) var(--zli-space-3); }
+.side-chat-heading { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; padding-top: 3px; }
+.side-chat-title { color: var(--zli-muted); font-size: var(--zli-text-sm); font-weight: 500; }
+.side-chat-note { overflow: hidden; color: var(--zli-dim); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.side-chat-log { display: flex; max-height: 280px; flex-direction: column; gap: var(--zli-space-3); overflow-y: auto; padding: var(--zli-space-1) var(--zli-space-3) var(--zli-space-2); scrollbar-width: thin; }
+.side-chat-log > .chat-message-assistant:last-of-type .chat-reply-foot { opacity: 1; }
+.side-chat-log .markdown > :last-child { margin-bottom: 0; }
+.chat-reply-foot .side-chat-send { margin-left: 2px; color: var(--zli-muted); }
+.chat-reply-foot .side-chat-send:hover { color: var(--zli-text); }
+/* The main message box, smaller: one round surface, the same placeholder, and the same send button. */
+.side-chat-form { display: flex; align-items: flex-end; gap: var(--zli-space-1-5); margin: 0 var(--zli-space-2) var(--zli-space-2); padding: 6px 6px 6px var(--zli-space-3); border-radius: 16px; background: var(--zli-raised); box-shadow: var(--zli-highlight), 0 0 0 1px var(--zli-border-strong); transition: box-shadow var(--zli-duration-fast) var(--zli-ease); }
+.side-chat-form:hover, .side-chat-form:focus-within { box-shadow: var(--zli-highlight), 0 0 0 1px var(--zli-border-hover); }
+.side-chat-form > textarea { min-height: 26px; max-height: 120px; flex: 1; resize: none; padding: 3px 0; border: 0; outline: none; background: transparent; color: var(--zli-text); font: inherit; font-size: var(--zli-text-sm); line-height: 20px; field-sizing: content; }
+.side-chat-form > textarea::placeholder { color: var(--zli-dim); }
+.side-chat-form > .send-button { width: 26px; height: 26px; margin-left: 0; border-radius: 9px; }

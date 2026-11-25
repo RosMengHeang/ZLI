@@ -23,6 +23,24 @@ export const PullRequestCommand = z.discriminatedUnion("type", [
   /** `base` is the branch the defaults are computed against; without it the repository default is used. */
   z.object({ type: z.literal("review.pr.status"), worktreeId: WorktreeId, base: BranchName.optional() }),
   z.object({ type: z.literal("review.pr.push"), worktreeId: WorktreeId }),
+  /**
+   * Reads pull requests by their links, such as the ones a chat's agent opened on several branches. Links GitHub
+   * does not know come back missing rather than failing the rest.
+   */
+  z.object({
+    type: z.literal("review.pr.lookup"),
+    worktreeId: WorktreeId,
+    urls: z
+      .array(
+        z
+          .string()
+          .url()
+          .max(500)
+          .regex(/^https:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+\/pull\/\d+$/u),
+      )
+      .min(1)
+      .max(30),
+  }),
   /** Reads the failed part of a GitHub Actions job log; `url` is the check's details link. */
   z.object({ type: z.literal("review.pr.checkLog"), worktreeId: WorktreeId, url: z.string().url().max(2_000) }),
   /** Reads the unresolved review threads and review summaries of the branch's pull request. */
@@ -96,6 +114,7 @@ export type PullRequestCommand = z.infer<typeof PullRequestCommand>;
 export const PULL_REQUEST_COMMAND_TYPES = [
   "review.pr.status",
   "review.pr.push",
+  "review.pr.lookup",
   "review.pr.create",
   "review.pr.checkLog",
   "review.pr.comments",
@@ -212,6 +231,10 @@ export const ForgeInfo = z.object({
   capabilities: ForgeCapabilities,
 });
 export type ForgeInfo = z.infer<typeof ForgeInfo>;
+
+/** The pull requests a lookup found, in the order asked; links GitHub did not answer for are left out. */
+export const PullRequestLookupResult = z.object({ pullRequests: z.array(PullRequestInfo).max(30) });
+export type PullRequestLookupResult = z.infer<typeof PullRequestLookupResult>;
 
 export const PullRequestStatusResult = z.object({
   branch: z.string().min(1),

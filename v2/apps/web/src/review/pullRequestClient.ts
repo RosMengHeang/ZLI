@@ -16,6 +16,7 @@ import {
   PullRequestReplyResult,
   PullRequestResolveResult,
   type PullRequestReviewEvent,
+  PullRequestLookupResult,
   PullRequestStatusResult,
   PullRequestUpdateResult,
   type RpcResponse,
@@ -41,6 +42,19 @@ async function request<T>(
   } catch {
     throw new PullRequestRequestError("The runtime sent an unexpected reply. Restart ZLI and try again.");
   }
+}
+
+/** Reads pull requests by their links, such as a stack a chat's agent opened on several branches. */
+export function lookupPullRequests(
+  dispatch: Dispatch,
+  worktreeId: string,
+  urls: readonly string[],
+): Promise<PullRequestLookupResult> {
+  return request(
+    dispatch,
+    { type: "review.pr.lookup", worktreeId: WorktreeId.parse(worktreeId), urls: [...urls] },
+    PullRequestLookupResult,
+  );
 }
 
 export function pullRequestStatus(

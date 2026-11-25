@@ -58,7 +58,8 @@ test("sends a message as Best of N, compares the runs, and keeps one", async () 
     const composer = page.getByRole("textbox", { name: "Message Codex" });
     await expect(composer).toBeEnabled({ timeout: 30_000 });
     await composer.fill("[write plan.md] sketch a plan");
-    await page.getByRole("button", { name: "More ways to send" }).click();
+    // Best of N is in the message box's + menu.
+    await page.getByRole("button", { name: "Add", exact: true }).last().click();
     await page.getByRole("menuitem", { name: /Send as Best of N/u }).click();
     const popover = page.getByRole("dialog", { name: "Send as Best of N" });
     await expect(popover).toContainText("Creates 3 worktrees from the current state");

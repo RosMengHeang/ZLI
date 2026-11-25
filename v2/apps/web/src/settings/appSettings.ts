@@ -4,11 +4,23 @@ import {
   PLAN_LIMIT_PROVIDERS,
   type PlanLimitProvider,
 } from "@zli-v2/contracts";
-import { DEFAULT_THEME, isThemeId } from "@zli-v2/ui/themes";
+import { isThemeId } from "@zli-v2/ui/themes";
 import { useSyncExternalStore } from "react";
+import {
+  type BackdropStyle,
+  clampIntensity,
+  DEFAULT_BACKDROP_INTENSITY,
+  DEFAULT_BACKDROP_STYLE,
+  DEFAULT_IMAGE_EFFECT,
+  type ImageEffect,
+  isBackdropStyle,
+  isImageEffect,
+  normalizeHex,
+} from "../chat/backdrop.js";
+import { DEFAULT_AUTO_COMPACT_AT } from "../chat/compaction.js";
 import type { SessionMode } from "../sessions/sessions.js";
 import { parseTeammates, type Teammate } from "../teammates/teammates.js";
-import { type CustomTheme, parseCustomThemes } from "../theme/customThemes.js";
+import { type CustomTheme, parseCustomThemes, SYSTEM_THEME } from "../theme/customThemes.js";
 import { DEFAULT_TYPOGRAPHY, parseTypography, type Typography } from "../theme/typography.js";
 
 const STORAGE_KEY = "zli.settings.v1";
@@ -57,6 +69,7 @@ export type ShortcutId =
   | "toggleChanges"
   | "toggleHuddle"
   | "focusProject"
+  | "sideQuestion"
   | "settings";
 
 /** Which side of the Files panel the folder tree sits on when there is room for both. */
@@ -80,7 +93,7 @@ export type AppSettings = {
   sidebarLimits: SidebarLimits;
   /** When the person finished or skipped the welcome flow. Unset shows it on a fresh install. */
   onboardedAt?: string;
-  /** The color theme of every ZLI window: a built-in theme id or the id of one in customThemes. */
+  /** The color theme of every ZLI window: "system", a built-in theme id, or the id of one in customThemes. */
   theme: string;
   /** Themes the person made in the theme editor. */
   customThemes: CustomTheme[];
@@ -104,8 +117,51 @@ export type AppSettings = {
   compactChats: boolean;
   /** The sidebar lists chats by when they last moved (activity) or under their projects. */
   sidebarView: SidebarView;
+  /** The sidebar's background and its row height. The window layout decides whether it floats in a box. */
+  sidebarLook: SidebarLook;
   /** Text sizes and fonts, from Settings > Appearance. */
   typography: Typography;
+  /** The background behind every chat, in the theme's accent, and how strongly it shows (0 to 100). */
+  chatBackdrop: ChatBackdrop;
+  /** Agents pinned to the front of the model menu, as "provider:accountId". */
+  pinnedAgents: string[];
+  /** Models pinned to the top of their agent's list, as "provider:model". */
+  pinnedModels: string[];
+  /** Compact a chat by itself once a finished turn leaves its context at least `at` full (0 to 1). */
+  autoCompact: AutoCompact;
+};
+
+export type AutoCompact = { enabled: boolean; at: number };
+
+/**
+ * `background`: the theme's own sidebar color, the same color as the chats, or a tint. A tint mixes `color`
+ * (the theme's accent when unset) into the theme's sidebar at `strength` percent, so text stays readable.
+ */
+export type SidebarLook = {
+  background: SidebarBackground;
+  color?: string;
+  strength: number;
+  density: SidebarDensity;
+};
+export type SidebarBackground = "theme" | "surface" | "tint";
+export type SidebarDensity = "comfortable" | "compact";
+export const SIDEBAR_TINT_MIN = 4;
+export const SIDEBAR_TINT_MAX = 40;
+export const DEFAULT_SIDEBAR_LOOK: SidebarLook = {
+  background: "theme",
+  strength: 12,
+  density: "comfortable",
+};
+
+/**
+ * `color` is a `#rrggbb` the person picked; without it the background takes the theme's accent.
+ * `imageEffect` is how their own picture is shown when the style is "image".
+ */
+export type ChatBackdrop = {
+  style: BackdropStyle;
+  intensity: number;
+  color?: string;
+  imageEffect: ImageEffect;
 };
 
 export type WindowLayout = "columns" | "classic";
@@ -118,8 +174,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   branchTemplate: DEFAULT_BRANCH_TEMPLATE,
   shortcuts: {},
   fileTreePosition: "right",
-  sidebarLimits: { enabled: false, hidden: [] },
-  theme: DEFAULT_THEME,
+  sidebarLimits: { enabled: true, hidden: [] },
+  pinnedAgents: [],
+  pinnedModels: [],
+  autoCompact: { enabled: true, at: DEFAULT_AUTO_COMPACT_AT },
+  theme: SYSTEM_THEME,
   customThemes: [],
   teammates: [],
   animateTeammates: true,
@@ -130,7 +189,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   layout: "classic",
   compactChats: true,
   sidebarView: "activity",
+  sidebarLook: DEFAULT_SIDEBAR_LOOK,
   typography: DEFAULT_TYPOGRAPHY,
+  chatBackdrop: {
+    style: DEFAULT_BACKDROP_STYLE,
+    intensity: DEFAULT_BACKDROP_INTENSITY,
+    imageEffect: DEFAULT_IMAGE_EFFECT,
+  },
 };
 
 const modes: readonly SessionMode[] = ["terminal", "chat"];
@@ -149,6 +214,7 @@ const shortcutIds: readonly ShortcutId[] = [
   "toggleChanges",
   "toggleHuddle",
   "focusProject",
+  "sideQuestion",
   "settings",
 ];
 
@@ -173,16 +239,27 @@ function parseDefaults(value: unknown): LaunchDefaults {
 }
 
 function parseSidebarLimits(value: unknown): SidebarLimits {
-  if (!isRecord(value)) return { enabled: false, hidden: [] };
+  if (!isRecord(value)) return { enabled: true, hidden: [] };
   const hidden = Array.isArray(value.hidden)
     ? PLAN_LIMIT_PROVIDERS.filter((provider) => (value.hidden as unknown[]).includes(provider))
     : [];
   const pinned = PLAN_LIMIT_PROVIDERS.find((provider) => provider === value.pinned);
-  return { enabled: value.enabled === true, hidden, ...(pinned ? { pinned } : {}) };
+  return { enabled: value.enabled !== false, hidden, ...(pinned ? { pinned } : {}) };
+}
+
+function parseChatBackdrop(value: unknown): ChatBackdrop {
+  if (!isRecord(value)) return structuredClone(DEFAULT_SETTINGS.chatBackdrop);
+  const color = normalizeHex(value.color);
+  return {
+    style: isBackdropStyle(value.style) ? value.style : DEFAULT_BACKDROP_STYLE,
+    intensity: clampIntensity(value.intensity),
+    ...(color ? { color } : {}),
+    imageEffect: isImageEffect(value.imageEffect) ? value.imageEffect : DEFAULT_IMAGE_EFFECT,
+  };
 }
 
 function knownTheme(value: unknown, customThemes: readonly CustomTheme[]): value is string {
-  return isThemeId(value) || customThemes.some((theme) => theme.id === value);
+  return value === SYSTEM_THEME || isThemeId(value) || customThemes.some((theme) => theme.id === value);
 }
 
 export function parseAppSettings(raw: string | null): AppSettings {
@@ -221,7 +298,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     fileTreePosition: value.fileTreePosition === "left" ? "left" : "right",
     sidebarLimits: parseSidebarLimits(value.sidebarLimits),
     ...(typeof value.onboardedAt === "string" && value.onboardedAt ? { onboardedAt: value.onboardedAt } : {}),
-    theme: knownTheme(value.theme, customThemes) ? value.theme : DEFAULT_THEME,
+    theme: knownTheme(value.theme, customThemes) ? value.theme : SYSTEM_THEME,
     customThemes,
     teammates: parseTeammates(value.teammates),
     animateTeammates: value.animateTeammates !== false,
@@ -234,8 +311,52 @@ export function parseAppSettings(raw: string | null): AppSettings {
     ...(value.layoutChosen === true ? { layoutChosen: true as const } : {}),
     compactChats: value.compactChats !== false,
     sidebarView: value.sidebarView === "projects" ? "projects" : "activity",
+    sidebarLook: parseSidebarLook(value.sidebarLook),
     typography: parseTypography(value.typography),
+    chatBackdrop: parseChatBackdrop(value.chatBackdrop),
+    pinnedAgents: parsePins(value.pinnedAgents),
+    pinnedModels: parsePins(value.pinnedModels),
+    autoCompact: parseAutoCompact(value.autoCompact),
   };
+}
+
+export function parseSidebarLook(value: unknown): SidebarLook {
+  const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  const background: SidebarBackground =
+    record.background === "surface" || record.background === "tint" ? record.background : "theme";
+  const strength =
+    typeof record.strength === "number" && Number.isFinite(record.strength)
+      ? Math.round(Math.min(SIDEBAR_TINT_MAX, Math.max(SIDEBAR_TINT_MIN, record.strength)))
+      : DEFAULT_SIDEBAR_LOOK.strength;
+  const color =
+    typeof record.color === "string" && /^#[0-9a-f]{6}$/iu.test(record.color) ? record.color.toLowerCase() : undefined;
+  return {
+    background,
+    ...(color ? { color } : {}),
+    strength,
+    density: record.density === "compact" ? "compact" : "comfortable",
+  };
+}
+
+function parseAutoCompact(value: unknown): AutoCompact {
+  const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  const at =
+    typeof record.at === "number" && record.at >= 0.5 && record.at <= 0.95 ? record.at : DEFAULT_AUTO_COMPACT_AT;
+  return { enabled: record.enabled !== false, at };
+}
+
+/** Pins are short "provider:id" keys; anything else, and any past the first fifty, is dropped. */
+function parsePins(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const pins = value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0 && entry.length <= 200,
+  );
+  return [...new Set(pins)].slice(0, 50);
+}
+
+/** Pins `key` when it is not pinned, and unpins it when it is. */
+export function togglePin(pins: readonly string[], key: string): string[] {
+  return pins.includes(key) ? pins.filter((pin) => pin !== key) : [...pins, key];
 }
 
 let cache: AppSettings | undefined;

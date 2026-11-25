@@ -97,13 +97,23 @@ export function roomBrief(input: {
   missed: readonly ThreadMessageProjection[];
   nameOf(message: ThreadMessageProjection): string;
   instructions?: string | undefined;
+  /**
+   * How the member was brought in: to ask, read-only in the chat's folder, or to work on its own copy on
+   * `branch`, made from the chat's branch.
+   */
+  mode?: { kind: "ask" } | { kind: "work"; branch: string } | undefined;
 }): string | undefined {
   const transcript = handoffTranscript(input.missed, input.nameOf, TAKEOVER_CHAR_BUDGET);
   const company = input.others.length > 0 ? ` with ${listNames(input.others)}` : "";
   const parts: string[] = [];
   if (input.joining) {
+    const mode = input.mode;
+    const place =
+      mode?.kind === "work"
+        ? `You work on a copy: your own worktree on branch ${mode.branch}, made from ${input.branch}. Edit and commit there as you need; the person reviews your changes and merges them into ${input.branch} or discards them.`
+        : `It is in the same folder, on branch ${input.branch}.${mode?.kind === "ask" ? " You are here to read, review, and answer: your access is read-only, so do not edit files." : ""}`;
     parts.push(
-      `You are ${input.name}. The person brought you into a shared chat${company}, in the same folder, on branch ${input.branch}. Everyone in it sees what you write. Reply to the person; when you want another member to do something, name them with @Name in your reply.`,
+      `You are ${input.name}. The person brought you into a shared chat${company}. ${place} Everyone in it sees what you write. Reply to the person; when you want another member to do something, name them with @Name in your reply.`,
     );
     if (input.instructions) parts.push(`Your standing instructions:\n\n${input.instructions}`);
   }

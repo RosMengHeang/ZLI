@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 
 import { act } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ContextUsage } from "../usage/usage.js";
 import { ContextMeter } from "./ContextMeter.js";
+import { type CompactAction, CompactActionContext } from "./compactAction.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -84,5 +85,62 @@ describe("ContextMeter", () => {
     const meter = render({ tokens: 4_200 });
     expect(meter?.getAttribute("aria-label")).toBe("4.2k tokens in context");
     expect(meter?.querySelector(".context-ring-fill")).toBeNull();
+  });
+});
+
+describe("ContextMeter compacting", () => {
+  const roots: Root[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) act(() => root.unmount());
+  });
+
+  function renderWith(action: CompactAction) {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    roots.push(root);
+    act(() =>
+      root.render(
+        <CompactActionContext.Provider value={action}>
+          <ContextMeter context={{ tokens: 180_000, window: 200_000 }} />
+        </CompactActionContext.Provider>,
+      ),
+    );
+    return host.querySelector<HTMLButtonElement>(".composer-context");
+  }
+
+  it("keeps the popup open on click and compacts from it", () => {
+    const calls: string[] = [];
+    const meter = renderWith({ status: "ready", run: () => calls.push("compact"), autoAt: 0.85 });
+    act(() => meter?.click());
+    const popup = document.querySelector('[role="dialog"].context-popup');
+    expect(meter?.getAttribute("aria-expanded")).toBe("true");
+    expect(popup?.textContent).toContain("Compacts by itself at 85% after a turn ends.");
+    const button = [...(popup?.querySelectorAll("button") ?? [])].find((entry) => entry.textContent === "Compact now");
+    expect(document.activeElement).toBe(button);
+    act(() => button?.click());
+    expect(calls).toEqual(["compact"]);
+    expect(document.querySelector(".context-popup")).toBeNull();
+  });
+
+  it("shows why it cannot compact", () => {
+    const meter = renderWith({ status: "unavailable", run: () => undefined, note: "Nothing to compact yet." });
+    act(() => meter?.click());
+    const button = document.querySelector<HTMLButtonElement>(".context-popup-compact button");
+    expect(button?.disabled).toBe(true);
+    expect(document.querySelector(".context-popup-compact")?.textContent).toContain("Nothing to compact yet.");
+  });
+
+  it("says when a compaction is running", () => {
+    const running = renderWith({ status: "compacting", run: () => undefined });
+    act(() => running?.click());
+    expect(document.querySelector(".context-popup-compact button")?.textContent).toContain("Compacting…");
+  });
+
+  it("closes a pinned popup on Escape", () => {
+    const meter = renderWith({ status: "ready", run: () => undefined });
+    act(() => meter?.click());
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(document.querySelector(".context-popup")).toBeNull();
   });
 });
