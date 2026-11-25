@@ -60,7 +60,7 @@ import { type ActivityChat, activityGroups } from "./activity.js";
 import { BranchesView } from "./BranchesView.js";
 import { ProjectMark } from "./ProjectMark.js";
 import { ProjectRail } from "./ProjectRail.js";
-import { SessionDot } from "./SessionDot.js";
+import { PixelGrid, SessionDot } from "./SessionDot.js";
 import { SidebarPlanLimits } from "./SidebarUsageStrip.js";
 import { AskLine, LiveStep, ReplyPreview } from "./sessionLines.js";
 import { SIDEBAR_STYLE, type SidebarStyle, useBranchesProject, useSidebarCollapsed } from "./sidebarLayout.js";
@@ -126,6 +126,33 @@ function WorktreeTrack({ entry, branch }: { entry: PullRequestEntry | undefined;
       <span className="sr-only">{trackDescription(upstream)}</span>
     </span>
   );
+}
+
+/**
+ * The end of an activity row's title line: what the chat is doing (Working with its pixels, Needs input, Failed,
+ * Done), or when it last moved if there is nothing to say.
+ */
+export function ActivityState({
+  session,
+  unread,
+  time,
+}: {
+  session: Pick<AgentSession, "status">;
+  unread: boolean;
+  time: string;
+}) {
+  const { status } = session;
+  if (status === "working" || status === "starting" || status === "preparing")
+    return (
+      <span className="activity-state is-working">
+        <PixelGrid tone="working" />
+        Working
+      </span>
+    );
+  if (status === "waiting") return <span className="activity-state is-waiting">Needs input</span>;
+  if (status === "failed") return <span className="activity-state is-failed">Failed</span>;
+  if (status === "ready" && unread) return <span className="activity-state is-done">Done</span>;
+  return <span className="activity-state">{time}</span>;
 }
 
 function WorktreePrBadge({ entry }: { entry: PullRequestEntry | undefined }) {
@@ -1298,7 +1325,6 @@ export function Sidebar({
     const isUnread = unread.has(session.sessionId);
     const subAgents = subAgentsOf.get(session.sessionId) ?? [];
     const status = sessionStatusLabel[session.status];
-    const busy = session.status === "working" || session.status === "starting";
     const menu = () => sessionMenuItems(session, worktree);
     return (
       <li className="session-entry" key={session.sessionId}>
@@ -1311,9 +1337,8 @@ export function Sidebar({
           onClick={() => onSelectSession(session)}
           onContextMenu={(event) => openContextMenu(event, "Agent actions", menu)}
         >
-          <span className={`activity-mark is-${session.status}${busy ? " is-busy" : ""}`} aria-hidden="true">
+          <span className="activity-mark" aria-hidden="true">
             <AgentStack providers={chatAgents(session, subAgents)} size={14} />
-            {session.status === "waiting" || session.status === "failed" ? <span className="activity-badge" /> : null}
           </span>
           <span className="activity-copy">
             <span className="activity-title">
@@ -1336,6 +1361,7 @@ export function Sidebar({
               ) : null}
               <span className="session-title">{title}</span>
               <ChatPullRequestMark session={session} />
+              <ActivityState session={session} unread={isUnread} time={relativeTime(session.updatedAt, now)} />
             </span>
             <span className="activity-meta">
               {project ? (

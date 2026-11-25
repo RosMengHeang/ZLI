@@ -389,9 +389,9 @@ describe("Sidebar projects", () => {
       },
     );
     const rows = [...container.querySelectorAll(".session-row")];
-    // Under its folder every chat is one line; the failed one says so with its red mark.
+    // Under its folder every chat is one line; the failed one says so with its red pixels.
     expect(rows.map((row) => row.className.includes("is-one-line"))).toEqual([true, true]);
-    expect(rows[1]?.querySelector(".session-dot.is-failed")).not.toBeNull();
+    expect(rows[1]?.querySelector(".session-pixels.is-failed")).not.toBeNull();
     expect(rows[0]?.querySelector(".session-sub")).toBeNull();
     expect(rows[0]?.querySelector(".session-time")).not.toBeNull();
   });
@@ -424,8 +424,9 @@ describe("Sidebar projects", () => {
     const rows = [...container.querySelectorAll(".session-row.is-activity")];
     expect(rows.map((row) => row.querySelector(".activity-branch")?.textContent)).toEqual(["feat/login", "main"]);
     expect(rows[0]?.querySelector(".activity-project")?.textContent).toBe("repo");
-    // A working chat keeps its agent's logo, with a ring turning around it.
-    expect(rows[0]?.querySelector(".activity-mark.is-busy .provider-mark")).not.toBeNull();
+    // A working chat keeps its agent's logo plain and says "Working" on the right.
+    expect(rows[0]?.querySelector(".activity-mark .provider-mark")).not.toBeNull();
+    expect(rows[0]?.querySelector(".activity-state.is-working")?.textContent).toBe("Working");
     expect(container.querySelector(".project-label")).toBeNull();
 
     // The sort switch goes back to the project tree.

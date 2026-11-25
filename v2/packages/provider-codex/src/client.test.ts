@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CodexAppServerClient, type CodexPeer, type CodexProviderEvent } from "./client.js";
+import { CodexAppServerClient, type CodexPeer, type CodexProviderEvent, lastLines } from "./client.js";
 import { decodeJsonRpc } from "./protocol.js";
 
 class FakePeer implements CodexPeer {
@@ -701,5 +701,22 @@ describe("CodexAppServerClient plan limits", () => {
     const client = await CodexAppServerClient.connect({ peer });
     await client.readRateLimits();
     expect(peer.requests.at(-1)).toEqual({ method: "account/rateLimits/read", params: undefined });
+  });
+});
+
+describe("Codex start failures", () => {
+  it("says why initialize failed instead of a bare failure", async () => {
+    const peer = new FakePeer();
+    peer.request = async () => {
+      throw new Error("Codex process exited (1). Error: Cannot find module 'codex.js'");
+    };
+    await expect(CodexAppServerClient.connect({ peer })).rejects.toThrow(
+      "Codex app-server initialization failed. Codex process exited (1). Error: Cannot find module 'codex.js'",
+    );
+  });
+
+  it("keeps the last few lines of stderr on one line", () => {
+    expect(lastLines("noise\n\nline one\r\nline two\nline three\n")).toBe("line one line two line three");
+    expect(lastLines("")).toBe("");
   });
 });

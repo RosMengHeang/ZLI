@@ -714,8 +714,8 @@ describe("Project rail style", () => {
 
   it("says an agent is working and names its branch", async () => {
     const container = await mount("rail", { agents: [session(1, "running", "working")], currentProjectId: repoId });
-    // A working row's bars say so; the branch is in the tooltip.
-    expect(container.querySelector(".session-bars")).not.toBeNull();
+    // A working row's pixels say so; the branch is in the tooltip.
+    expect(container.querySelector(".session-pixels.is-working")).not.toBeNull();
     expect(container.querySelector(".session-row")?.getAttribute("title")).toContain("working-branch");
   });
 

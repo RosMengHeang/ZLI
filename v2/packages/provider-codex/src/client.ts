@@ -152,7 +152,11 @@ export class CodexAppServerClient {
       return client;
     } catch (error) {
       await peer.close();
-      throw new CodexProviderError("request_failed", "Codex app-server initialization failed.", { cause: error });
+      // Say why: the process's own words (a crash, a half-installed package) beat a bare "failed".
+      const reason = error instanceof Error && error.message.trim() ? ` ${error.message.trim()}` : "";
+      throw new CodexProviderError("request_failed", `Codex app-server initialization failed.${reason}`, {
+        cause: error,
+      });
     }
   }
 
@@ -454,9 +458,21 @@ async function spawnCodexPeer(options: CodexAppServerClientOptions): Promise<Spa
     child.kill();
     throw new CodexProviderError("request_failed", "Codex did not provide stdio pipes.");
   }
-  // Unread stderr would eventually fill the pipe and stall the app server.
-  child.stderr.resume();
+  // Stderr is always read, or it would fill the pipe and stall the app server. The peer keeps its last lines.
   return new JsonlCodexPeer(child as ChildProcessWithoutNullStreams);
+}
+
+const STDERR_TAIL_CHARS = 4_000;
+
+/** The last few non-empty lines of a process's stderr, on one line. */
+export function lastLines(text: string, count = 3): string {
+  return text
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-count)
+    .join(" ")
+    .slice(-600);
 }
 
 class JsonlCodexPeer implements SpawnedPeer {
@@ -466,14 +482,23 @@ class JsonlCodexPeer implements SpawnedPeer {
   private nextId = 1;
   private buffer = "";
   private isClosed = false;
+  /** The end of what the process wrote to stderr, to say why it exited. */
+  private stderrTail = "";
 
   constructor(private readonly child: ChildProcessWithoutNullStreams) {
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => this.consume(chunk));
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      this.stderrTail = (this.stderrTail + chunk).slice(-STDERR_TAIL_CHARS);
+    });
     child.once("error", (error) => this.fail(error));
-    child.once("close", (code, signal) =>
-      this.fail(new Error(`Codex process exited (${code ?? "unknown"}${signal ? `/${signal}` : ""}).`)),
-    );
+    child.once("close", (code, signal) => {
+      const said = lastLines(this.stderrTail);
+      this.fail(
+        new Error(`Codex process exited (${code ?? "unknown"}${signal ? `/${signal}` : ""}).${said ? ` ${said}` : ""}`),
+      );
+    });
   }
 
   request(method: string, params?: unknown): Promise<unknown> {
