@@ -4,13 +4,14 @@ import { useId, useState } from "react";
 import { Button } from "../ui/Button.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
+import { Switch } from "../ui/Switch.js";
 import { AGENT_ACCESS_LABELS, AGENT_SCOPE_LABELS, useMcpServers } from "./mcpServers.js";
 import { SettingsGroup, SettingsPageHeader, SettingsRow } from "./SettingsLayout.js";
 
 const ACCESS_HINTS: Record<AgentToolAccess, string> = {
   full: "Agents can list, read, start, and message other agents.",
   read: "Agents can list other agents and read their work, but not start or message them.",
-  off: "Agents get no zli tools.",
+  off: "Agents get no tools for other agents. Connected services still work.",
 };
 
 const SCOPE_HINTS: Record<AgentToolScope, string> = {
@@ -19,9 +20,12 @@ const SCOPE_HINTS: Record<AgentToolScope, string> = {
   all: "Agents can find, read, and message agents in every project, by name.",
 };
 
-/** What agents may do with each other through the zli tool and command, and how far they reach. */
-export function AgentMessagesSection() {
-  const { state, reload, setAgentAccess, setAgentScope } = useMcpServers();
+/**
+ * What agents may do with each other through the zli tool and command, and how far they reach. Inside the Agents
+ * page it drops its own header and goes by "Who can reach whom".
+ */
+export function AgentMessagesSection({ embedded = false }: { embedded?: boolean } = {}) {
+  const { state, reload, setAgentAccess, setAgentScope, setToolLoading } = useMcpServers();
   const ids = useId();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
@@ -38,7 +42,7 @@ export function AgentMessagesSection() {
     }
   };
 
-  const header = (
+  const header = embedded ? null : (
     <SettingsPageHeader title="Agent messages">
       Agents talk to each other with the zli tool, or the zli command in terminals, and call each other by name. New
       agents always start in the caller's project.
@@ -71,11 +75,11 @@ export function AgentMessagesSection() {
       </>
     );
 
-  const { agentAccess, agentScope } = state.result;
+  const { agentAccess, agentScope, toolLoading } = state.result;
   return (
     <>
       {header}
-      <SettingsGroup title="Other agents">
+      <SettingsGroup title={embedded ? "Who can reach whom" : "Other agents"}>
         <SettingsRow label="What agents may do" description={ACCESS_HINTS[agentAccess]} htmlFor={`${ids}-access`}>
           <Select<AgentToolAccess>
             id={`${ids}-access`}
@@ -100,6 +104,19 @@ export function AgentMessagesSection() {
             onChange={(scope) => void run(() => setAgentScope(scope))}
           />
         </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title="Connected services">
+        <Switch
+          label="Find tools when needed"
+          hint={
+            toolLoading === "on-demand"
+              ? "Agents look up a service's tools when a task needs them, so services you connect work in running chats right away and tool lists don't fill the chat's context."
+              : "Each agent gets every service's tools when it starts. A service connected later needs a new chat, and every tool's description is sent with each message."
+          }
+          checked={toolLoading === "on-demand"}
+          disabled={saving}
+          onChange={(on) => void run(() => setToolLoading(on ? "on-demand" : "upfront"))}
+        />
       </SettingsGroup>
       {problem ? (
         <p className="inline-error" role="alert">

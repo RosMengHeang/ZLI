@@ -351,6 +351,7 @@ describe("plugin servers in the MCP list", () => {
     const path = join(root, "mcp-servers.json");
     let taken: string[] = [];
     const store = new McpServerStore({
+      toolLoading: "upfront",
       path,
       extraServers: (names) => {
         taken = [...names];

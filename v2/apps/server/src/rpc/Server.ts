@@ -45,6 +45,9 @@ import {
   type McpServerConfig,
   type McpSignInStart,
   type McpTestResult,
+  type McpToolLoading,
+  type McpToolsCallResult,
+  type McpToolsFindResult,
   PLUGIN_COMMAND_TYPES,
   type PlanLimitsResult,
   type PluginCommand,
@@ -1178,6 +1181,14 @@ export type McpServerCommands = {
   save(servers: readonly McpServerConfig[]): Promise<McpListResult>;
   setAgentAccess(access: AgentToolAccess): Promise<McpListResult>;
   setAgentScope(scope: AgentToolScope): Promise<McpListResult>;
+  setToolLoading?(loading: McpToolLoading): Promise<McpListResult>;
+  findTools?(command: { worktreeId?: string; query: string; limit?: number }): Promise<McpToolsFindResult>;
+  callTool?(command: {
+    worktreeId?: string;
+    server: string;
+    tool: string;
+    arguments?: Record<string, unknown>;
+  }): Promise<McpToolsCallResult>;
   signIn?(name: string): Promise<McpSignInStart>;
   waitForSignIn?(attemptId: string): Promise<McpListResult>;
   cancelSignIn?(attemptId: string): McpListResult;
@@ -1197,6 +1208,8 @@ function mcpFailurePrefix(command: McpCommand): string {
   if (command.type === "mcp.test") return "The test did not run.";
   if (command.type === "mcp.import.scan") return "ZLI could not look for servers in other apps.";
   if (command.type === "mcp.list") return "MCP servers could not be listed.";
+  if (command.type === "mcp.tools.find") return "ZLI could not look up tools.";
+  if (command.type === "mcp.tools.call") return "The tool call did not go through.";
   if (command.type.startsWith("mcp.apps")) return "Connected apps did not answer.";
   return "MCP servers were not saved.";
 }
@@ -1204,7 +1217,16 @@ function mcpFailurePrefix(command: McpCommand): string {
 function runMcpCommand(
   store: McpServerCommands,
   command: McpCommand,
-): Promise<McpListResult | McpSignInStart | McpTestResult | McpImportResult | ConnectedAppsStatus | { url: string }> {
+): Promise<
+  | McpListResult
+  | McpSignInStart
+  | McpTestResult
+  | McpImportResult
+  | ConnectedAppsStatus
+  | McpToolsFindResult
+  | McpToolsCallResult
+  | { url: string }
+> {
   const missing = () => Promise.reject(new SignInError("Signing in is not available here."));
   const unavailable = (what: string) => Promise.reject(new McpRequestError(`${what} is not available here.`));
   switch (command.type) {
@@ -1221,6 +1243,25 @@ function runMcpCommand(
       return store.setAgentAccess(command.access);
     case "mcp.agentScope":
       return store.setAgentScope(command.scope);
+    case "mcp.toolLoading":
+      return store.setToolLoading ? store.setToolLoading(command.loading) : unavailable("Loading tools on demand");
+    case "mcp.tools.find":
+      return store.findTools
+        ? store.findTools({
+            query: command.query,
+            ...(command.worktreeId ? { worktreeId: command.worktreeId } : {}),
+            ...(command.limit ? { limit: command.limit } : {}),
+          })
+        : unavailable("Finding tools");
+    case "mcp.tools.call":
+      return store.callTool
+        ? store.callTool({
+            server: command.server,
+            tool: command.tool,
+            ...(command.worktreeId ? { worktreeId: command.worktreeId } : {}),
+            ...(command.arguments ? { arguments: command.arguments } : {}),
+          })
+        : unavailable("Calling tools");
     case "mcp.signIn":
       return store.signIn ? store.signIn(command.name) : missing();
     case "mcp.signIn.wait":

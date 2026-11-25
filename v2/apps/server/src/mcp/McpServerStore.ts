@@ -8,6 +8,7 @@ import {
   type ConnectedAppsStatus,
   DEFAULT_AGENT_TOOL_ACCESS,
   DEFAULT_AGENT_TOOL_SCOPE,
+  DEFAULT_MCP_TOOL_LOADING,
   isHttpServer,
   type McpHttpServerConfig,
   type McpImportResult,
@@ -18,13 +19,23 @@ import {
   type McpSignInStart,
   type McpSignInState,
   type McpTestResult,
+  McpToolLoading,
+  type McpToolsCallResult,
+  type McpToolsFindResult,
 } from "@zli-v2/contracts";
 
 import { isPlainObject, type McpServerSpec, writeFileAtomic, writeFileIfChanged } from "../browser-tool/browserTool.js";
 import { SecretBox } from "../secrets/SecretBox.js";
 import type { ConnectedApps } from "./ConnectedApps.js";
 import { type ImportEnvironment, scanImportableServers } from "./importServers.js";
-import { type McpProbe, type McpProbeOptions, type McpProbeOutcome, probeMcpServer } from "./McpProbe.js";
+import { type GatewayServer, McpGateway } from "./McpGateway.js";
+import {
+  type McpProbe,
+  type McpProbeOptions,
+  type McpProbeOutcome,
+  probeMcpServer,
+  serverConnect,
+} from "./McpProbe.js";
 import type { McpSignIns } from "./signIn/McpSignIns.js";
 import { SignInError } from "./signIn/oauth.js";
 import { freshAccessToken, markSignInExpired } from "./signIn/tokenFile.js";
@@ -49,7 +60,11 @@ type StoredFile = {
   owned: Record<string, string[]>;
   agentAccess: AgentToolAccess;
   agentScope: AgentToolScope;
+  toolLoading?: McpToolLoading;
 };
+
+/** Where an agent works, for the gateway: its project (for servers limited to some) and its folder. */
+export type GatewayPlace = { projectPath?: string; worktreePath?: string };
 
 export type McpLaunchOptions = {
   headerFile?: string;
@@ -180,6 +195,9 @@ export class McpServerStore {
   private owned: Record<string, string[]> = {};
   private access: AgentToolAccess = DEFAULT_AGENT_TOOL_ACCESS;
   private scope: AgentToolScope = DEFAULT_AGENT_TOOL_SCOPE;
+  private loading: McpToolLoading = DEFAULT_MCP_TOOL_LOADING;
+  private readonly gateway = new McpGateway();
+  private placeOf: ((worktreeId: string) => Promise<GatewayPlace>) | undefined;
   private problem: string | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   /** The last connection test per server, by lowercase name. Kept in memory only. */
@@ -200,6 +218,8 @@ export class McpServerStore {
       importFrom?: ImportEnvironment;
       /** Apps connected through Composio, whose server every agent gets. */
       apps?: ConnectedApps;
+      /** How agents get tools until the saved file says otherwise. */
+      toolLoading?: McpToolLoading;
       /** Seals server keys and header values on disk. Without it (no OS keychain) they are saved as typed. */
       box?: SecretBox;
       /**
@@ -221,6 +241,7 @@ export class McpServerStore {
   private locked: Record<string, Record<string, string>> = {};
 
   async load(): Promise<void> {
+    this.loading = this.options.toolLoading ?? DEFAULT_MCP_TOOL_LOADING;
     let text: string;
     try {
       text = await readFile(this.options.path, "utf8");
@@ -246,6 +267,8 @@ export class McpServerStore {
       if (access.success) this.access = access.data;
       const scope = AgentToolScope.safeParse(parsed.agentScope);
       if (scope.success) this.scope = scope.data;
+      const loading = McpToolLoading.safeParse(parsed.toolLoading);
+      if (loading.success) this.loading = loading.data;
     }
     // Keys and headers are opened before the list is checked: sealed text is longer than what was typed.
     const opened = isPlainObject(parsed) ? openSecrets(parsed.servers, this.options.box) : undefined;
@@ -269,16 +292,23 @@ export class McpServerStore {
    */
   specs(context: McpSpecContext = {}): McpServerSpec[] {
     const apps = context.worktreeId ? this.appsServerFor(context.worktreeId) : undefined;
-    return [
-      ...this.servers.filter((server) => server.enabled && serverInProject(server, context.projectPath)),
-      ...this.extraServers().map((server) => (apps && server.name === apps.server.name ? apps.server : server)),
-    ].map((server) =>
-      mcpLaunchSpec(
-        server,
-        apps && server === apps.server
-          ? { ...this.launchOptions(server), headerFile: apps.headerFile }
-          : this.launchOptions(server),
-      ),
+    const appsName = this.options.apps?.server()?.name.toLowerCase();
+    return (
+      [
+        ...this.servers.filter((server) => server.enabled && serverInProject(server, context.projectPath)),
+        ...this.extraServers().map((server) => (apps && server.name === apps.server.name ? apps.server : server)),
+      ]
+        // On demand, agents reach these through ZLI's own server instead. Connected apps keep their own server: it
+        // already finds tools by itself, and its relay needs each worktree's token to ask in the right chat.
+        .filter((server) => this.loading === "upfront" || server.name.toLowerCase() === appsName)
+        .map((server) =>
+          mcpLaunchSpec(
+            server,
+            apps && server === apps.server
+              ? { ...this.launchOptions(server), headerFile: apps.headerFile }
+              : this.launchOptions(server),
+          ),
+        )
     );
   }
 
@@ -350,6 +380,7 @@ export class McpServerStore {
       servers: this.servers.map(copyServer),
       agentAccess: this.access,
       agentScope: this.scope,
+      toolLoading: this.loading,
       signIns: this.signInStates(),
       health: this.healthStates(),
       ...(this.problem ? { problem: this.problem } : {}),
@@ -554,6 +585,88 @@ export class McpServerStore {
     });
   }
 
+  setToolLoading(loading: McpToolLoading): Promise<McpListResult> {
+    return this.serialize(async () => {
+      const next = McpToolLoading.parse(loading);
+      const previous = this.loading;
+      this.loading = next;
+      try {
+        await this.write();
+      } catch (error) {
+        this.loading = previous;
+        throw error;
+      }
+      return this.list();
+    });
+  }
+
+  toolLoading(): McpToolLoading {
+    return this.loading;
+  }
+
+  /** Tells the gateway where a worktree's agent works, so servers limited to some projects apply. */
+  setPlaceResolver(resolve: (worktreeId: string) => Promise<GatewayPlace>): void {
+    this.placeOf = resolve;
+  }
+
+  /** Finds tools for an agent in `worktreeId` across every server it may use, read live. */
+  async findTools(command: { worktreeId?: string; query: string; limit?: number }): Promise<McpToolsFindResult> {
+    return this.gateway.find(await this.gatewayServers(command.worktreeId), command.query, command.limit);
+  }
+
+  /** Calls one tool for an agent in `worktreeId`. */
+  async callTool(command: {
+    worktreeId?: string;
+    server: string;
+    tool: string;
+    arguments?: Record<string, unknown>;
+  }): Promise<McpToolsCallResult> {
+    const servers = await this.gatewayServers(command.worktreeId);
+    const result = await this.gateway.call(servers, command.server, command.tool, command.arguments);
+    const server = servers.find((entry) => entry.config.name.toLowerCase() === command.server.toLowerCase());
+    // A call may have refreshed or rejected a saved login; the list shows the truth next time.
+    if (server && isHttpServer(server.config) && server.config.oauth) {
+      await this.options.signIns?.reload(server.config.url).catch(() => undefined);
+    }
+    return result;
+  }
+
+  /** Stops the gateway's server connections, such as when ZLI quits. */
+  closeGateway(): Promise<void> {
+    return this.gateway.close();
+  }
+
+  /** The servers an agent in `worktreeId` may use through the gateway, each with how to reach it. */
+  private async gatewayServers(worktreeId: string | undefined): Promise<GatewayServer[]> {
+    const place: GatewayPlace = worktreeId && this.placeOf ? await this.placeOf(worktreeId).catch(() => ({})) : {};
+    const appsName = this.options.apps?.server()?.name.toLowerCase();
+    const configs = [
+      ...this.servers.filter((server) => server.enabled && serverInProject(server, place.projectPath)),
+      ...this.extraServers(),
+    ].filter((server) => server.name.toLowerCase() !== appsName);
+    return configs.map((config) => {
+      const tokenFile =
+        isHttpServer(config) && config.oauth && this.options.signIns
+          ? this.options.signIns.tokenFile(config.url)
+          : undefined;
+      const options: McpProbeOptions = {
+        ...(place.worktreePath ? { cwd: place.worktreePath } : {}),
+        ...(tokenFile
+          ? {
+              getToken: (force: boolean) => freshAccessToken(tokenFile, { force }),
+              onSignInRejected: (token: string) => markSignInExpired(tokenFile, token),
+            }
+          : {}),
+      };
+      return {
+        config,
+        hiddenTools: config.disabledTools ?? [],
+        ...(place.worktreePath ? { cwd: place.worktreePath } : {}),
+        connect: serverConnect(config, options),
+      };
+    });
+  }
+
   /** Picks up a change in the extra servers by rewriting their bridge files. */
   refresh(): Promise<void> {
     return this.serialize(() => this.writeBridgeFiles());
@@ -660,6 +773,7 @@ export class McpServerStore {
       owned: this.owned,
       agentAccess: this.access,
       agentScope: this.scope,
+      toolLoading: this.loading,
     };
     // Only this user may read the list: it holds the servers' keys, sealed or not.
     await writeFileAtomic(this.options.path, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
