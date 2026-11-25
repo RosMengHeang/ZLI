@@ -1,6 +1,10 @@
+import { copyFile, lstat, mkdir, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
 import {
   type GitChangeResult,
   type GitChangesCommand,
+  GitCopyFromResult,
   type GitHunkAction,
   type GitStash,
   type GitStashAction,
@@ -194,6 +198,39 @@ export class GitChangesService {
     return status.code === 0 && parseStatusZ(status.stdout).some((entry) => isConflict(entry.xy));
   }
 
+  /**
+   * Makes each path in `cwd` match the same path in `fromCwd` as it is on disk, so changes that are not committed
+   * come along too. A path missing in `fromCwd` is deleted in `cwd`. Links and folders are refused rather than
+   * followed, so nothing outside either worktree is read or written.
+   */
+  async copyFrom(fromCwd: string, cwd: string, paths: readonly string[]): Promise<GitCopyFromResult> {
+    for (const path of paths) assertChangePath(path);
+    const plan: { path: string; copy: boolean }[] = [];
+    for (const path of new Set(paths)) {
+      const source = await entryKind(fromCwd, path);
+      const target = await entryKind(cwd, path);
+      if (source === "other" || target === "other") {
+        throw new GitChangesError(`${path} is a folder or a link, so ZLI cannot copy it. Copy it by hand.`);
+      }
+      if (source === "missing" && target === "missing") continue;
+      plan.push({ path, copy: source === "file" });
+    }
+    let copied = 0;
+    let deleted = 0;
+    for (const entry of plan) {
+      const target = join(cwd, entry.path);
+      if (entry.copy) {
+        await mkdir(dirname(target), { recursive: true });
+        await copyFile(join(fromCwd, entry.path), target);
+        copied += 1;
+      } else {
+        await rm(target, { force: true });
+        deleted += 1;
+      }
+    }
+    return GitCopyFromResult.parse({ copied, deleted });
+  }
+
   /** The branch checked out in a folder, or `git: false` when the folder is not a repository. Reads only. */
   async checkedOutBranch(cwd: string): Promise<ProjectBranchResult> {
     const inside = await this.git(["rev-parse", "--is-inside-work-tree"], cwd);
@@ -241,6 +278,15 @@ export async function runGitChangesCommand(
   }
   const cwd = worktree.path;
   switch (command.type) {
+    case "review.git.copyFrom": {
+      const from = projection.worktrees.find((candidate) => candidate.worktreeId === command.fromWorktreeId);
+      if (!from) throw new GitChangesError("The worktree to copy from was removed.");
+      if (from.status !== "ready") throw new GitChangesError("The worktree to copy from is not ready.");
+      if (from.projectId !== worktree.projectId)
+        throw new GitChangesError("Both worktrees must be in the same project.");
+      if (from.worktreeId === worktree.worktreeId) throw new GitChangesError("Pick a different worktree to copy from.");
+      return service.copyFrom(from.path, cwd, command.paths);
+    }
     case "review.git.stage":
       return service.stage(cwd, command.paths);
     case "review.git.unstage":
@@ -260,6 +306,27 @@ export async function runGitChangesCommand(
       return service.stash(cwd, command.message);
     case "review.git.stashAction":
       return service.stashAction(cwd, { action: command.action, index: command.index, commit: command.commit });
+  }
+}
+
+/**
+ * What `path` is inside `root`, checking every folder on the way: a linked folder anywhere along the path counts
+ * as "other", so a copy never follows it out of the worktree.
+ */
+async function entryKind(root: string, path: string): Promise<"file" | "missing" | "other"> {
+  const parts = path.split("/");
+  try {
+    for (let depth = 1; depth < parts.length; depth += 1) {
+      const folder = await lstat(join(root, ...parts.slice(0, depth)));
+      if (!folder.isDirectory()) return "other";
+    }
+    const info = await lstat(join(root, ...parts));
+    return info.isFile() ? "file" : "other";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ENOTDIR") {
+      return "missing";
+    }
+    throw error;
   }
 }
 

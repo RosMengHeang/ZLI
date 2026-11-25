@@ -56,6 +56,16 @@ export const GitChangesCommand = z.discriminatedUnion("type", [
     index: StashIndex,
     commit: CommitSha,
   }),
+  /**
+   * Makes files in `worktreeId` match the same files in another worktree of the project as they are on disk now,
+   * committed or not. A path missing there is deleted here. Best-of-N uses it to bring parts of one run into another.
+   */
+  z.object({
+    type: z.literal("review.git.copyFrom"),
+    worktreeId: WorktreeId,
+    fromWorktreeId: WorktreeId,
+    paths: z.array(ChangePath).min(1).max(500),
+  }),
 ]);
 export type GitChangesCommand = z.infer<typeof GitChangesCommand>;
 export const GIT_CHANGES_COMMAND_TYPES = [
@@ -66,10 +76,18 @@ export const GIT_CHANGES_COMMAND_TYPES = [
   "review.git.stashList",
   "review.git.stash",
   "review.git.stashAction",
+  "review.git.copyFrom",
 ] as const;
 
 export const GitChangeResult = z.object({ ok: z.literal(true) });
 export type GitChangeResult = z.infer<typeof GitChangeResult>;
+
+/** Files written from the other worktree, and files deleted because the other worktree has none there. */
+export const GitCopyFromResult = z.object({
+  copied: z.number().int().nonnegative(),
+  deleted: z.number().int().nonnegative(),
+});
+export type GitCopyFromResult = z.infer<typeof GitCopyFromResult>;
 
 export const GitStash = z.object({
   index: StashIndex,

@@ -27,12 +27,23 @@ async function request<T>(
   }
 }
 
+/** With `throughCheckpointId`, the diff covers every turn from `checkpointId` to that later one. */
 export function readCheckpointDiff(
   dispatch: Dispatch,
   checkpointId: string,
   path: string,
+  throughCheckpointId?: string,
 ): Promise<CheckpointDiffResultValue> {
-  return request(dispatch, { type: "checkpoint.diff", checkpointId, path }, CheckpointDiffResult);
+  return request(
+    dispatch,
+    {
+      type: "checkpoint.diff",
+      checkpointId,
+      path,
+      ...(throughCheckpointId && throughCheckpointId !== checkpointId ? { throughCheckpointId } : {}),
+    },
+    CheckpointDiffResult,
+  );
 }
 
 export function forkWorktree(

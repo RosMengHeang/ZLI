@@ -256,7 +256,7 @@ export function usePluginContributions(refreshKey: unknown = undefined): PluginC
  * person's terminal, and cmd.exe on Windows, as for zli.json setup commands.
  */
 export function actionTerminalCommand(
-  action: PluginAction,
+  action: Pick<PluginAction, "name" | "command">,
   worktree: { worktreeId: string; path: string },
   windows = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows"),
 ) {

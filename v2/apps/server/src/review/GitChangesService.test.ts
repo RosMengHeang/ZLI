@@ -1,10 +1,17 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { GitChangesCommand, RuntimeProjection } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { assertChangePath, GitChangesError, GitChangesService, parseStashList } from "./GitChangesService.js";
+import {
+  assertChangePath,
+  GitChangesError,
+  GitChangesService,
+  parseStashList,
+  runGitChangesCommand,
+} from "./GitChangesService.js";
 import { parseStatusZ } from "./gitStatus.js";
 import { splitPatch } from "./hunkPatch.js";
 import { type ProcessResult, type ProcessRunner, runProcess } from "./PullRequestService.js";
@@ -335,5 +342,97 @@ describe("GitChangesService with real Git", { timeout: 30_000 }, () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+});
+
+describe("copying files from another worktree", () => {
+  async function folders(): Promise<{ from: string; to: string }> {
+    const from = await mkdtemp(join(tmpdir(), "zli-copy-from-"));
+    const to = await mkdtemp(join(tmpdir(), "zli-copy-to-"));
+    return { from, to };
+  }
+
+  it("writes changed and new files, deletes ones missing there, and skips paths absent on both sides", async () => {
+    const { from, to } = await folders();
+    await writeFile(join(from, "a.txt"), "from a\n");
+    await mkdir(join(from, "src", "deep"), { recursive: true });
+    await writeFile(join(from, "src", "deep", "new.ts"), "new\n");
+    await writeFile(join(to, "a.txt"), "to a\n");
+    await writeFile(join(to, "gone.txt"), "old\n");
+    await writeFile(join(to, "untouched.txt"), "keep\n");
+
+    const result = await new GitChangesService().copyFrom(from, to, [
+      "a.txt",
+      "src/deep/new.ts",
+      "gone.txt",
+      "nowhere.txt",
+    ]);
+
+    expect(result).toEqual({ copied: 2, deleted: 1 });
+    expect(await readFile(join(to, "a.txt"), "utf8")).toBe("from a\n");
+    expect(await readFile(join(to, "src", "deep", "new.ts"), "utf8")).toBe("new\n");
+    await expect(readFile(join(to, "gone.txt"), "utf8")).rejects.toThrow();
+    expect(await readFile(join(to, "untouched.txt"), "utf8")).toBe("keep\n");
+    await Promise.all([rm(from, { recursive: true, force: true }), rm(to, { recursive: true, force: true })]);
+  });
+
+  it("refuses unsafe paths and folders before writing anything", async () => {
+    const { from, to } = await folders();
+    await mkdir(join(from, "dir"));
+    await writeFile(join(from, "ok.txt"), "ok\n");
+    const service = new GitChangesService();
+    await expect(service.copyFrom(from, to, ["../escape.txt"])).rejects.toThrow(GitChangesError);
+    await expect(service.copyFrom(from, to, ["ok.txt", "dir"])).rejects.toThrow("is a folder or a link");
+    await expect(readFile(join(to, "ok.txt"), "utf8")).rejects.toThrow();
+    await Promise.all([rm(from, { recursive: true, force: true }), rm(to, { recursive: true, force: true })]);
+  });
+
+  it("refuses a path under a linked folder, so nothing outside the worktree is written or deleted", async () => {
+    const { from, to } = await folders();
+    const outside = await mkdtemp(join(tmpdir(), "zli-outside-"));
+    await writeFile(join(outside, "settings.json"), "outside\n");
+    await mkdir(join(from, ".claude"));
+    await writeFile(join(from, ".claude", "settings.json"), "from\n");
+    // A junction on Windows needs no extra rights; elsewhere it is an ordinary directory link.
+    await symlink(outside, join(to, ".claude"), "junction");
+    await expect(new GitChangesService().copyFrom(from, to, [".claude/settings.json"])).rejects.toThrow(
+      "is a folder or a link",
+    );
+    expect(await readFile(join(outside, "settings.json"), "utf8")).toBe("outside\n");
+    await Promise.all([from, to, outside].map((folder) => rm(folder, { recursive: true, force: true })));
+  });
+
+  it("only copies between ready worktrees of the same project", async () => {
+    const { from, to } = await folders();
+    await writeFile(join(from, "a.txt"), "a\n");
+    const worktree = (worktreeId: string, path: string, projectId = "p1", status = "ready") =>
+      ({ worktreeId, projectId, path, status }) as unknown as RuntimeProjection["worktrees"][number];
+    const projection = (worktrees: RuntimeProjection["worktrees"]) =>
+      ({ worktrees, projects: [{ projectId: "p1" }, { projectId: "p2" }] }) as unknown as RuntimeProjection;
+    const service = new GitChangesService();
+    const command = (fromWorktreeId: string) =>
+      ({
+        type: "review.git.copyFrom",
+        worktreeId: "to",
+        fromWorktreeId,
+        paths: ["a.txt"],
+      }) as unknown as GitChangesCommand;
+    await expect(
+      runGitChangesCommand(service, projection([worktree("to", to), worktree("from", from, "p2")]), command("from")),
+    ).rejects.toThrow("same project");
+    await expect(
+      runGitChangesCommand(
+        service,
+        projection([worktree("to", to), worktree("from", from, "p1", "creating")]),
+        command("from"),
+      ),
+    ).rejects.toThrow("not ready");
+    await expect(runGitChangesCommand(service, projection([worktree("to", to)]), command("from"))).rejects.toThrow(
+      "removed",
+    );
+    expect(
+      await runGitChangesCommand(service, projection([worktree("to", to), worktree("from", from)]), command("from")),
+    ).toEqual({ copied: 1, deleted: 0 });
+    await Promise.all([rm(from, { recursive: true, force: true }), rm(to, { recursive: true, force: true })]);
   });
 });
