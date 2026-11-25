@@ -144,8 +144,6 @@ export class ProviderReactor {
   /** Threads ZLI already started again after a cut-off turn, until one of their turns finishes. */
   private readonly autoContinued = new Set<string>();
   private readonly autoResume: boolean;
-  /** When each thread's current turn first reported work, to tell if it beat the turn's file snapshot. */
-  private readonly firstActivity = new Map<string, number>();
   private readonly idleStopMs: number;
   private readonly unsubscribe: () => void;
   private readonly unsubscribeProvider: () => void;
@@ -207,6 +205,7 @@ export class ProviderReactor {
     const projection = await this.engine.projection();
     for (const thread of projection.threads) {
       if (this.service.hasSession(ThreadId.parse(thread.threadId))) continue;
+      const waitingOnPerson = hasOpenRequest(projection, thread.threadId);
       if (!LIVE_STATUSES.has(thread.status)) {
         // Older runs could end a chat without closing its requests, which left the chat stuck.
         for (const request of projection.requests ?? []) {
@@ -224,7 +223,9 @@ export class ProviderReactor {
       // A turn that was running when ZLI went away is picked up again, unless it is old news.
       const changed = thread.updatedAt ? Date.parse(thread.updatedAt) : Number.NaN;
       const recent = Number.isFinite(changed) && this.now() - changed <= RESTART_RESUME_WINDOW_MS;
-      if (thread.status === "working" && recent) await this.autoContinue(thread.threadId, "restart");
+      // A turn that was asking the person something is left for them: they were in the middle of deciding.
+      if (thread.status === "working" && recent && !waitingOnPerson)
+        await this.autoContinue(thread.threadId, "restart");
     }
   }
 
@@ -235,8 +236,10 @@ export class ProviderReactor {
    */
   private async autoContinue(threadId: string, reason: "crash" | "restart"): Promise<void> {
     if (!this.autoResume || this.autoContinued.has(threadId) || this.deleted.has(threadId)) return;
-    const thread = (await this.engine.projection()).threads.find((entry) => entry.threadId === threadId);
+    const projection = await this.engine.projection();
+    const thread = projection.threads.find((entry) => entry.threadId === threadId);
     if (thread?.status !== "stopped" || !thread.providerSessionId) return;
+    if (hasOpenRequest(projection, threadId)) return;
     this.autoContinued.add(threadId);
     await this.message(threadId, "system", reason === "crash" ? CRASH_RESUME_NOTE : RESTART_RESUME_NOTE);
     try {
@@ -556,20 +559,8 @@ export class ProviderReactor {
     sendToken: object,
   ): Promise<void> {
     const { threadId, text, model, reasoningEffort, fast, permissionMode } = intent;
-    // The snapshot runs beside the send instead of before it: the agent can change no file until the model has
-    // answered with a whole tool call, which takes longer than the snapshot. If the agent did report work before
-    // the snapshot finished, the turn gets no checkpoint rather than one that misses its first edits.
-    this.firstActivity.delete(threadId);
-    const capture = this.checkpoints
-      ?.capture(threadId)
-      .then((snapshot) => ({ snapshot, doneAt: Date.now() }))
-      .catch(() => undefined);
-    const turnStart = async () => {
-      const taken = await capture;
-      if (!taken?.snapshot) return undefined;
-      const firstWork = this.firstActivity.get(threadId);
-      return firstWork !== undefined && firstWork <= taken.doneAt ? undefined : taken.snapshot;
-    };
+    // Taken before the provider sees the message, so none of the turn's edits can land first.
+    const start = await this.checkpoints?.capture(threadId);
     try {
       const result = await this.service.sendTurn({
         threadId: ThreadId.parse(threadId),
@@ -582,7 +573,6 @@ export class ProviderReactor {
         ...(permissionMode ? { permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       });
-      const start = await turnStart();
       if (start) this.turnStarts.set(turnKey(threadId, result.turnId), start);
       if (this.turnEnded(threadId, result.turnId)) {
         this.recordCheckpoint(threadId, result.turnId);
@@ -707,7 +697,6 @@ export class ProviderReactor {
       return;
     }
     if (event.type === "activity") {
-      if (!this.firstActivity.has(event.threadId)) this.firstActivity.set(event.threadId, Date.now());
       // Text streamed before the tool call has to land first so the work log keeps the provider's order.
       this.flushThreadDeltas(event.threadId);
       this.track(this.activity(event));
@@ -1365,4 +1354,12 @@ export function requestServer(payload: Record<string, unknown>): string | undefi
     (value): value is string => typeof value === "string",
   );
   return tool ? /^mcp__(.+?)__/u.exec(tool)?.[1] : undefined;
+}
+
+/** An approval or question the agent is waiting on the person for. ZLI's own app cards do not count. */
+function hasOpenRequest(
+  projection: { requests?: ReadonlyArray<{ threadId: string; requestId: string }> | undefined },
+  threadId: string,
+): boolean {
+  return (projection.requests ?? []).some((request) => request.threadId === threadId && !isAppDraft(request.requestId));
 }

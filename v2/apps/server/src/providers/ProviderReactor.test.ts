@@ -1065,6 +1065,27 @@ describe("ProviderReactor resume", () => {
     }
   });
 
+  it("leaves a turn that was asking the person something for them after a restart", async () => {
+    const first = new IdentifiedAdapter();
+    const { engine, reactor, dispatch, cleanup } = await setup(first);
+    await dispatch({ type: "thread.queue", queueId: "w1", threadId, text: "clean the build folder" });
+    await reactor.waitForIdle();
+    first.emit({ type: "approval.requested", threadId, requestId: "approval-1", payload: { command: "rm -rf build" } });
+    await reactor.waitForIdle();
+    expect((await engine.projection()).requests).toHaveLength(1);
+    reactor.stop();
+    const next = new IdentifiedAdapter();
+    const service = new ProviderService(new ProviderRegistry([next]));
+    const restarted = new ProviderReactor(engine, service);
+    await restarted.reconcileOrphanedThreads();
+    await restarted.waitForIdle();
+    expect(next.startInputs).toEqual([]);
+    expect((await engine.projection()).threads[0]?.status).toBe("stopped");
+    restarted.stop();
+    service.dispose();
+    await cleanup();
+  });
+
   it("starts an agent that died mid-turn again by itself, once until a turn finishes", async () => {
     const adapter = new (class extends IdentifiedAdapter {
       override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
