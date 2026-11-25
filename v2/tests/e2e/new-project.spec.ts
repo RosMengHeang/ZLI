@@ -21,7 +21,7 @@ async function startChat(page: Page, name: string) {
   await expect(page.getByRole("textbox", { name: `Message ${name}` })).toBeEnabled({ timeout: 30_000 });
 }
 
-test("points a newly added project at New agent until it has one", async () => {
+test("opens a new chat in a newly added project, without the New agent dialog", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
   const { root, repo } = await createGitFixture();
   const added = join(root, "guider-crm");
@@ -44,30 +44,19 @@ test("points a newly added project at New agent until it has one", async () => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
     }, added);
     await page.locator(".sidebar-add-project").click();
-    const newAgent = page.getByRole("dialog", { name: "New agent" });
-    await expect(newAgent).toBeVisible();
-    await expect(newAgent.getByRole("button", { name: "Project: guider-crm" })).toBeVisible();
-    await newAgent.getByRole("button", { name: "Cancel" }).click();
-    await expect(newAgent).toHaveCount(0);
 
-    // The other project's tile stays where it was, with a note about the added project above the board.
-    await expect(page.getByRole("textbox", { name: "Message Alpha" })).toBeVisible();
-    const notice = page.locator(".board-project-notice");
-    await expect(notice).toHaveText(/No chats in guider-crm yet./u);
-    const project = page.getByRole("region", { name: "guider-crm" });
-    // An empty project shows only its heading; starting a chat in it is in its menu.
-    await expect(project).not.toContainText("No chats yet.");
+    // Adding a folder goes straight to a new chat there, with the default agent.
+    await expect(page.locator(".composer-workspace .is-folder")).toContainText("guider-crm", { timeout: 30_000 });
+    await expect(page.getByRole("dialog", { name: "New agent" })).toHaveCount(0);
+    // The first chat waits in the sidebar.
+    await expect(page.locator(".session-row", { hasText: "Alpha" })).toBeVisible();
 
-    // With the project selected, New agent with options in the palette opens on that project.
-    await project.locator(".project-label").click();
+    // The palette's New agent with options still opens on the added project.
     await openNewAgentOptions(page);
+    const newAgent = page.getByRole("dialog", { name: "New agent" });
     await expect(newAgent.getByRole("button", { name: "Project: guider-crm" })).toBeVisible();
     await startChat(page, "Beta");
-
-    await expect(notice).toHaveCount(0);
-    // One chat fills the board; Alpha waits in the sidebar.
     await expect(page.getByRole("textbox", { name: "Message Beta" })).toBeVisible();
-    await expect(page.locator(".session-row", { hasText: "Alpha" })).toBeVisible();
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

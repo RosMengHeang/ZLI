@@ -36,7 +36,8 @@ type Who = { name: string; color: Buddy; look?: BuddyLook | undefined; image?: s
 
 /** One entry in a buddy's chat. Conversation, events and cards share one timeline. */
 export type ChatItem =
-  | { kind: "you"; key: string; at: string; text: string }
+  /** sending: your message on its way, shown before the runtime has it, or one that did not get there. */
+  | { kind: "you"; key: string; at: string; text: string; sending?: "sending" | "failed" | undefined }
   /** resend: the person's message the buddy could not answer, offered to send again. */
   | { kind: "say"; key: string; at: string; text: string; resend?: string | undefined }
   /** A message between this buddy and a teammate: one it got, an answer brought back, or one it sent. */
@@ -282,6 +283,24 @@ function showTime(items: readonly ChatItem[], index: number): boolean {
   return gap > 15 * 60_000;
 }
 
+/** Who an entry speaks for. Entries without one never group. */
+function senderOf(item: ChatItem | undefined): string | undefined {
+  if (item?.kind === "you") return "you";
+  if (item?.kind === "say") return "buddy";
+  if (item?.kind === "teammate" && !item.job) return `${item.way}:${item.who.name}`;
+  return undefined;
+}
+
+/** True when an entry follows one from the same sender with no time shown between: it joins that group. */
+export function continuesGroup(items: readonly ChatItem[], index: number): boolean {
+  if (index === 0 || showTime(items, index)) return false;
+  const sender = senderOf(items[index]);
+  return sender !== undefined && sender === senderOf(items[index - 1]);
+}
+
+/** A message you sent that the runtime has not shown yet. */
+type Outgoing = { buddyId: string; messageId: string; text: string; at: string; state: "sending" | "sent" | "failed" };
+
 /** The newest steps of a job's chat, oldest first. */
 export function recentSteps(
   state: RuntimeProjection,
@@ -320,7 +339,34 @@ export function BuddyChat({
   /** The card under the buddy's reply: its question, result, or what to do next. */
   renderReply(task: TaskProjection): ReactNode;
 }) {
-  const items = useMemo(() => buddyTranscript(buddy, projection), [buddy, projection]);
+  const transcript = useMemo(() => buddyTranscript(buddy, projection), [buddy, projection]);
+  const [outgoing, setOutgoing] = useState<Outgoing[]>([]);
+  // Your message shows at once, dimmed until it lands, and leaves this list when the runtime has it.
+  const landed = useMemo(
+    () => new Set((projection.buddyMessages ?? []).map((message) => message.messageId)),
+    [projection.buddyMessages],
+  );
+  const items = useMemo<ChatItem[]>(
+    () => [
+      ...transcript,
+      ...outgoing
+        .filter((entry) => entry.buddyId === buddy.buddyId && !landed.has(entry.messageId))
+        .map((entry) => ({
+          kind: "you" as const,
+          key: entry.messageId,
+          at: entry.at,
+          text: entry.text,
+          sending: entry.state === "sent" ? undefined : entry.state,
+        })),
+    ],
+    [transcript, outgoing, landed, buddy.buddyId],
+  );
+  useEffect(() => {
+    setOutgoing((current) => {
+      const next = current.filter((entry) => !landed.has(entry.messageId));
+      return next.length === current.length ? current : next;
+    });
+  }, [landed]);
   // What the buddy wants to do in the person's apps waits here until they send or discard it, after its turn too.
   const drafts = (projection.requests ?? []).filter(
     (request) => request.threadId === buddy.chatThreadId && isAppDraft(request.requestId),
@@ -331,15 +377,39 @@ export function BuddyChat({
   useDockHeight(view, dock, log);
   // The chat follows its newest line, as long replies grow too, until the person scrolls up to read.
   const stick = useRef(true);
+  // Scrolled up while something new arrives: a button offers the way back down.
+  const [behind, setBehind] = useState(false);
+  const height = useRef(0);
   useEffect(() => {
     const element = log.current;
-    if (element && stick.current) element.scrollTop = element.scrollHeight;
+    if (!element) return;
+    const grew = element.scrollHeight > height.current;
+    height.current = element.scrollHeight;
+    if (stick.current) element.scrollTop = element.scrollHeight;
+    else if (grew && !behind) setBehind(true);
   });
-  // A note that the buddy could not answer offers the person's message again, as a new message.
-  const resend = (text: string) => {
+  const toLatest = () => {
+    const element = log.current;
     stick.current = true;
-    void run({ type: "buddy.chat.send", buddyId: buddy.buddyId, messageId: makeCommandId(), text });
+    setBehind(false);
+    if (element) element.scrollTop = element.scrollHeight;
   };
+  // Sending again uses the same id, so a message that did land is never added twice.
+  const deliver = async (messageId: string, text: string): Promise<boolean> => {
+    stick.current = true;
+    const at = new Date().toISOString();
+    setOutgoing((current) => [
+      ...current.filter((entry) => entry.messageId !== messageId),
+      { buddyId: buddy.buddyId, messageId, text, at, state: "sending" },
+    ]);
+    const ok = await run({ type: "buddy.chat.send", buddyId: buddy.buddyId, messageId, text }).catch(() => false);
+    setOutgoing((current) =>
+      current.map((entry) => (entry.messageId === messageId ? { ...entry, state: ok ? "sent" : "failed" } : entry)),
+    );
+    return ok;
+  };
+  // A note that the buddy could not answer offers the person's message again, as a new message.
+  const resend = (text: string) => void deliver(makeCommandId(), text);
   return (
     <div className="buddy-chat" ref={view}>
       <div
@@ -350,6 +420,7 @@ export function BuddyChat({
         onScroll={(event) => {
           const target = event.currentTarget;
           stick.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
+          if (stick.current && behind) setBehind(false);
         }}
       >
         <div className="buddy-chat-column">
@@ -365,10 +436,15 @@ export function BuddyChat({
             </div>
           ) : null}
           {items.map((item, index) => (
-            <div key={item.key} className={`buddy-chat-entry is-${item.kind}`}>
+            <div
+              key={item.key}
+              className={`buddy-chat-entry is-${item.kind}${continuesGroup(items, index) ? " is-grouped" : ""}`}
+            >
               {showTime(items, index) ? <div className="buddy-chat-time">{clock(item.at)}</div> : null}
               <ChatEntry
                 item={item}
+                grouped={continuesGroup(items, index)}
+                onRetry={(messageId, text) => void deliver(messageId, text)}
                 buddy={buddy}
                 projection={projection}
                 onOpenThread={onOpenThread}
@@ -393,7 +469,12 @@ export function BuddyChat({
         </div>
       </div>
       <div className="buddy-chat-dock" ref={dock}>
-        <Composer key={buddy.buddyId} buddy={buddy} projection={projection} run={run} />
+        {behind ? (
+          <Button size="sm" icon="chevronDown" className="buddy-chat-latest" onClick={toLatest}>
+            Jump to latest
+          </Button>
+        ) : null}
+        <Composer key={buddy.buddyId} buddy={buddy} projection={projection} run={run} deliver={deliver} />
       </div>
     </div>
   );
@@ -444,13 +525,13 @@ function JobLine({ who, job }: { who: Who; job: { goal: string; status: TaskProj
 }
 
 /** A note between teammates: whose words they are, and which way they went. */
-function TeammateNote({ item }: { item: Extract<ChatItem, { kind: "teammate" }> }) {
+function TeammateNote({ item, grouped }: { item: Extract<ChatItem, { kind: "teammate" }>; grouped: boolean }) {
   return (
     <figure
       className={`buddy-chat-teammate is-${item.way}`}
       style={{ "--teammate": buddyHex(item.who.color) } as CSSProperties}
     >
-      <figcaption className="buddy-chat-teammate-head">
+      <figcaption className="buddy-chat-teammate-head" hidden={grouped}>
         <BuddyAvatar buddy={item.who.color} look={item.who.look} image={item.who.image} size={16} />
         {item.way === "sent" ? (
           <span>
@@ -475,8 +556,13 @@ function ChatEntry({
   renderReply,
   onResend,
   run,
+  grouped = false,
+  onRetry,
 }: {
   item: ChatItem;
+  /** Follows an entry from the same sender, so the name is not repeated. */
+  grouped?: boolean;
+  onRetry?: (messageId: string, text: string) => void;
   buddy: BuddyProjection;
   projection: RuntimeProjection;
   onOpenThread(threadId: string): void;
@@ -486,7 +572,13 @@ function ChatEntry({
 }) {
   switch (item.kind) {
     case "you":
-      return <YouMessage text={item.text} />;
+      return (
+        <YouMessage
+          text={item.text}
+          sending={item.sending}
+          {...(onRetry ? { onRetry: () => onRetry(item.key, item.text) } : {})}
+        />
+      );
     case "say":
       return (
         <>
@@ -506,7 +598,7 @@ function ChatEntry({
         </>
       );
     case "teammate":
-      return item.job ? <JobLine who={item.who} job={item.job} /> : <TeammateNote item={item} />;
+      return item.job ? <JobLine who={item.who} job={item.job} /> : <TeammateNote item={item} grouped={grouped} />;
     case "event":
       return (
         <div className="buddy-chat-event">
@@ -608,7 +700,18 @@ function LiveRow({
   );
 }
 
-function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projection: RuntimeProjection; run: Run }) {
+function Composer({
+  buddy,
+  projection,
+  run,
+  deliver,
+}: {
+  buddy: BuddyProjection;
+  projection: RuntimeProjection;
+  run: Run;
+  /** Puts the message in the chat at once and sends it. */
+  deliver(messageId: string, text: string): Promise<boolean>;
+}) {
   const draftKey = `buddy:${buddy.buddyId}`;
   const [text, setText] = useState(() => readDraft(draftKey));
   const sendingNow = useRef(false);
@@ -616,6 +719,7 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
   const [files, setFiles] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
   const attach = (list: FileList | null) => {
     const bridge = getBridge();
     const paths = [...(list ?? [])].flatMap((file) => {
@@ -632,19 +736,15 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
     if ((!typed && files.length === 0) || busy || sendingNow.current) return;
     sendingNow.current = true;
     setBusy(true);
-    const ok = await run({
-      type: "buddy.chat.send",
-      buddyId: buddy.buddyId,
-      messageId: makeCommandId(),
-      text: withAttachedFiles(files, typed || "Look at these files."),
-    }).finally(() => {
+    // The message moves into the chat right away. If it does not get there, it offers a retry there.
+    const message = withAttachedFiles(files, typed || "Look at these files.");
+    setText("");
+    setFiles([]);
+    box.current?.focus();
+    await deliver(makeCommandId(), message).finally(() => {
       sendingNow.current = false;
     });
     setBusy(false);
-    if (ok) {
-      setText("");
-      setFiles([]);
-    }
   };
   // Replying: your last message has no answer yet. Stop ends the reply and drops what is queued behind it.
   const messages = (projection.buddyMessages ?? []).filter((message) => message.buddyId === buddy.buddyId);
@@ -711,6 +811,7 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
           }}
         />
         <textarea
+          ref={box}
           className="buddy-chat-input"
           aria-label={`Message ${buddy.name}`}
           placeholder={`Message ${buddy.name}`}
@@ -752,12 +853,20 @@ function Composer({ buddy, projection, run }: { buddy: BuddyProjection; projecti
   );
 }
 
-/** What you sent: the words in a pill, the files under it. */
-function YouMessage({ text }: { text: string }) {
+/** What you sent: the words in a pill, the files under it, and whether it got there. */
+function YouMessage({
+  text,
+  sending,
+  onRetry,
+}: {
+  text: string;
+  sending?: "sending" | "failed" | undefined;
+  onRetry?: () => void;
+}) {
   const { text: body, paths } = splitAttachedFiles(text);
   return (
     <>
-      {body ? <div className="buddy-chat-you">{body}</div> : null}
+      {body ? <div className={`buddy-chat-you${sending ? " is-pending" : ""}`}>{body}</div> : null}
       {paths.length > 0 ? (
         <ul className="buddy-chat-files is-sent" aria-label="Attached files">
           {paths.map((path) => (
@@ -767,6 +876,21 @@ function YouMessage({ text }: { text: string }) {
             </li>
           ))}
         </ul>
+      ) : null}
+      {sending === "sending" ? (
+        <span className="buddy-chat-sending" role="status">
+          Sending
+        </span>
+      ) : null}
+      {sending === "failed" ? (
+        <span className="buddy-chat-sending is-failed" role="alert">
+          Not sent.{" "}
+          {onRetry ? (
+            <button type="button" className="buddy-chat-open" onClick={onRetry}>
+              Retry
+            </button>
+          ) : null}
+        </span>
       ) : null}
     </>
   );

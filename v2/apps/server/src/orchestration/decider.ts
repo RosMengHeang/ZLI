@@ -592,6 +592,9 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
     }
     case "thread.status":
       assertThread(projection, command.threadId);
+      // "Waiting" lands after its request. If the turn ended in between, the request is gone and the chat
+      // would wait forever on a card nobody can see.
+      if (command.status === "waiting" && !hasAgentRequest(projection, command.threadId)) return [];
       return [
         ...expiredRequests(projection, command.threadId, command.status),
         {
@@ -965,6 +968,10 @@ function readyForNext(projection: RuntimeProjection, thread: ThreadProjection): 
       (request) => request.threadId === thread.threadId && !isAppDraft(request.requestId),
     )
   );
+}
+
+function hasAgentRequest(projection: RuntimeProjection, threadId: string): boolean {
+  return (projection.requests ?? []).some((request) => request.threadId === threadId && !isAppDraft(request.requestId));
 }
 
 /**

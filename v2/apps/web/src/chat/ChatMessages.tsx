@@ -163,6 +163,7 @@ export function AssistantMessage({
   sources,
   workedFor,
   onBranch,
+  onRegenerate,
   actions,
 }: {
   message: ThreadMessageProjection;
@@ -171,6 +172,7 @@ export function AssistantMessage({
   sources?: readonly Source[] | undefined;
   workedFor?: string | undefined;
   onBranch?: (() => void) | undefined;
+  onRegenerate?: (() => void) | undefined;
   /** More actions after Copy, on a finished reply. */
   actions?: ReactNode;
 }) {
@@ -200,6 +202,16 @@ export function AssistantMessage({
               size="xs"
               iconSize={12}
               onClick={onBranch}
+            />
+          ) : null}
+          {onRegenerate ? (
+            <IconButton
+              label="Regenerate"
+              tooltip="Send your last message again for a new answer"
+              icon="reload"
+              size="xs"
+              iconSize={12}
+              onClick={onRegenerate}
             />
           ) : null}
           {actions}

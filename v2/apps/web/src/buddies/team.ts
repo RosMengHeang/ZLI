@@ -18,6 +18,9 @@ export type BuddyTemplate = {
   look: BuddyLook;
   permissionMode: PermissionMode;
   instructions: string;
+  /** Its voice, so it sounds the same on any model. */
+  personality: string;
+  sampleReply: string;
   /** What the template is for, in the picker. */
   blurb: string;
 };
@@ -31,6 +34,8 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     blurb: "Plans bigger asks, hands out jobs, and answers what everyone is doing",
     instructions:
       "You lead the team. Split bigger asks into jobs one buddy can finish alone, give each to the buddy whose title fits, and keep the person posted in short updates. You don't edit files yourself.",
+    personality: "calm",
+    sampleReply: "Split it in two: Builder takes the form, Tester checks it after. I'll tell you when both land.",
   },
   {
     title: "Builder",
@@ -40,6 +45,8 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     blurb: "Builds features and fixes bugs",
     instructions:
       "Make the change the job asks for, in small steps. Match the code style around you. Run the project's checks before you finish, and say in your summary which ones you ran.",
+    personality: "cheerful",
+    sampleReply: "Done, and the checks pass! The fix was one line in the cart total.",
   },
   {
     title: "Tester",
@@ -49,6 +56,8 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     blurb: "Writes tests and checks other buddies' work",
     instructions:
       "Write tests that fail without the change and pass with it. When you check someone's work, run it, try the edge cases, and report concrete notes. Don't rewrite their code.",
+    personality: "blunt",
+    sampleReply: "Fails on an empty cart. Two tests added, one still red.",
   },
   {
     title: "Reviewer",
@@ -58,6 +67,8 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     blurb: "Reads changes and leaves clear notes",
     instructions:
       "Read the diff closely. Point out bugs, missing cases and unclear names, each with the file and line. Say ok when there is nothing that must change.",
+    personality: "dry",
+    sampleReply: "Looks fine, apart from the variable named data2. We can do better.",
   },
   {
     title: "Docs",
@@ -67,6 +78,8 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     blurb: "Keeps READMEs, guides and changelogs current",
     instructions:
       "Write for someone new to the project. Short sentences, real examples, and nothing the code doesn't do.",
+    personality: "warm",
+    sampleReply: "I rewrote the setup page so a first-timer can follow it. Have a look when you have a minute.",
   },
   {
     title: "Release",
@@ -76,6 +89,8 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     blurb: "Writes release notes and gets versions ready",
     instructions:
       "Collect what changed since the last tag from git log and merged PRs, group it for users, and draft the notes. Never push tags or publish.",
+    personality: "calm",
+    sampleReply: "Notes for 2.3 are drafted. Nothing is tagged; that stays your call.",
   },
   {
     title: "Bug triage",
@@ -85,6 +100,8 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
     blurb: "Reproduces reports and finds the cause",
     instructions:
       "Reproduce the problem first. Find the smallest cause, explain it in two sentences, and suggest the fix. Ask the person when a report is unclear.",
+    personality: "blunt",
+    sampleReply: "Reproduced it. The cache key ignores the locale, so French users get English prices.",
   },
 ];
 
@@ -101,6 +118,8 @@ export type NewBuddy = {
   role: "primary" | "buddy";
   engine: BuddyEngine;
   instructions?: string;
+  personality?: string;
+  sampleReply?: string;
   permissionMode: PermissionMode;
   maxActiveJobs: number;
   handoffs: BuddyProjection["handoffs"];
@@ -116,6 +135,8 @@ export function buddyFromTemplate(id: string, name: string, entry: BuddyTemplate
     role: entry.title === "Primary" ? "primary" : "buddy",
     engine: { mode: "auto" },
     instructions: entry.instructions,
+    personality: entry.personality,
+    sampleReply: entry.sampleReply,
     permissionMode: entry.permissionMode,
     maxActiveJobs: 2,
     handoffs: [],
@@ -279,4 +300,23 @@ export function freeName(wanted: string, buddies: readonly Pick<BuddyProjection,
     if (!taken.has(candidate.toLowerCase())) return candidate;
   }
   return wanted;
+}
+
+/**
+ * The team order with one buddy moved a place up (-1) or down (1). The primary buddy stays first and
+ * cannot be moved, so nothing moves above it. Undefined when the move is not possible.
+ */
+export function moveBuddy(
+  team: readonly Pick<BuddyProjection, "buddyId" | "role">[],
+  buddyId: string,
+  by: -1 | 1,
+): string[] | undefined {
+  const ids = team.map((buddy) => buddy.buddyId);
+  const from = ids.indexOf(buddyId);
+  const to = from + by;
+  if (from < 0 || to < 0 || to >= ids.length) return undefined;
+  if (team[from]?.role === "primary" || team[to]?.role === "primary") return undefined;
+  ids.splice(from, 1);
+  ids.splice(to, 0, buddyId);
+  return ids;
 }

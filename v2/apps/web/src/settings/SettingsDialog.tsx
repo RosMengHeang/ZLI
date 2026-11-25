@@ -34,6 +34,7 @@ import type { Updates } from "../updates/useUpdates.js";
 import { AccountsSection } from "./AccountsSection.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AppearanceSection } from "./AppearanceSection.js";
+import { ConnectedAppsLock } from "./ConnectedAppsLock.js";
 import {
   type AppSettings,
   branchFromTemplate,
@@ -382,7 +383,10 @@ export function SettingsDialog({
             {page === "shortcuts" ? <ShortcutSettings /> : null}
             {page === "updates" ? <UpdatesSection updates={updates} onRestart={onRestartToUpdate} /> : null}
             {page === "accounts" ? (
-              <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
+              <>
+                <AccountsSection projection={projection} {...(onSignIn ? { onSignIn } : {})} />
+                <ConnectedAppsLock />
+              </>
             ) : null}
             {page === "usage" ? <UsageSection projection={projection} /> : null}
             {page === "skills" ? <SkillsSection projection={projection} initialProjectId={initialProjectId} /> : null}

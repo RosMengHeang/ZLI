@@ -163,6 +163,9 @@ export class TaskReactor {
     for (const envelope of reactions) await this.react(envelope);
     const state = await this.engine.projection();
     const tasks = state.tasks ?? [];
+    // Forget retries for attempts that are over, so the set does not grow for the life of the server.
+    const attempts = new Set(tasks.filter((task) => task.status === "preparing").map(attemptKey));
+    for (const attempt of this.worktreeRetries) if (!attempts.has(attempt)) this.worktreeRetries.delete(attempt);
     for (const task of tasks) {
       if (task.status === "preparing") await this.prepare(state, task);
       else if (task.status === "working" || task.status === "needs_you") await this.sync(state, task);
@@ -205,6 +208,9 @@ export class TaskReactor {
       if (active >= buddy.maxActiveJobs) continue;
       // Past its weekly budget, a buddy's new jobs wait until the person raises it or the week moves on.
       if (overBudget(state, buddy, this.now())) continue;
+      // Spending lands only when a job ends, so count each running job at this week's average cost too; otherwise
+      // jobs started side by side could all slip under the budget and overshoot it together.
+      if (budgetReserved(state, buddy, active, this.now())) continue;
       const place = sharedPlace(state, task);
       if (place && places.has(place)) continue;
       if (place) places.add(place);
@@ -285,7 +291,7 @@ export class TaskReactor {
     // A failed worktree is made again once per attempt, so Try again (or a passing hiccup) can recover; failing
     // again in the same attempt ends the job.
     if (worktree.status === "failed" && place.create) {
-      const attempt = `${task.taskId}:${task.updatedAt}`;
+      const attempt = attemptKey(task);
       if (!this.worktreeRetries.has(attempt)) {
         this.worktreeRetries.add(attempt);
         await this.dispatch(
@@ -884,11 +890,17 @@ function isReviewNote(note: string): boolean {
 
 /**
  * The folder a job shares with others of its kind, or undefined for a job with its own worktree: a buddy's home
- * for its web jobs, a project's checkout for the Primary's jobs there. A review reads its parent's worktree and
- * is told apart from it by kind, so it shares nothing here.
+ * for its web jobs, a project's checkout for the Primary's jobs there. A review reads its parent's worktree, so
+ * when that is a shared folder the review holds it too: otherwise the buddy's next job could start there, change
+ * the files under review, and pick up the reviewer's questions as its own.
  */
 function sharedPlace(state: RuntimeProjection, task: TaskProjection): string | undefined {
-  if (task.kind === "review") return undefined;
+  if (task.kind === "review") {
+    const parent = task.parentTaskId
+      ? state.tasks?.find((candidate) => candidate.taskId === task.parentTaskId)
+      : undefined;
+    return parent && parent.kind !== "review" ? sharedPlace(state, parent) : undefined;
+  }
   const project = state.projects.find((candidate) => candidate.projectId === task.projectId);
   if (!project) return undefined;
   if (isBuddyHome(project)) return `home:${task.buddyId}`;
@@ -898,4 +910,43 @@ function sharedPlace(state: RuntimeProjection, task: TaskProjection): string | u
     (worktree) => worktree.projectId === task.projectId && worktree.kind === "checkout" && worktree.status === "ready",
   );
   return checkout ? `checkout:${task.projectId}` : undefined;
+}
+
+/** One preparing attempt of a job: a new attempt (Try again) changes its updatedAt. */
+function attemptKey(task: TaskProjection): string {
+  return `${task.taskId}:${task.updatedAt}`;
+}
+
+/**
+ * What a job cost: the cost on its result, or for a failed job without one, what its chat reported spending.
+ * Undefined when it reported nothing.
+ */
+function jobCost(state: RuntimeProjection, task: TaskProjection): number | undefined {
+  if (task.result?.costUsd !== undefined) return task.result.costUsd;
+  if (task.status !== "failed" || !task.threadId) return undefined;
+  const cost = (state.usage ?? [])
+    .filter((record) => record.threadId === task.threadId)
+    .reduce((sum, record) => sum + (record.usage.costUsd ?? 0), 0);
+  return cost > 0 ? cost : undefined;
+}
+
+/**
+ * Whether the buddy's running jobs, each counted at this week's average job cost, would use up what is left of its
+ * budget. Failed jobs that reported a cost count too. A buddy with no costs of its own this week is counted at the
+ * team's average; with no costs anywhere yet, it runs one job at a time until the first one reports.
+ */
+export function budgetReserved(state: RuntimeProjection, buddy: BuddyProjection, active: number, now: Date): boolean {
+  if (buddy.budgetUsd === undefined) return false;
+  const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const recent = (state.tasks ?? []).filter((task) => (task.endedAt ?? task.updatedAt) >= since);
+  const costsOf = (tasks: readonly TaskProjection[]) =>
+    tasks.map((task) => jobCost(state, task)).filter((cost): cost is number => cost !== undefined);
+  const own = costsOf(recent.filter((task) => task.buddyId === buddy.buddyId));
+  const spent = own.reduce((sum, cost) => sum + cost, 0);
+  if (spent >= buddy.budgetUsd) return true;
+  if (active === 0) return false;
+  const costs = own.length > 0 ? own : costsOf(recent);
+  if (costs.length === 0) return true;
+  const average = costs.reduce((sum, cost) => sum + cost, 0) / costs.length;
+  return spent + average * active >= buddy.budgetUsd;
 }

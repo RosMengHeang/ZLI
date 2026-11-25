@@ -1,3 +1,5 @@
+import { PRIVATE_FILE_PATTERNS } from "@zli-v2/shared";
+
 export type ClaudePermissionMode = "read-only" | "supervised" | "full-access";
 
 const BASE_ARGS = [
@@ -33,29 +35,35 @@ export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPe
  * pattern under that folder. Deny rules for Read and Edit (Edit covers every writing tool) refuse Claude Code's own
  * file tools there. This is a guard rail, not a wall: Claude Code also refused a plain `cat` of these files in a real
  * run, but a script that builds the path itself still reads them, since the buddy runs as the person. Only running
- * buddies as another OS user would close that. The buddy's home sits in a subfolder these patterns do not reach.
+ * buddies as another OS user would close that. The list is shared with the ACP and Droid guards.
  */
-const PRIVATE_PATTERNS = [
-  "*.json",
-  "*.bin",
-  "runtime.sqlite*",
-  "Local State",
-  "mcp/**",
-  "mcp-headers/**",
-  "*.user-data/**",
-] as const;
+const PRIVATE_PATTERNS = PRIVATE_FILE_PATTERNS;
 
-/** A folder as a Claude Code permission path: `//c/Users/...` on Windows, `//Users/...` elsewhere. */
+/**
+ * A folder as a Claude Code permission path: `//c/Users/...` on Windows, `//Users/...` elsewhere. A network folder
+ * (`\\server\share\...`, as with redirected AppData) becomes `//server/share/...`, not `///server/...`, which no
+ * path matches.
+ */
 export function claudeRulePath(folder: string): string {
-  const slashed = folder.replace(/\\/gu, "/").replace(/\/+$/u, "");
-  const drive = /^([A-Za-z]):\//u.exec(slashed);
-  return drive ? `//${drive[1]?.toLowerCase()}/${slashed.slice(3)}` : `/${slashed}`;
+  const slashed = folder
+    .replace(/\\/gu, "/")
+    .replace(/^\/\/\?\/(?:UNC\/)?/u, (prefix) => (prefix.endsWith("UNC/") ? "//" : ""))
+    .replace(/\/+$/u, "");
+  const drive = /^([A-Za-z]):(?:\/|$)/u.exec(slashed);
+  if (drive) return `//${drive[1]?.toLowerCase()}/${slashed.slice(3)}`.replace(/\/+$/u, "");
+  if (/^\/\/[^/]/u.test(slashed)) return slashed;
+  return `/${slashed}`;
 }
 
 /** The deny rules that keep an agent's file tools out of ZLI's own files in `privateDir`. */
 export function privateFileRules(privateDir: string): string[] {
   const base = claudeRulePath(privateDir);
-  return ["Read", "Edit"].flatMap((tool) => PRIVATE_PATTERNS.map((pattern) => `${tool}(${base}/${pattern})`));
+  // The drive letter in both cases: the documented form is lowercase, but a path Claude Code is given may not be.
+  const drive = /^\/\/([a-z])\//u.exec(base);
+  const bases = drive ? [base, `//${drive[1]?.toUpperCase()}${base.slice(3)}`] : [base];
+  return ["Read", "Edit"].flatMap((tool) =>
+    bases.flatMap((root) => PRIVATE_PATTERNS.map((pattern) => `${tool}(${root}/${pattern})`)),
+  );
 }
 
 // Supervised accepts file edits and, with "stdio" as the prompt tool, asks over stdout

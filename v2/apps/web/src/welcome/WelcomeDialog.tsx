@@ -30,6 +30,7 @@ import {
   agentReady,
   allFolders,
   defaultAgent,
+  failedFoldersMessage,
   installCommand,
   installPlatform,
   landingPath,
@@ -83,6 +84,9 @@ export function WelcomeDialog({
   const [error, setError] = useState<string>();
   const primary = useRef<HTMLButtonElement>(null);
   const stage = useRef<HTMLElement>(null);
+  const picking = useRef(false);
+  // Folders that were added before a later one failed, so a retry does not add them twice.
+  const registered = useRef<ProjectProjection[]>([]);
 
   // Discovery can land after setup opened; the list follows it until the person checks again by hand.
   const refreshed = useRef(false);
@@ -136,11 +140,22 @@ export function WelcomeDialog({
     }));
 
   const addFolder = async () => {
-    if (!pickFolder) return;
+    // One picker at a time: a double click must not open two.
+    if (!pickFolder || picking.current || busy) return;
+    picking.current = true;
     setError(undefined);
-    const path = await pickFolder();
-    if (!path) return;
-    const result = await registerProjectPath(path);
+    let path: string | undefined;
+    let result: Awaited<ReturnType<typeof registerProjectPath>>;
+    try {
+      path = await pickFolder();
+      if (!path) return;
+      result = await registerProjectPath(path);
+    } catch (cause) {
+      setError(cause instanceof Error && cause.message ? cause.message : "Could not open the folder picker.");
+      return;
+    } finally {
+      picking.current = false;
+    }
     if ("error" in result) {
       setError(result.error);
       return;
@@ -166,17 +181,21 @@ export function WelcomeDialog({
     setError(undefined);
     setBusy(true);
     saveChoices();
-    const projects = [...added];
-    let failed = 0;
+    const projects = [...added, ...registered.current];
+    const failed: string[] = [];
     for (const folder of picked) {
       if (projects.some((project) => samePath(project.path, folder.path))) continue;
       const result = await registerProjectPath(folder.path);
-      if ("error" in result) failed += 1;
-      else projects.push(result.project);
+      if ("error" in result) failed.push(folder.name);
+      else {
+        projects.push(result.project);
+        registered.current.push(result.project);
+      }
     }
-    if (failed > 0 && projects.length === 0) {
+    // Stop and name the failures, even when others were added; those are not added twice on retry.
+    if (failed.length > 0) {
       setBusy(false);
-      setError(`${failed} ${failed === 1 ? "folder" : "folders"} could not be added. Try again, or untick them.`);
+      setError(failedFoldersMessage(failed));
       return;
     }
     const path = landingPath(found, selected, added);

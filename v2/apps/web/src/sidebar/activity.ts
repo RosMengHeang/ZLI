@@ -20,11 +20,14 @@ function startOfDay(at: Date): number {
 /**
  * Every chat from newest to oldest, in groups by when it last moved: pinned ones first, then Recent (busy now or
  * in the last hour), Today, Yesterday, Previous 7 days, and Earlier. Empty groups are left out.
+ * `held` is the open chat as it was when the person opened it: it keeps that place while they read it, and takes
+ * its real place once they leave.
  */
 export function activityGroups<T extends ActivityChat>(
   chats: readonly T[],
   now: Date,
   pinned: (sessionId: string) => boolean,
+  held?: ActivityChat,
 ): ActivityGroup<T>[] {
   const today = startOfDay(now);
   const yesterday = today - 24 * 60 * 60_000;
@@ -37,13 +40,17 @@ export function activityGroups<T extends ActivityChat>(
     { key: "week", label: "Previous 7 days", chats: [] },
     { key: "earlier", label: "Earlier", chats: [] },
   ];
-  const at = (chat: T) => Date.parse(chat.updatedAt ?? chat.createdAt ?? "") || 0;
+  const asSorted = (chat: T): ActivityChat => (held && chat.sessionId === held.sessionId ? held : chat);
+  const at = (chat: T) => {
+    const { updatedAt, createdAt } = asSorted(chat);
+    return Date.parse(updatedAt ?? createdAt ?? "") || 0;
+  };
   const sorted = [...chats].sort((left, right) => at(right) - at(left));
   for (const chat of sorted) {
     const time = at(chat);
     const index = pinned(chat.sessionId)
       ? 0
-      : BUSY.has(chat.status) || now.getTime() - time < RECENT_MS
+      : BUSY.has(asSorted(chat).status) || now.getTime() - time < RECENT_MS
         ? 1
         : time >= today
           ? 2

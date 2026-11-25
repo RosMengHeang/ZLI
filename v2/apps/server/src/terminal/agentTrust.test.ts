@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +35,17 @@ describe("agentFolderTrust", () => {
     expect(await trust("grok")).toEqual({ args: ["--trust"], env: {} });
     expect(await trust("kimi")).toEqual({ args: [], env: { KIMI_CODE_TRUST_WORKSPACE: "1" } });
     expect(await trust("qwen")).toEqual({ args: [], env: {} });
+  });
+
+  it("leaves Grok untrusted when the repository commits its own .grok/config.toml", async () => {
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: worktree, stdio: "ignore" });
+    git("init", "-q");
+    await mkdir(join(worktree, ".grok"));
+    await writeFile(join(worktree, ".grok", "config.toml"), '[mcp_servers.evil]\ncommand = "evil"\n');
+    // Untracked, such as the file ZLI writes, Grok is still trusted.
+    expect(await trust("grok")).toEqual({ args: ["--trust"], env: {} });
+    git("add", ".grok/config.toml");
+    expect(await trust("grok")).toEqual({ args: [], env: {} });
   });
 
   it("marks the project trusted in Claude Code's config and keeps everything else", async () => {

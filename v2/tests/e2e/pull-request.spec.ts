@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
+import { promisify } from "node:util";
 
 import { expect, test } from "@playwright/test";
 
@@ -14,84 +16,137 @@ import {
   togglePanel,
 } from "./desktop-fixtures.js";
 
+const execFileAsync = promisify(execFile);
 const PR_URL = "https://github.com/zli/fixture/pull/7";
 
 // Stands in for the GitHub CLI: signed in, no pull request until `gh pr create` runs, and every call logged.
 // Reviews and auto-merge rewrite pr.json the way GitHub would report them on the next `gh pr view`.
-const FAKE_GH = `#!/bin/sh
-state="$ZLI_FAKE_GH_STATE"
-printf '%s\\n' "$*" >> "$state/calls.log"
-edit_pr() {
-  sed "$1" "$state/pr.json" > "$state/pr.next" && mv "$state/pr.next" "$state/pr.json"
+// It is a Node script so it runs on every OS; installFakeGh puts a gh launcher for it on PATH.
+const FAKE_GH = `
+const { appendFileSync, existsSync, readFileSync, writeFileSync } = require("node:fs");
+const { join } = require("node:path");
+const state = process.env.ZLI_FAKE_GH_STATE;
+const args = process.argv.slice(2);
+const line = args.join(" ");
+appendFileSync(join(state, "calls.log"), line + "\\n");
+const prFile = join(state, "pr.json");
+const editPr = (pattern, replacement) =>
+  writeFileSync(prFile, readFileSync(prFile, "utf8").replace(pattern, replacement));
+const done = (output = "") => {
+  process.stdout.write(output);
+  process.exit(0);
+};
+if (args[0] === "--version") done("gh version 2.0.0 (fake)\\n");
+if (args[0] === "auth") done();
+if (args[0] === "pr") {
+  if (args[1] === "view") {
+    if (existsSync(prFile)) done(readFileSync(prFile, "utf8"));
+    process.stderr.write('no pull requests found for branch "' + args[2] + '"\\n');
+    process.exit(1);
+  }
+  if (args[1] === "create") {
+    const draft = args.includes("--draft");
+    writeFileSync(prFile, JSON.stringify({ url: "${PR_URL}", state: "OPEN", isDraft: draft, number: 7 }));
+    done("${PR_URL}\\n");
+  }
+  if (args[1] === "review") {
+    if (args[3] === "--approve") editPr(/"reviewDecision":"[A-Z_]*"/, '"reviewDecision":"APPROVED"');
+    done();
+  }
+  if (args[1] === "comment") done();
+  if (args[1] === "merge" && line.includes("--disable-auto")) {
+    editPr(/"autoMergeRequest":\\{[^}]*\\}/, '"autoMergeRequest":null');
+    done();
+  }
+  if (args[1] === "merge" && line.includes("--auto")) {
+    editPr(/"autoMergeRequest":null/, '"autoMergeRequest":{"mergeMethod":"SQUASH"}');
+    done();
+  }
 }
-case "$1" in
-  --version) echo "gh version 2.0.0 (fake)"; exit 0 ;;
-  auth) exit 0 ;;
-  pr)
-    case "$2" in
-      view)
-        if [ -f "$state/pr.json" ]; then cat "$state/pr.json"; exit 0; fi
-        echo "no pull requests found for branch \\"$3\\"" >&2
-        exit 1 ;;
-      create)
-        draft=false
-        for arg in "$@"; do [ "$arg" = "--draft" ] && draft=true; done
-        printf '{"url":"${PR_URL}","state":"OPEN","isDraft":%s,"number":7}' "$draft" > "$state/pr.json"
-        echo "${PR_URL}"
-        exit 0 ;;
-      review)
-        [ "$4" = "--approve" ] && edit_pr 's/"reviewDecision":"[A-Z_]*"/"reviewDecision":"APPROVED"/'
-        exit 0 ;;
-      comment) exit 0 ;;
-      merge)
-        case "$*" in
-          *--disable-auto*) edit_pr 's/"autoMergeRequest":{[^}]*}/"autoMergeRequest":null/'; exit 0 ;;
-          *--auto*) edit_pr 's/"autoMergeRequest":null/"autoMergeRequest":{"mergeMethod":"SQUASH"}/'; exit 0 ;;
-        esac ;;
-    esac ;;
-  api)
-    case "$*" in
-      *addPullRequestReviewThreadReply*)
-        printf '%s' '{"data":{"addPullRequestReviewThreadReply":{"comment":{"id":"C9","author":{"login":"me"},"body":"Thanks, fixed."}}}}'
-        exit 0 ;;
-      *unresolveReviewThread*)
-        printf '%s' '{"data":{"unresolveReviewThread":{"thread":{"id":"T1","isResolved":false}}}}'
-        exit 0 ;;
-      *resolveReviewThread*)
-        printf '%s' '{"data":{"resolveReviewThread":{"thread":{"id":"T1","isResolved":true}}}}'
-        exit 0 ;;
-    esac
-    cat "$state/comments.json"; exit 0 ;;
-  run)
-    printf '%s\n' \
-      'test	UNKNOWN STEP	2026-01-01T00:00:00.0000000Z ##[group]Run pnpm test' \
-      'test	UNKNOWN STEP	2026-01-01T00:00:01.0000000Z boom: expected true to be false' \
-      'test	UNKNOWN STEP	2026-01-01T00:00:02.0000000Z ##[error]Process completed with exit code 1.'
-    exit 0 ;;
-esac
-echo "unexpected gh $*" >&2
-exit 2
+if (args[0] === "api") {
+  if (line.includes("addPullRequestReviewThreadReply")) {
+    done('{"data":{"addPullRequestReviewThreadReply":{"comment":{"id":"C9","author":{"login":"me"},"body":"Thanks, fixed."}}}}');
+  }
+  if (line.includes("unresolveReviewThread")) {
+    done('{"data":{"unresolveReviewThread":{"thread":{"id":"T1","isResolved":false}}}}');
+  }
+  if (line.includes("resolveReviewThread")) {
+    done('{"data":{"resolveReviewThread":{"thread":{"id":"T1","isResolved":true}}}}');
+  }
+  done(readFileSync(join(state, "comments.json"), "utf8"));
+}
+if (args[0] === "run") {
+  done(
+    [
+      "test\\tUNKNOWN STEP\\t2026-01-01T00:00:00.0000000Z ##[group]Run pnpm test",
+      "test\\tUNKNOWN STEP\\t2026-01-01T00:00:01.0000000Z boom: expected true to be false",
+      "test\\tUNKNOWN STEP\\t2026-01-01T00:00:02.0000000Z ##[error]Process completed with exit code 1.",
+    ].join("\\n") + "\\n",
+  );
+}
+process.stderr.write("unexpected gh " + line + "\\n");
+process.exit(2);
 `;
+
+// The Windows launcher for the stand-in gh. A .cmd shim would not do: cmd.exe cuts each argument at its first
+// line break, and `gh api graphql` sends multi-line queries. This passes its command line to Node unchanged.
+const WINDOWS_LAUNCHER = (node: string, script: string) => `
+using System;
+using System.Diagnostics;
+static class FakeGh {
+  static int Main() {
+    string line = Environment.CommandLine;
+    int end = line.StartsWith("\\"") ? line.IndexOf('"', 1) + 1 : line.IndexOf(' ');
+    string rest = end <= 0 || end >= line.Length ? "" : line.Substring(end);
+    var start = new ProcessStartInfo(@"${node}", "\\"" + @"${script}" + "\\"" + rest);
+    start.UseShellExecute = false;
+    using (var child = Process.Start(start)) {
+      child.WaitForExit();
+      return child.ExitCode;
+    }
+  }
+}
+`;
+
+/** Puts the stand-in gh on PATH: a small gh.exe on Windows, a shell launcher elsewhere, both running it with this Node. */
+async function installFakeGh(root: string): Promise<{ ghState: string; env: Record<string, string> }> {
+  const binDir = join(root, "bin");
+  const ghState = join(root, "gh-state");
+  await mkdir(binDir, { recursive: true });
+  await mkdir(ghState, { recursive: true });
+  const script = join(binDir, "fake-gh.cjs");
+  await writeFile(script, FAKE_GH, "utf8");
+  if (process.platform === "win32") {
+    const source = join(root, "fake-gh.cs");
+    await writeFile(source, WINDOWS_LAUNCHER(process.execPath, script), "utf8");
+    const windir = process.env.WINDIR ?? "C:\\Windows";
+    const csc = join(windir, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe");
+    await execFileAsync(csc, ["/nologo", `/out:${join(binDir, "gh.exe")}`, source]);
+  } else {
+    await writeFile(join(binDir, "gh"), `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`, "utf8");
+    await chmod(join(binDir, "gh"), 0o755);
+  }
+  // Windows spells the key Path, and a child given both Path and PATH sees only one, so reuse the existing key.
+  const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+  return {
+    ghState,
+    env: { [pathKey]: `${binDir}${delimiter}${process.env[pathKey] ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
+  };
+}
 
 test("creates a draft pull request from the Changes panel and opens it", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
-  test.skip(process.platform === "win32", "The stand-in GitHub CLI is a POSIX shell script.");
   const { root, repo } = await createGitFixture();
   const origin = join(root, "origin.git");
   await git(root, ["init", "--bare", origin]);
   await git(repo, ["remote", "add", "origin", origin]);
   await git(repo, ["push", "-u", "origin", "main"]);
-  const binDir = join(root, "bin");
-  const ghState = join(root, "gh-state");
-  await mkdir(binDir, { recursive: true });
-  await mkdir(ghState, { recursive: true });
-  await writeFile(join(binDir, "gh"), FAKE_GH, "utf8");
-  await chmod(join(binDir, "gh"), 0o755);
+  const { ghState, env: ghEnv } = await installFakeGh(root);
 
   let fixture: DesktopFixture | undefined;
   try {
     fixture = await launchDesktop(repo, root, {
-      env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
+      env: ghEnv,
     });
     const page = fixture.page;
     await openCreateWorktree(page);
@@ -154,18 +209,12 @@ test("creates a draft pull request from the Changes panel and opens it", async (
 
 test("shows a pull request's checks and sends a failed check's log to an agent", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
-  test.skip(process.platform === "win32", "The stand-in GitHub CLI is a POSIX shell script.");
   const { root, repo } = await createGitFixture();
   const origin = join(root, "origin.git");
   await git(root, ["init", "--bare", origin]);
   await git(repo, ["remote", "add", "origin", origin]);
   await git(repo, ["push", "-u", "origin", "main"]);
-  const binDir = join(root, "bin");
-  const ghState = join(root, "gh-state");
-  await mkdir(binDir, { recursive: true });
-  await mkdir(ghState, { recursive: true });
-  await writeFile(join(binDir, "gh"), FAKE_GH, "utf8");
-  await chmod(join(binDir, "gh"), 0o755);
+  const { ghState, env: ghEnv } = await installFakeGh(root);
   await writeFile(
     join(ghState, "pr.json"),
     JSON.stringify({
@@ -199,7 +248,7 @@ test("shows a pull request's checks and sends a failed check's log to an agent",
   let fixture: DesktopFixture | undefined;
   try {
     fixture = await launchDesktop(repo, root, {
-      env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
+      env: ghEnv,
     });
     const page = fixture.page;
     await openCreateWorktree(page);
@@ -244,18 +293,12 @@ test("shows a pull request's checks and sends a failed check's log to an agent",
 
 test("reads a pull request's review comments and sends the picked ones to an agent", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
-  test.skip(process.platform === "win32", "The stand-in GitHub CLI is a POSIX shell script.");
   const { root, repo } = await createGitFixture();
   const origin = join(root, "origin.git");
   await git(root, ["init", "--bare", origin]);
   await git(repo, ["remote", "add", "origin", origin]);
   await git(repo, ["push", "-u", "origin", "main"]);
-  const binDir = join(root, "bin");
-  const ghState = join(root, "gh-state");
-  await mkdir(binDir, { recursive: true });
-  await mkdir(ghState, { recursive: true });
-  await writeFile(join(binDir, "gh"), FAKE_GH, "utf8");
-  await chmod(join(binDir, "gh"), 0o755);
+  const { ghState, env: ghEnv } = await installFakeGh(root);
   await writeFile(
     join(ghState, "pr.json"),
     JSON.stringify({ url: PR_URL, state: "OPEN", isDraft: false, number: 7, reviewDecision: "CHANGES_REQUESTED" }),
@@ -311,7 +354,7 @@ test("reads a pull request's review comments and sends the picked ones to an age
   let fixture: DesktopFixture | undefined;
   try {
     fixture = await launchDesktop(repo, root, {
-      env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
+      env: ghEnv,
     });
     const page = fixture.page;
     await openCreateWorktree(page);
@@ -365,18 +408,12 @@ test("reads a pull request's review comments and sends the picked ones to an age
 
 test("replies to and resolves a review thread, approves, and turns auto-merge on and off", async () => {
   test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
-  test.skip(process.platform === "win32", "The stand-in GitHub CLI is a POSIX shell script.");
   const { root, repo } = await createGitFixture();
   const origin = join(root, "origin.git");
   await git(root, ["init", "--bare", origin]);
   await git(repo, ["remote", "add", "origin", origin]);
   await git(repo, ["push", "-u", "origin", "main"]);
-  const binDir = join(root, "bin");
-  const ghState = join(root, "gh-state");
-  await mkdir(binDir, { recursive: true });
-  await mkdir(ghState, { recursive: true });
-  await writeFile(join(binDir, "gh"), FAKE_GH, "utf8");
-  await chmod(join(binDir, "gh"), 0o755);
+  const { ghState, env: ghEnv } = await installFakeGh(root);
   await writeFile(
     join(ghState, "pr.json"),
     JSON.stringify({
@@ -422,7 +459,7 @@ test("replies to and resolves a review thread, approves, and turns auto-merge on
   let fixture: DesktopFixture | undefined;
   try {
     fixture = await launchDesktop(repo, root, {
-      env: { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`, ZLI_FAKE_GH_STATE: ghState },
+      env: ghEnv,
     });
     const page = fixture.page;
     await openCreateWorktree(page);

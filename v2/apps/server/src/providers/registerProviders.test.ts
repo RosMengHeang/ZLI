@@ -16,6 +16,7 @@ import {
   createProviderRegistry,
   resolveAcpCommand,
   resolveClaudeCommand,
+  resolveCodexCommand,
   resolveCursorCommand,
   resolveDroidCommand,
 } from "./registerProviders.js";
@@ -211,7 +212,18 @@ describe("resolveClaudeCommand", () => {
     await expect(resolveClaudeCommand(found)).resolves.toBe("/tools/claude");
     await expect(resolveClaudeCommand(missing)).rejects.toMatchObject({
       code: "cli_missing",
-      message: "Claude Code CLI was not found on PATH or in known install locations.",
+      message: expect.stringContaining("Claude Code CLI was not found on PATH or in known install locations."),
+    });
+  });
+});
+
+describe("resolveCodexCommand", () => {
+  it("reports a missing Codex CLI as cli_missing", async () => {
+    const missing: CliProbe = { pathEntries: [], platform: "linux", fileExists: () => false };
+
+    await expect(resolveCodexCommand(missing)).rejects.toMatchObject({
+      code: "cli_missing",
+      message: expect.stringContaining("Codex CLI was not found on PATH or in known install locations."),
     });
   });
 });
@@ -232,7 +244,7 @@ describe("resolveCursorCommand", () => {
     await expect(resolveCursorCommand(found)).resolves.toBe("/tools/cursor-agent");
     await expect(resolveCursorCommand(missing)).rejects.toMatchObject({
       code: "cli_missing",
-      message: "Cursor CLI was not found on PATH or in known install locations.",
+      message: expect.stringContaining("Cursor CLI was not found on PATH or in known install locations."),
     });
   });
 });
@@ -248,7 +260,7 @@ describe("resolveAcpCommand", () => {
     await expect(resolveAcpCommand("kimi", found)).resolves.toBe("C:\\Users\\dev\\.kimi-code\\bin\\kimi.exe");
     await expect(resolveAcpCommand("goose", found)).rejects.toMatchObject({
       code: "cli_missing",
-      message: "Goose CLI was not found on PATH or in known install locations.",
+      message: expect.stringContaining("Goose CLI was not found on PATH or in known install locations."),
     });
   });
 });
@@ -270,7 +282,7 @@ describe("resolveDroidCommand", () => {
     await expect(resolveDroidCommand(found)).resolves.toBe("C:\\Users\\dev\\bin\\droid.exe");
     await expect(resolveDroidCommand(missing)).rejects.toMatchObject({
       code: "cli_missing",
-      message: "Droid CLI was not found on PATH or in known install locations.",
+      message: expect.stringContaining("Droid CLI was not found on PATH or in known install locations."),
     });
   });
 });

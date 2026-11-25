@@ -1,7 +1,7 @@
 import type { ProviderDiscovery } from "@zli-v2/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import { classifyRunError, cleanRunMessage, RunProblems } from "./runProblems.js";
+import { classifyRunError, cleanRunMessage, RunProblems, withSignInHint } from "./runProblems.js";
 
 const at = new Date("2026-11-12T10:00:00.000Z");
 
@@ -111,5 +111,29 @@ describe("RunProblems", () => {
     problems.record("codex", "Please log in again.");
     problems.apply([{ provider: "codex", displayName: "Codex", status: "missing", reason: "not found" }]);
     expect(problems.get("codex")).toBeUndefined();
+  });
+});
+
+describe("withSignInHint", () => {
+  it("adds the sign-in step when Claude Code, Codex, Cursor, or Droid says it is signed out", () => {
+    expect(withSignInHint("claude-code", "Not logged in · Please run /login")).toBe(
+      "Not logged in · Please run /login Sign in to Claude Code in a terminal (run `claude`, then `/login`), then try again.",
+    );
+    expect(withSignInHint("codex", "401 Unauthorized: token_expired")).toContain("run `codex login`");
+    expect(withSignInHint("cursor-agent", "Not logged in. Run cursor-agent login.")).toContain(
+      "run `cursor-agent login`",
+    );
+    expect(withSignInHint("droid", "Authentication failed")).toContain("or set FACTORY_API_KEY");
+    expect(withSignInHint("cursor-agent", "Error: Not authenticated")).toContain("run `cursor-agent login`");
+    expect(withSignInHint("claude-code", "Authentication required · Sign in again to continue")).toContain("`/login`");
+  });
+
+  it("leaves other errors, ACP agents, and already hinted text alone", () => {
+    expect(withSignInHint("codex", "Network error")).toBe("Network error");
+    const mcpError = "MCP server github: authentication required";
+    expect(withSignInHint("claude-code", mcpError)).toBe(mcpError);
+    expect(withSignInHint("grok", "Not logged in")).toBe("Not logged in");
+    const once = withSignInHint("codex", "Not logged in");
+    expect(withSignInHint("codex", once)).toBe(once);
   });
 });

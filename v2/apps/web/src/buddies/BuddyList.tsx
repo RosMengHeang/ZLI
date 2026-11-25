@@ -20,6 +20,8 @@ import { Menu, type MenuRequest } from "../ui/Menu.js";
 import { buddyMood, TeamSettingsDialog } from "./BuddiesPane.js";
 import { ConnectedAppsDialog } from "./ConnectedAppsDialog.js";
 import { NewBuddyDialog } from "./NewBuddyDialog.js";
+import { TEAM_CHAT_ID } from "./TeamChat.js";
+import { moveBuddy } from "./team.js";
 import { teamPageId, teamStatus } from "./TeamView.js";
 import type { Run } from "./useRun.js";
 
@@ -58,12 +60,33 @@ export function BuddyList({
     event.preventDefault();
     const row = event.currentTarget.getBoundingClientRect();
     const fromKeyboard = event.clientX === 0 && event.clientY === 0;
+    // The same reorder as dragging, for keyboard and screen reader use.
+    const up = moveBuddy(team, buddy.buddyId, -1);
+    const down = moveBuddy(team, buddy.buddyId, 1);
     setMenu({
       x: fromKeyboard ? row.left : event.clientX,
       y: fromKeyboard ? row.bottom : event.clientY,
       label: `${buddy.name} actions`,
       items: [
         { label: "Open chat", icon: "message", run: () => onSelect(buddy.buddyId) },
+        ...(buddy.role === "primary"
+          ? []
+          : [
+              {
+                label: "Move up",
+                disabled: !up,
+                run: () => {
+                  if (up) void run({ type: "buddy.reorder", buddyIds: up });
+                },
+              },
+              {
+                label: "Move down",
+                disabled: !down,
+                run: () => {
+                  if (down) void run({ type: "buddy.reorder", buddyIds: down });
+                },
+              },
+            ]),
         { separator: true },
         { label: `Remove ${buddy.name}`, icon: "trash", tone: "danger", run: () => setRemoving(buddy) },
       ],
@@ -92,8 +115,11 @@ export function BuddyList({
   const teams = [...allTeams.filter(isLive), ...allTeams.filter((entry) => !isLive(entry)).slice(0, 3)];
   const drop = (targetId: string) => {
     if (!dragged || dragged === targetId) return;
-    const ids = team.map((buddy) => buddy.buddyId).filter((id) => id !== dragged);
-    ids.splice(ids.indexOf(targetId), 0, dragged);
+    const order = team.map((buddy) => buddy.buddyId);
+    // Dragged down, it lands after the row it was dropped on; dragged up, before it.
+    const movingDown = order.indexOf(dragged) < order.indexOf(targetId);
+    const ids = order.filter((id) => id !== dragged);
+    ids.splice(ids.indexOf(targetId) + (movingDown ? 1 : 0), 0, dragged);
     setDragged(undefined);
     void run({ type: "buddy.reorder", buddyIds: ids });
   };
@@ -149,6 +175,21 @@ export function BuddyList({
                 ? "Paused"
                 : `${openJobs} job${openJobs === 1 ? "" : "s"} open${waiting.length > 0 ? ` · ${waiting.length} need${waiting.length === 1 ? "s" : ""} you` : ""}`}
             </span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className={`buddy-list-row is-board${selectedId === TEAM_CHAT_ID ? " is-active" : ""}`}
+          aria-current={selectedId === TEAM_CHAT_ID ? "page" : undefined}
+          onClick={() => onSelect(TEAM_CHAT_ID)}
+        >
+          <span className="buddy-list-board" aria-hidden="true">
+            <Icon name="message" size={18} />
+          </span>
+          <span className="buddy-list-text">
+            <span className="buddy-list-name">Team chat</span>
+            <span className="buddy-list-line">@mention buddies to bring them in</span>
           </span>
         </button>
 
@@ -283,7 +324,7 @@ export function BuddyList({
           <span className="buddy-list-foot-icon" aria-hidden="true">
             <Icon name="extensions" size={15} />
           </span>
-          <span>Extensions</span>
+          <span>Connected apps</span>
         </button>
       </footer>
       {settingsOpen ? (

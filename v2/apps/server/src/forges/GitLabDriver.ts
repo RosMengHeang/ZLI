@@ -137,7 +137,7 @@ export class GitLabDriver implements ForgeDriver {
   }
 
   async comment(cwd: string, number: number, body: string): Promise<void> {
-    const commented = await this.cli.run(cwd, ["mr", "note", String(number), "--message", body]);
+    const commented = await this.cli.run(cwd, ["mr", "note", String(number), `--message=${body}`]);
     if (commented.code !== 0) throw new ForgeError(this.cli.failure(`could not comment on !${number}`, commented));
   }
 }

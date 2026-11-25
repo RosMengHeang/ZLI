@@ -33,7 +33,7 @@ describe("themes", () => {
   it.each(THEME_IDS)("%s keeps readable text on every surface", (id) => {
     const tokens = THEMES[id].tokens;
     const surfaces = ["--zli-canvas", "--zli-sidebar", "--zli-surface", "--zli-raised", "--zli-overlay"];
-    for (const text of ["--zli-text", "--zli-muted", "--zli-dim"]) {
+    for (const text of ["--zli-text", "--zli-muted", "--zli-dim", "--zli-purple"]) {
       for (const surface of surfaces) {
         const ratio = contrast(tokens[text] ?? "", tokens[surface] ?? "");
         expect(ratio, `${text} on ${surface}`).toBeGreaterThanOrEqual(4.5);

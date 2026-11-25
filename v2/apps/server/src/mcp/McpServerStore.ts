@@ -1,4 +1,3 @@
-import { mkdirSync, writeFileSync } from "node:fs";
 import { readdir, readFile, rm } from "node:fs/promises";
 import { dirname, join, posix, win32 } from "node:path";
 
@@ -68,6 +67,8 @@ export type GatewayPlace = { projectPath?: string; worktreePath?: string };
 
 export type McpLaunchOptions = {
   headerFile?: string;
+  /** Hands the headers to the bridge in this environment variable instead of a file. */
+  headerEnv?: string;
   tokenFile?: string;
   accessToken?: string;
   connectTool?: ConnectTool;
@@ -116,7 +117,9 @@ export function mcpLaunchSpec(server: McpServerConfig, options: McpLaunchOptions
     return { name: server.name, command: server.command, args: [...server.args], env: { ...server.env } };
   }
   const withHeaders = hasHeaders(server);
-  if (tool && bridgeReady && (!withHeaders || options.headerFile)) {
+  const headerEnv = withHeaders ? options.headerEnv : undefined;
+  const headerFile = withHeaders && !headerEnv ? options.headerFile : undefined;
+  if (tool && bridgeReady && (!withHeaders || headerEnv || headerFile)) {
     return {
       name: server.name,
       command: tool.command,
@@ -128,10 +131,11 @@ export function mcpLaunchSpec(server: McpServerConfig, options: McpLaunchOptions
         "--url",
         server.url,
         ...(server.oauth && options.tokenFile ? ["--token-file", options.tokenFile] : []),
-        ...(withHeaders && options.headerFile ? ["--header-file", options.headerFile] : []),
+        ...(headerEnv ? ["--header-env", headerEnv] : []),
+        ...(headerFile ? ["--header-file", headerFile] : []),
         ...hideArgs,
       ],
-      env: { ELECTRON_RUN_AS_NODE: "1" },
+      env: { ELECTRON_RUN_AS_NODE: "1", ...(headerEnv ? { [headerEnv]: JSON.stringify(server.headers) } : {}) },
     };
   }
   const headers = { ...server.headers };
@@ -140,6 +144,29 @@ export function mcpLaunchSpec(server: McpServerConfig, options: McpLaunchOptions
     headers.Authorization = `Bearer ${options.accessToken}`;
   }
   return { transport: "http", name: server.name, url: server.url, headers };
+}
+
+/** Where the connected apps' relay token reaches the bridge: never a file, so another worktree cannot read it. */
+export const CONNECT_HEADERS_ENV = "ZLI_CONNECT_HEADERS";
+
+/**
+ * Takes the relay token out of specs that are about to be written to a settings file, and returns it as
+ * environment for the agent process, whose MCP servers inherit it. Providers that take their servers over a
+ * pipe (Codex threads, ACP) keep it in the spec instead.
+ */
+export function liftSecretEnv(specs: readonly McpServerSpec[]): {
+  specs: McpServerSpec[];
+  env: Record<string, string>;
+} {
+  const env: Record<string, string> = {};
+  const out = specs.map((spec): McpServerSpec => {
+    if (!("env" in spec)) return spec;
+    const { [CONNECT_HEADERS_ENV]: secret, ...rest } = spec.env;
+    if (secret === undefined) return spec;
+    env[CONNECT_HEADERS_ENV] = secret;
+    return { ...spec, env: rest };
+  });
+  return { specs: out, env };
 }
 
 /** Connect bridge header file contents: one `Name: value` per line. */
@@ -292,47 +319,41 @@ export class McpServerStore {
    */
   specs(context: McpSpecContext = {}): McpServerSpec[] {
     const apps = context.worktreeId ? this.appsServerFor(context.worktreeId) : undefined;
-    const appsName = this.options.apps?.server()?.name.toLowerCase();
     return (
       [
         ...this.servers.filter((server) => server.enabled && serverInProject(server, context.projectPath)),
-        ...this.extraServers().map((server) => (apps && server.name === apps.server.name ? apps.server : server)),
+        ...this.extraServers().map((server) => (apps && server.name === apps.name ? apps : server)),
       ]
         // On demand, agents reach these through ZLI's own server instead. Connected apps keep their own server: it
         // already finds tools by itself, and its relay needs each worktree's token to ask in the right chat.
-        .filter((server) => this.loading === "upfront" || server.name.toLowerCase() === appsName)
+        .filter((server) => this.loading === "upfront" || this.isAppsServer(server))
         .map((server) =>
           mcpLaunchSpec(
             server,
-            apps && server === apps.server
-              ? { ...this.launchOptions(server), headerFile: apps.headerFile }
+            this.isAppsServer(server)
+              ? { ...this.launchOptions(server), headerEnv: CONNECT_HEADERS_ENV }
               : this.launchOptions(server),
           ),
         )
     );
   }
 
-  /** Paths of the per-worktree header files written this run, which the bridge-file cleanup keeps. */
-  private readonly worktreeHeaderFiles = new Set<string>();
+  /** The connected apps' server, whose relay token stays out of every file. */
+  private isAppsServer(server: McpServerConfig): boolean {
+    return (
+      this.options.apps !== undefined && server.name.toLowerCase() === this.options.apps.server()?.name.toLowerCase()
+    );
+  }
 
   /**
-   * The connected apps' server as one worktree's agent gets it: the relay's address with that worktree's own token,
-   * in a header file of its own, so the relay knows whose call it is and asks in the right chat.
+   * The connected apps' server as one worktree's agent gets it: the relay's address with that worktree's own
+   * token, so the relay knows whose call it is and asks in the right chat.
    */
-  private appsServerFor(worktreeId: string): { server: McpServerConfig; headerFile: string } | undefined {
+  private appsServerFor(worktreeId: string): McpServerConfig | undefined {
     const server = this.options.apps?.server(worktreeId);
     if (!server || !isHttpServer(server) || !hasHeaders(server)) return undefined;
     if (this.servers.some((own) => own.name.toLowerCase() === server.name.toLowerCase())) return undefined;
-    const safeId = worktreeId.replace(/[^A-Za-z0-9_-]/gu, "_").slice(0, 80);
-    const headerFile = this.headerFile(`${server.name}.${safeId}`);
-    try {
-      mkdirSync(this.bridgeDir(), { recursive: true });
-      writeFileSync(headerFile, mcpRemoteHeaderFile(server.headers), { mode: 0o600 });
-      this.worktreeHeaderFiles.add(headerFile);
-    } catch {
-      return undefined;
-    }
-    return { server, headerFile };
+    return server;
   }
 
   private launchOptions(server: McpServerConfig): McpLaunchOptions {
@@ -728,7 +749,7 @@ export class McpServerStore {
     const wanted = new Map<string, string>();
     for (const server of [...this.servers, ...this.extraServers()]) {
       if (!usesBridge(server)) continue;
-      if (isHttpServer(server) && hasHeaders(server)) {
+      if (isHttpServer(server) && hasHeaders(server) && !this.isAppsServer(server)) {
         wanted.set(this.headerFile(server.name), mcpRemoteHeaderFile(server.headers));
       }
       if (hasHiddenTools(server)) {
@@ -748,9 +769,7 @@ export class McpServerStore {
     } catch {
       return;
     }
-    const keep = new Set(
-      [...wanted.keys(), ...this.worktreeHeaderFiles].map((path) => path.slice(this.bridgeDir().length + 1)),
-    );
+    const keep = new Set([...wanted.keys()].map((path) => path.slice(this.bridgeDir().length + 1)));
     for (const name of names) {
       if (!BRIDGE_FILE_SUFFIXES.some((suffix) => name.endsWith(suffix)) || keep.has(name)) continue;
       await rm(join(this.bridgeDir(), name), { force: true }).catch(() => undefined);

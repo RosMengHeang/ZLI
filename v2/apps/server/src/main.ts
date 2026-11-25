@@ -116,7 +116,15 @@ export async function startRuntime(options: {
    * versions copied there are removed once.
    */
   cleanUpUserSettings?: boolean;
+  /** The key that seals secrets on disk, already taken out of the environment by `takeLaunchOptions`. */
+  secrets?: SecretBox;
+  keychainSlow?: boolean;
+  noKeychain?: boolean;
 }): Promise<RuntimeProcess> {
+  // Taken before anything else runs, so no process started below (the terminal daemon, agents) inherits the key.
+  const secrets = options.secrets ?? SecretBox.fromEnvironment();
+  const keychainSlow = options.keychainSlow ?? SecretBox.keychainSlow();
+  const noKeychain = options.noKeychain ?? SecretBox.noKeychain();
   const databasePath = resolve(options.databasePath);
   await mkdir(dirname(databasePath), { recursive: true });
   const token = options.token ?? randomBytes(32).toString("hex");
@@ -178,9 +186,6 @@ export async function startRuntime(options: {
     githubClientId: process.env.ZLI_GITHUB_CLIENT_ID?.trim() || GITHUB_OAUTH_CLIENT_ID,
   });
   await signIns.load();
-  // The desktop app's keychain-held key seals secrets on disk; taken out of the environment so no agent inherits it.
-  const secrets = SecretBox.fromEnvironment();
-  const keychainSlow = SecretBox.keychainSlow();
   // Agents reach Composio through a local stand-in that adds the key, so no agent ever holds the key.
   const appsProxy: AppsProxy = new AppsProxy({
     upstream: () => connectedApps.upstream(),
@@ -193,6 +198,7 @@ export async function startRuntime(options: {
     proxy: appsProxy,
     ...(secrets ? { box: secrets } : {}),
     ...(keychainSlow ? { keychainSlow: true } : {}),
+    ...(noKeychain ? { noKeychain: true } : {}),
   });
   await connectedApps.load();
   const mcpServers: McpServerStore = new McpServerStore({
@@ -547,10 +553,17 @@ export async function startRuntime(options: {
 export function takeLaunchOptions(env: NodeJS.ProcessEnv): Parameters<typeof startRuntime>[0] {
   const token = env.ZLI_RUNTIME_TOKEN;
   delete env.ZLI_RUNTIME_TOKEN;
+  // The sealing key goes the same way: only this process holds it, for the connected-apps relay.
+  const secrets = SecretBox.fromEnvironment(env);
+  const keychainSlow = SecretBox.keychainSlow(env);
+  const noKeychain = SecretBox.noKeychain(env);
   const browserTool = browserToolConfigFromEnv(env);
   return {
     databasePath: env.ZLI_DATABASE_PATH ?? "./.zli/runtime.sqlite",
     ...(token ? { token } : {}),
+    ...(secrets ? { secrets } : {}),
+    ...(keychainSlow ? { keychainSlow } : {}),
+    ...(noKeychain ? { noKeychain } : {}),
     ...(browserTool ? { browserTool } : {}),
     cleanUpUserSettings: env.ZLI_BROWSER_USER_SETTINGS !== "0",
   };

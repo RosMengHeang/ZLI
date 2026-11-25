@@ -21,8 +21,14 @@ export type Responder = (command: Record<string, unknown>) => Reply;
 
 const roots: Root[] = [];
 
-/** Renders `node` inside a runtime whose dispatch answers with `respond` and records every command. */
-export async function renderWithRuntime(node: ReactNode, respond: Responder): Promise<Record<string, unknown>[]> {
+/**
+ * Renders `node` inside a runtime whose dispatch answers with `respond` and records every command.
+ * Leave `respond` out for components that only need the runtime to exist, such as reply links.
+ */
+export async function renderWithRuntime(
+  node: ReactNode,
+  respond: Responder = () => ({ result: null }),
+): Promise<Record<string, unknown>[]> {
   const commands: Record<string, unknown>[] = [];
   const projection = {
     environment: {
@@ -41,6 +47,8 @@ export async function renderWithRuntime(node: ReactNode, respond: Responder): Pr
   } as unknown as RuntimeProjection;
   const commandId = CommandId.parse("00000000-0000-4000-8000-000000000099");
   const bridge = {
+    // No desktop shell, so reply links fall back to window.open.
+    app: {},
     runtime: {
       dispatch: async (request: { command: Record<string, unknown> }) => {
         commands.push(request.command);

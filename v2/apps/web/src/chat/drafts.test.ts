@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { readDraft, resetDraftsForTests, writeDraft } from "./drafts.js";
+import { moveDraft, readDraft, resetDraftsForTests, writeDraft } from "./drafts.js";
 
 beforeEach(() => {
   localStorage.clear();
@@ -27,5 +27,20 @@ describe("drafts", () => {
     expect(readDraft("thread-54")).toBe("");
     writeDraft("thread-1", "still here");
     expect(readDraft("thread-1")).toBe("still here");
+  });
+
+  it("moves a draft to its new key and leaves no copy under the old one", () => {
+    writeDraft("thread-1", "half a thought");
+    moveDraft("thread-1", "session-1", "half a thought");
+    resetDraftsForTests();
+    expect(readDraft("thread-1")).toBe("");
+    expect(readDraft("session-1")).toBe("half a thought");
+  });
+
+  it("keeps the old key when it holds different text", () => {
+    writeDraft("thread-1", "another chat's text");
+    moveDraft("thread-1", "session-1", "this box's text");
+    expect(readDraft("thread-1")).toBe("another chat's text");
+    expect(readDraft("session-1")).toBe("this box's text");
   });
 });

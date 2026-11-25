@@ -2,6 +2,7 @@ import type { ListedProviderKind } from "@zli-v2/contracts";
 import { useState } from "react";
 
 import { type AgentStatus, agentStatus, agentUsable } from "../agent/agentStatus.js";
+import { InstallAgentButton } from "../agent/InstallAgent.js";
 import { isSelectableProvider, signInCommand } from "../agent/providers.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { requestSettings } from "../settings/openSettings.js";
@@ -63,7 +64,7 @@ export function AgentUnavailableNotice({
         <span className="chat-ended-detail">
           {problem ? <>Its last run said: “{problem.message}” </> : null}
           {status.kind === "missing" ? (
-            "Install it, then check again. Settings > Providers has the install command."
+            "Install it, then check again."
           ) : status.kind === "no-plan" ? (
             "Add a plan or credits to this account, or sign in with another, then try again."
           ) : command ? (
@@ -90,6 +91,7 @@ export function AgentUnavailableNotice({
           }}
         />
       ) : null}
+      {status.kind === "missing" && listed ? <InstallAgentButton provider={listed} name={name} /> : null}
       <Button size="sm" variant="ghost" onClick={() => requestSettings("accounts")}>
         Providers
       </Button>

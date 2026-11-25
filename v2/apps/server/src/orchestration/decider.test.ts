@@ -562,6 +562,19 @@ describe("queued messages", () => {
     expect(() => decide(waiting, { type: "thread.steer", threadId, queueId: "q9" })).toThrow(/no longer queued/u);
   });
 
+  it("ignores a late waiting status once the request it was for is gone", () => {
+    const asked = apply(withThread("working"), {
+      type: "thread.request",
+      request: { requestId: "r1", threadId, kind: "approval", payload: {} },
+    });
+    expect(decide(asked, { type: "thread.status", threadId, status: "waiting" })).toEqual([
+      { type: "thread.status.changed", threadId, status: "waiting" },
+    ]);
+    // The agent exits right after asking: the turn ends before the reactor's "waiting" lands.
+    const stopped = apply(asked, { type: "thread.status", threadId, status: "stopped" });
+    expect(decide(stopped, { type: "thread.status", threadId, status: "waiting" })).toEqual([]);
+  });
+
   it("closes the agent's open requests when its turn or session ends, so queued messages go out", () => {
     const otherThreadId = ThreadId.parse("00000000-0000-4000-8000-000000000433");
     const base = withThread("waiting");

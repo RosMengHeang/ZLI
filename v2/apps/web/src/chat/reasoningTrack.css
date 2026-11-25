@@ -1,12 +1,12 @@
 /* Adapted from the AICSS "Reasoning Effort" component. Copyright (c) 2026 AICSS. MIT License; the full
-   notice is in ReasoningTrack.tsx. Dark only, to sit in the app's black popups. */
+   notice is in ReasoningTrack.tsx. Colors come from the theme tokens so it reads in light and dark popups. */
 .rt-root {
-  --rt-shell: rgba(255, 255, 255, 0.07);
-  --rt-shell-2: rgba(255, 255, 255, 0.1);
-  --rt-line: rgba(255, 255, 255, 0.08);
-  --rt-label: #fff;
-  --rt-label-dim: rgba(255, 255, 255, 0.4);
-  --rt-tick: rgba(255, 255, 255, 0.256);
+  --rt-shell: color-mix(in srgb, var(--zli-text) 7%, transparent);
+  --rt-shell-2: color-mix(in srgb, var(--zli-text) 10%, transparent);
+  --rt-line: color-mix(in srgb, var(--zli-text) 8%, transparent);
+  --rt-label: var(--zli-text);
+  --rt-label-dim: var(--zli-dim);
+  --rt-tick: color-mix(in srgb, var(--zli-text) 26%, transparent);
   --rt-thumb-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
   position: relative;
   width: 256px;
@@ -22,10 +22,10 @@
 .rt-level { color: var(--rt-label-dim); }
 .rt-track { position: absolute; right: 0; bottom: 0; left: 0; height: 32px; border-radius: var(--zli-radius-xl); cursor: grab; outline: none; }
 .rt-root[data-dragging="true"] .rt-track { cursor: grabbing; }
-.rt-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: var(--zli-radius-xl); background: linear-gradient(90deg, #006aff, #0059d4); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.16); pointer-events: none; }
+.rt-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: var(--zli-radius-xl); background: linear-gradient(90deg, var(--zli-accent), var(--zli-accent-pressed)); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.16); pointer-events: none; }
 .rt-thumb { position: absolute; top: 50%; z-index: 2; border-radius: 999px; background: linear-gradient(180deg, #fff, #f5f5f5); box-shadow: var(--rt-thumb-shadow); pointer-events: none; }
 .rt-tick { position: absolute; top: 50%; z-index: 3; width: 1.5px; margin-left: -0.75px; border-radius: 1px; background: var(--rt-tick); transform: translateY(-50%); pointer-events: none; }
-.rt-tick[data-active="true"] { background: #66a6ff; }
+.rt-tick[data-active="true"] { background: color-mix(in srgb, var(--zli-accent-ink) 45%, var(--zli-accent-hover)); }
 .rt-tick[data-on-thumb="true"] { background: rgba(0, 0, 0, 0.45); }
-.rt-track:focus-visible { outline: 2px solid #006aff; outline-offset: 3px; }
+.rt-track:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) { .rt-swap { animation: none; } }

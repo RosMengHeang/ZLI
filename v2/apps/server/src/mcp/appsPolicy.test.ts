@@ -23,6 +23,11 @@ describe("appsPolicy", () => {
       "STRIPE_CREATE_REFUND",
       // Reads and writes in one name: it changes something.
       "GMAIL_FETCH_AND_DELETE",
+      // A read word next to a change verb that is easy to miss: still held.
+      "GMAIL_FETCH_AND_RESEND",
+      "GOOGLESHEETS_FIND_AND_UPSERT_ROWS",
+      "JIRA_SEARCH_AND_RESOLVE_ISSUES",
+      "GOOGLEDRIVE_FIND_AND_RESTORE_FILE",
       // Neither: unknown, so it asks.
       "NOTION_DO_THING",
     ])
@@ -41,7 +46,11 @@ describe("appsPolicy", () => {
     expect(appsCallReads("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [] })).toBe(false);
     expect(appsCallReads("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: "print(1)" })).toBe(false);
     expect(appsCallReads("COMPOSIO_REMOTE_BASH_TOOL", { command: "ls" })).toBe(false);
-    expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "GET" })).toBe(true);
+    expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "GET", endpoint: "/users/me" })).toBe(true);
+    expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "GET", endpoint: "repos/a/b" })).toBe(true);
+    expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "GET" })).toBe(false);
+    for (const endpoint of ["https://evil.example/x?d=1", "//evil.example/x", "\\\\evil.example/x", "HTTP://a.b"])
+      expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "GET", endpoint })).toBe(false);
     expect(appsCallReads("COMPOSIO_PROXY_EXECUTE", { method: "POST" })).toBe(false);
     expect(appsCallReads("COMPOSIO_MANAGE_CONNECTIONS", { toolkits: [{ name: "gmail", action: "list" }] })).toBe(true);
     expect(appsCallReads("COMPOSIO_MANAGE_CONNECTIONS", { toolkits: [{ name: "gmail" }] })).toBe(true);
@@ -50,6 +59,10 @@ describe("appsPolicy", () => {
         toolkits: [{ name: "gmail", action: "remove", account_id: "a" }],
       }),
     ).toBe(false);
+    // A shape the check cannot read is held, never waved through as a lookup.
+    expect(appsCallReads("COMPOSIO_MANAGE_CONNECTIONS", { toolkits: { name: "gmail", action: "remove" } })).toBe(false);
+    expect(appsCallReads("COMPOSIO_MANAGE_CONNECTIONS", { toolkit: "gmail", action: "remove" })).toBe(false);
+    expect(appsCallReads("COMPOSIO_MANAGE_CONNECTIONS", {})).toBe(false);
     expect(appsCallReads("COMPOSIO_MANAGE_SKILL", {})).toBe(false);
     expect(appsCallReads("SOMETHING_NEW", {})).toBe(false);
   });

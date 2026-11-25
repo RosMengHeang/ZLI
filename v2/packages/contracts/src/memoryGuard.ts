@@ -36,6 +36,10 @@ const EXFILTRATION: readonly RegExp[] = [
   /\bauthorized_keys\b|\bid_(rsa|ed25519)\b/iu,
   /\b(rm\s+-rf\s+[~/]|del\s+\/[sq]|format\s+[a-z]:)/iu,
   /\b(sk-[a-z0-9]{16,}|ghp_[a-z0-9]{20,}|xox[bp]-[a-z0-9-]{10,}|AKIA[0-9A-Z]{16})\b/iu,
+  // Keys with dashes or underscores inside: Anthropic and OpenAI project keys, GitHub fine-grained tokens, Google keys.
+  /\b(sk-(ant|proj|live|test)-[a-z0-9_-]{16,}|github_pat_[a-z0-9_]{20,}|gh[ousr]_[a-z0-9]{20,}|AIza[0-9a-z_-]{30,}|glpat-[a-z0-9_-]{16,})/iu,
+  /-----BEGIN\s+[A-Z ]*PRIVATE\s+KEY-----/u,
+  /\b(password|passphrase|passwd)\s*(is|=|:)\s*(?!(stored|kept|in|on|at|managed|saved|set|held|from)\b)["']?[^\s"']{4,}/iu,
   /\bbackdoors?\b/iu,
   // Hidden payloads: encoded commands and long base64 a reader cannot check.
   /\b(powershell|pwsh)\b[^\n]{0,30}\s-(e|enc|encodedcommand)\b/iu,
@@ -70,10 +74,15 @@ function movesSecret(text: string): boolean {
 
 export type NoteCheck = { ok: true; text: string } | { ok: false; reason: string };
 
+/** The longest note kept, the same limit a buddy's stored notes have. Every brief carries every note. */
+export const MAX_NOTE_TEXT = 400;
+
 /** Cleans a note and says whether a buddy may keep it. */
 export function screenNote(raw: string): NoteCheck {
   const text = raw.replace(INVISIBLE, "").replace(/\s+/gu, " ").trim();
   if (!text) return { ok: false, reason: "The note is empty." };
+  if (text.length > MAX_NOTE_TEXT)
+    return { ok: false, reason: `The note is longer than ${MAX_NOTE_TEXT} characters. Keep it to one short fact.` };
   if (ORDERS.some((pattern) => pattern.test(text)))
     return { ok: false, reason: "It reads like an instruction to the agent, not a fact worth keeping." };
   if (EXFILTRATION.some((pattern) => pattern.test(text)) || movesSecret(text))

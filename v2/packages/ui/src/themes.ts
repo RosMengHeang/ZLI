@@ -53,6 +53,8 @@ export type ThemeBase = {
   greenInk: string;
   amberInk: string;
   redInk: string;
+  /** Merged pull requests. Optional so saved custom themes keep loading; each scheme has a default. */
+  purple?: string;
   danger: string;
   dangerHover: string;
   syntax: {
@@ -98,6 +100,7 @@ function tokensFor(base: ThemeBase): Record<string, string> {
   const dark = base.scheme === "dark";
   // Dark themes draw interaction fills and hairlines in white, light themes in black.
   const ink = dark ? "#ffffff" : "#000000";
+  const purple = base.purple ?? (dark ? "#b48cf0" : "#6d28d9");
   return {
     "--zli-scheme": base.scheme,
     "--zli-canvas": base.canvas,
@@ -141,6 +144,8 @@ function tokensFor(base: ThemeBase): Record<string, string> {
     "--zli-amber-ink": base.amberInk,
     "--zli-red-ink": base.redInk,
     "--zli-amber-line": withAlpha(base.amber, 0.32),
+    "--zli-purple": purple,
+    "--zli-purple-soft": withAlpha(purple, 0.13),
     "--zli-danger": base.danger,
     "--zli-danger-hover": base.dangerHover,
     "--zli-highlight": dark ? "inset 0 1px 0 rgba(255, 255, 255, .055)" : "inset 0 1px 0 rgba(255, 255, 255, .7)",

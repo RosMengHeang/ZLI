@@ -118,3 +118,22 @@ export function fileKind(path: string): FileKind {
   }
   return "other";
 }
+
+/** A dropped or picked file that was left out, and why, in a few words. */
+export type SkippedFile = { name: string; reason: string };
+
+/** One line for the files a drop left out, grouped by reason: "Skipped a.exe and b.zip: larger than 10 MB." */
+export function skippedFilesMessage(skipped: readonly SkippedFile[]): string | undefined {
+  if (skipped.length === 0) return undefined;
+  const byReason = new Map<string, string[]>();
+  for (const { name, reason } of skipped) byReason.set(reason, [...(byReason.get(reason) ?? []), name]);
+  return [...byReason].map(([reason, names]) => `Skipped ${listNames(names)}: ${reason}.`).join(" ");
+}
+
+function listNames(names: readonly string[]): string {
+  const shown = names.slice(0, 3);
+  const rest = names.length - shown.length;
+  if (rest > 0) return `${shown.join(", ")} and ${rest} more`;
+  if (shown.length === 1) return shown[0] ?? "";
+  return `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`;
+}

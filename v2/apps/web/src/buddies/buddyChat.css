@@ -89,7 +89,7 @@
 .buddy-step-title { overflow: hidden; color: var(--zli-text); text-overflow: ellipsis; white-space: nowrap; }
 .buddy-step-detail { min-width: 0; overflow: hidden; color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-2xs); text-overflow: ellipsis; white-space: nowrap; }
 .buddy-step-lines { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
-.buddy-step-lines .is-added { color: var(--zli-green, #3fb950); }
+.buddy-step-lines .is-added { color: var(--zli-green); }
 .buddy-step-lines .is-removed { color: var(--zli-red-ink); }
 
 .buddy-chat-empty { display: flex; flex-direction: column; align-items: center; gap: var(--zli-space-2); margin: 12vh auto 0; color: var(--zli-muted); text-align: center; }
@@ -414,7 +414,7 @@ button.goal-card-lead:hover { color: var(--zli-text); }
 .buddy-screen-frame img { display: block; width: 100%; height: 100%; border-radius: 9px; object-fit: cover; object-position: top center; }
 .buddy-screen-empty { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; background: var(--zli-surface); font-size: var(--zli-text-xs); text-align: center; }
 .buddy-screen-live { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 7px; border-radius: var(--zli-radius-pill); background: rgba(0, 0, 0, 0.62); color: #fff; font-size: 11px; font-weight: 600; }
-.buddy-screen-live::before { width: 6px; height: 6px; border-radius: 50%; background: #ff5a5a; content: ""; animation: buddy-screen-pulse 1.6s ease-in-out infinite; }
+.buddy-screen-live::before { width: 6px; height: 6px; border-radius: 50%; background: var(--zli-red); content: ""; animation: buddy-screen-pulse 1.6s ease-in-out infinite; }
 @keyframes buddy-screen-pulse { 50% { opacity: 0.35; } }
 .buddy-screen-expand { position: absolute; right: 12px; bottom: 12px; display: grid; width: 26px; height: 26px; place-items: center; border-radius: 8px; background: rgba(0, 0, 0, 0.55); color: #fff; opacity: 0; transition: opacity var(--zli-duration-fast) var(--zli-ease); }
 .buddy-screen-frame:hover .buddy-screen-expand, .buddy-screen-frame:focus-visible .buddy-screen-expand { opacity: 1; }
@@ -445,7 +445,7 @@ button.goal-card-lead:hover { color: var(--zli-text); }
 .chrome-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chrome-tab-x { display: grid; width: 20px; height: 20px; flex: 0 0 auto; margin-right: 6px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--zli-dim); cursor: default; }
 .chrome-tab-x:hover { background: var(--zli-hover); color: var(--zli-text); }
-.chrome-tile { display: grid; width: 16px; height: 16px; flex: 0 0 auto; place-items: center; border-radius: 4px; color: #fff; font-size: 9px; font-weight: 700; }
+.chrome-tile { display: grid; width: 16px; height: 16px; flex: 0 0 auto; place-items: center; border-radius: 4px; font-size: 9px; font-weight: 700; }
 .chrome-spinner { width: 14px; height: 14px; flex: 0 0 auto; border: 2px solid var(--zli-border-strong); border-top-color: var(--zli-blue); border-radius: 50%; animation: chrome-spin 0.8s linear infinite; }
 @keyframes chrome-spin { to { transform: rotate(360deg); } }
 .chrome-tabs > .btn-icon, .chrome-tabs > .icon-button { margin: 0 0 3px 2px; }
@@ -508,3 +508,36 @@ button.goal-card-lead:hover { color: var(--zli-text); }
   .buddy-view-info.is-open { width: 100%; border-left: 0; }
   .buddy-view-info-inner { width: 100%; }
 }
+
+/* ---------- Messages in a row from one sender sit closer, and only the first is named ---------- */
+.buddy-chat-entry.is-grouped { margin-top: calc(var(--zli-space-1) - var(--zli-space-3)); }
+
+/* ---------- Your message before it lands: dimmed, with a quiet word under it ---------- */
+.buddy-chat-you.is-pending { opacity: .6; }
+.buddy-chat-sending { align-self: flex-end; margin-top: var(--zli-space-1); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.buddy-chat-sending.is-failed { color: var(--zli-red-ink); }
+.buddy-chat-sending.is-failed .buddy-chat-open { color: inherit; text-decoration: underline; }
+
+/* ---------- Back to the newest line, above the composer, once you have scrolled up ---------- */
+.buddy-chat-latest { align-self: center; margin-bottom: var(--zli-space-1); border-radius: var(--zli-radius-pill); background: var(--zli-raised); box-shadow: var(--zli-shadow-lift); }
+
+/* ---------- Team chat ---------- */
+/* Several buddies talk in one thread, so each answer carries its face and name; the person's lines sit right. */
+.team-chat-line { display: flex; gap: 8px; margin: 12px 0; }
+.team-chat-line.is-you { flex-direction: column; align-items: flex-end; }
+.team-chat-line.is-you .team-chat-text { max-width: 80%; padding: 8px 12px; border-radius: 16px; background: var(--zli-raised); }
+.team-chat-body { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.team-chat-name { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 600; }
+.team-chat-text { margin: 0; color: var(--zli-text); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.team-chat-line.is-unanswered .team-chat-text { color: var(--zli-muted); }
+.team-chat-to, .team-chat-waiting { color: var(--zli-muted); font-size: var(--zli-text-xs); }
+.team-chat-dock { gap: 6px; padding: 8px 12px 12px; }
+.team-chat-input { width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--zli-border); border-radius: 14px; background: var(--zli-raised); color: var(--zli-text); font: inherit; resize: none; }
+.team-chat-input:focus-visible { border-color: var(--zli-border-hover); outline: 2px solid var(--zli-border-strong); outline-offset: 1px; }
+.team-chat-send { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.team-chat-send button { min-height: 32px; padding: 0 14px; border: 1px solid var(--zli-border); border-radius: 10px; background: var(--zli-raised); color: var(--zli-text); font: inherit; }
+.team-chat-send button:disabled { opacity: 0.55; }
+
+/* The @ list in the team chat. */
+.mention-option { display: flex; flex-direction: row; align-items: center; gap: var(--zli-space-2); }
+.mention-option-copy { display: flex; min-width: 0; flex-direction: column; }

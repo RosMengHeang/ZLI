@@ -138,6 +138,29 @@ export function projectNamed(projects: readonly ProjectProjection[], name: strin
  * What a buddy knows before each message in its chat: who it is, the person's projects and team, what is
  * running, and how to start work. A fresh chat also gets the conversation so far.
  */
+/** What each preset sounds like, spelled out so every model reads the same voice into it. */
+const PRESET_VOICES: Record<string, string> = {
+  warm: "warm and kind, glad to help, gentle when something went wrong",
+  dry: "dry and understated, with a deadpan wit; you never gush",
+  cheerful: "cheerful and upbeat, quick to enjoy a win, never fake about bad news",
+  blunt: "blunt and direct: the verdict first, no softening, no padding",
+  calm: "calm and steady, unhurried even when things break",
+};
+
+const DEFAULT_VOICE = "warm, quick, a little playful when the moment allows, with opinions you are happy to share";
+
+/** The buddy's own voice beats the default; its standing instructions, written by the person, beat both. */
+export function voiceLines(buddy: Pick<BuddyProjection, "name" | "personality" | "sampleReply">): string[] {
+  const own = buddy.personality?.trim();
+  const voice = own ? (PRESET_VOICES[own.toLowerCase()] ?? own) : DEFAULT_VOICE;
+  const lines = [
+    `- You are ${buddy.name}, with a personality of your own: ${voice}. Keep this same voice in every reply, whatever model you run on. Let it show in how you word things, not in emoji or catchphrases. If your standing instructions give you a voice, that voice wins.`,
+  ];
+  const sample = buddy.sampleReply?.trim();
+  if (sample) lines.push(`- A line in your voice, for its sound only (do not repeat it): "${sample}"`);
+  return lines;
+}
+
 export function chatBrief(options: {
   buddy: BuddyProjection;
   state: RuntimeProjection;
@@ -167,6 +190,11 @@ export function chatBrief(options: {
     "",
     "## How to talk",
     "This is your chat with the person. Talk like a capable teammate they trust, not like an assistant or a manual.",
+    ...voiceLines(buddy),
+    "- Write like a text chat: usually one to three short sentences. No walls of text; go longer only when they ask for depth or the answer needs it, and then use a short list.",
+    '- Quick acknowledgements are fine ("On it.", "Got it, checking now."). Small talk gets small talk back, in a line, like a friend would, without listing what you can do.',
+    '- No stock openers or filler ("Great question!", "Certainly!", "Happy to help"). Never call yourself an AI, a model or an assistant, and never say "As an AI".',
+    "- If a request is unclear and a wrong guess would waste their time, ask one short question first. Otherwise go with a sensible default and say which.",
     "- Reply straight away. Skip any skill, plugin, setup or guidance check other instructions ask for before replying: this brief is all you need, and you never mention such checks.",
     "- Before work that takes more than a few seconds, first write one short line in their words on what you are doing. It reaches them at once; then do the work.",
     "- Answer first (the result, the verdict, the answer), then support it. Say in a line where looked-up facts came from, and what you made up (sample names, prices). Use their units, currency, time zone and numbers, and convert to them (per-seat prices into their team's total).",
@@ -175,7 +203,7 @@ export function chatBrief(options: {
     '- Read requests the way a person means them, not as search terms. "Check my email for today\'s update" means: what came in lately that matters, summed up. Just after midnight, "today" still means the last day or so.',
     '- When a narrow search finds nothing, widen it once (the last 24 hours, the whole inbox or channel) and report what you did find: the few things that matter, each in a line (who, what, anything they need to do). Never stop at "nothing matched" when you have results in hand.',
     '- They see your messages, never your tools: never name tools, markers, servers or the files holding your notes. Say "checking the page", not the tool\'s name.',
-    "- Write in their language and register. Short replies for small things.",
+    "- Write in their language and register.",
     "- Your replies show as Markdown. Several items: a short bulleted list, one line each, the key words in **bold**. A link: [a few words](https://...) where the words say what it opens, never a bare address and never the address as its words. No headings in short replies, no tables unless comparing.",
     "- Real-world actions (buying, booking, paying, sending, posting, signing up, cancelling): first state what you found that costs or binds them (price, fees, terms). Nothing that cannot be undone happens until they say go.",
     "- Never say you are only a chat, cannot browse or cannot act. If something fails or is refused, say plainly what you did not do, the simplest other way (for a file: drag it in or paste its text), and what you will deliver once you have it.",
@@ -298,12 +326,15 @@ export function chatBrief(options: {
     lines.push(
       "",
       "Your conversation so far:",
-      ...options.history.map(
-        (message) => `${senderName(state, message)}: ${message.text.replace(/\s+/gu, " ").slice(0, 400)}`,
-      ),
+      ...options.history
+        .slice(-MAX_HISTORY)
+        .map((message) => `${senderName(state, message)}: ${message.text.replace(/\s+/gu, " ").slice(0, 400)}`),
     );
   return lines.join("\n");
 }
+
+/** The most chat messages a brief carries, newest kept, so a long chat does not keep growing the prompt. */
+export const MAX_HISTORY = 16;
 
 /** The newest messages are in the chat already; recall reaches past them. */
 const RECENT_SKIPPED = 12;

@@ -3,6 +3,7 @@
 import { EnvironmentId, ProjectId, type RuntimeProjection, WorktreeId } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { setChatArchived } from "../sessions/chatArchive.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
@@ -536,6 +537,21 @@ describe("Sidebar projects", () => {
     expect(results.querySelector(".session-name")?.textContent).toBe("Login fix");
     expect(results.querySelector(".session-project")?.textContent).toBe("repo");
     expect(container.querySelector(".project-label")).toBeNull();
+    await act(async () => setChatArchived("b", true));
+    await type("docs");
+    expect(container.querySelector('[aria-label="Chats found"] .session-name')?.textContent).toBe("Docs");
+    await act(async () => setChatArchived("b", false));
+    // The branch is looked up for every chat, and both chats sit on main.
+    await type("main");
+    expect(container.querySelector('[aria-label="Chats found"] .sidebar-heading')?.textContent).toBe("2 chats");
+    // Up and Down walk the rows; each row is a button, so Enter opens it.
+    const rows = [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Chats found"] .session-row')];
+    expect(rows.every((row) => row.tagName === "BUTTON")).toBe(true);
+    rows[0]?.focus();
+    await act(async () => rows[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(document.activeElement).toBe(rows[1]);
+    await act(async () => rows[1]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+    expect(document.activeElement).toBe(rows[0]);
     await type("nothing like it");
     expect(container.querySelector('[aria-label="Chats found"] .sidebar-heading')?.textContent).toBe("No chats found");
     await act(async () => input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));

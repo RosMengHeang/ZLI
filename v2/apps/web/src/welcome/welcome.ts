@@ -1,4 +1,10 @@
-import type { HistoryFolder, ListedProviderKind, ProviderDiscovery, RuntimeProjection } from "@zli-v2/contracts";
+import type {
+  HistoryFolder,
+  InstallPlatform,
+  ListedProviderKind,
+  ProviderDiscovery,
+  RuntimeProjection,
+} from "@zli-v2/contracts";
 
 import { agentReady } from "../agent/providers.js";
 
@@ -73,28 +79,7 @@ export function allFolders(folders: readonly HistoryFolder[]): Set<string> {
   return new Set(folders.map((folder) => folder.path));
 }
 
-export type InstallPlatform = "windows" | "posix";
-
-/**
- * Install commands from each agent's own documentation. Agents without a single documented command
- * are left out, and the card says only that the CLI was not found.
- */
-const INSTALL: Partial<Record<ListedProviderKind, Record<InstallPlatform, string>>> = {
-  "claude-code": {
-    windows: "irm https://claude.ai/install.ps1 | iex",
-    posix: "curl -fsSL https://claude.ai/install.sh | bash",
-  },
-  codex: { windows: "npm install -g @openai/codex", posix: "npm install -g @openai/codex" },
-  gemini: { windows: "npm install -g @google/gemini-cli", posix: "npm install -g @google/gemini-cli" },
-  copilot: { windows: "npm install -g @github/copilot", posix: "npm install -g @github/copilot" },
-  opencode: { windows: "npm install -g opencode-ai", posix: "npm install -g opencode-ai" },
-  qwen: { windows: "npm install -g @qwen-code/qwen-code", posix: "npm install -g @qwen-code/qwen-code" },
-  grok: { windows: "irm https://x.ai/cli/install.ps1 | iex", posix: "curl -fsSL https://x.ai/cli/install.sh | bash" },
-};
-
-export function installCommand(provider: ListedProviderKind, platform: InstallPlatform): string | undefined {
-  return INSTALL[provider]?.[platform];
-}
+export { type InstallPlatform, installCommand } from "@zli-v2/contracts";
 
 export function installPlatform(userAgent: string): InstallPlatform {
   return userAgent.includes("Windows") ? "windows" : "posix";
@@ -103,4 +88,11 @@ export function installPlatform(userAgent: string): InstallPlatform {
 /** The ticked folders, in the order they are listed: most recently used first. */
 export function selectedFolders(folders: readonly HistoryFolder[], selected: ReadonlySet<string>): HistoryFolder[] {
   return folders.filter((folder) => selected.has(folder.path));
+}
+
+/** Names the folders that could not be added, so the person knows which ones to retry or untick. */
+export function failedFoldersMessage(names: readonly string[]): string {
+  const shown = names.slice(0, 3).join(", ");
+  const rest = names.length > 3 ? ` and ${names.length - 3} more` : "";
+  return `Could not add ${shown}${rest}. Try again, or untick ${names.length === 1 ? "it" : "them"}.`;
 }

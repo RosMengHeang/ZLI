@@ -75,6 +75,7 @@ import {
   parseNotificationSettings,
   parseNotificationSettingsPatch,
 } from "./notifications/notificationSettings.js";
+import { parsePresenceStatus } from "./security/presenceStatus.js";
 
 function createMobileApi(ipc: PreloadIpc) {
   const device = (deviceId: string) => MobileDeviceIdInput.parse({ deviceId });
@@ -431,6 +432,12 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
       openExternal: (url: string) => ipc.invoke("zli:app:open-external", { url }),
       setChrome: (colors: { background: string; symbols: string; controls?: string }) =>
         ipc.invoke("zli:app:set-chrome", colors),
+    },
+    /** "Unlock connected apps with Windows Hello". Only the status and an error come back, never key material. */
+    security: {
+      presenceStatus: async () => parsePresenceStatus(await ipc.invoke("zli:security:presence-status")),
+      turnOnPresence: async () => parsePresenceStatus(await ipc.invoke("zli:security:presence-on")),
+      turnOffPresence: async () => parsePresenceStatus(await ipc.invoke("zli:security:presence-off")),
     },
     notifications: {
       getSettings: async () => parseNotificationSettings(await ipc.invoke("zli:notifications:get-settings")),

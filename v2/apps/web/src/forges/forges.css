@@ -7,7 +7,7 @@
 .forge-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
 .forge-title { display: flex; align-items: baseline; gap: var(--zli-space-2); }
 .forge-name { color: var(--zli-text); font-size: var(--zli-text-base); font-weight: 500; }
-.forge-version { color: var(--zli-dim); font-family: var(--zli-font-mono); font-size: var(--zli-text-xs); }
+.forge-version { color: var(--zli-dim); font-family: var(--zli-mono); font-size: var(--zli-text-xs); }
 .forge-detail { margin: 0; overflow: hidden; color: var(--zli-muted); font-size: var(--zli-text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .forge-detail.is-error { color: var(--zli-red-ink); white-space: normal; }
 .forge-row.is-error .forge-detail { white-space: normal; }
@@ -35,9 +35,9 @@
 .clone-label { color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
 .clone-source { position: relative; display: flex; align-items: center; }
 .clone-source > :is(.connector-logo, svg) { position: absolute; left: 10px; pointer-events: none; color: var(--zli-dim); }
-.clone-source > .input { width: 100%; padding-left: 34px; font-family: var(--zli-font-mono); font-size: var(--zli-text-sm); }
+.clone-source > .input { width: 100%; padding-left: 34px; font-family: var(--zli-mono); font-size: var(--zli-text-sm); }
 .clone-parent { display: flex; min-width: 0; align-items: center; gap: var(--zli-space-2); }
-.clone-path { min-width: 0; flex: 1; overflow: hidden; padding: 6px 10px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-font-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.clone-path { min-width: 0; flex: 1; overflow: hidden; padding: 6px 10px; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .clone-path-name { color: var(--zli-text); }
 .clone-path-empty { color: var(--zli-dim); font-family: inherit; }
 

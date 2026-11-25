@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
-import { stableId, TaskReactor, type TaskReactorOptions } from "./TaskReactor.js";
+import { budgetReserved, stableId, TaskReactor, type TaskReactorOptions } from "./TaskReactor.js";
 
 const environment: EnvironmentDescriptor = {
   environmentId: EnvironmentId.parse("00000000-0000-4000-8000-000000000001"),
@@ -116,7 +116,7 @@ async function setup(options: Partial<TaskReactorOptions> = {}) {
         await send(engine, { type: "thread.status", threadId: thread.threadId, status: "idle" } as RuntimeCommand);
     return settle();
   };
-  return { engine, projectId, settle, runtime };
+  return { engine, reactor, projectId, settle, runtime };
 }
 
 describe("TaskReactor", () => {
@@ -214,6 +214,39 @@ describe("TaskReactor", () => {
     ]);
   });
 
+  it("keeps a new Primary job out of the checkout while a review of the last one reads it", async () => {
+    const { engine, projectId, runtime, settle } = await setup();
+    const project = (await engine.projection()).projects.find((entry) => entry.projectId === projectId);
+    await send(engine, {
+      type: "worktree.import",
+      worktreeId: stableId("checkout"),
+      projectId,
+      path: project?.path ?? "",
+      branch: "main",
+      kind: "checkout",
+    } as RuntimeCommand);
+    await send(engine, {
+      type: "buddy.handoff.set",
+      buddyId: "b1",
+      rule: { ruleId: "r1", when: "finished", to: "b2", action: "check", maxRounds: 2, enabled: true },
+    });
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "p1", buddyId: "b1", projectId, kind: "job", goal: "Job p1", origin: { kind: "chat" } },
+    });
+    await runtime();
+    await runtime({ taskId: "p1", summary: "Done p1." });
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "p2", buddyId: "b1", projectId, kind: "job", goal: "Job p2", origin: { kind: "chat" } },
+    });
+    const state = await settle();
+    const review = state.tasks?.find((task) => task.parentTaskId === "p1");
+    expect(review?.worktreeId).toBe(stableId("checkout"));
+    expect(["preparing", "working", "needs_you"]).toContain(review?.status);
+    expect(state.tasks?.find((task) => task.taskId === "p2")?.status).toBe("queued");
+  });
+
   it("makes a failed worktree again once, and again on Try again, instead of failing the job at once", async () => {
     const { engine, projectId, settle } = await setup();
     await send(engine, {
@@ -241,6 +274,25 @@ describe("TaskReactor", () => {
       })
       .toBe("queued");
     expect(state.tasks?.[0]?.status).toBe("preparing");
+  });
+
+  it("forgets a worktree retry once the job is no longer preparing", async () => {
+    const { engine, reactor, projectId, settle } = await setup();
+    const retries = (reactor as unknown as { worktreeRetries: Set<string> }).worktreeRetries;
+    await send(engine, {
+      type: "task.assign",
+      task: { taskId: "w2", buddyId: "b2", projectId, kind: "job", goal: "Fix it", origin: { kind: "chat" } },
+    });
+    let state = await settle();
+    const worktreeId = state.tasks?.[0]?.worktreeId ?? state.worktrees.at(-1)?.worktreeId ?? "";
+    await send(engine, { type: "worktree.status", worktreeId, status: "failed" } as RuntimeCommand);
+    state = await settle();
+    expect(state.tasks?.[0]?.status).toBe("preparing");
+    expect(retries.size).toBe(1);
+    await send(engine, { type: "task.cancel", taskId: "w2" });
+    state = await settle();
+    expect(state.tasks?.[0]?.status).not.toBe("preparing");
+    expect(retries.size).toBe(0);
   });
 
   it("stops a job whose agent runs one turn past the limit, and says why", async () => {
@@ -422,5 +474,59 @@ describe("TaskReactor take over", () => {
     expect(state.tasks?.find((task) => task.taskId === "t1")?.status).toBe("working");
     // The note went to its chat as a new turn: the chat was idle while the person drove, and works again.
     expect(state.threads.find((thread) => thread.threadId === threadId)?.status).toBe("working");
+  });
+});
+
+describe("budgetReserved", () => {
+  const now = new Date("2026-11-19T12:00:00.000Z");
+  const buddy = { buddyId: "b1", budgetUsd: 10 } as never;
+  const finished = (taskId: string, costUsd: number) => ({
+    taskId,
+    buddyId: "b1",
+    updatedAt: "2026-11-19T10:00:00.000Z",
+    endedAt: "2026-11-19T10:00:00.000Z",
+    result: { costUsd },
+  });
+  it("counts running jobs at the week's average cost, so jobs side by side do not overshoot together", () => {
+    const state = { tasks: [finished("t1", 4)] } as unknown as RuntimeProjection;
+    // 4 spent; one running job at about 4 leaves room, a second running one would reach 12.
+    expect(budgetReserved(state, buddy, 1, now)).toBe(false);
+    expect(budgetReserved(state, buddy, 2, now)).toBe(true);
+  });
+  it("holds nothing back with no running jobs or no budget", () => {
+    const state = { tasks: [finished("t1", 4)] } as unknown as RuntimeProjection;
+    expect(budgetReserved(state, buddy, 0, now)).toBe(false);
+    expect(budgetReserved(state, { buddyId: "b1" } as never, 3, now)).toBe(false);
+  });
+  it("runs one job at a time while no job this week has reported a cost", () => {
+    const state = { tasks: [] } as unknown as RuntimeProjection;
+    expect(budgetReserved(state, buddy, 0, now)).toBe(false);
+    expect(budgetReserved(state, buddy, 1, now)).toBe(true);
+  });
+  it("counts a new buddy's running jobs at the team's average", () => {
+    const state = { tasks: [{ ...finished("t1", 6), buddyId: "b2" }] } as unknown as RuntimeProjection;
+    // Nothing spent by b1; one running job at the team's 6 leaves room, a second would reach 12.
+    expect(budgetReserved(state, buddy, 1, now)).toBe(false);
+    expect(budgetReserved(state, buddy, 2, now)).toBe(true);
+  });
+  it("counts what a failed job spent", () => {
+    const failed = {
+      taskId: "t2",
+      buddyId: "b1",
+      status: "failed",
+      threadId: "th2",
+      updatedAt: "2026-11-19T11:00:00.000Z",
+      endedAt: "2026-11-19T11:00:00.000Z",
+    };
+    const state = {
+      tasks: [finished("t1", 4), failed],
+      usage: [{ threadId: "th2", usage: { costUsd: 7 } }],
+    } as unknown as RuntimeProjection;
+    // 4 + 7 spent is past the budget of 10, so nothing new starts.
+    expect(budgetReserved(state, buddy, 0, now)).toBe(true);
+    const cheap = { ...state, usage: [{ threadId: "th2", usage: { costUsd: 2 } }] } as unknown as RuntimeProjection;
+    // 6 spent at an average of 3: one more job fits, two would reach 12.
+    expect(budgetReserved(cheap, buddy, 1, now)).toBe(false);
+    expect(budgetReserved(cheap, buddy, 2, now)).toBe(true);
   });
 });

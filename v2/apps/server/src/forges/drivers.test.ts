@@ -109,8 +109,14 @@ describe("GitLabDriver", () => {
         "--draft",
       ],
       ["glab", "mr", "merge", "7", "--yes", "--squash"],
-      ["glab", "mr", "note", "7", "--message", "Looks good"],
+      ["glab", "mr", "note", "7", "--message=Looks good"],
     ]);
+  });
+
+  it("keeps a comment that starts with a dash as the message, not a flag", async () => {
+    const { runner, calls } = recording(() => undefined);
+    await new GitLabDriver(runner).comment("/repo", 7, "- Thanks");
+    expect(calls).toContainEqual(["glab", "mr", "note", "7", "--message=- Thanks"]);
   });
 
   it("names what to do when glab is missing, old or signed out", async () => {
@@ -163,6 +169,24 @@ describe("GiteaDriver", () => {
     expect(await driver.view("/repo", "nothing")).toBeUndefined();
   });
 
+  it("pages past the newest 50 to find an older pull request from the branch", async () => {
+    const filler = Array.from({ length: 50 }, (_, i) => ({
+      index: String(100 - i),
+      title: `Other ${i}`,
+      state: "open",
+      url: `https://git.example.org/acme/app/pulls/${100 - i}`,
+      head: `other-${i}`,
+    }));
+    const { runner, calls } = recording((_c, args) => {
+      if (args[0] !== "pulls" || args[1] !== "list") return undefined;
+      const page = args[args.indexOf("--page") + 1];
+      return ok(page === "1" ? JSON.stringify(filler) : PULLS);
+    });
+    const driver = new GiteaDriver(runner, async () => ["git.example.org"]);
+    expect(await driver.view("/repo", "feature")).toMatchObject({ number: 4, state: "OPEN" });
+    expect(calls.filter((call) => call[1] === "pulls" && call[2] === "list")).toHaveLength(2);
+  });
+
   it("creates a draft with a WIP title, merges with a style, and comments", async () => {
     const { runner, calls } = recording((_c, args) =>
       args[0] === "pulls" && args[1] === "list" ? ok(PULLS) : undefined,
@@ -170,7 +194,7 @@ describe("GiteaDriver", () => {
     const driver = new GiteaDriver(runner, async () => ["git.example.org"]);
     await driver.create("/repo", { branch: "feature", title: "Add login", body: "Body", base: "main", draft: true });
     await driver.merge("/repo", 4, "rebase");
-    await driver.comment("/repo", 4, "Thanks");
+    await driver.comment("/repo", 4, "- Thanks");
     expect(
       calls
         .filter((call) => call[1] !== "pulls" || call[2] !== "list")
@@ -190,7 +214,7 @@ describe("GiteaDriver", () => {
         "Body",
       ],
       ["tea", "pulls", "merge", "4", "--style", "rebase"],
-      ["tea", "comment", "4", "Thanks"],
+      ["tea", "comment", "--", "4", "- Thanks"],
     ]);
   });
 

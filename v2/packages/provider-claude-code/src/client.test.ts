@@ -667,6 +667,37 @@ describe("ClaudeCodeClient tool activity and supervised approvals", () => {
     );
   });
 
+  it("names the connected-apps key files and relay headers in a buddy's deny rules", () => {
+    const rules = privateFileRules("/data/zli");
+    for (const tool of ["Read", "Edit"]) {
+      expect(rules).toContain(`${tool}(//data/zli/secrets-key.bin)`);
+      expect(rules).toContain(`${tool}(//data/zli/connected-apps.json)`);
+      expect(rules).toContain(`${tool}(//data/zli/*.json.*.tmp)`);
+      expect(rules).toContain(`${tool}(//data/zli/mcp-headers/**)`);
+      expect(rules).toContain(`${tool}(//data/zli/mcp/**)`);
+    }
+  });
+
+  it("keeps a network data folder's rules at two leading slashes", () => {
+    expect(claudeRulePath("\\\\server\\share\\Users\\me\\AppData\\Roaming\\ZLI")).toBe(
+      "//server/share/Users/me/AppData/Roaming/ZLI",
+    );
+    expect(claudeRulePath("\\\\server\\share\\ZLI\\")).toBe("//server/share/ZLI");
+    expect(claudeRulePath("\\\\?\\UNC\\server\\share\\ZLI")).toBe("//server/share/ZLI");
+    expect(claudeRulePath("\\\\?\\D:\\ZLI")).toBe("//d/ZLI");
+    expect(privateFileRules("\\\\server\\share\\ZLI")).toContain("Read(//server/share/ZLI/secrets-key.bin)");
+    expect(privateFileRules("\\\\server\\share\\ZLI").some((rule) => rule.includes("///"))).toBe(false);
+  });
+
+  it("denies a drive-letter data folder under both letter cases", () => {
+    expect(claudeRulePath("d:\\ZLI")).toBe("//d/ZLI");
+    expect(claudeRulePath("D:\\")).toBe("//d");
+    const rules = privateFileRules("C:\\Users\\me\\AppData\\Roaming\\ZLI");
+    expect(rules).toContain("Read(//c/Users/me/AppData/Roaming/ZLI/secrets-key.bin)");
+    expect(rules).toContain("Read(//C/Users/me/AppData/Roaming/ZLI/secrets-key.bin)");
+    expect(privateFileRules("/data/zli").some((rule) => rule.startsWith("Read(//D"))).toBe(false);
+  });
+
   it("keeps the person's own plugins and hooks out of a buddy's session, and in their own chats", () => {
     expect(claudeSessionArgs({ permissionMode: "full-access", unattended: true })).toContain("--setting-sources");
     expect(claudeSessionArgs({ permissionMode: "full-access" })).not.toContain("--setting-sources");

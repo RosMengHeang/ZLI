@@ -4,6 +4,7 @@ import {
   type PermissionMode,
   type RuntimeProjection,
   type ThreadActivityProjection,
+  type ThreadAttachment,
   type ThreadCheckpoint,
   type ThreadId,
   type ThreadMessageProjection,
@@ -103,6 +104,7 @@ import { liveStepLabel } from "./liveStatus.js";
 import { type PendingRequest, RequestPager } from "./RequestCard.js";
 import { RoomBar, RoomLive, type RoomPerson, RoomSpeaker } from "./RoomParts.js";
 import { fastFor, reasoningLevels } from "./reasoning.js";
+import { loadReplaced, type ReplacedRange, replacedIndexes, replaceNote, saveReplaced } from "./replaced.js";
 import { mergeRoomTimeline, missedBy, roomBrief, roomGuests, roomHelpers, runningStep } from "./room.js";
 import { onSideQuestionRequest, SideChat, sideQuestionContext, sideQuestionUpdate } from "./SideChat.js";
 import { type Source, turnSources } from "./Sources.js";
@@ -531,7 +533,7 @@ export function ChatView({
 
   const sendToHost = async (
     text: string,
-    attachments: ComposerAttachment[],
+    attachments: readonly (ComposerAttachment | ThreadAttachment)[],
     options: { permissionMode?: PermissionMode; note?: string } = {},
   ): Promise<boolean> => {
     setError(undefined);
@@ -1210,11 +1212,21 @@ export function ChatView({
       ...peers.map((peer) => nameOfThread(peer)),
     ]);
     if (names.length === 0) {
-      const note = editing
-        ? "The person edited their previous message. This message replaces it: follow this version, and undo or drop what you did for the earlier one where it no longer applies."
-        : undefined;
+      const edited = editing ? editedMessage(editing) : undefined;
+      const older = edited && edited.index !== lastUserIndex ? edited : undefined;
+      const lastSent = timeline[lastUserIndex];
+      const note = older
+        ? replaceNote(splitAttachedFiles(older.message.text).text)
+        : editing
+          ? "The person edited their previous message. This message replaces it: follow this version, and undo or drop what you did for the earlier one where it no longer applies."
+          : undefined;
       const sent = await sendToHost(text, attachments, note ? { note } : {});
-      if (sent) setEditing(undefined);
+      if (sent) {
+        if (older && lastSent?.kind === "message") {
+          markReplaced({ from: older.message.messageId, after: lastSent.message.messageId });
+        }
+        setEditing(undefined);
+      }
       return sent;
     }
     // A message to another chat carries only its text: rather than drop pasted images or files, the send waits and
@@ -1324,7 +1336,12 @@ export function ChatView({
   );
   // A chat cut off mid-task, as when the app closed while the agent worked: its last word is the person's,
   // or a step never finished. A chat stopped at the usage limit has its own note above the message box.
+  // Continue hides once clicked, until the chat moves on: the queued message reaches the projection a
+  // moment after the click, and a second click before then would send it twice.
+  const chatPoint = `${thread.status}:${timeline.length}`;
+  const [continuedAt, setContinuedAt] = useState<string>();
   const cutOff =
+    continuedAt !== chatPoint &&
     resumable &&
     !thread.usageLimit &&
     !working &&
@@ -1341,8 +1358,22 @@ export function ChatView({
     lastReplyIndex === lastIndex &&
     approvedAt !== lastIndex;
 
-  // Editing the last message puts it back in the box; the next send replaces it.
+  // Editing a message puts it back in the box; the next send replaces it. An older one can only be replaced
+  // by a new message, so the turns after it stay in the chat, dimmed.
   const [editing, setEditing] = useState<string>();
+  const [replacedRanges, setReplacedRanges] = useState<ReplacedRange[]>(() => loadReplaced(thread.threadId));
+  const markReplaced = (range: ReplacedRange) =>
+    setReplacedRanges((ranges) => {
+      const next = [...ranges, range];
+      saveReplaced(thread.threadId, next);
+      return next;
+    });
+  const replaced = useMemo(() => replacedIndexes(timeline, replacedRanges), [timeline, replacedRanges]);
+  const editedMessage = (messageId: string) => {
+    const index = timeline.findIndex((item) => item.kind === "message" && item.message.messageId === messageId);
+    const item = timeline[index];
+    return item?.kind === "message" ? { index, message: item.message } : undefined;
+  };
   const lastUserIndex = useMemo(() => {
     for (let index = timeline.length - 1; index >= 0; index -= 1) {
       const item = timeline[index];
@@ -1350,6 +1381,25 @@ export function ChatView({
     }
     return -1;
   }, [timeline]);
+  const editingOlder = editing !== undefined && (editedMessage(editing)?.index ?? lastUserIndex) !== lastUserIndex;
+  // Regenerate sends the person's last message again, as they wrote it, for a fresh answer.
+  const lastSent = lastUserIndex >= 0 ? timeline[lastUserIndex] : undefined;
+  const regenerable =
+    lastSent?.kind === "message" &&
+    lastSent.message.threadId === thread.threadId &&
+    lastSent.message.text.trim() !== "" &&
+    continuedAt !== chatPoint
+      ? lastSent.message
+      : undefined;
+  const regenerate = () => {
+    if (!regenerable) return;
+    setContinuedAt(chatPoint);
+    void sendToHost(regenerable.text, regenerable.attachments ?? [], {
+      note: "The person asked for a new answer to this message. Answer it again from the start.",
+    }).then((sent) => {
+      if (!sent) setContinuedAt(undefined);
+    });
+  };
   const editMessage = useCallback((message: ThreadMessageProjection) => {
     setEditing(message.messageId);
     // Only the typed words go back in the box, as with attached files; the agent has the old blocks already.
@@ -1545,8 +1595,25 @@ export function ChatView({
   const renderItem = (index: number, withChanges: boolean) => {
     const item = timeline[index];
     if (!item) return null;
+    const body = renderItemBody(item, index);
+    const key = item.kind === "work" ? `work-${item.key}` : (item.key ?? item.message.messageId);
     return (
-      <Fragment key={item.kind === "work" ? `work-${item.key}` : (item.key ?? item.message.messageId)}>
+      <Fragment key={key}>
+        {replaced.has(index) ? (
+          <div className="chat-replaced">
+            {replaced.has(index - 1) ? null : <p className="chat-replaced-label">Replaced by your edit</p>}
+            {body}
+          </div>
+        ) : (
+          body
+        )}
+        {withChanges ? placedCheckpoints.after.get(index)?.map(turnChanges) : null}
+      </Fragment>
+    );
+  };
+  const renderItemBody = (item: (typeof timeline)[number], index: number) => {
+    return (
+      <>
         {item.kind === "work" ? (
           <ChatWork
             item={item}
@@ -1584,11 +1651,14 @@ export function ChatView({
                   : undefined
               }
               onEdit={
-                index === lastUserIndex && settled && item.message.threadId === thread.threadId
-                  ? editMessage
-                  : undefined
+                settled && item.message.threadId === thread.threadId && !replaced.has(index) ? editMessage : undefined
               }
               onBranch={onBranch && !working ? branchAt : undefined}
+              onRegenerate={
+                index === lastReplyIndex && settled && !cutOff && regenerable && !replaced.has(index)
+                  ? regenerate
+                  : undefined
+              }
             />
             {/* The next steps a reply suggests sit right under it, where they were read. */}
             {index === lastReplyIndex && followUps.length > 0 && findings.length === 0 ? (
@@ -1596,8 +1666,7 @@ export function ChatView({
             ) : null}
           </>
         )}
-        {withChanges ? placedCheckpoints.after.get(index)?.map(turnChanges) : null}
-      </Fragment>
+      </>
     );
   };
 
@@ -1717,7 +1786,17 @@ export function ChatView({
                     />
                   ))
                 : null}
-              {cutOff ? <ContinueRow onContinue={() => void sendToHost("Continue where you left off.", [])} /> : null}
+              {cutOff ? (
+                <ContinueRow
+                  onContinue={() => {
+                    setContinuedAt(chatPoint);
+                    void sendToHost("Continue where you left off.", []).then((sent) => {
+                      if (!sent) setContinuedAt(undefined);
+                    });
+                  }}
+                  onRegenerate={regenerable ? regenerate : undefined}
+                />
+              ) : null}
               {earlyMessages.map((message, index) => (
                 <ChatMessage
                   key={message.messageId}
@@ -1850,7 +1929,11 @@ export function ChatView({
                   node: (
                     <div className="chat-note is-editing" role="status">
                       <Icon name="pencil" size={11} />
-                      <span className="chat-note-text">Editing your last message</span>
+                      <span className="chat-note-text">
+                        {editingOlder
+                          ? "Editing an earlier message. Sending replaces it and what came after."
+                          : "Editing your last message"}
+                      </span>
                       <button type="button" onClick={() => setEditing(undefined)}>
                         Cancel
                       </button>
@@ -2208,6 +2291,7 @@ const ChatMessage = memo(function ChatMessage({
   workedFor,
   onEdit,
   onBranch,
+  onRegenerate,
 }: {
   message: ThreadMessageProjection;
   /** Position in the timeline, which places the message among the saved turns. */
@@ -2224,6 +2308,8 @@ const ChatMessage = memo(function ChatMessage({
   onEdit?: ((message: ThreadMessageProjection) => void) | undefined;
   /** Starts a new chat with the conversation up to this reply. */
   onBranch?: ((index: number) => void) | undefined;
+  /** Sends the person's last message again, on the last reply. */
+  onRegenerate?: (() => void) | undefined;
 }) {
   if (message.role === "user") {
     return <UserMessage message={message} links={links} onEdit={onEdit} />;
@@ -2248,6 +2334,7 @@ const ChatMessage = memo(function ChatMessage({
       sources={sources}
       workedFor={workedFor}
       onBranch={onBranch ? () => onBranch(index) : undefined}
+      onRegenerate={onRegenerate}
     />
   );
 });

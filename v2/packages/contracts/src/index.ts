@@ -37,6 +37,7 @@ export * from "./privateEnv.js";
 export * from "./projectConfig.js";
 export * from "./projections.js";
 export * from "./provider.js";
+export * from "./providerInstall.js";
 export * from "./pullRequest.js";
 export * from "./review.js";
 export * from "./rpc.js";

@@ -808,6 +808,28 @@ describe("Add project", () => {
     bridge.runtime.dispatch = async (request: unknown) => {
       dispatched.push(request);
       const command = (request as { command: { type: string } }).command;
+      if (command.type === "worktree.import") {
+        // Like the runtime, a new chat's first checkout shows up in the projection a moment later.
+        const imported = command as unknown as { worktreeId: string; projectId: string; path: string };
+        setTimeout(() => {
+          current = {
+            ...current,
+            worktrees: [
+              ...current.worktrees,
+              {
+                worktreeId: WorktreeId.parse(imported.worktreeId),
+                projectId: ProjectId.parse(imported.projectId),
+                path: imported.path,
+                branch: "main",
+                status: "ready",
+              },
+            ],
+            lastSequence: current.lastSequence + 1,
+          };
+          emit(current);
+        }, 50);
+        return accepted();
+      }
       if (command.type !== "project.register") return accepted();
       if (reject) {
         return {
@@ -840,49 +862,27 @@ describe("Add project", () => {
   const registered = (dispatched: unknown[]) =>
     commands(dispatched).filter((command) => command.type === "project.register");
 
-  it("opens New agent for the added project, and keeps pointing at it after Cancel", async () => {
+  const chatBox = (container: HTMLElement) => container.querySelector<HTMLTextAreaElement>(".agent-tile textarea");
+
+  it("opens a new chat in the added project instead of the New agent dialog", async () => {
     const { bridge } = addingBridge(withAgent);
     const container = await render(bridge);
     expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
     await clickAddProject(container);
-    await vi.waitFor(() => expect(newAgentDialog()).not.toBeNull());
-    expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
-
-    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
+    await vi.waitFor(() => expect(chatBox(container)).not.toBeNull());
     expect(newAgentDialog()).toBeNull();
-    expect(container.querySelectorAll(".agent-tile")).toHaveLength(1);
-    expect(container.querySelector(".board-project-notice")?.textContent).toContain("No chats in guider-crm yet.");
-    const section = container.querySelector<HTMLElement>('.sidebar-project[aria-label="guider-crm"]');
-    expect(section?.textContent).not.toContain("No chats yet.");
-    expect(section?.querySelector('[aria-label="New chat in guider-crm"]')).toBeNull();
-
-    // An empty project keeps New chat in its menu.
-    await act(async () => (section ? button(section, "guider-crm actions") : undefined)?.click());
-    const newChat = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
-      (item) => item.textContent === "New chat",
-    );
-    await act(async () => newChat?.click());
-    expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
-    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
-
-    // The board notice opens New agent for the added project, not the one whose tile is focused.
-    await act(async () => button(container.querySelector(".board-project-notice") ?? container, "New agent")?.click());
-    expect(newAgentDialog()?.querySelector('[aria-label="Project: guider-crm"]')).not.toBeNull();
-    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
-
-    // Picking an agent in another project moves on from the added one.
-    await act(async () => container.querySelector<HTMLButtonElement>(".session-row")?.click());
-    expect(container.querySelector(".board-project-notice")).toBeNull();
+    expect(container.querySelector(".composer-workspace .is-folder")?.textContent).toContain("guider-crm");
   });
 
-  it("names the added project on an empty board", async () => {
+  it("opens a new chat on an empty board too", async () => {
     const { bridge } = addingBridge(discovered);
     const container = await render(bridge);
     expect(container.textContent).toContain("What should we work on?");
     await clickAddProject(container);
-    await vi.waitFor(() => expect(newAgentDialog()).not.toBeNull());
-    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
-    expect(container.querySelector<HTMLTextAreaElement>(".start-chat-input")?.placeholder).toContain("guider-crm");
+    expect(newAgentDialog()).toBeNull();
+    await vi.waitFor(() =>
+      expect(container.querySelector(".composer-workspace .is-folder")?.textContent).toContain("guider-crm"),
+    );
   });
 
   it("does nothing when the folder picker is cancelled", async () => {
@@ -903,24 +903,16 @@ describe("Add project", () => {
     expect(newAgentDialog()).toBeNull();
   });
 
-  it("selects a folder that is already a project instead of adding it again", async () => {
-    const empty = addingBridge(discovered, { picked: "c:\\repo\\" });
-    const container = await render(empty.bridge);
+  it("opens a new chat in a folder that is already a project instead of adding it again", async () => {
+    const { bridge, dispatched } = addingBridge(withAgent, { picked: "C:/repo" });
+    const container = await render(bridge);
     await clickAddProject(container);
-    expect(registered(empty.dispatched)).toHaveLength(0);
+    expect(registered(dispatched)).toHaveLength(0);
     expect(container.textContent).toContain("repo is already in ZLI.");
-    expect(newAgentDialog()?.textContent).toContain("Start agent");
-    await act(async () => button(newAgentDialog() ?? container, "Cancel")?.click());
-    document.body.replaceChildren();
-
-    // A project that already has agents is only selected.
-    const busy = addingBridge(withAgent, { picked: "C:/repo" });
-    const again = await render(busy.bridge);
-    await clickAddProject(again);
-    expect(registered(busy.dispatched)).toHaveLength(0);
-    expect(again.textContent).toContain("repo is already in ZLI.");
     expect(newAgentDialog()).toBeNull();
-    expect(again.querySelector(".board-project-notice")).toBeNull();
+    await vi.waitFor(() =>
+      expect(container.querySelector(".composer-workspace .is-folder")?.textContent).toContain("repo"),
+    );
   });
 
   it("opens nothing for a project added from somewhere else", async () => {

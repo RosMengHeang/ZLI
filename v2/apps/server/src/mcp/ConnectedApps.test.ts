@@ -157,6 +157,18 @@ describe("ConnectedApps", () => {
     expect(apps.server()).toBeUndefined();
   });
 
+  it("never shows the key when Composio's answer cannot be read", async () => {
+    const composio = fakeComposio();
+    const { apps } = store((async (input: string, init?: RequestInit) =>
+      String(input).includes("/connected_accounts?")
+        ? new Response(`ak_test_secret_key echoed back`, { status: 200 })
+        : composio.fetch(input, init)) as typeof globalThis.fetch);
+    await apps.setKey("ak_test_secret_key");
+    const status = await apps.status();
+    expect(status.problem).toBe("Composio sent an answer ZLI could not read.");
+    expect(JSON.stringify(status)).not.toContain("ak_test_secret_key");
+  });
+
   it("hands out a sign-in link for an app and disconnects an account", async () => {
     const composio = fakeComposio();
     const { apps } = store(composio.fetch);

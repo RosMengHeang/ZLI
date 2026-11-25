@@ -24,7 +24,8 @@ const WRITE_WORDS = new Set(
     "TAG ASSIGN UNASSIGN COMMENT REACT DRAFT SCHEDULE CANCEL APPROVE REJECT ACCEPT DECLINE INVITE SHARE " +
     "UNSHARE JOIN LEAVE KICK BAN BLOCK UNBLOCK SUBSCRIBE UNSUBSCRIBE FOLLOW UNFOLLOW LIKE PIN UNPIN EXECUTE " +
     "RUN TRIGGER DISPATCH DEPLOY PAY CHARGE REFUND TRANSFER PURCHASE BUY ORDER ENABLE DISABLE START STOP " +
-    "RESTART GRANT REVOKE"
+    "RESTART GRANT REVOKE SUBMIT RESOLVE RESET SAVE SYNC RESTORE DUPLICATE LOCK UNLOCK NOTIFY MUTE UNMUTE SNOOZE " +
+    "COMPLETE RESPOND INVOKE CALL EMPTY REGISTER UNDO CONFIRM HIDE UNHIDE VOTE RESEND UPSERT SIGN"
   ).split(" "),
 );
 /** Words that only read. An action needs one of these, and none of the above, to go ahead. */
@@ -45,8 +46,10 @@ export function appsCallReads(tool: string, params: Record<string, unknown> | un
   if (LOOKUPS.has(name)) return true;
   const args = params ?? {};
   if (name === "COMPOSIO_MANAGE_CONNECTIONS") {
-    // Listing accounts, or making a sign-in link the person still has to open, changes nothing.
+    // Listing accounts, or making a sign-in link the person still has to open, changes nothing. A call in any
+    // other shape (no toolkits list, or the action outside it) is not one we can read, so the person decides.
     const toolkits = Array.isArray(args.toolkits) ? args.toolkits : [];
+    if (toolkits.length === 0 || args.action !== undefined) return false;
     return toolkits.every((toolkit) => {
       const action = (toolkit as { action?: unknown } | null)?.action ?? "add";
       return action === "list" || action === "add";
@@ -62,7 +65,18 @@ export function appsCallReads(tool: string, params: Record<string, unknown> | un
       })
     );
   }
-  if (name === "COMPOSIO_PROXY_EXECUTE") return String(args.method ?? "GET").toUpperCase() === "GET";
+  if (name === "COMPOSIO_PROXY_EXECUTE") {
+    // A GET by a path on the app's own API (/users/me) only reads. A full URL can point at any host, and its
+    // query string can carry data out, so the person decides.
+    const endpoint = args.endpoint;
+    const relative =
+      typeof endpoint === "string" &&
+      endpoint.trim().length > 0 &&
+      !/^\s*[a-z][a-z0-9+.-]*:/iu.test(endpoint) &&
+      !/^\s*[\\/]{2}/u.test(endpoint) &&
+      !endpoint.includes("\\");
+    return relative && String(args.method ?? "GET").toUpperCase() === "GET";
+  }
   // Running code in Composio's sandbox, managing skills, and anything unknown: the person decides.
   return false;
 }

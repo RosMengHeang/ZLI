@@ -40,6 +40,8 @@ export type AcpProviderConfig = {
   authHint: string;
   /** ZLI's own tools, which run without asking the person. */
   approveTool?: (name: string) => boolean;
+  /** ZLI's data folder: permission requests for ZLI's own files there are refused. */
+  privateDir?: string;
   /** Offered to every session as an MCP server, with its shell shim on PATH. */
   browserTool?: BrowserToolConfig;
   /** MCP servers added in Settings, read when each session starts. */
@@ -122,6 +124,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
           displayName: config.displayName,
           authHint: config.authHint,
           ...(config.approveTool ? { approveTool: config.approveTool } : {}),
+          ...(config.privateDir ? { privateDir: config.privateDir } : {}),
           ...(Object.keys(env).length > 0 ? { env } : {}),
           ...(specs.length > 0 ? { mcpServers: specs.map(acpMcpServer) } : {}),
         });

@@ -5,6 +5,7 @@ import {
   agentReady,
   allFolders,
   defaultAgent,
+  failedFoldersMessage,
   installCommand,
   installPlatform,
   landingPath,
@@ -16,6 +17,15 @@ import {
 } from "./welcome.js";
 
 const empty = { projects: [], threads: [], terminals: [] };
+
+describe("failedFoldersMessage", () => {
+  it("names the folders that could not be added", () => {
+    expect(failedFoldersMessage(["api"])).toBe("Could not add api. Try again, or untick it.");
+    expect(failedFoldersMessage(["a", "b", "c", "d", "e"])).toBe(
+      "Could not add a, b, c and 2 more. Try again, or untick them.",
+    );
+  });
+});
 
 describe("shouldWelcome", () => {
   it("shows on a fresh install only", () => {

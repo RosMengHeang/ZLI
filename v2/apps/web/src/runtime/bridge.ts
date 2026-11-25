@@ -125,6 +125,12 @@ export type ZliBridge = {
     /** Only with ZLI_TEST_MOBILE=fake: drives the fake mobile service, such as op "propose". */
     mobile?(op: string, input?: unknown): Promise<unknown>;
   };
+  /** Present in the desktop app. Only statuses and error text cross over, never key material. */
+  security?: {
+    presenceStatus(): Promise<PresenceStatus>;
+    turnOnPresence(): Promise<PresenceStatus>;
+    turnOffPresence(): Promise<PresenceStatus>;
+  };
   notifications?: {
     getSettings(): Promise<NotificationSettings>;
     setSettings(patch: Partial<NotificationSettings>): Promise<NotificationSettings>;
@@ -223,6 +229,9 @@ export type MobileBridge = {
   /** Proposals and the mobile dev features. Absent in builds and test bridges without them. */
   dev?: MobileDevBridge;
 };
+
+/** "Unlock connected apps with Windows Hello": unsupported off Windows, unavailable when Hello isn't set up. */
+export type PresenceStatus = { status: "unsupported" | "unavailable" | "off" | "on"; error?: string };
 
 /** The window plays `tone` itself at `volume` (0 to 100); the system notification stays silent. */
 export type NotificationSettings = { enabled: boolean; sound: boolean; tone?: NotificationTone; volume?: number };
