@@ -28,6 +28,8 @@ const roots: Root[] = [];
 export async function renderWithRuntime(
   node: ReactNode,
   respond: Responder = () => ({ result: null }),
+  /** Fields to add to the projection, such as the worktree's review. */
+  extra: Partial<RuntimeProjection> = {},
 ): Promise<Record<string, unknown>[]> {
   const commands: Record<string, unknown>[] = [];
   const projection = {
@@ -44,6 +46,7 @@ export async function renderWithRuntime(
     browserTabs: [],
     attention: [],
     lastSequence: 1,
+    ...extra,
   } as unknown as RuntimeProjection;
   const commandId = CommandId.parse("00000000-0000-4000-8000-000000000099");
   const bridge = {

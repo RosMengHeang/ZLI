@@ -895,7 +895,7 @@ function ReviewDiff({
   );
 }
 
-function kindLetter(kind: string): string {
+export function kindLetter(kind: string): string {
   switch (kind) {
     case "added":
       return "A";
@@ -914,7 +914,7 @@ function kindLetter(kind: string): string {
  * A changed file's name first and plain, then its folder, quiet, so the names line up as the thing to read and a
  * long folder is what gets cut. A folder Git lists whole (an untracked one) keeps its trailing slash.
  */
-function FilePath({ path, renamedFrom }: { path: string; renamedFrom?: string | undefined }) {
+export function FilePath({ path, renamedFrom }: { path: string; renamedFrom?: string | undefined }) {
   const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
   const cut = trimmed.lastIndexOf("/") + 1;
   const folder = trimmed.slice(0, Math.max(0, cut - 1));
@@ -931,7 +931,7 @@ function FilePath({ path, renamedFrom }: { path: string; renamedFrom?: string | 
 }
 
 /** Above an open diff: back to the list, the file, and the files before and after it. */
-function ReviewDiffHeader({
+export function ReviewDiffHeader({
   files,
   path,
   onBack,
