@@ -4,7 +4,7 @@ import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { accept, writeDaemonEndpointFile } from "./daemon-entry.js";
+import { accept, readEnvOverrides, writeDaemonEndpointFile } from "./daemon-entry.js";
 import { TerminalService } from "./terminal/TerminalService.js";
 
 const directories: string[] = [];
@@ -395,4 +395,27 @@ it("stops its terminals and exits when an authenticated client asks it to shut d
     restoreEnv("ZLI_DAEMON_TOKEN", previous.token);
     restoreEnv("ZLI_DAEMON_ENDPOINT_PATH", previous.endpointPath);
   }
+});
+
+it("lets an agent on a saved account start with its own folder or key, and nothing looser", () => {
+  const accounts = resolve("/data/zli/accounts");
+  const folder = join(accounts, "acc-work_1");
+  for (const name of ["CODEX_HOME", "CLAUDE_CONFIG_DIR", "CURSOR_CONFIG_DIR", "GEMINI_CLI_HOME", "KIMI_CODE_HOME"]) {
+    expect(readEnvOverrides({ [name]: folder }, undefined)).toEqual({ [name]: folder });
+  }
+  expect(readEnvOverrides({ ANTHROPIC_API_KEY: "sk-ant-abc123" }, undefined)).toEqual({
+    ANTHROPIC_API_KEY: "sk-ant-abc123",
+  });
+  expect(
+    readEnvOverrides({ GROK_HOME: folder, GROK_DISABLE_AUTOUPDATER: "1", GOOSE_MODE: "chat" }, undefined),
+  ).toMatchObject({ GOOSE_MODE: "chat" });
+  expect(readEnvOverrides({ KIMI_CODE_TRUST_WORKSPACE: "1" }, undefined)).toEqual({ KIMI_CODE_TRUST_WORKSPACE: "1" });
+
+  const refused = (overrides: Record<string, string>) => () => readEnvOverrides(overrides, undefined);
+  expect(refused({ CODEX_HOME: resolve("/home/me/.codex") })).toThrow("not allowed: CODEX_HOME");
+  expect(refused({ CODEX_HOME: "accounts/acc-work" })).toThrow("not allowed: CODEX_HOME");
+  expect(refused({ CODEX_HOME: join(accounts, "..") })).toThrow("not allowed: CODEX_HOME");
+  expect(refused({ ANTHROPIC_API_KEY: "two words" })).toThrow("not allowed: ANTHROPIC_API_KEY");
+  expect(refused({ GOOSE_MODE: "yolo" })).toThrow("not allowed: GOOSE_MODE");
+  expect(refused({ OPENAI_API_KEY: "sk-x" })).toThrow("not allowed: OPENAI_API_KEY");
 });

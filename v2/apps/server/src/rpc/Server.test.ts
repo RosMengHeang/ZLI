@@ -606,4 +606,71 @@ describe("MCP commands", () => {
     expect(reloaded).toBe(1);
     socket.close();
   });
+
+  it("answers usage reads from the usage log, and says when there is none", async () => {
+    const database = new Database({ path: ":memory:" });
+    const engine = new Engine({ database, environment });
+    const asked: Array<[string, string | undefined]> = [];
+    const report = {
+      range: "7d" as const,
+      timeZone: "UTC",
+      from: "2026-11-15",
+      to: "2026-11-21",
+      days: [],
+      providers: [],
+      models: [],
+      totals: {
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+        costUsd: 0,
+        unpricedTokens: 0,
+        requests: 0,
+      },
+      files: 0,
+      generatedAt: "2026-11-21T00:00:00.000Z",
+    };
+    const server = new RpcServer({
+      engine,
+      environment,
+      token: "test-token",
+      usage: {
+        read: async (range, timeZone) => {
+          asked.push([range, timeZone]);
+          return report;
+        },
+      },
+    });
+    await server.start();
+    resources.push({ database, server });
+    const socket = await connected(server);
+    socket.send(
+      JSON.stringify({
+        type: "command",
+        request: {
+          protocolVersion: 1,
+          commandId: "00000000-0000-4000-8000-000000000a01",
+          command: { type: "usage.read", range: "7d", timeZone: "Asia/Phnom_Penh" },
+        },
+      }),
+    );
+    await expect(nextMessage(socket)).resolves.toMatchObject({ response: { accepted: true, result: report } });
+    expect(asked).toEqual([["7d", "Asia/Phnom_Penh"]]);
+    socket.close();
+
+    const bare = await makeServer();
+    const other = await connected(bare);
+    other.send(
+      JSON.stringify({
+        type: "command",
+        request: {
+          protocolVersion: 1,
+          commandId: "00000000-0000-4000-8000-000000000a02",
+          command: { type: "usage.read", range: "all" },
+        },
+      }),
+    );
+    await expect(nextMessage(other)).resolves.toMatchObject({
+      response: { accepted: false, error: { code: "unavailable" } },
+    });
+    other.close();
+  });
 });

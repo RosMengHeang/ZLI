@@ -63,10 +63,15 @@ import {
   type SkillCommand,
   TerminalId,
   type TerminalReadResult,
+  USAGE_COMMAND_TYPES,
+  type UsageCommand,
+  type UsageRange,
+  type UsageReport,
 } from "@zli-v2/contracts";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
 
 import { CheckpointError, type TurnCheckpoints } from "../checkpoints/TurnCheckpoints.js";
+import { findAgentServers } from "../devservers/agentServers.js";
 import { errorCode, FileService, FileServiceError } from "../files/FileService.js";
 import { CloneError, cloneRepository } from "../forges/clone.js";
 import { ForgeService } from "../forges/ForgeService.js";
@@ -155,6 +160,8 @@ type RpcServerOptions = {
   };
   /** Plan limits per login. Without it, limits commands are answered as unavailable. */
   limits?: { read(refresh?: boolean): Promise<PlanLimitsResult> };
+  /** Tokens and cost from the agents' session logs. Without it, usage commands are answered as unavailable. */
+  usage?: { read(range: UsageRange, timeZone?: string): Promise<UsageReport> };
   /** Settings applied when chat agents start. Without it, agent settings commands are answered as unavailable. */
   agentSettings?: { read(): AgentSettings; save(settings: AgentSettings): Promise<AgentSettings> };
   /** Folders found in past Claude Code and Codex sessions. Without it, the scan is answered as unavailable. */
@@ -193,6 +200,7 @@ export class RpcServer {
   private readonly clearProviderProblem: RpcServerOptions["clearProviderProblem"];
   private readonly stopProvidersWatch: (() => void) | undefined;
   private readonly limits: RpcServerOptions["limits"];
+  private readonly usage: RpcServerOptions["usage"];
   private readonly agentSettings: RpcServerOptions["agentSettings"];
   private readonly host: string;
   private readonly port: number;
@@ -232,6 +240,7 @@ export class RpcServer {
     this.accounts = options.accounts;
     this.accountSignIns = options.accountSignIns;
     this.limits = options.limits;
+    this.usage = options.usage;
     this.agentSettings = options.agentSettings;
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 0;
@@ -783,6 +792,25 @@ export class RpcServer {
     return true;
   }
 
+  /** Token use and cost are read from the agents' own session logs on demand, outside the event log. */
+  private async handleUsageCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (!isUsageCommand(command)) return false;
+    const reject = (error: RuntimeError) =>
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: false, error } });
+    if (!this.usage) {
+      reject({ code: "unavailable", message: "Usage is not available here.", retryable: false });
+      return true;
+    }
+    try {
+      const result = await this.usage.read(command.range, command.timeZone);
+      send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+    } catch {
+      reject({ code: "internal", message: "Usage could not be read.", retryable: true });
+    }
+    return true;
+  }
+
   /** Kept by the runtime, which reads them each time it starts a chat agent. */
   private async handleAgentSettingsCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
     const command = request.command;
@@ -859,6 +887,29 @@ export class RpcServer {
             message: error instanceof AttachmentError ? error.message : "The attachment could not be read.",
             retryable: false,
           },
+        },
+      });
+    }
+    return true;
+  }
+
+  /** The local servers chat agents started themselves, read from their steps and a port check. */
+  private async handleAgentServers(client: WebSocket, request: RpcRequest): Promise<boolean> {
+    const command = request.command;
+    if (command.type !== "devserver.agentServers") return false;
+    try {
+      const servers = await findAgentServers(await this.engine.projection(), command.threadIds);
+      send(client, {
+        type: "response",
+        response: { commandId: request.commandId, accepted: true, result: { servers } },
+      });
+    } catch {
+      send(client, {
+        type: "response",
+        response: {
+          commandId: request.commandId,
+          accepted: false,
+          error: { code: "internal", message: "ZLI could not check the agent's servers.", retryable: true },
         },
       });
     }
@@ -1116,6 +1167,7 @@ export class RpcServer {
     switch (message.data.type) {
       case "command":
         if (this.terminalService && this.handleTerminalInput(client, message.data.request)) return;
+        if (await this.handleAgentServers(client, message.data.request)) return;
         if (await this.handleFileCommand(client, message.data.request)) return;
         if (await this.handleAttachmentRead(client, message.data.request)) return;
         if (await this.handlePullRequestCommand(client, message.data.request)) return;
@@ -1130,6 +1182,7 @@ export class RpcServer {
         if (await this.handlePluginCommand(client, message.data.request)) return;
         if (await this.handleAccountCommand(client, message.data.request)) return;
         if (await this.handleLimitsCommand(client, message.data.request)) return;
+        if (await this.handleUsageCommand(client, message.data.request)) return;
         if (await this.handleAgentSettingsCommand(client, message.data.request)) return;
         if (await this.handleHistoryCommand(client, message.data.request)) return;
         try {
@@ -1266,6 +1319,10 @@ function isAccountCommand(command: RpcRequest["command"]): command is AccountCom
 
 function isLimitsCommand(command: RpcRequest["command"]): command is LimitsCommand {
   return (LIMITS_COMMAND_TYPES as readonly string[]).includes(command.type);
+}
+
+function isUsageCommand(command: RpcRequest["command"]): command is UsageCommand {
+  return (USAGE_COMMAND_TYPES as readonly string[]).includes(command.type);
 }
 
 function isAgentSettingsCommand(command: RpcRequest["command"]): command is AgentSettingsCommand {

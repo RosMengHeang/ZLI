@@ -1,9 +1,10 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
-import { delimiter, dirname, isAbsolute, resolve } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { TERMINAL_DAEMON_VERSION, TerminalId, WorktreeId } from "@zli-v2/contracts";
+import { AccountId, TERMINAL_DAEMON_VERSION, TerminalId, WorktreeId } from "@zli-v2/contracts";
+import { API_KEY_ENV, CONFIG_DIR_ENV } from "./accounts/accountEnv.js";
 
 import { DaemonLifecycle } from "./daemon/DaemonLifecycle.js";
 import { NodePtyFactory } from "./terminal/NodePtyFactory.js";
@@ -220,7 +221,29 @@ const ENV_OVERRIDE_RULES: Record<string, (value: string, worktreeId: unknown) =>
   OPENCODE_CONFIG_CONTENT: (value) => value.length <= 16_000 && isJsonObject(value),
   ZLI_METRO_PORT: isPortValue,
   RCT_METRO_PORT: isPortValue,
+  // An agent on a saved account: its own config folder inside ZLI's accounts folder, or its API key.
+  ...Object.fromEntries(Object.values(CONFIG_DIR_ENV).map((name) => [name, isAccountDir])),
+  ...Object.fromEntries(Object.values(API_KEY_ENV).map((name) => [name, isApiKey])),
+  GROK_DISABLE_AUTOUPDATER: (value) => value === "1",
+  // Goose's permission mode, and Kimi's trust for a folder the person already trusted in ZLI.
+  GOOSE_MODE: (value) => value === "auto" || value === "smart_approve" || value === "chat",
+  KIMI_CODE_TRUST_WORKSPACE: (value) => value === "1",
 };
+
+/** A saved account's folder: an absolute path whose parent is ZLI's accounts folder, named by the account id. */
+function isAccountDir(value: string): boolean {
+  return (
+    value.length <= MAX_PATH_LENGTH &&
+    isAbsolute(value) &&
+    basename(dirname(value)) === "accounts" &&
+    AccountId.safeParse(basename(value)).success
+  );
+}
+
+/** One printable token with no spaces, as API keys are. */
+function isApiKey(value: string): boolean {
+  return value.length <= 4_000 && /^[\x21-\x7e]+$/u.test(value);
+}
 
 /** A TCP port a user process may listen on, written as digits only. */
 function isPortValue(value: string): boolean {
@@ -239,7 +262,7 @@ function readLaunchArgs(value: unknown): string[] | undefined {
   return value.length > 0 ? [...(value as string[])] : undefined;
 }
 
-function readEnvOverrides(value: unknown, worktreeId: unknown): Record<string, string> | undefined {
+export function readEnvOverrides(value: unknown, worktreeId: unknown): Record<string, string> | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Terminal environment overrides are invalid.");
