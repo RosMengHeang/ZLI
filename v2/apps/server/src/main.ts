@@ -48,6 +48,8 @@ import { ConnectedApps } from "./mcp/ConnectedApps.js";
 import { McpServerStore } from "./mcp/McpServerStore.js";
 import { GITHUB_OAUTH_CLIENT_ID } from "./mcp/signIn/github.js";
 import { McpSignIns } from "./mcp/signIn/McpSignIns.js";
+import { SignInBroker } from "./mcp/signIn/SignInBroker.js";
+import { sealSignIns } from "./mcp/signIn/tokenFile.js";
 import { projectionMetroEnv } from "./mobile/metroEnv.js";
 import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
@@ -181,6 +183,10 @@ export async function startRuntime(options: {
     },
   });
   await plugins.load();
+  // Logins to MCP servers are sealed with the keychain key. Bridges get an access token from the broker instead.
+  sealSignIns(secrets);
+  const signInBroker = new SignInBroker();
+  await signInBroker.start().catch(() => undefined);
   const signIns = new McpSignIns({
     dir: join(dirname(databasePath), "mcp-sign-in"),
     githubClientId: process.env.ZLI_GITHUB_CLIENT_ID?.trim() || GITHUB_OAUTH_CLIENT_ID,
@@ -208,6 +214,7 @@ export async function startRuntime(options: {
     apps: connectedApps,
     extraServers: (taken): McpServerConfig[] => plugins.mcpServers(taken),
     signIns,
+    signInBroker,
     importFrom: { home: userHome },
     ...(browserTool?.connectScript
       ? { connectTool: { command: browserTool.command, script: browserTool.connectScript } }
@@ -527,6 +534,7 @@ export async function startRuntime(options: {
       terminalReactor.stop();
       reviewReactor.stop();
       await appsProxy.stop();
+      await signInBroker.stop();
       providerReactor.stop();
       usageLimitResumer.stop();
       checkpoints.stop();

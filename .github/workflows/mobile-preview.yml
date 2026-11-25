@@ -36,7 +36,7 @@ jobs:
       pr: ${{ steps.plan.outputs.pr }}
       publish: ${{ steps.plan.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - id: plan
@@ -88,7 +88,7 @@ jobs:
       matrix:
         side: ${{ fromJSON(needs.plan.outputs.sides) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ matrix.side == 'base' && needs.plan.outputs.base || needs.plan.outputs.head }}
       - name: Use Xcode 26
@@ -97,21 +97,21 @@ jobs:
           xcode="$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -n 1)"
           if [ -n "$xcode" ]; then sudo xcode-select -s "$xcode"; fi
           xcodebuild -version
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.34.9
           run_install: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: v2/.nvmrc
           cache: pnpm
           cache-dependency-path: v2/pnpm-lock.yaml
       # Maestro runs on Java.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: "17"
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/Library/Caches/CocoaPods
           key: cocoapods-${{ hashFiles('v2/pnpm-lock.yaml') }}
@@ -126,7 +126,7 @@ jobs:
         run: bash v2/apps/mobile/preview/ios.sh build "$RUNNER_TEMP/preview"
       - name: Capture the screens
         run: bash v2/apps/mobile/preview/ios.sh capture "$RUNNER_TEMP/preview"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: preview-ios-${{ matrix.side }}
@@ -145,23 +145,23 @@ jobs:
       matrix:
         side: ${{ fromJSON(needs.plan.outputs.sides) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ matrix.side == 'base' && needs.plan.outputs.base || needs.plan.outputs.head }}
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.34.9
           run_install: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: v2/.nvmrc
           cache: pnpm
           cache-dependency-path: v2/pnpm-lock.yaml
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
       - run: pnpm install --frozen-lockfile
         working-directory: v2
       - name: Install Maestro
@@ -187,7 +187,7 @@ jobs:
           mv "$RUNNER_TEMP/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
       - name: Capture the screens
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 36
           # Live Updates, the status bar chip, need Android 16 QPR2.
@@ -201,7 +201,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           pre-emulator-launch-script: grep -E "^(target|image.sysdir)" "$ANDROID_AVD_HOME/test.avd/config.ini"
           script: bash v2/apps/mobile/preview/android.sh capture "$RUNNER_TEMP/preview"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: preview-android-${{ matrix.side }}
@@ -220,8 +220,8 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: preview-*
           path: ${{ runner.temp }}/shots

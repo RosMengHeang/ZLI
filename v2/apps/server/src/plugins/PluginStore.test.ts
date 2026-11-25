@@ -201,8 +201,11 @@ describe("plugin updates and origins", () => {
     const { state, fetchImpl } = github({ files: market });
     const { store, options } = await setup({ fetch: fetchImpl, now: () => now });
     await store.install("acme/market/plugins/two", ["two"]);
+    // The branch is fixed at one commit first; the files and the recorded folder commit both come from it.
+    expect(state.seen).toContain("https://api.github.com/repos/acme/market/commits?sha=HEAD&per_page=1");
+    expect(state.seen).toContain(`https://api.github.com/repos/acme/market/tarball/${sha1}`);
     expect(state.seen).toContain(
-      "https://api.github.com/repos/acme/market/commits?sha=HEAD&per_page=1&path=plugins%2Ftwo",
+      `https://api.github.com/repos/acme/market/commits?sha=${sha1}&per_page=1&path=plugins%2Ftwo`,
     );
     let [summary] = (await store.list()).plugins;
     expect(summary).toEqual(expect.objectContaining({ sourceKind: "github", origin: "other", commit: sha1 }));
@@ -217,12 +220,12 @@ describe("plugin updates and origins", () => {
     state.latest = sha2;
     now += 10 * 60 * 1000;
     [summary] = (await store.checkUpdates()).plugins;
-    expect(state.commitCalls).toBe(2);
+    expect(state.commitCalls).toBe(3);
     expect(summary?.updateAvailable).toBe(false);
 
     now += 25 * 60 * 1000;
     [summary] = (await store.checkUpdates()).plugins;
-    expect(state.commitCalls).toBe(3);
+    expect(state.commitCalls).toBe(4);
     expect(summary?.updateAvailable).toBe(true);
 
     await store.update("two");

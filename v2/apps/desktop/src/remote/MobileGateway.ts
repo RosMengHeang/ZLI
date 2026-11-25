@@ -54,6 +54,12 @@ const MAX_HANDSHAKE_FRAME_BYTES = 64 * 1024;
 const MAX_BUFFERED_BYTES = 32 * 1024 * 1024;
 const MAX_UNAUTHENTICATED = 16;
 const MAX_CONNECTIONS_PER_DEVICE = 4;
+/**
+ * All the bytes a connection may send before it is paired and open. The frame limit is checked only once a whole frame
+ * has arrived, and the server takes frames up to MAX_PHONE_FRAME_BYTES, so without this anyone on the network could make
+ * the desktop hold 8 MB for each of its unpaired connections.
+ */
+const MAX_HANDSHAKE_BYTES = 4 * MAX_HANDSHAKE_FRAME_BYTES;
 
 type Phase = "hello" | "handshake" | "control" | "upstream" | "open" | "closed";
 
@@ -417,6 +423,23 @@ export class MobileGateway {
       if (phase !== "open") return close(RemoteCloseCode.protocol);
       void onWire(message).catch(() => close(RemoteCloseCode.protocol));
     });
+    // Counted on the network socket, as bytes arrive, so a large frame from an unpaired connection is cut off early.
+    const raw = request.socket;
+    let handshakeBytes = 0;
+    const countHandshake = (chunk: Buffer) => {
+      if (phase === "open" || phase === "closed") {
+        raw.off("data", countHandshake);
+        return;
+      }
+      handshakeBytes += chunk.length;
+      if (handshakeBytes > MAX_HANDSHAKE_BYTES) {
+        raw.off("data", countHandshake);
+        options.log?.("phone connection refused: too much data before pairing", { address });
+        close(RemoteCloseCode.protocol);
+        socket.terminate();
+      }
+    };
+    raw.on("data", countHandshake);
     socket.on("close", () => close(1000));
     socket.on("error", () => close(RemoteCloseCode.protocol));
   }

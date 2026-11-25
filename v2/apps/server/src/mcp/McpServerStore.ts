@@ -37,6 +37,7 @@ import {
 } from "./McpProbe.js";
 import type { McpSignIns } from "./signIn/McpSignIns.js";
 import { SignInError } from "./signIn/oauth.js";
+import { SIGN_IN_ENV_PREFIX, type SignInBroker, signInEnvName } from "./signIn/SignInBroker.js";
 import { freshAccessToken, markSignInExpired } from "./signIn/tokenFile.js";
 
 /** ZLI's bundled connect bridge, run with Electron's Node like the other agent tools. */
@@ -69,7 +70,8 @@ export type McpLaunchOptions = {
   headerFile?: string;
   /** Hands the headers to the bridge in this environment variable instead of a file. */
   headerEnv?: string;
-  tokenFile?: string;
+  /** Where the bridge asks SignInBroker for the login's access token: an environment variable name and its value. */
+  signInGrant?: { env: string; value: string };
   accessToken?: string;
   connectTool?: ConnectTool;
   /** JSON list of the tools the person turned off. */
@@ -95,7 +97,7 @@ function usesBridge(server: McpServerConfig): boolean {
 /**
  * The server as agents launch it. With ZLI's connect bridge available, a remote server with sign-in
  * (OAuth), headers, or turned-off tools runs through it, and so does a local server with turned-off tools.
- * The bridge reads the saved login from `tokenFile` and refreshes it, reads headers from `headerFile` so
+ * The bridge gets the login's access token from SignInBroker through `signInGrant`, reads headers from `headerFile` so
  * they stay out of agent settings and the process list, and hides the tools listed in `hideToolsFile`.
  * Without the bridge (tests and runs outside the desktop app), agents get the URL with the current token
  * as a header, and turned-off tools stay visible.
@@ -130,12 +132,16 @@ export function mcpLaunchSpec(server: McpServerConfig, options: McpLaunchOptions
         server.name,
         "--url",
         server.url,
-        ...(server.oauth && options.tokenFile ? ["--token-file", options.tokenFile] : []),
+        ...(server.oauth && options.signInGrant ? ["--token-env", options.signInGrant.env] : []),
         ...(headerEnv ? ["--header-env", headerEnv] : []),
         ...(headerFile ? ["--header-file", headerFile] : []),
         ...hideArgs,
       ],
-      env: { ELECTRON_RUN_AS_NODE: "1", ...(headerEnv ? { [headerEnv]: JSON.stringify(server.headers) } : {}) },
+      env: {
+        ELECTRON_RUN_AS_NODE: "1",
+        ...(headerEnv ? { [headerEnv]: JSON.stringify(server.headers) } : {}),
+        ...(server.oauth && options.signInGrant ? { [options.signInGrant.env]: options.signInGrant.value } : {}),
+      },
     };
   }
   const headers = { ...server.headers };
@@ -149,10 +155,14 @@ export function mcpLaunchSpec(server: McpServerConfig, options: McpLaunchOptions
 /** Where the connected apps' relay token reaches the bridge: never a file, so another worktree cannot read it. */
 export const CONNECT_HEADERS_ENV = "ZLI_CONNECT_HEADERS";
 
+function isSecretEnv(name: string): boolean {
+  return name === CONNECT_HEADERS_ENV || name.startsWith(SIGN_IN_ENV_PREFIX);
+}
+
 /**
- * Takes the relay token out of specs that are about to be written to a settings file, and returns it as
- * environment for the agent process, whose MCP servers inherit it. Providers that take their servers over a
- * pipe (Codex threads, ACP) keep it in the spec instead.
+ * Takes the relay token and sign-in grants out of specs that are about to be written to a settings file, and returns
+ * them as environment for the agent process, whose MCP servers inherit it. Providers that take their servers over a
+ * pipe (Codex threads, ACP) keep them in the spec instead.
  */
 export function liftSecretEnv(specs: readonly McpServerSpec[]): {
   specs: McpServerSpec[];
@@ -161,10 +171,10 @@ export function liftSecretEnv(specs: readonly McpServerSpec[]): {
   const env: Record<string, string> = {};
   const out = specs.map((spec): McpServerSpec => {
     if (!("env" in spec)) return spec;
-    const { [CONNECT_HEADERS_ENV]: secret, ...rest } = spec.env;
-    if (secret === undefined) return spec;
-    env[CONNECT_HEADERS_ENV] = secret;
-    return { ...spec, env: rest };
+    const secrets = Object.entries(spec.env).filter(([name]) => isSecretEnv(name));
+    if (secrets.length === 0) return spec;
+    for (const [name, value] of secrets) env[name] = value;
+    return { ...spec, env: Object.fromEntries(Object.entries(spec.env).filter(([name]) => !isSecretEnv(name))) };
   });
   return { specs: out, env };
 }
@@ -238,6 +248,8 @@ export class McpServerStore {
       /** Servers from other sources, such as plugins. `taken` holds the lowercase names of the person's own servers, which win. */
       extraServers?: (taken: ReadonlySet<string>) => McpServerConfig[];
       signIns?: McpSignIns;
+      /** Hands connect bridges access tokens, so no agent reads a saved login. */
+      signInBroker?: SignInBroker;
       connectTool?: ConnectTool;
       /** Replaces the real connection test. */
       probe?: McpProbe;
@@ -367,7 +379,10 @@ export class McpServerStore {
     if (hasHeaders(server)) options.headerFile = this.headerFile(server.name);
     if (!server.oauth) return options;
     const signIns = this.options.signIns;
-    if (signIns) options.tokenFile = signIns.tokenFile(server.url);
+    const grant = signIns ? this.options.signInBroker?.grant(signIns.tokenFile(server.url)) : undefined;
+    if (signIns && grant) {
+      options.signInGrant = { env: signInEnvName(signIns.tokenFile(server.url)), value: JSON.stringify(grant) };
+    }
     const accessToken = signIns?.accessToken(server.url);
     if (accessToken) options.accessToken = accessToken;
     return options;

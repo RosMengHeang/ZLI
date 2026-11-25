@@ -16,6 +16,7 @@ import {
   projectPathKey,
   serverInProject,
 } from "./McpServerStore.js";
+import { SignInBroker, signInEnvName } from "./signIn/SignInBroker.js";
 import { McpSignIns } from "./signIn/McpSignIns.js";
 import { SecretBox } from "../secrets/SecretBox.js";
 
@@ -213,8 +214,12 @@ describe("McpServerStore", () => {
     };
     await store.save([context7, sentry]);
 
-    const reloaded = new McpServerStore({ toolLoading: "upfront", path, signIns, connectTool });
+    const signInBroker = new SignInBroker();
+    await signInBroker.start();
+    const reloaded = new McpServerStore({ toolLoading: "upfront", path, signIns, signInBroker, connectTool });
     await reloaded.load();
+    const grant = signInBroker.grant(signIns.tokenFile(sentry.url));
+    const grantEnv = signInEnvName(signIns.tokenFile(sentry.url));
     expect(reloaded.list().servers).toEqual([context7, sentry]);
     expect(reloaded.list().signIns).toEqual([{ name: "sentry", url: sentry.url, signedIn: false }]);
     const headerFile = reloaded.headerFile("sentry");
@@ -251,12 +256,13 @@ describe("McpServerStore", () => {
           "sentry",
           "--url",
           sentry.url,
-          "--token-file",
-          signIns.tokenFile(sentry.url),
+          "--token-env",
+          grantEnv,
           "--header-file",
           headerFile,
         ],
-        env: { ELECTRON_RUN_AS_NODE: "1" },
+        // The login file stays out of the agent's reach: the bridge asks the broker with this grant instead.
+        env: { ELECTRON_RUN_AS_NODE: "1", [grantEnv]: JSON.stringify(grant) },
       },
     ]);
     expect(await readFile(headerFile, "utf8")).toBe("X-Org: acme\n");
@@ -268,6 +274,7 @@ describe("McpServerStore", () => {
       { ...sentry, headers: {} },
     ]);
     expect(await readdir(dirname(headerFile))).toEqual([]);
+    await signInBroker.stop();
   });
 
   it("without the bridge, gives sign-in servers the saved token as a header", () => {
@@ -363,6 +370,20 @@ describe("McpServerStore launch rules", () => {
     const lifted = liftSecretEnv(specs);
     expect(lifted.env).toEqual({ [CONNECT_HEADERS_ENV]: JSON.stringify({ Authorization: "Bearer token-wt-a" }) });
     expect(JSON.stringify(lifted.specs)).not.toContain("token-wt-a");
+  });
+
+  it("moves sign-in grants out of settings files and into the agent's environment", () => {
+    const lifted = liftSecretEnv([
+      {
+        name: "sentry",
+        command: "/apps/ZLI",
+        args: ["/apps/zli-connect.js", "mcp", "--token-env", "ZLI_CONNECT_SIGN_IN_abc"],
+        env: { ELECTRON_RUN_AS_NODE: "1", ZLI_CONNECT_SIGN_IN_abc: '{"url":"http://127.0.0.1:1/sign-in","token":"k"}' },
+      },
+    ]);
+    expect(lifted.env).toEqual({ ZLI_CONNECT_SIGN_IN_abc: '{"url":"http://127.0.0.1:1/sign-in","token":"k"}' });
+    expect(lifted.specs[0]).toMatchObject({ env: { ELECTRON_RUN_AS_NODE: "1" } });
+    expect(JSON.stringify(lifted.specs)).not.toContain('"token":"k"');
   });
 
   it("keeps the new fields out of saved servers that do not use them", async () => {

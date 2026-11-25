@@ -161,6 +161,7 @@
 .new-buddy-label { padding: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
 .new-buddy-field > .segmented { align-self: flex-start; }
 .new-buddy-hint { color: var(--zli-dim); font-size: var(--zli-text-xs); }
+.new-buddy-hint.is-warning { color: var(--zli-amber-ink); }
 .new-buddy-roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .new-buddy-role { display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--zli-border-strong); border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-muted); cursor: default; font: inherit; text-align: left; transition: border-color var(--zli-duration-fast) var(--zli-ease), background-color var(--zli-duration-fast) var(--zli-ease); }
 .new-buddy-role:hover { background: var(--zli-hover); }

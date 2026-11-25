@@ -685,6 +685,12 @@ function InstallChoices({
               </span>
               {candidate.description ? <span className="mcp-row-detail">{candidate.description}</span> : null}
               <CandidateParts components={candidate.components} />
+              {candidate.envReads?.length ? (
+                <span className="skill-row-problem">
+                  Passes {candidate.envReads.join(", ")} from your environment to its servers. Install it only if you
+                  trust where they send {candidate.envReads.length === 1 ? "it" : "them"}.
+                </span>
+              ) : null}
               <span className="plugin-candidate-meta">
                 {candidate.path === "." ? "Whole repository" : candidate.path},{" "}
                 {candidate.files === 1 ? "1 file" : `${candidate.files} files`}, {formatBytes(candidate.bytes)}

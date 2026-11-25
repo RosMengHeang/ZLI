@@ -4,7 +4,9 @@ import {
   isAllowedBrowserNavigation,
   isAllowedMainNavigation,
   isPermissionAllowed,
+  RENDERER_CONTENT_SECURITY_POLICY,
   shouldOpenExternal,
+  withRendererPolicy,
 } from "./NavigationPolicy.js";
 
 describe("NavigationPolicy", () => {
@@ -33,5 +35,30 @@ describe("NavigationPolicy", () => {
     expect(isPermissionAllowed("camera")).toBe(false);
     expect(isPermissionAllowed("microphone")).toBe(false);
     expect(isPermissionAllowed("midi")).toBe(false);
+  });
+});
+
+describe("renderer content security policy", () => {
+  it("runs only the app's own scripts and blocks plugins, base changes, and form posts", () => {
+    const directives = new Map(
+      RENDERER_CONTENT_SECURITY_POLICY.split("; ").map((entry) => {
+        const [name = "", ...values] = entry.split(" ");
+        return [name, values] as const;
+      }),
+    );
+    expect(directives.get("script-src")).toEqual(["'self'"]);
+    expect(directives.get("object-src")).toEqual(["'none'"]);
+    expect(directives.get("base-uri")).toEqual(["'none'"]);
+    expect(directives.get("form-action")).toEqual(["'none'"]);
+    expect(RENDERER_CONTENT_SECURITY_POLICY).not.toContain("unsafe-eval");
+  });
+
+  it("adds the policy to a response and keeps its body and status", async () => {
+    const response = withRendererPolicy(
+      new Response("<p>hi</p>", { status: 200, headers: { "content-type": "text/html" } }),
+    );
+    expect(response.headers.get("Content-Security-Policy")).toBe(RENDERER_CONTENT_SECURITY_POLICY);
+    expect(response.headers.get("content-type")).toBe("text/html");
+    expect(await response.text()).toBe("<p>hi</p>");
   });
 });

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import { scanPlugins } from "./pluginPackage.js";
-import { pluginServerConfig, substitute } from "./pluginRuntime.js";
+import { environmentReads, pluginServerConfig, substitute } from "./pluginRuntime.js";
 
 const encoder = new TextEncoder();
 const filesOf = (entries: Record<string, string>) =>
@@ -166,5 +166,25 @@ describe("plugin placeholders", () => {
     );
     expect(local).toMatchObject({ server: { command: "/plugins/kit/run", env: { KEY: "" } }, missing: ["key"] });
     expect(pluginServerConfig({ name: "bad name", raw: { command: "x" } }, context)).toHaveProperty("problem");
+  });
+});
+
+describe("environmentReads", () => {
+  it("lists the environment variables a plugin's servers read, without its own folders or settings", () => {
+    expect(
+      environmentReads([
+        {
+          name: "github",
+          raw: {
+            url: "https://api.example.com/mcp?org=${ORG:-acme}",
+            headers: { Authorization: "Bearer ${GITHUB_TOKEN}", "X-Key": "${user_config.key}" },
+          },
+        },
+        {
+          name: "local",
+          raw: { command: "${CLAUDE_PLUGIN_ROOT}/run", args: ["--data", "${ZLI_PLUGIN_DATA}"], env: { A: "${HOME}" } },
+        },
+      ]),
+    ).toEqual(["GITHUB_TOKEN", "HOME", "ORG"]);
   });
 });

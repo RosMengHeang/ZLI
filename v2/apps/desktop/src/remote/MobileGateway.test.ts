@@ -407,6 +407,17 @@ describe("MobileGateway", () => {
     expect(changes).toBe(0);
   });
 
+  it("cuts off an unpaired connection that sends a large frame before it arrives whole", async () => {
+    const socket = new WebSocket(remoteUrl("127.0.0.1", port));
+    const closedAt = new Promise<void>((resolve) => socket.addEventListener("close", () => resolve()));
+    await new Promise((resolve) => socket.addEventListener("open", resolve));
+    socket.send(new Uint8Array(4 * 1024 * 1024));
+    await closedAt;
+    // The gateway still pairs phones afterwards.
+    const { session } = await pairPhone();
+    expect(session).toBeDefined();
+  });
+
   it("stops listening when phone access is turned off", async () => {
     const { session } = await pairPhone();
     const code = closed(session);

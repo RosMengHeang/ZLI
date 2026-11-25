@@ -152,6 +152,8 @@ export const PluginInstallCandidate = z.object({
   files: z.number().int().nonnegative(),
   bytes: z.number().int().nonnegative(),
   exists: z.boolean(),
+  /** Environment variables the plugin's MCP servers read, whose values they receive once installed. */
+  envReads: z.array(z.string()).optional(),
   problem: z.string().optional(),
 });
 export type PluginInstallCandidate = z.infer<typeof PluginInstallCandidate>;
