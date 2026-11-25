@@ -57,18 +57,19 @@ describe("AgentHistoryScanner", () => {
     }
   });
 
-  it("leaves out folders that are not projects: home, temp, app data and buddy homes", async () => {
+  it("leaves out folders that are not projects: home, the temp folder, app data and buddy homes", async () => {
     const home = await mkdtemp(join(tmpdir(), "zli-history-"));
     try {
       const keep = join(home, "app");
-      const temp = join(home, "tmp", "scratch");
+      const temp = join(home, "tmp");
+      const insideTemp = join(home, "tmp", "checkout");
       const roaming = join(home, "Roaming", "tool");
       const buddy = join(home, "Roaming", "zli-buddies-dev", "zli-buddy-homes", "builder-abef37");
       const appData = join(home, "AppData", "Local", "thing");
-      for (const dir of [keep, temp, roaming, buddy, appData]) await mkdir(dir, { recursive: true });
+      for (const dir of [keep, insideTemp, roaming, buddy, appData]) await mkdir(dir, { recursive: true });
       const claudeDir = join(home, ".claude", "projects", "all");
       await mkdir(claudeDir, { recursive: true });
-      for (const [index, cwd] of [keep, temp, roaming, buddy, appData, home].entries())
+      for (const [index, cwd] of [keep, insideTemp, temp, roaming, buddy, appData, home].entries())
         await writeFile(join(claudeDir, `s${index}.jsonl`), jsonl({ type: "user", cwd }));
 
       const folders = await new AgentHistoryScanner({
@@ -76,7 +77,8 @@ describe("AgentHistoryScanner", () => {
         env: { APPDATA: join(home, "Roaming") },
         tempDir: join(home, "tmp"),
       }).scan();
-      expect(folders.map((folder) => folder.path)).toEqual([keep]);
+      // A checkout inside temp is still a project; only the temp folder itself is left out.
+      expect(folders.map((folder) => folder.path).sort()).toEqual([insideTemp, keep].sort());
     } finally {
       await rm(home, { recursive: true, force: true });
     }

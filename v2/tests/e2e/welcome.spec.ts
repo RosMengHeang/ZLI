@@ -63,6 +63,15 @@ async function launchFresh(): Promise<DesktopFixture> {
   });
 }
 
+/** Waits out the intro, which holds Get started until the first checks answer, and leaves it. */
+async function passIntro(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Welcome to ZLI" });
+  await expect(dialog.getByRole("heading", { name: "Welcome to ZLI" })).toBeVisible();
+  const start = dialog.getByRole("button", { name: "Get started" });
+  await expect(start).toBeEnabled({ timeout: 15_000 });
+  await start.click();
+}
+
 async function shot(page: Page, name: string): Promise<void> {
   const dir = process.env.ZLI_WELCOME_SHOTS;
   if (dir) await page.screenshot({ path: join(dir, `${name}.png`) });
@@ -75,16 +84,21 @@ test("finds the project from past sessions and opens a fresh chat in it", async 
     fixture = await launchFresh();
     const page = fixture.page;
     const dialog = page.getByRole("dialog", { name: "Welcome to ZLI" });
-    await expect(dialog.getByText("Your agents")).toBeVisible();
+    await shot(page, "0-intro");
+    await passIntro(page);
+    await expect(dialog.getByText("Choose your agent.")).toBeVisible();
     await shot(page, "1-agent");
 
     // Discovery can find no agent on a CI runner; setup still moves on once one is ready.
     const continueButton = dialog.getByRole("button", { name: "Continue" });
     if (await continueButton.isDisabled()) return;
     await continueButton.click();
+    await expect(dialog.getByText("Meet your buddies.")).toBeVisible();
+    await shot(page, "2-buddies");
+    await continueButton.click();
     await expect(dialog.getByText("How do you want to work?")).toBeVisible();
     await expect(dialog.getByRole("radio", { name: /^Chat/ })).toBeChecked();
-    await shot(page, "2-workspace");
+    await shot(page, "3-workspace");
 
     await continueButton.click();
     // The projects found in past sessions start unticked; the person picks them, or selects them all.
@@ -92,7 +106,7 @@ test("finds the project from past sessions and opens a fresh chat in it", async 
     await expect(dialog.getByRole("checkbox")).toHaveCount(4);
     await dialog.getByRole("button", { name: "Select all" }).click();
     await expect(dialog.getByRole("checkbox", { name: /repo/ })).toBeChecked();
-    await shot(page, "3-projects");
+    await shot(page, "4-projects");
     await dialog.getByRole("button", { name: "Add 4 projects and open" }).click();
 
     // Setup closes on a new chat in that project, with none of the old session's messages.
@@ -104,7 +118,7 @@ test("finds the project from past sessions and opens a fresh chat in it", async 
     const sidebar = page.getByRole("complementary", { name: "Projects and agents" });
     await expect(sidebar.getByRole("button", { name: "3 more projects" })).toBeVisible();
     await expect(sidebar.getByRole("button", { name: "Start a chat in api" })).toHaveCount(0);
-    await shot(page, "4-landed-chat");
+    await shot(page, "5-landed-chat");
   } finally {
     if (fixture) await closeDesktop(fixture);
   }
@@ -118,8 +132,11 @@ test("lands a terminal person in the agent's CLI in the folder they added", asyn
     const page = fixture.page;
     const dialog = page.getByRole("dialog", { name: "Welcome to ZLI" });
     const continueButton = dialog.getByRole("button", { name: "Continue" });
-    await expect(dialog.getByText("Your agents")).toBeVisible();
+    await passIntro(page);
+    await expect(dialog.getByText("Choose your agent.")).toBeVisible();
     if (await continueButton.isDisabled()) return;
+    await continueButton.click();
+    await expect(dialog.getByText("Meet your buddies.")).toBeVisible();
     await continueButton.click();
     await dialog.getByText("Terminal", { exact: true }).click();
     await expect(dialog.getByRole("radio", { name: /^Terminal/ })).toBeChecked();
@@ -131,14 +148,14 @@ test("lands a terminal person in the agent's CLI in the folder they added", asyn
     }, fixture.repo);
     await dialog.getByRole("button", { name: /Add a folder/ }).click();
     await expect(dialog.getByText("Opens Codex in repo")).toBeVisible();
-    await shot(page, "5-projects-folder");
+    await shot(page, "6-projects-folder");
     await dialog.getByRole("button", { name: /and open|Open ZLI/ }).click();
 
     await expect(dialog).toBeHidden({ timeout: 30_000 });
     await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 30_000 });
     // Keys go straight to the agent's CLI.
     await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
-    await shot(page, "6-landed-terminal");
+    await shot(page, "7-landed-terminal");
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

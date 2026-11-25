@@ -15,7 +15,10 @@ export type AgentHistoryScannerOptions = {
   home: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
-  /** The system temp folder, left out with everything in it. Defaults to the OS one. */
+  /**
+   * The system temp folder, left out itself. Folders inside it can be real checkouts, so they stay; on
+   * Windows they sit under LOCALAPPDATA and are left out with it. Defaults to the OS one.
+   */
   tempDir?: string;
 };
 
@@ -62,17 +65,16 @@ export class AgentHistoryScanner {
   }
 
   /**
-   * Folders agents ran in that are not projects: the home folder itself, the temp folder, app data (where
+   * Folders agents ran in that are not projects: the home and temp folders themselves, app data (where
    * tools keep their own files), the agents' config homes, and the folders ZLI's buddies work in.
    */
   private notAProject(cwd: string): boolean {
     const key = this.folderKey(cwd);
     const env = this.options.env ?? {};
     const home = this.folderKey(this.options.home);
-    if (key === home) return true;
+    if (key === home || key === this.folderKey(this.options.tempDir ?? tmpdir())) return true;
     if (key.split("/").includes(this.folderKey(BUDDY_HOMES_FOLDER))) return true;
     const roots = [
-      this.options.tempDir ?? tmpdir(),
       env.APPDATA,
       env.LOCALAPPDATA,
       join(this.options.home, "AppData"),
