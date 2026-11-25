@@ -4,6 +4,9 @@ import {
   type ListedProviderKind,
   type ProviderDiscovery,
   ProvidersDiscoverResult,
+  type ProviderUpdateInfo,
+  ProviderUpdateResult,
+  ProviderUpdatesResult,
   type RpcResponse,
 } from "@zli-v2/contracts";
 
@@ -49,5 +52,28 @@ export function discoverProviders(
     { type: "providers.discover", ...(clearProblem ? { clearProblem } : {}) },
     (value) => ProvidersDiscoverResult.safeParse(value).data?.providers,
     "ZLI could not look for agents. Try again.",
+  );
+}
+
+/** Each installed agent CLI against its newest published version. Installs nothing. */
+export function checkProviderUpdates(dispatch: Dispatch): Promise<Result<ProviderUpdateInfo[]>> {
+  return request(
+    dispatch,
+    { type: "providers.checkUpdates" },
+    (value) => ProviderUpdatesResult.safeParse(value).data?.updates,
+    "ZLI could not check for agent updates. Try again.",
+  );
+}
+
+/** Updates one agent CLI, then answers once the install has finished and the agents were found again. */
+export function updateProvider(
+  dispatch: Dispatch,
+  provider: ListedProviderKind,
+): Promise<Result<ProviderUpdateResult>> {
+  return request(
+    dispatch,
+    { type: "providers.update", provider },
+    (value) => ProviderUpdateResult.safeParse(value).data,
+    "The update could not start. Try again.",
   );
 }

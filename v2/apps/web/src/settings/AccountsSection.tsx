@@ -1,8 +1,11 @@
 import {
   type Account,
   type AccountKind,
+  type AccountSignIn,
   accountKinds,
+  BACKGROUND_SIGN_IN,
   ListedProviderKind,
+  type PlanLimitReading,
   type ProviderDiscovery,
   type RuntimeProjection,
   USUAL_LOGIN_ACCOUNT_ID,
@@ -19,9 +22,12 @@ import {
   validateDraft,
 } from "../accounts/accounts.js";
 import { type AgentStatus, agentStatus, statusLine } from "../agent/agentStatus.js";
-import { listedDiscoveries, providerDisplayName, signInCommand } from "../agent/providers.js";
+import { listedDiscoveries, planLabel, providerDisplayName, signInCommand } from "../agent/providers.js";
+import { accountTag, OWN_LOGIN_LABEL, ownLoginLabel } from "../chat/agentModels.js";
+import { useKnownPlanLimits, visibleWindows } from "../limits/limits.js";
+import { useCopyFeedback } from "../review/links.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
-import { Badge } from "../ui/Badge.js";
+import { WindowLine } from "../sidebar/SidebarUsageStrip.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Field, Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
@@ -29,6 +35,7 @@ import { ProviderMark } from "../ui/ProviderMark.js";
 import { installCommand, installPlatform } from "../welcome/welcome.js";
 import { discoverProviders } from "../welcome/welcomeClient.js";
 import { SettingsGroup, SettingsPageHeader } from "./SettingsLayout.js";
+import { useBackgroundSignIns } from "./useBackgroundSignIns.js";
 
 type Check = { status: "idle" } | { status: "checking" } | { status: "error"; message: string };
 
@@ -92,8 +99,13 @@ export function AccountsSection({
   projection: RuntimeProjection | undefined;
   onSignIn?(account: Account): Promise<string | undefined>;
 }) {
-  const { state, accounts, reload, save, remove, setDefault } = useAccounts();
+  const { state, accounts, reload, refresh, save, remove, setDefault } = useAccounts();
   const { check, fresh, run: recheck } = useAgentCheck();
+  const background = useBackgroundSignIns(() => {
+    refresh();
+    void recheck();
+  });
+  const readings = useKnownPlanLimits();
   // The projection follows every change the runtime announces; the check's own answer covers the moment before.
   const discovered = projection?.providers ?? fresh;
   const [editing, setEditing] = useState<Editing>();
@@ -113,7 +125,7 @@ export function AccountsSection({
   const checking = check.status === "checking";
 
   const header = (
-    <SettingsPageHeader title="Accounts">
+    <SettingsPageHeader title="Providers">
       Who each agent is signed in as on this computer, and what it pays with. An agent can also run under another login
       or API key you add here.
     </SettingsPageHeader>
@@ -214,9 +226,16 @@ export function AccountsSection({
     if (saved) setEditing(undefined);
   };
 
+  // Agents with a login command sign in in the background and go straight to the browser; the rest
+  // sign in in a terminal, as before.
   const signIn = async (account: Account) => {
-    if (!onSignIn) return;
     setError(undefined);
+    const outcome = BACKGROUND_SIGN_IN[account.provider] ? await background.start(account.id) : "terminal";
+    if (outcome !== "terminal") {
+      if (outcome) setError(outcome);
+      return;
+    }
+    if (!onSignIn) return;
     const failure = await onSignIn(account);
     if (failure) setError(failure);
     else void recheck();
@@ -344,6 +363,23 @@ export function AccountsSection({
         const usualIsDefault = !own.some((account) => account.default);
         const canAdd = accountsReady && supportsAccounts(provider);
         const status = agentStatus(discovered.find((entry) => entry.provider === provider));
+        const usualPlan =
+          status.kind === "subscription" ? status.plan : status.kind === "api-key" ? "API key" : undefined;
+        const usualEmail = status.kind === "subscription" || status.kind === "no-plan" ? status.email : undefined;
+        const usualFine = status.kind === "subscription" || status.kind === "api-key";
+        const readingOf = (accountId: string) =>
+          readings.find((reading) => reading.provider === provider && reading.accountId === accountId);
+        const setDefaultButton = (accountId: string, label: string) => (
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={saving}
+            aria-label={`Use ${label} for ${name} by default`}
+            onClick={() => void run(() => setDefault(provider, accountId))}
+          >
+            Set default
+          </Button>
+        );
         return (
           <SettingsGroup
             key={provider}
@@ -354,130 +390,159 @@ export function AccountsSection({
                 {name}
               </span>
             }
-            actions={
-              !canAdd || editor(provider) ? undefined : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  icon="plus"
-                  disabled={saving}
-                  aria-label={`Add ${name} account`}
-                  onClick={() => startEdit(provider)}
-                >
-                  Add account
-                </Button>
-              )
-            }
             bare
           >
-            <ul className="mcp-rows">
-              <li className={`mcp-row accounts-usual is-${status.kind}`}>
-                <span className="mcp-row-copy">
-                  <strong>{USUAL_LOGIN_LABEL}</strong>
-                  <span className="accounts-status">{statusLine(status)}</span>
-                  <span className="mcp-row-detail">{statusDetail(status, name, provider)}</span>
-                </span>
-                <UsualActions
-                  status={status}
-                  name={name}
-                  provider={provider}
-                  checking={checking}
-                  onCheck={(clearProblem) => void recheck(clearProblem ? provider : undefined)}
-                />
-                {!canAdd ? null : usualIsDefault ? (
-                  own.length > 0 ? (
-                    <Badge tone="quiet">Default</Badge>
-                  ) : null
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    disabled={saving}
-                    aria-label={`Use ${USUAL_LOGIN_LABEL} for ${name} by default`}
-                    onClick={() => void run(() => setDefault(provider, USUAL_LOGIN_ACCOUNT_ID))}
-                  >
-                    Set default
-                  </Button>
-                )}
-              </li>
-              {own.map((account) => (
-                <li className="mcp-row" key={account.id}>
-                  <span className="mcp-row-copy">
-                    <strong>{account.label}</strong>
-                    <span className="mcp-row-detail">
-                      {account.kind === "api-key"
-                        ? `API key ${account.keyHint ?? ""}`.trim()
-                        : account.status === "signed-in"
-                          ? "Signed in"
-                          : "Not checked"}
-                      {accountNote(account) ? `. ${accountNote(account)}` : ""}
-                    </span>
+            <ul className="account-deck">
+              <AccountCard
+                className={`accounts-usual is-${status.kind}`}
+                tag={accountTag(ownLoginLabel(usualEmail))}
+                name={ownLoginLabel(usualEmail)}
+                sub={usualEmail ? OWN_LOGIN_LABEL : `${name} on this computer`}
+                isDefault={usualIsDefault && own.length > 0}
+                plan={usualPlan}
+                reading={readingOf(USUAL_LOGIN_ACCOUNT_ID)}
+                // Signed in and paying: the email and plan already say it, so the line is only read aloud.
+                status={
+                  <span className={`accounts-status${usualFine ? " sr-only" : " is-warning"}`}>
+                    {statusLine(status)}
                   </span>
-                  {confirmDelete === account.id ? (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        className="is-danger"
-                        disabled={saving}
-                        onClick={async () => {
-                          if (await run(() => remove(account.id))) {
-                            setConfirmDelete(undefined);
-                            if (editing?.id === account.id) setEditing(undefined);
-                          }
-                        }}
-                      >
-                        Delete
-                      </Button>
-                      <Button variant="ghost" size="xs" onClick={() => setConfirmDelete(undefined)}>
-                        Keep
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      {account.kind === "sign-in" && onSignIn ? (
-                        <Button
+                }
+                note={status.kind === "subscription" ? undefined : statusDetail(status, name, provider)}
+                actions={
+                  <>
+                    <UsualActions
+                      status={status}
+                      name={name}
+                      provider={provider}
+                      checking={checking}
+                      onCheck={(clearProblem) => void recheck(clearProblem ? provider : undefined)}
+                    />
+                    {canAdd && !usualIsDefault ? setDefaultButton(USUAL_LOGIN_ACCOUNT_ID, USUAL_LOGIN_LABEL) : null}
+                  </>
+                }
+              />
+              {own.map((account) => (
+                <AccountCard
+                  key={account.id}
+                  tag={accountTag(account.label)}
+                  name={account.label}
+                  sub={
+                    account.kind === "api-key"
+                      ? `API key ${account.keyHint ?? ""}`.trim()
+                      : account.status === "signed-in"
+                        ? "Signed in"
+                        : "Not checked"
+                  }
+                  isDefault={account.default === true}
+                  plan={account.kind === "api-key" ? "API key" : planOf(readingOf(account.id))}
+                  reading={readingOf(account.id)}
+                  note={
+                    background.signIns[account.id] ? (
+                      <SignInProgress signIn={background.signIns[account.id] as AccountSignIn} />
+                    ) : (
+                      accountNote(account)
+                    )
+                  }
+                  menu={
+                    confirmDelete === account.id ? null : (
+                      <>
+                        <IconButton
+                          label={`Edit ${account.label}`}
+                          icon="pencil"
                           size="xs"
+                          iconSize={12}
                           disabled={saving}
-                          aria-label={`Sign in to ${account.label}`}
-                          onClick={() => void signIn(account)}
-                        >
-                          Sign in
-                        </Button>
-                      ) : null}
-                      {account.default ? (
-                        <Badge tone="quiet">Default</Badge>
-                      ) : (
+                          onClick={() => startEdit(provider, account)}
+                        />
+                        <IconButton
+                          label={`Delete ${account.label}`}
+                          icon="trash"
+                          size="xs"
+                          iconSize={12}
+                          disabled={saving}
+                          onClick={() => setConfirmDelete(account.id)}
+                        />
+                      </>
+                    )
+                  }
+                  actions={
+                    confirmDelete === account.id ? (
+                      <>
+                        <span className="account-card-ask">Delete {account.label}?</span>
                         <Button
                           variant="ghost"
                           size="xs"
+                          className="is-danger"
                           disabled={saving}
-                          aria-label={`Use ${account.label} for ${name} by default`}
-                          onClick={() => void run(() => setDefault(provider, account.id))}
+                          onClick={async () => {
+                            if (await run(() => remove(account.id))) {
+                              setConfirmDelete(undefined);
+                              if (editing?.id === account.id) setEditing(undefined);
+                            }
+                          }}
                         >
-                          Set default
+                          Delete
                         </Button>
-                      )}
-                      <IconButton
-                        label={`Edit ${account.label}`}
-                        icon="pencil"
-                        size="xs"
-                        iconSize={12}
-                        disabled={saving}
-                        onClick={() => startEdit(provider, account)}
-                      />
-                      <IconButton
-                        label={`Delete ${account.label}`}
-                        icon="trash"
-                        size="xs"
-                        iconSize={12}
-                        disabled={saving}
-                        onClick={() => setConfirmDelete(account.id)}
-                      />
-                    </>
-                  )}
-                </li>
+                        <Button variant="ghost" size="xs" onClick={() => setConfirmDelete(undefined)}>
+                          Keep
+                        </Button>
+                      </>
+                    ) : background.signIns[account.id]?.state === "waiting" ? (
+                      <>
+                        {background.signIns[account.id]?.url ? (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => background.reopen(background.signIns[account.id]?.url ?? "")}
+                          >
+                            Open page again
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          aria-label={`Stop signing in to ${account.label}`}
+                          onClick={() => void background.cancel(account.id)}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        {account.kind === "sign-in" && (onSignIn || BACKGROUND_SIGN_IN[account.provider]) ? (
+                          <Button
+                            size="xs"
+                            disabled={saving}
+                            aria-label={`Sign in to ${account.label}`}
+                            onClick={() => void signIn(account)}
+                          >
+                            Sign in
+                          </Button>
+                        ) : null}
+                        {account.default ? null : setDefaultButton(account.id, account.label)}
+                      </>
+                    )
+                  }
+                />
               ))}
+              {canAdd && !editor(provider) ? (
+                <li className="account-card-add">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    aria-label={`Add ${name} account`}
+                    onClick={() => startEdit(provider)}
+                  >
+                    <Icon name="plus" size={16} />
+                    <span>Add account</span>
+                    <small>
+                      {accountKinds(provider)
+                        .map((kind) => accountKindHint[kind])
+                        .join(", or ")}
+                    </small>
+                  </button>
+                </li>
+              ) : null}
             </ul>
             {editor(provider)}
           </SettingsGroup>
@@ -522,6 +587,118 @@ export function AccountsSection({
         Agents keep the account they started with. {unsupported.join(" and ")} do not support accounts yet.
       </p>
     </>
+  );
+}
+
+const accountKindHint: Record<AccountKind, string> = { "sign-in": "Sign in", "api-key": "paste an API key" };
+
+function planOf(reading: PlanLimitReading | undefined): string | undefined {
+  return reading?.plan ? planLabel(reading.plan) : undefined;
+}
+
+/**
+ * One login as a card: who it is, what it pays with, how much of its plan is used, and what to do next.
+ * The default login, the one new chats get, is lifted from the rest.
+ */
+function AccountCard({
+  className,
+  tag,
+  name,
+  sub,
+  isDefault,
+  plan,
+  reading,
+  status,
+  note,
+  menu,
+  actions,
+}: {
+  className?: string;
+  tag: string;
+  name: string;
+  sub: string;
+  isDefault: boolean;
+  plan: string | undefined;
+  reading: PlanLimitReading | undefined;
+  status?: ReactNode;
+  note?: ReactNode;
+  menu?: ReactNode;
+  actions?: ReactNode;
+}) {
+  const windows = reading?.state === "ok" ? visibleWindows(reading) : [];
+  const now = Date.now();
+  return (
+    <li className={`account-card${isDefault ? " is-default" : ""}${className ? ` ${className}` : ""}`}>
+      <div className="account-card-top">
+        <span className="account-card-avatar" aria-hidden="true">
+          {tag}
+        </span>
+        <span className="account-card-who">
+          <strong>{name}</strong>
+          <span className="account-card-sub">{sub}</span>
+        </span>
+        {isDefault || plan ? (
+          <span className="account-card-badges">
+            {isDefault ? <span className="account-chip is-on">Default</span> : null}
+            {plan ? <span className="account-chip">{plan}</span> : null}
+          </span>
+        ) : null}
+      </div>
+      {status ? <div className="account-card-chips">{status}</div> : null}
+      {windows.length > 0 ? (
+        <span className="usage-strip-windows account-card-limits">
+          {windows.map((window) => (
+            <WindowLine
+              key={`${window.scope ?? ""}${window.durationMinutes ?? ""}`}
+              window={window}
+              now={now}
+              timeZone={undefined}
+            />
+          ))}
+        </span>
+      ) : null}
+      {note ? <p className="account-card-note">{note}</p> : null}
+      {reading?.state === "expired" && reading.message ? (
+        <p className="account-card-note is-warning">{reading.message}</p>
+      ) : null}
+      {actions || menu ? (
+        <div className="account-card-actions">
+          {menu ? <span className="account-card-menu">{menu}</span> : null}
+          {actions}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+/** A background sign-in on its card: where to finish it, the code to type when there is one, or why it stopped. */
+function SignInProgress({ signIn }: { signIn: AccountSignIn }) {
+  const [copied, copy] = useCopyFeedback();
+  if (signIn.state === "failed") {
+    return <span className="account-signin is-warning">{signIn.message ?? "The sign-in stopped."} Try again.</span>;
+  }
+  if (signIn.state === "done") return <span className="account-signin is-done">Signed in.</span>;
+  if (signIn.state === "cancelled") return null;
+  return (
+    <span className="account-signin" role="status">
+      <span className="account-signin-line">
+        <span className="spinner" aria-hidden="true" />
+        {signIn.url ? "Finish signing in in your browser." : "Opening the sign-in page…"}
+      </span>
+      {signIn.code ? (
+        <span className="account-signin-code">
+          Enter this code on the page: <code>{signIn.code}</code>
+          <button type="button" className="account-signin-copy" onClick={() => copy(signIn.code ?? "")}>
+            {copied === "copied" ? "Copied" : "Copy"}
+          </button>
+        </span>
+      ) : null}
+      {signIn.url ? (
+        <button type="button" className="account-signin-copy" onClick={() => copy(signIn.url ?? "")}>
+          {copied === "copied" && !signIn.code ? "Link copied" : "Copy link"}
+        </button>
+      ) : null}
+    </span>
   );
 }
 

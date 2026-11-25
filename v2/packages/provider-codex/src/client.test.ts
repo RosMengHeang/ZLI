@@ -68,6 +68,27 @@ class FakePeer implements CodexPeer {
 }
 
 describe("CodexAppServerClient", () => {
+  it("compacts a thread and takes the turn id from the turn Codex starts for it", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    peer.during.set("thread/compact/start", () =>
+      peer.emit({
+        jsonrpc: "2.0",
+        method: "turn/started",
+        params: { threadId: "provider-thread-1", turn: { id: "compact-turn-1", status: "inProgress" } },
+      }),
+    );
+
+    await expect(client.compactThread("provider-thread-1")).resolves.toEqual({ providerTurnId: "compact-turn-1" });
+    expect(peer.requests.at(-1)).toEqual({ method: "thread/compact/start", params: { threadId: "provider-thread-1" } });
+  });
+
+  it("fails a compaction that never starts a turn", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    await expect(client.compactThread("provider-thread-1", 10)).rejects.toThrow("did not start compacting");
+  });
+
   it("initializes once, starts a session, sends turns, and normalizes structured events", async () => {
     const peer = new FakePeer();
     const client = await CodexAppServerClient.connect({ peer });

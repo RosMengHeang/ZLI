@@ -7,6 +7,8 @@ import {
   type AccountCommand,
   type AccountDraft,
   type AccountListResult,
+  type AccountSignIn,
+  type AccountSignInResult,
   AGENT_SETTINGS_COMMAND_TYPES,
   type AgentSettings,
   type AgentSettingsCommand,
@@ -79,6 +81,13 @@ import type { Engine } from "../orchestration/Engine.js";
 import { isPluginError, type PluginStore } from "../plugins/PluginStore.js";
 import { runPluginCommand } from "../plugins/runPluginCommand.js";
 import { unavailableProviderDiscovery } from "../providers/discoverCliProviders.js";
+import {
+  checkProviderUpdates,
+  forgetLatestVersions,
+  parseVersion,
+  planProviderUpdate,
+  runUpdateCommand,
+} from "../providers/providerUpdates.js";
 import { GitChangesError, GitChangesService, runGitChangesCommand } from "../review/GitChangesService.js";
 import {
   branchChanges,
@@ -138,6 +147,12 @@ type RpcServerOptions = {
     delete(accountId: string): Promise<AccountListResult>;
     setDefault(provider: ListedProviderKind, accountId?: string): Promise<AccountListResult>;
   };
+  /** Background sign-ins for saved accounts. Without it, Sign in answers that it runs in a terminal. */
+  accountSignIns?: {
+    start(accountId: string): Promise<AccountSignIn | undefined>;
+    status(accountId: string): AccountSignIn | undefined;
+    cancel(accountId: string): AccountSignIn | undefined;
+  };
   /** Plan limits per login. Without it, limits commands are answered as unavailable. */
   limits?: { read(refresh?: boolean): Promise<PlanLimitsResult> };
   /** Settings applied when chat agents start. Without it, agent settings commands are answered as unavailable. */
@@ -172,6 +187,7 @@ export class RpcServer {
   private readonly skills: SkillStore | undefined;
   private readonly plugins: PluginStore | undefined;
   private readonly accounts: RpcServerOptions["accounts"];
+  private readonly accountSignIns: RpcServerOptions["accountSignIns"];
   private readonly history: RpcServerOptions["history"];
   private readonly refreshProviders: RpcServerOptions["refreshProviders"];
   private readonly clearProviderProblem: RpcServerOptions["clearProviderProblem"];
@@ -184,6 +200,8 @@ export class RpcServer {
   private webSocketServer: WebSocketServer | undefined;
   private boundPort: number | undefined;
   private lastProviders: ProviderDiscovery[] | undefined;
+  /** Agents whose CLI is being updated now, so a second click does not start a second install. */
+  private readonly updatingProviders = new Set<string>();
   private readonly clients = new Set<WebSocket>();
   private readonly clientCleanup = new Map<WebSocket, () => void>();
 
@@ -212,6 +230,7 @@ export class RpcServer {
     this.skills = options.skills;
     this.plugins = options.plugins;
     this.accounts = options.accounts;
+    this.accountSignIns = options.accountSignIns;
     this.limits = options.limits;
     this.agentSettings = options.agentSettings;
     this.host = options.host ?? "127.0.0.1";
@@ -606,6 +625,23 @@ export class RpcServer {
       return true;
     }
     try {
+      if (
+        command.type === "accounts.signIn" ||
+        command.type === "accounts.signInStatus" ||
+        command.type === "accounts.signInCancel"
+      ) {
+        const signIns = this.accountSignIns;
+        const signIn = !signIns
+          ? undefined
+          : command.type === "accounts.signIn"
+            ? await signIns.start(command.accountId)
+            : command.type === "accounts.signInStatus"
+              ? signIns.status(command.accountId)
+              : signIns.cancel(command.accountId);
+        const result: AccountSignInResult = signIn ? { signIn } : {};
+        send(client, { type: "response", response: { commandId: request.commandId, accepted: true, result } });
+        return true;
+      }
       const result =
         command.type === "accounts.list"
           ? await store.list()
@@ -622,7 +658,10 @@ export class RpcServer {
     return true;
   }
 
-  /** Setup asks for agents again and for the folders past agent sessions ran in. Neither writes anything. */
+  /**
+   * Setup asks for agents again and for the folders past agent sessions ran in; neither writes anything.
+   * Settings checks agent CLIs for new versions and updates one when the person asks.
+   */
   private async handleHistoryCommand(client: WebSocket, request: RpcRequest): Promise<boolean> {
     const command = request.command;
     if (!isHistoryCommand(command)) return false;
@@ -644,6 +683,71 @@ export class RpcServer {
         for (const other of this.clients) void this.sendWithProviders(other, providers);
       } catch {
         reject({ code: "internal", message: "ZLI could not look for agents. Try again.", retryable: true });
+      }
+      return true;
+    }
+    if (command.type === "providers.checkUpdates" || command.type === "providers.update") {
+      const discover = this.refreshProviders ?? this.discoverProviders;
+      if (!discover) {
+        reject({ code: "unavailable", message: "Agent updates are not available here.", retryable: false });
+        return true;
+      }
+      if (command.type === "providers.checkUpdates") {
+        try {
+          const providers = [...(await discover())];
+          this.lastProviders = providers;
+          respond({ updates: await checkProviderUpdates(providers) });
+        } catch {
+          reject({ code: "internal", message: "ZLI could not check for agent updates. Try again.", retryable: true });
+        }
+        return true;
+      }
+      const { provider } = command;
+      if (this.updatingProviders.has(provider)) {
+        reject({ code: "invalid_request", message: "This agent is already updating.", retryable: false });
+        return true;
+      }
+      this.updatingProviders.add(provider);
+      try {
+        const before = (this.lastProviders ?? [...(await discover())]).find((entry) => entry.provider === provider);
+        if (before?.status !== "found") {
+          reject({ code: "invalid_request", message: "This agent is not installed.", retryable: false });
+          return true;
+        }
+        const plan = planProviderUpdate(provider, before.path);
+        if (!plan.command || !plan.args) {
+          reject({
+            code: "invalid_request",
+            message: "ZLI cannot tell how this agent was installed. Run the update command yourself.",
+            retryable: false,
+          });
+          return true;
+        }
+        const run = await runUpdateCommand(plan.command, plan.args);
+        forgetLatestVersions();
+        const providers = [...(await discover())];
+        this.lastProviders = providers;
+        for (const other of this.clients) void this.sendWithProviders(other, providers);
+        const after = providers.find((entry) => entry.provider === provider);
+        const oldVersion = parseVersion(before.version);
+        const newVersion = after?.status === "found" ? parseVersion(after.version) : undefined;
+        const moved = newVersion !== undefined && newVersion !== oldVersion;
+        const name = before.displayName;
+        respond({
+          provider,
+          outcome: !run.ok ? "failed" : moved ? "updated" : "unchanged",
+          message: !run.ok
+            ? `${name} did not update.`
+            : moved
+              ? `${name} is now on ${newVersion}.`
+              : `${name} is already up to date${newVersion ? ` on ${newVersion}` : ""}.`,
+          ...(!run.ok && run.output ? { output: run.output } : {}),
+          updates: await checkProviderUpdates(providers),
+        });
+      } catch {
+        reject({ code: "internal", message: "The update could not start. Try again.", retryable: true });
+      } finally {
+        this.updatingProviders.delete(provider);
       }
       return true;
     }

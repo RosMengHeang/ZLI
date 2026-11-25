@@ -4,6 +4,8 @@ import {
   type AccountDraft,
   type AccountKind,
   AccountListResult,
+  type AccountSignIn,
+  AccountSignInResult,
   type ListedProviderKind,
   type RpcResponse,
   USUAL_LOGIN_ACCOUNT_ID,
@@ -32,6 +34,28 @@ async function request(dispatch: Dispatch, command: Record<string, unknown>): Pr
   const parsed = AccountListResult.safeParse(response.result);
   if (!parsed.success) throw new Error("The runtime sent an unexpected reply. Restart ZLI and try again.");
   return parsed.data;
+}
+
+async function signInRequest(dispatch: Dispatch, command: Record<string, unknown>): Promise<AccountSignIn | undefined> {
+  const response = await dispatch({ protocolVersion: 1, commandId: makeCommandId(), command });
+  if (!response) throw new Error("ZLI is not connected to its runtime.");
+  if (!response.accepted) throw new Error(response.error.message);
+  const parsed = AccountSignInResult.safeParse(response.result);
+  if (!parsed.success) throw new Error("The runtime sent an unexpected reply. Restart ZLI and try again.");
+  return parsed.data.signIn;
+}
+
+/** Starts the agent's login in the background. Undefined means this agent signs in in a terminal instead. */
+export function startBackgroundSignIn(dispatch: Dispatch, accountId: string): Promise<AccountSignIn | undefined> {
+  return signInRequest(dispatch, { type: "accounts.signIn", accountId });
+}
+
+export function backgroundSignInStatus(dispatch: Dispatch, accountId: string): Promise<AccountSignIn | undefined> {
+  return signInRequest(dispatch, { type: "accounts.signInStatus", accountId });
+}
+
+export function cancelBackgroundSignIn(dispatch: Dispatch, accountId: string): Promise<AccountSignIn | undefined> {
+  return signInRequest(dispatch, { type: "accounts.signInCancel", accountId });
 }
 
 export function listAccounts(dispatch: Dispatch): Promise<AccountListResult> {
@@ -178,6 +202,8 @@ export function useAccounts(): {
   state: AccountsState;
   accounts: readonly Account[];
   reload(): void;
+  /** Reads the list again without blanking it first. */
+  refresh(): void;
   save(account: AccountDraft): Promise<AccountListResult>;
   remove(accountId: string): Promise<AccountListResult>;
   setDefault(provider: ListedProviderKind, accountId: string): Promise<AccountListResult>;
@@ -204,6 +230,7 @@ export function useAccounts(): {
       publish({ status: "loading" });
       void refresh(dispatch);
     },
+    refresh: () => void refresh(dispatch),
     save: (account) => apply(saveAccount(dispatch, account)),
     remove: (accountId) => apply(deleteAccount(dispatch, accountId)),
     setDefault: (provider, accountId) => apply(setDefaultAccount(dispatch, provider, accountId)),

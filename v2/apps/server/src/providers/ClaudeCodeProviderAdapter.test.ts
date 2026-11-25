@@ -53,6 +53,8 @@ describe("ClaudeCodeProviderAdapter", () => {
       structuredUserInput: false,
       conversationRollback: false,
       modelSwitch: "in-session",
+      compaction: "native",
+      compactionInstructions: true,
     });
     await expect(adapter.startSession({ threadId, cwd: "/work/tree" })).resolves.toMatchObject({
       threadId,

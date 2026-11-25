@@ -12,6 +12,7 @@ import type { McpServerSpec } from "../browser-tool/browserTool.js";
 import { projectMcpFileContents } from "../browser-tool/mcpSettingsFiles.js";
 import type { CliProbe } from "./discoverCliProviders.js";
 import {
+  ACP_PROVIDERS,
   createProviderRegistry,
   resolveAcpCommand,
   resolveClaudeCommand,
@@ -35,19 +36,31 @@ describe("createProviderRegistry", () => {
       "goose",
       "grok",
     ]);
-    for (const provider of ["opencode", "gemini", "copilot", "kimi", "qwen", "goose", "grok"] as const) {
+    const acp = {
+      exactResume: false,
+      structuredApproval: true,
+      structuredUserInput: false,
+      conversationRollback: false,
+      modelSwitch: "in-session",
+    };
+    // Native compaction where Orca drives the agent's own command; Gemini keeps ZLI's summary way.
+    expect(registry.get("gemini")?.capabilities).toEqual(acp);
+    for (const provider of ["opencode", "goose", "grok"] as const) {
+      expect(registry.get(provider)?.capabilities).toEqual({ ...acp, compaction: "native" });
+    }
+    for (const provider of ["copilot", "kimi", "qwen"] as const) {
       expect(registry.get(provider)?.capabilities).toEqual({
-        exactResume: false,
-        structuredApproval: true,
-        structuredUserInput: false,
-        conversationRollback: false,
-        modelSwitch: "in-session",
+        ...acp,
+        compaction: "native",
+        compactionInstructions: true,
       });
     }
+    expect(ACP_PROVIDERS.find((config) => config.provider === "qwen")?.compaction?.command).toBe("/compress");
     expect(registry.get("codex")?.capabilities).toMatchObject({
       exactResume: true,
       structuredApproval: true,
       conversationRollback: true,
+      compaction: "native",
     });
     expect(registry.get("claude-code")?.capabilities).toEqual({
       exactResume: false,
@@ -55,6 +68,8 @@ describe("createProviderRegistry", () => {
       structuredUserInput: false,
       conversationRollback: false,
       modelSwitch: "in-session",
+      compaction: "native",
+      compactionInstructions: true,
     });
     expect(registry.get("droid")?.capabilities).toEqual({
       exactResume: false,

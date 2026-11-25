@@ -7,7 +7,7 @@ import {
 } from "@zli-v2/provider-acp";
 import { describe, expect, it } from "vitest";
 
-import { AcpProviderAdapter, type AcpProviderConfig, acpActivity } from "./AcpProviderAdapter.js";
+import { AcpProviderAdapter, type AcpProviderConfig, acpActivity, acpCompactText } from "./AcpProviderAdapter.js";
 import { type ProviderEvent, ProviderRegistry, ProviderService } from "./ProviderService.js";
 
 const threadId = ThreadId.parse("00000000-0000-4000-8000-000000000931");
@@ -100,6 +100,24 @@ describe("AcpProviderAdapter", () => {
       },
       { method: "turn", value: { text: "plain" } },
       { method: "interrupt", value: turnId },
+    ]);
+  });
+
+  it("sends the agent's own compact command as a prompt and reports native compaction", async () => {
+    const client = new FakeClient();
+    const qwen = new AcpProviderAdapter(
+      { ...config, provider: "qwen", compaction: { command: "/compress", instructions: true } },
+      { createClient: async () => client },
+    );
+    expect(qwen.capabilities).toMatchObject({ compaction: "native", compactionInstructions: true });
+    await qwen.startSession({ threadId, cwd: "/work/tree" });
+    await qwen.sendTurn({ threadId, text: " /compact " });
+    await qwen.sendTurn({ threadId, text: "/compact keep the API decisions" });
+    await qwen.sendTurn({ threadId, text: "/compacting is next" });
+    expect(client.calls.map((call) => call.value)).toEqual([
+      { text: "/compress" },
+      { text: "/compress keep the API decisions" },
+      { text: "/compacting is next" },
     ]);
   });
 
@@ -253,6 +271,16 @@ describe("AcpProviderAdapter", () => {
       code: "cli_missing",
       message: "Goose CLI was not found on PATH or in known install locations.",
     });
+  });
+});
+
+describe("acpCompactText", () => {
+  it("drops focus text for agents that take none, and leaves agents without a command alone", () => {
+    const grok = { command: "/compact", instructions: false };
+    expect(acpCompactText("/compact keep the tests", grok)).toBe("/compact");
+    expect(acpCompactText("/COMPACT", grok)).toBe("/compact");
+    expect(acpCompactText("/compact", undefined)).toBeUndefined();
+    expect(acpCompactText("compact this", grok)).toBeUndefined();
   });
 });
 

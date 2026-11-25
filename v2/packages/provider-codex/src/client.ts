@@ -201,6 +201,34 @@ export class CodexAppServerClient {
     return { providerTurnId: result.turn.id };
   }
 
+  /**
+   * Codex's own compaction of the thread's context. thread/compact/start answers with nothing, and the work
+   * runs as a turn that streams turn/started, a contextCompaction item, and turn/completed; the turn's id
+   * comes from that turn/started.
+   */
+  async compactThread(providerThreadId: string, timeoutMs = 30_000): Promise<CodexTurnResult> {
+    let unsubscribe = () => {};
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const started = new Promise<string>((resolve, reject) => {
+      unsubscribe = this.subscribe((event) => {
+        if (event.type === "turn.started" && event.providerThreadId === providerThreadId) resolve(event.providerTurnId);
+      });
+      timer = setTimeout(
+        () => reject(new CodexProviderError("request_failed", "Codex did not start compacting the thread.")),
+        timeoutMs,
+      );
+    });
+    // Handled below; this keeps a timeout during the request from surfacing as an unhandled rejection.
+    started.catch(() => undefined);
+    try {
+      await this.request("thread/compact/start", { threadId: providerThreadId });
+      return { providerTurnId: await started };
+    } finally {
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async interruptTurn(providerThreadId: string, providerTurnId: string): Promise<void> {
     await this.request("turn/interrupt", { threadId: providerThreadId, turnId: providerTurnId });
   }
