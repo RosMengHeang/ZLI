@@ -368,6 +368,14 @@ With reduced motion turned on, transitions and animations are switched off,
 and entrances land straight on their final state. Status spinners keep
 turning, slowly, because they carry meaning.
 
+The first-run intro (`welcome/WelcomeIntro.tsx`) is the one longer entrance.
+It plays once, on a fresh install: the ZLI tile scales in, its Z is drawn,
+"Welcome to ZLI" rises in word by word, and a hairline fills as ZLI looks for
+agents, the GitHub CLI, and past sessions. The bar is real progress, not a
+timer, and Get started appears once those checks answer (after 1.6s at the
+earliest, 6s at the latest). Nothing in it loops. The setup steps after it
+enter with a 6px rise, and their tiles stagger by 30ms.
+
 Buddies (the agent and chat avatars, `teammates/BuddyAvatar.tsx`) are the one
 place with character motion, and it is a status signal like the spinner: a hop
 when a task arrives, rocking while a step runs, a sway while thinking, two hops

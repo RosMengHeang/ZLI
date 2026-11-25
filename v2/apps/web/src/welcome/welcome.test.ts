@@ -8,6 +8,7 @@ import {
   failedFoldersMessage,
   installCommand,
   installPlatform,
+  introStatus,
   landingPath,
   planLabel,
   preselect,
@@ -129,5 +130,20 @@ describe("automatic choices", () => {
   it("names plans the way people read them", () => {
     expect(planLabel("pro")).toBe("Pro");
     expect(planLabel("team_plus")).toBe("Team Plus");
+  });
+});
+
+describe("introStatus", () => {
+  it("names the check still running, in order", () => {
+    expect(introStatus({ agents: undefined, github: undefined, projects: undefined })).toBe(
+      "Looking for coding agents…",
+    );
+    expect(introStatus({ agents: 2, github: undefined, projects: undefined })).toBe("Checking GitHub CLI…");
+    expect(introStatus({ agents: 2, github: "ready", projects: undefined })).toBe("Reading past sessions…");
+  });
+
+  it("says what was found once every check is back", () => {
+    expect(introStatus({ agents: 1, github: "missing", projects: 0 })).toBe("Found 1 agent");
+    expect(introStatus({ agents: 3, github: "ready", projects: 12 })).toBe("Found 3 agents and 12 projects");
   });
 });

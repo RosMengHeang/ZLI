@@ -1,8 +1,9 @@
 import { open, readdir, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
-import { type HistoryFolder, type HistorySource, MAX_HISTORY_SESSIONS } from "@zli-v2/contracts";
+import { BUDDY_HOMES_FOLDER, type HistoryFolder, type HistorySource, MAX_HISTORY_SESSIONS } from "@zli-v2/contracts";
 
 /** The folder is near the top of a session file; reading past this would mean the file is not a session. */
 const MAX_HEAD_BYTES = 1024 * 1024;
@@ -14,6 +15,8 @@ export type AgentHistoryScannerOptions = {
   home: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
+  /** The system temp folder, left out with everything in it. Defaults to the OS one. */
+  tempDir?: string;
 };
 
 /**
@@ -34,7 +37,7 @@ export class AgentHistoryScanner {
     const folders = new Map<string, { path: string; lastActiveMs: number; sources: Set<HistorySource> }>();
     for (const transcript of transcripts) {
       const cwd = await this.cwdOf(transcript);
-      if (!cwd) continue;
+      if (!cwd || this.notAProject(cwd)) continue;
       const folderKey = this.folderKey(cwd);
       const folder = folders.get(folderKey) ?? { path: cwd, lastActiveMs: 0, sources: new Set() };
       folder.lastActiveMs = Math.max(folder.lastActiveMs, transcript.mtimeMs);
@@ -56,6 +59,32 @@ export class AgentHistoryScanner {
       });
     }
     return out;
+  }
+
+  /**
+   * Folders agents ran in that are not projects: the home folder itself, the temp folder, app data (where
+   * tools keep their own files), the agents' config homes, and the folders ZLI's buddies work in.
+   */
+  private notAProject(cwd: string): boolean {
+    const key = this.folderKey(cwd);
+    const env = this.options.env ?? {};
+    const home = this.folderKey(this.options.home);
+    if (key === home) return true;
+    if (key.split("/").includes(this.folderKey(BUDDY_HOMES_FOLDER))) return true;
+    const roots = [
+      this.options.tempDir ?? tmpdir(),
+      env.APPDATA,
+      env.LOCALAPPDATA,
+      join(this.options.home, "AppData"),
+      join(this.options.home, "Library"),
+      this.claudeHome(),
+      this.codexHome(),
+    ];
+    return roots.some((root) => {
+      if (!root?.trim()) return false;
+      const rootKey = this.folderKey(root);
+      return key === rootKey || key.startsWith(`${rootKey}/`);
+    });
   }
 
   private folderKey(path: string): string {

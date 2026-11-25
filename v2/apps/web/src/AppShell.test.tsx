@@ -1394,17 +1394,25 @@ describe("Welcome setup", () => {
   const welcome = () => document.querySelector(".welcome-screen");
 
   it("opens on a fresh install, steps through the views, and stays away once skipped", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const container = await render(makeBridge({ ...fresh, providers: discovered.providers }));
-    expect(welcome()?.textContent).toContain("Your agents");
-    const dialog = welcome() as HTMLElement;
-    await act(async () => button(dialog, "Continue")?.click());
+    expect(welcome()?.textContent).toContain("Welcome to ZLI");
+    await act(async () => {
+      vi.advanceTimersByTime(6_000);
+    });
+    await act(async () => button(welcome() as HTMLElement, "Get started")?.click());
+    vi.useRealTimers();
+    expect(welcome()?.textContent).toContain("Choose your agent.");
+    await act(async () => button(welcome() as HTMLElement, "Continue")?.click());
+    expect(welcome()?.textContent).toContain("Meet your buddies.");
+    await act(async () => button(welcome() as HTMLElement, "Continue")?.click());
     expect(welcome()?.textContent).toContain("How do you want to work?");
     const chat = welcome()?.querySelector<HTMLInputElement>('input[value="chat"]');
     expect(chat?.checked).toBe(true);
     expect(welcome()?.textContent).toContain("Recommended");
     await act(async () => button(welcome() as HTMLElement, "Continue")?.click());
     expect(JSON.parse(window.localStorage.getItem("zli.settings.v1") ?? "{}").defaults?.mode).toBe("chat");
-    expect(welcome()?.textContent).toContain("Your projects");
+    expect(welcome()?.textContent).toContain("Pick your projects.");
     await act(async () => button(welcome() as HTMLElement, "Skip setup")?.click());
     expect(welcome()).toBeNull();
     expect(JSON.parse(window.localStorage.getItem("zli.settings.v1") ?? "{}").onboardedAt).toEqual(expect.any(String));

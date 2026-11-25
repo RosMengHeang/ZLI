@@ -1,5 +1,6 @@
 import type {
   AgentLogin,
+  ForgeCliStatus,
   HistoryFolder,
   ListedProviderKind,
   ProjectProjection,
@@ -9,6 +10,9 @@ import type {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { listedDiscoveries } from "../agent/providers.js";
+import { forgesStatus, rescanForges } from "../forges/forgesClient.js";
+import { openExternalLink } from "../review/links.js";
+import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { BranchStatus } from "../sessions/BranchStatus.js";
 import { samePath } from "../sessions/launch.js";
 import type { NewAgentRequest } from "../sessions/NewAgentDialog.js";
@@ -21,11 +25,14 @@ import {
   withWorkStyle,
   workStyleOf,
 } from "../settings/appSettings.js";
+import { ConnectorLogo } from "../settings/connectorLogos.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
 import { Icon } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { ZliLogo } from "../ui/ZliLogo.js";
+import { WelcomeIntro } from "./WelcomeIntro.js";
+import { WelcomeTour } from "./WelcomeTour.js";
 import {
   agentReady,
   allFolders,
@@ -33,6 +40,7 @@ import {
   failedFoldersMessage,
   installCommand,
   installPlatform,
+  introStatus,
   landingPath,
   planLabel,
   preselect,
@@ -46,10 +54,17 @@ import { type Dispatch, discoverProviders, scanHistory } from "./welcomeClient.j
 import "./welcome.css";
 
 type Style = "chat" | "terminal";
+type ForgeRead = ForgeCliStatus | "loading" | { error: string };
+
+/** The intro stays up at least this long, so its entrance plays out even when every check answers at once. */
+const INTRO_MIN_MS = 1600;
+/** A check that never answers must not hold the intro: after this the person can go on regardless. */
+const INTRO_MAX_MS = 6000;
 
 /**
- * First-run setup. It takes the whole window, like a native app's first launch: one calm column, a
- * progress line and the actions at the bottom. Agents and the folders past agent sessions ran in are
+ * First-run setup. It takes the whole window, like a native app's first launch. An intro greets the
+ * person while ZLI looks around, then one calm column per step, a progress line and the actions at the
+ * bottom. Agents and the folders past agent sessions ran in are
  * found on their own; the only real choice is how new agents open. Projects come in empty: the first
  * agent starts a fresh session.
  */
@@ -70,7 +85,10 @@ export function WelcomeDialog({
   /** Finished or skipped. Either way the flow does not come back on its own. */
   onDone(): void;
 }) {
+  const [intro, setIntro] = useState(true);
   const [step, setStep] = useState<WelcomeStep>("agents");
+  const [forge, setForge] = useState<ForgeRead>("loading");
+  const [introElapsed, setIntroElapsed] = useState<"early" | "min" | "max">("early");
   const [providers, setProviders] = useState<ProviderDiscovery[]>(() => listedDiscoveries(projection.providers));
   const [style, setStyle] = useState<Style>(() =>
     workStyleOf(readAppSettings().defaults) === "terminal" ? "terminal" : "chat",
@@ -100,16 +118,33 @@ export function WelcomeDialog({
     setFolders(result.ok ? result.value : { error: result.error });
     if (result.ok) setSelected(preselect(result.value));
   };
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the scan runs once, when setup opens.
+  const loadForge = async (rescan = false) => {
+    setForge("loading");
+    try {
+      const result = await (rescan ? rescanForges(dispatch) : forgesStatus(dispatch));
+      const github = result.forges.find((entry) => entry.kind === "github");
+      setForge(github ?? { error: "ZLI could not check the GitHub CLI." });
+    } catch (cause) {
+      setForge({ error: cause instanceof Error ? cause.message : "ZLI could not check the GitHub CLI." });
+    }
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the scans run once, when setup opens.
   useEffect(() => {
     void loadHistory();
+    void loadForge();
+    const min = setTimeout(() => setIntroElapsed("min"), INTRO_MIN_MS);
+    const max = setTimeout(() => setIntroElapsed("max"), INTRO_MAX_MS);
+    return () => {
+      clearTimeout(min);
+      clearTimeout(max);
+    };
   }, []);
 
   // Each step starts with focus on the page, so Tab reaches its controls in order and Enter moves on.
   // biome-ignore lint/correctness/useExhaustiveDependencies: refocus only when the step changes.
   useEffect(() => {
-    stage.current?.focus();
-  }, [step]);
+    if (!intro) stage.current?.focus();
+  }, [step, intro]);
 
   // The agent new chats start with. Setup picks one, and the person can choose any other ready agent.
   const [chosenAgent, setChosenAgent] = useState<ListedProviderKind>();
@@ -224,7 +259,8 @@ export function WelcomeDialog({
 
   const next = () => {
     setError(undefined);
-    if (step === "agents") setStep("style");
+    if (step === "agents") setStep("tour");
+    else if (step === "tour") setStep("style");
     else if (step === "style") {
       saveChoices();
       setStep("projects");
@@ -242,6 +278,26 @@ export function WelcomeDialog({
     ? (added.find((project) => samePath(project.path, landing))?.name ??
       found.find((folder) => folder.path === landing)?.name)
     : undefined;
+  const agentsKnown = projection.providers !== undefined || providers.length > 0;
+  const introChecks = {
+    agents: agentsKnown ? installed.length : undefined,
+    github:
+      forge === "loading"
+        ? undefined
+        : "state" in forge
+          ? forge.state === "ready"
+            ? ("ready" as const)
+            : forge.state === "missing"
+              ? ("missing" as const)
+              : ("found" as const)
+          : ("missing" as const),
+    projects: folders === "loading" ? undefined : found.length,
+  };
+  const introDone = [introChecks.agents, introChecks.github, introChecks.projects].filter(
+    (value) => value !== undefined,
+  ).length;
+  const introReady = introElapsed === "max" || (introElapsed === "min" && introDone === 3);
+
   const note = error ? (
     <span className="welcome-error" role="alert">
       <Icon name="alert" size={13} />
@@ -286,100 +342,119 @@ export function WelcomeDialog({
           Skip setup
         </button>
       </header>
-      {/* Focus lands on the page itself, so Tab reaches the step's controls in order and Enter can continue. */}
-      <main
-        ref={stage}
-        className="welcome-stage"
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && event.target === event.currentTarget && !primary.current?.disabled) next();
-        }}
-      >
-        <div className="welcome-column" key={step}>
-          {step === "agents" ? (
-            <AgentsStep
-              providers={providers}
-              agent={agent}
-              onPick={setChosenAgent}
-              dispatch={dispatch}
-              onRefreshed={(value) => {
-                refreshed.current = true;
-                setProviders(listedDiscoveries(value));
-              }}
-            />
-          ) : step === "style" ? (
-            <StyleStep value={style} agent={agent} onChange={setStyle} />
-          ) : (
-            <ProjectsStep
-              folders={folders}
-              selected={selected}
-              added={added}
-              branches={branches}
-              onRetryBranch={(projectId) => void readBranch(projectId)}
-              canPickFolder={pickFolder !== undefined}
-              busy={busy}
-              onToggle={(path) =>
-                setSelected((current) => {
-                  const next = new Set(current);
-                  if (next.has(path)) next.delete(path);
-                  else next.add(path);
-                  return next;
-                })
-              }
-              onAddFolder={() => void addFolder()}
-              onSelectAll={(all) => setSelected(all && Array.isArray(folders) ? allFolders(folders) : new Set())}
-              onRemoveFolder={(projectId) =>
-                setAdded((current) => current.filter((project) => project.projectId !== projectId))
-              }
-              onRetry={() => void loadHistory()}
-            />
-          )}
-        </div>
-      </main>
-      <footer className="welcome-actions-bar">
-        <ol className="welcome-dots" aria-label={`Step ${index + 1} of ${WELCOME_STEPS.length}`}>
-          {WELCOME_STEPS.map((candidate, position) => (
-            <li
-              key={candidate.id}
-              className={position === index ? "is-current" : position < index ? "is-done" : undefined}
-              aria-current={position === index ? "step" : undefined}
+      {intro ? (
+        <main className="welcome-stage is-intro">
+          <WelcomeIntro
+            progress={introDone / 3}
+            status={introStatus(introChecks)}
+            ready={introReady}
+            onContinue={() => setIntro(false)}
+          />
+        </main>
+      ) : (
+        <>
+          {/* Focus lands on the page itself, so Tab reaches the step's controls in order and Enter can continue. */}
+          <main
+            ref={stage}
+            className="welcome-stage"
+            tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && event.target === event.currentTarget && !primary.current?.disabled) next();
+            }}
+          >
+            <div className="welcome-column" key={step}>
+              {step === "agents" ? (
+                <AgentsStep
+                  providers={providers}
+                  agent={agent}
+                  onPick={setChosenAgent}
+                  dispatch={dispatch}
+                  onRefreshed={(value) => {
+                    refreshed.current = true;
+                    setProviders(listedDiscoveries(value));
+                  }}
+                  forge={forge}
+                  onCheckForge={() => void loadForge(true)}
+                />
+              ) : step === "tour" ? (
+                <WelcomeTour />
+              ) : step === "style" ? (
+                <StyleStep value={style} agent={agent} onChange={setStyle} />
+              ) : (
+                <ProjectsStep
+                  folders={folders}
+                  selected={selected}
+                  added={added}
+                  branches={branches}
+                  onRetryBranch={(projectId) => void readBranch(projectId)}
+                  canPickFolder={pickFolder !== undefined}
+                  busy={busy}
+                  onToggle={(path) =>
+                    setSelected((current) => {
+                      const next = new Set(current);
+                      if (next.has(path)) next.delete(path);
+                      else next.add(path);
+                      return next;
+                    })
+                  }
+                  onAddFolder={() => void addFolder()}
+                  onSelectAll={(all) => setSelected(all && Array.isArray(folders) ? allFolders(folders) : new Set())}
+                  onRemoveFolder={(projectId) =>
+                    setAdded((current) => current.filter((project) => project.projectId !== projectId))
+                  }
+                  onRetry={() => void loadHistory()}
+                />
+              )}
+            </div>
+          </main>
+          <footer className="welcome-actions-bar">
+            <ol className="welcome-dots" aria-label={`Step ${index + 1} of ${WELCOME_STEPS.length}`}>
+              {WELCOME_STEPS.map((candidate, position) => (
+                <li
+                  key={candidate.id}
+                  className={position === index ? "is-current" : position < index ? "is-done" : undefined}
+                  aria-current={position === index ? "step" : undefined}
+                >
+                  <span className="welcome-visually-hidden">{candidate.label}</span>
+                </li>
+              ))}
+            </ol>
+            <span className="welcome-note" aria-live="polite">
+              {note}
+            </span>
+            {index > 0 ? (
+              <Button onClick={back} disabled={busy}>
+                Back
+              </Button>
+            ) : null}
+            <Button
+              ref={primary}
+              variant="primary"
+              loading={busy}
+              disabled={step === "agents" && installed.length === 0}
+              onClick={next}
             >
-              <span className="welcome-visually-hidden">{candidate.label}</span>
-            </li>
-          ))}
-        </ol>
-        <span className="welcome-note" aria-live="polite">
-          {note}
-        </span>
-        {index > 0 ? (
-          <Button onClick={back} disabled={busy}>
-            Back
-          </Button>
-        ) : null}
-        <Button
-          ref={primary}
-          variant="primary"
-          loading={busy}
-          disabled={step === "agents" && installed.length === 0}
-          onClick={next}
-        >
-          {step !== "projects"
-            ? "Continue"
-            : projectCount > 0
-              ? `Add ${projectCount} ${projectCount === 1 ? "project" : "projects"} and open`
-              : "Open ZLI"}
-        </Button>
-      </footer>
+              {step !== "projects"
+                ? "Continue"
+                : projectCount > 0
+                  ? `Add ${projectCount} ${projectCount === 1 ? "project" : "projects"} and open`
+                  : "Open ZLI"}
+            </Button>
+          </footer>
+        </>
+      )}
     </Dialog>
   );
 }
 
-function StepHeader({ step, title, children }: { step: number; title: string; children: ReactNode }) {
+function StepHeader({ title, dim, children }: { title: string; dim?: string; children?: ReactNode }) {
   return (
     <header className="welcome-head">
-      <span className="welcome-step-count">Step {step} of 3</span>
-      <h1 className="welcome-title">{title}</h1>
-      <p className="welcome-lede">{children}</p>
+      <h1 className="welcome-title">
+        {title}
+        {dim ? <span className="welcome-title-dim"> {dim}</span> : null}
+      </h1>
+      {children ? <p className="welcome-lede">{children}</p> : null}
     </header>
   );
 }
@@ -390,12 +465,16 @@ function AgentsStep({
   onPick,
   dispatch,
   onRefreshed,
+  forge,
+  onCheckForge,
 }: {
   providers: readonly ProviderDiscovery[];
   agent: ProviderDiscovery | undefined;
   onPick(provider: ListedProviderKind): void;
   dispatch: Dispatch;
   onRefreshed(providers: ProviderDiscovery[]): void;
+  forge: ForgeRead;
+  onCheckForge(): void;
 }) {
   const [showMore, setShowMore] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -405,13 +484,14 @@ function AgentsStep({
   const checkAgain = async () => {
     setChecking(true);
     setCheckError(undefined);
+    onCheckForge();
     const result = await discoverProviders(dispatch);
     setChecking(false);
     if (result.ok) onRefreshed(result.value);
     else setCheckError(result.error);
   };
-  const row = (entry: ProviderDiscovery) => (
-    <AgentRow
+  const tile = (entry: ProviderDiscovery) => (
+    <AgentTile
       key={entry.provider}
       entry={entry}
       primary={entry.provider === agent?.provider}
@@ -421,9 +501,9 @@ function AgentsStep({
   );
   return (
     <>
-      <StepHeader step={1} title="Your agents">
-        ZLI found the coding agents on this computer and the accounts they are signed in to. Pick the one new chats
-        start with; you can switch agents in any chat.
+      <StepHeader title="Choose your agent." dim="One is enough to start.">
+        ZLI found the coding agents on this computer. New chats start with the one you pick, and you can switch in any
+        chat.
       </StepHeader>
       {providers.length === 0 ? (
         <p className="welcome-loading">
@@ -431,11 +511,12 @@ function AgentsStep({
           Looking for agents…
         </p>
       ) : (
-        <ul className="welcome-rows" aria-label="Agents">
-          {shown.map(row)}
-          {showMore ? more.map(row) : null}
-        </ul>
+        <div className="welcome-tiles" role="radiogroup" aria-label="Agents">
+          {shown.map(tile)}
+          {showMore ? more.map(tile) : null}
+        </div>
       )}
+      <GithubRow forge={forge} />
       <div className="welcome-under">
         {more.length > 0 ? (
           <button type="button" className="welcome-link" onClick={() => setShowMore((value) => !value)}>
@@ -454,7 +535,8 @@ function AgentsStep({
   );
 }
 
-function AgentRow({
+/** One agent as a tile: its mark and state on top, its name and status at the foot. */
+function AgentTile({
   entry,
   primary,
   command,
@@ -471,86 +553,91 @@ function AgentRow({
   const signIn = signedOut ? signInCommand(entry.provider) : undefined;
   const account = login?.status === "signed-in" ? accountLine(login) : undefined;
   const version = found ? entry.version : undefined;
-  const pickable = found && agentReady(entry);
-  if (pickable) {
+  if (found && agentReady(entry)) {
     return (
-      <li className="welcome-row-pickable">
-        <label className={`welcome-row is-pickable${primary ? " is-picked" : ""}`}>
-          <input
-            type="radio"
-            name="welcome-default-agent"
-            className="welcome-agent-radio-input"
-            checked={primary}
-            onChange={onPick}
-            aria-describedby={`welcome-agent-${entry.provider}`}
-          />
-          <span className="welcome-mark">
-            <ProviderMark provider={entry.provider} size={18} />
+      <label className={`welcome-tile is-ready${primary ? " is-picked" : ""}`} title={account ?? version}>
+        <input
+          type="radio"
+          name="welcome-default-agent"
+          className="welcome-tile-input"
+          checked={primary}
+          onChange={onPick}
+          aria-describedby={`welcome-agent-${entry.provider}`}
+        />
+        <span className="welcome-tile-top">
+          <ProviderMark provider={entry.provider} size={22} />
+          <span className="welcome-tile-check" aria-hidden="true">
+            <Icon name="check" size={12} />
           </span>
-          <span className="welcome-row-copy">
-            <span className="welcome-row-title">
-              {entry.displayName}
-              {primary ? <span className="welcome-tag is-default">Default</span> : null}
-            </span>
-            <span className="welcome-row-detail" id={`welcome-agent-${entry.provider}`} title={version}>
-              {account ?? version ?? "Installed"}
-            </span>
-          </span>
-          <span className="welcome-ready">Ready</span>
-          <span className="welcome-agent-radio" aria-hidden="true" />
-        </label>
-      </li>
+        </span>
+        <span className="welcome-tile-name">{entry.displayName}</span>
+        <span className="welcome-tile-detail" id={`welcome-agent-${entry.provider}`}>
+          {primary ? "Default" : "Ready"}
+        </span>
+      </label>
     );
   }
+  const copy = found ? signIn : command;
   return (
-    <li className={`welcome-row${found ? "" : " is-missing"}`}>
-      <span className="welcome-mark">
-        <ProviderMark provider={entry.provider} size={18} />
+    <div className={`welcome-tile${found ? " is-signed-out" : " is-missing"}`}>
+      <span className="welcome-tile-top">
+        <ProviderMark provider={entry.provider} size={22} />
+        {copy ? (
+          <CopyCommand
+            label={`Copy the ${found ? "sign-in" : "install"} command for ${entry.displayName}`}
+            command={copy}
+          />
+        ) : null}
+      </span>
+      <span className="welcome-tile-name">{entry.displayName}</span>
+      <span className="welcome-tile-detail" title={copy}>
+        {found ? "Signed out" : "Not installed"}
+      </span>
+    </div>
+  );
+}
+
+/** The GitHub CLI, which ZLI uses for pull requests. It is optional, so it never blocks setup. */
+function GithubRow({ forge }: { forge: ForgeRead }) {
+  const { bridge } = useRuntime();
+  const state = forge === "loading" ? "loading" : "state" in forge ? forge.state : "error";
+  const detail =
+    forge === "loading"
+      ? "Checking…"
+      : !("state" in forge)
+        ? forge.error
+        : forge.state === "ready"
+          ? (forge.accounts[0]?.login ?? forge.accounts[0]?.host ?? "Signed in")
+          : forge.state === "signed_out"
+            ? `Installed, not signed in. Run ${forge.signInCommand}`
+            : forge.state === "outdated"
+              ? `ZLI needs gh ${forge.minimumVersion} or newer`
+              : forge.state === "missing"
+                ? "Optional. ZLI uses it to open pull requests."
+                : (forge.message ?? "gh gave an answer ZLI could not read.");
+  return (
+    <div className={`welcome-forge is-${state}`}>
+      <span className="welcome-forge-mark">
+        <ConnectorLogo id="github" title="GitHub" size={20} />
       </span>
       <span className="welcome-row-copy">
-        <span className="welcome-row-title">
-          {entry.displayName}
-          {primary ? <span className="welcome-tag">Default</span> : null}
-        </span>
-        {!found ? (
-          command ? (
-            <span className="welcome-row-detail">
-              Install with <code>{command}</code>
-            </span>
-          ) : (
-            <span className="welcome-row-detail">Not installed</span>
-          )
-        ) : signedOut ? (
-          <span className="welcome-row-detail">
-            {signIn ? (
-              <>
-                Needs an account. Run <code>{signIn}</code> in a terminal to sign in
-              </>
-            ) : (
-              "Needs an account. Sign in from its own CLI"
-            )}
-          </span>
-        ) : account ? (
-          <span className="welcome-row-detail" title={version}>
-            {account}
-          </span>
-        ) : (
-          <span className="welcome-row-detail is-mono">{version ?? "Installed"}</span>
-        )}
+        <span className="welcome-row-title">GitHub CLI</span>
+        <span className="welcome-row-detail">{detail}</span>
       </span>
-      {!found ? (
-        command ? (
-          <CopyCommand label={`Copy the install command for ${entry.displayName}`} command={command} />
-        ) : null
-      ) : signedOut ? (
-        <span className="welcome-row-end">
-          {signIn ? <CopyCommand label={`Copy the sign-in command for ${entry.displayName}`} command={signIn} /> : null}
-          <span className="welcome-ready is-signed-out">Signed out</span>
+      {forge === "loading" ? (
+        <span className="spinner" aria-hidden="true" />
+      ) : !("state" in forge) ? null : forge.state === "ready" ? (
+        <span className="welcome-tile-check is-static" role="img" aria-label="Ready">
+          <Icon name="check" size={12} />
         </span>
-      ) : (
-        <span className="welcome-ready">Ready</span>
+      ) : forge.state === "signed_out" ? (
+        <CopyCommand label="Copy the GitHub CLI sign-in command" command={forge.signInCommand} />
+      ) : forge.state === "error" ? null : (
+        <Button size="sm" onClick={() => void openExternalLink(bridge, forge.installUrl)}>
+          {forge.state === "outdated" ? "Update gh" : "Get gh"}
+        </Button>
       )}
-    </li>
+    </div>
   );
 }
 
@@ -612,7 +699,7 @@ function StyleStep({
   ];
   return (
     <>
-      <StepHeader step={2} title="How do you want to work?">
+      <StepHeader title="How do you want to work?">
         New agents open this way. Any agent can still start the other way.
       </StepHeader>
       <div className="welcome-choices" role="radiogroup" aria-label="How new agents open">
@@ -721,7 +808,7 @@ function ProjectsStep({
     ) : null;
   return (
     <>
-      <StepHeader step={3} title="Your projects">
+      <StepHeader title="Pick your projects." dim="Bring in as many as you like.">
         {found.length > 0
           ? "ZLI found these folders in your Claude Code and Codex history. Tick the ones to bring in."
           : "Add a folder to work in. Folders from your Claude Code and Codex history show up here too."}

@@ -10,6 +10,7 @@ import { WelcomeDialog } from "./WelcomeDialog.js";
 import type { Dispatch } from "./welcomeClient.js";
 
 afterEach(async () => {
+  vi.useRealTimers();
   await cleanupRuntimeRenders();
   updateAppSettings(({ onboardedAt: _, ...rest }) => rest);
 });
@@ -50,6 +51,7 @@ async function renderWelcome({
         : { commandId: "c", accepted: false, error: { code: "invalid_request", message: "No", retryable: false } }
     ) as Awaited<ReturnType<Dispatch>>;
   };
+  vi.useFakeTimers({ shouldAdvanceTime: true });
   const onDone = vi.fn();
   const onStart = vi.fn(async () => undefined);
   const registerProjectPath = vi.fn(register);
@@ -74,7 +76,17 @@ async function click(element: Element | undefined) {
   });
 }
 
+/** Lets the intro play out, then leaves it. */
+async function passIntro() {
+  await act(async () => {
+    vi.advanceTimersByTime(6_000);
+  });
+  await click(buttonByText("Get started"));
+}
+
 async function toProjects() {
+  await passIntro();
+  await click(buttonByText("Continue"));
   await click(buttonByText("Continue"));
   await click(buttonByText("Continue"));
 }
@@ -91,6 +103,24 @@ describe("WelcomeDialog", () => {
     await click(buttonByText("Skip setup"));
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(readAppSettings().onboardedAt).toBeTruthy();
+  });
+
+  it("opens on the intro and holds Get started until the first checks are back", async () => {
+    await renderWelcome();
+    expect(document.querySelector(".intro-title")?.textContent).toBe("Welcome to ZLI");
+    expect((buttonByText("Get started") as HTMLButtonElement).disabled).toBe(true);
+    await passIntro();
+    expect(document.querySelector(".welcome-title")?.textContent).toContain("Choose your agent.");
+  });
+
+  it("shows the buddies between the agents and how you work", async () => {
+    await renderWelcome();
+    await passIntro();
+    await click(buttonByText("Continue"));
+    expect(document.querySelector(".welcome-title")?.textContent).toContain("Meet your buddies.");
+    expect(document.querySelectorAll(".welcome-feature")).toHaveLength(4);
+    await click(buttonByText("Continue"));
+    expect(document.querySelector(".welcome-title")?.textContent).toBe("How do you want to work?");
   });
 
   it("finishes with no folders without adding a project or starting an agent", async () => {

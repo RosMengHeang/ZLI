@@ -48,10 +48,35 @@ describe("AgentHistoryScanner", () => {
       const past = new Date("2026-01-01T00:00:00.000Z");
       await utimes(siteRollout, past, past);
 
-      const folders = await new AgentHistoryScanner({ home, env: {} }).scan();
+      const folders = await new AgentHistoryScanner({ home, env: {}, tempDir: join(home, "tmp") }).scan();
       expect(folders.map((folder) => folder.name)).toEqual(["app", "site"]);
       expect(folders[0]?.sources.sort()).toEqual(["claude-code", "codex"]);
       expect(folders[1]).toMatchObject({ path: site, sources: ["codex"], lastActiveAt: past.toISOString() });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves out folders that are not projects: home, temp, app data and buddy homes", async () => {
+    const home = await mkdtemp(join(tmpdir(), "zli-history-"));
+    try {
+      const keep = join(home, "app");
+      const temp = join(home, "tmp", "scratch");
+      const roaming = join(home, "Roaming", "tool");
+      const buddy = join(home, "Roaming", "zli-buddies-dev", "zli-buddy-homes", "builder-abef37");
+      const appData = join(home, "AppData", "Local", "thing");
+      for (const dir of [keep, temp, roaming, buddy, appData]) await mkdir(dir, { recursive: true });
+      const claudeDir = join(home, ".claude", "projects", "all");
+      await mkdir(claudeDir, { recursive: true });
+      for (const [index, cwd] of [keep, temp, roaming, buddy, appData, home].entries())
+        await writeFile(join(claudeDir, `s${index}.jsonl`), jsonl({ type: "user", cwd }));
+
+      const folders = await new AgentHistoryScanner({
+        home,
+        env: { APPDATA: join(home, "Roaming") },
+        tempDir: join(home, "tmp"),
+      }).scan();
+      expect(folders.map((folder) => folder.path)).toEqual([keep]);
     } finally {
       await rm(home, { recursive: true, force: true });
     }
