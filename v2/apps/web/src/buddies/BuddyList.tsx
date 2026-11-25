@@ -5,6 +5,7 @@ import {
   openQuestion,
   type RuntimeProjection,
   type TaskProjection,
+  teamsOf,
 } from "@zli-v2/contracts";
 import { type MouseEvent, useState } from "react";
 
@@ -19,6 +20,7 @@ import { Menu, type MenuRequest } from "../ui/Menu.js";
 import { buddyMood, TeamSettingsDialog } from "./BuddiesPane.js";
 import { ConnectedAppsDialog } from "./ConnectedAppsDialog.js";
 import { NewBuddyDialog } from "./NewBuddyDialog.js";
+import { teamPageId, teamStatus } from "./TeamView.js";
 import type { Run } from "./useRun.js";
 
 /** What a buddy that needs the person is asking, in one line. */
@@ -84,6 +86,10 @@ export function BuddyList({
     ? team.filter((buddy) => `${buddy.name} ${buddy.title ?? ""}`.toLowerCase().includes(needle))
     : team;
   const byId = new Map(team.map((buddy) => [buddy.buddyId, buddy]));
+  // Teams going now, then the last few that ended.
+  const allTeams = teamsOf(projection);
+  const isLive = (entry: (typeof allTeams)[number]) => entry.status === "working" || entry.status === "needs_you";
+  const teams = [...allTeams.filter(isLive), ...allTeams.filter((entry) => !isLive(entry)).slice(0, 3)];
   const drop = (targetId: string) => {
     if (!dragged || dragged === targetId) return;
     const ids = team.map((buddy) => buddy.buddyId).filter((id) => id !== dragged);
@@ -170,6 +176,44 @@ export function BuddyList({
                 </button>
               );
             })}
+          </section>
+        ) : null}
+
+        {!needle ? (
+          <section className="buddy-list-section" aria-label="Teams">
+            <h3 className="buddy-list-heading">Teams {teams.length > 0 ? <span>{teams.length}</span> : null}</h3>
+            {teams.map((entry) => {
+              const page = teamPageId(entry.goalId);
+              return (
+                <button
+                  key={entry.goalId}
+                  type="button"
+                  className={`buddy-list-row is-team${selectedId === page ? " is-active" : ""}`}
+                  aria-current={selectedId === page ? "page" : undefined}
+                  onClick={() => onSelect(page)}
+                >
+                  <span className="buddy-list-board" aria-hidden="true">
+                    <Icon name="users" size={18} />
+                  </span>
+                  <span className="buddy-list-text">
+                    <span className="buddy-list-name">{entry.text}</span>
+                    <span className="buddy-list-line">{teamStatus(entry)}</span>
+                  </span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className={`buddy-list-row is-team${selectedId === teamPageId("new") ? " is-active" : ""}`}
+              onClick={() => onSelect(teamPageId("new"))}
+            >
+              <span className="buddy-list-board" aria-hidden="true">
+                <Icon name="plus" size={18} />
+              </span>
+              <span className="buddy-list-text">
+                <span className="buddy-list-name">New team</span>
+              </span>
+            </button>
           </section>
         ) : null}
 

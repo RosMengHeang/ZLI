@@ -150,6 +150,51 @@ const BUDDY_TOOLS: readonly McpTool[] = [
     required: ["summary"],
   },
   {
+    name: "start_team",
+    title: "Start a team",
+    action: "buddystartteam",
+    description:
+      'For the Primary buddy: start a team on a bigger goal, such as "add dark mode with tests". You lead it: on your next turn you plan it into tasks with team_plan, the person checks the plan, each task runs as a buddy job in its own worktree and gets reviewed, and ZLI merges the branches into one team branch for you to sum up. Use assign_task instead for one job.',
+    properties: {
+      goal: { type: "string", description: "The goal, in the person's words, clear enough to plan from." },
+      buddies: {
+        type: "array",
+        items: { type: "string" },
+        description: "Buddy names from list_buddies to work on it. Leave it out to pick per task when you plan.",
+      },
+      autoStart: {
+        type: "boolean",
+        description: "Start the plan without the person checking it first. Leave it out to use their default.",
+      },
+      project: { type: "string", description: "A project name, when it is not this one." },
+    },
+    required: ["goal"],
+  },
+  {
+    name: "team_plan",
+    title: "Hand in a team plan",
+    action: "buddyteamplan",
+    description:
+      "For a team lead's planning turn: hand in the plan, a list of tasks that can run at the same time, each with a short title, the buddy to do it, and notes on what done looks like. Call it once, then call task_done and end your turn.",
+    properties: {
+      tasks: {
+        type: "array",
+        description: "Up to 12 tasks.",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "What to do, up to 200 characters." },
+            buddy: { type: "string", description: "The buddy's name, from your brief or list_buddies." },
+            notes: { type: "string", description: "What done looks like, files to look at, how to test it." },
+          },
+          required: ["title"],
+        },
+      },
+      notes: { type: "string", description: "Optional. What the person should know before the plan starts." },
+    },
+    required: ["tasks"],
+  },
+  {
     name: "set_routine",
     title: "Set up a routine",
     action: "buddyroutine",
