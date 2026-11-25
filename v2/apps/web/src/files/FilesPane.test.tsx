@@ -12,7 +12,7 @@ import {
 } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { type ReviewComment, removeReviewComments, useReviewComments } from "../review/reviewComments.js";
 import type { ZliBridge } from "../runtime/bridge.js";
@@ -181,7 +181,12 @@ const settle = (ms = 0) =>
 async function renderPane(
   bridge: ZliBridge,
   focus?: FilesFocus,
-  options: { onOpenDiff?(path: string): void; askAgent?: AskAgentTarget } = {},
+  options: {
+    onOpenDiff?(path: string): void;
+    askAgent?: AskAgentTarget;
+    tabsHost?: HTMLElement;
+    onLastClosed?(): void;
+  } = {},
 ) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -197,6 +202,8 @@ async function renderPane(
               askAgent={options.askAgent}
               onOpenDiff={options.onOpenDiff ?? (() => undefined)}
               onQuickOpen={() => undefined}
+              tabsHost={options.tabsHost}
+              onLastClosed={options.onLastClosed}
             />
           </FileIndexProvider>
         </RuntimeProvider>,
@@ -246,6 +253,33 @@ describe("FilesPane", () => {
     expect(container.querySelector(".file-path")?.textContent).toBe("src/app.ts");
     // Save only shows while there is something to save.
     expect(() => button(container, "Save")).toThrow();
+  });
+
+  it("puts open files and the file list in the panel's strip, and closing the last file closes Files", async () => {
+    const disk: Disk = new Map([["src/app.ts", { content: "const a = 1;\n", version: "v1" }]]);
+    const { bridge } = fakeRuntime(disk);
+    const strip = document.createElement("div");
+    document.body.append(strip);
+    const onLastClosed = vi.fn();
+    const { render } = await renderPane(
+      bridge,
+      { kind: "open", path: "src/app.ts", nonce: 1 },
+      { tabsHost: strip, onLastClosed },
+    );
+    const tabs = () => [...strip.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent);
+    expect(tabs()).toEqual(["app.ts"]);
+
+    // Files picked again from the panel's plus adds the file list as a tab, beside the open file.
+    await render({ kind: "browse", nonce: 2 });
+    expect(tabs()).toEqual(["app.ts", "Files"]);
+    expect(strip.querySelector(".file-tab.is-active")?.textContent).toBe("Files");
+    // Closing it goes back to the open file.
+    await act(async () => strip.querySelector<HTMLButtonElement>('[aria-label="Close Files"]')?.click());
+    expect(tabs()).toEqual(["app.ts"]);
+    await act(async () => strip.querySelector<HTMLButtonElement>('[aria-label="Close app.ts"]')?.click());
+    expect(onLastClosed).toHaveBeenCalledTimes(1);
+    // The panel closes with it; until then the strip shows the file list's own tab.
+    expect([...strip.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual(["Files"]);
   });
 
   it("saves edits with the version it read and marks the tab clean", async () => {
@@ -590,8 +624,12 @@ describe("FilesPane changes", () => {
 
     const header = container.querySelector<HTMLButtonElement>(".file-group-header");
     expect(header?.textContent).toBe("Changed2");
-    expect(header?.getAttribute("aria-expanded")).toBe("true");
+    // The group starts folded, so the tree comes first; it opens when asked.
+    expect(header?.getAttribute("aria-expanded")).toBe("false");
     const grouped = () => [...container.querySelectorAll<HTMLButtonElement>("[data-group=changed]")];
+    expect(grouped()).toEqual([]);
+    act(() => header?.click());
+    expect(header?.getAttribute("aria-expanded")).toBe("true");
     expect(grouped().map((row) => row.dataset.path)).toEqual(["src/app.ts", "src/new.ts"]);
     expect(grouped()[0]?.querySelector(".file-counts")?.getAttribute("aria-label")).toBe("2 added, 1 removed");
     expect(grouped()[1]?.querySelector(".file-counts")).toBeNull();

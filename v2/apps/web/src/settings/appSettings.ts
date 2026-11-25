@@ -67,7 +67,6 @@ export type ShortcutId =
   | "toggleBrowser"
   | "toggleMobile"
   | "toggleChanges"
-  | "toggleHuddle"
   | "focusProject"
   | "sideQuestion"
   | "settings";
@@ -236,7 +235,6 @@ const shortcutIds: readonly ShortcutId[] = [
   "toggleBrowser",
   "toggleMobile",
   "toggleChanges",
-  "toggleHuddle",
   "focusProject",
   "sideQuestion",
   "settings",

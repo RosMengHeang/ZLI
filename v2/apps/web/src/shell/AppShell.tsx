@@ -47,8 +47,6 @@ import type { AskAgentTarget, FilesFocus } from "../files/FilesPane.js";
 import { filesWorktreeFor } from "../files/filesWorktree.js";
 import { QuickOpen } from "../files/QuickOpen.js";
 import { CloneDialog } from "../forges/CloneDialog.js";
-import { HuddlePane } from "../huddle/HuddlePane.js";
-import { sessionOfAgent } from "../huddle/huddles.js";
 import { type IssueRequest, onIssueRequest } from "../issues/issueRequest.js";
 import { type IssueLink, issuePrompt, rememberIssueLink } from "../issues/issueStart.js";
 import { MobilePane, type MobileReveal } from "../mobile/MobilePane.js";
@@ -139,17 +137,19 @@ import { useAgentReach } from "../setup/agentReach.js";
 import { AGENTS_NOT_TRUSTED, useAgentTrust } from "../setup/agentTrust.js";
 import { SetupApprovalDialog } from "../setup/SetupApprovalDialog.js";
 import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
-import { type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
+import { isBuddySession, type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { SidebarResizer, useSidebarWidth } from "../sidebar/SidebarResizer.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
-import { themeChoices } from "../theme/customThemes.js";
+import { SYSTEM_THEME, themeChoices } from "../theme/customThemes.js";
 import { ThemeEditor } from "../theme/ThemeEditor.js";
 import { useThemeEditor } from "../theme/themeEditorStore.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { LoadingState } from "../ui/Pane.js";
+import { shortcutText } from "../ui/shortcuts.js";
 import { TooltipLayer } from "../ui/Tooltip.js";
 import { RestartToUpdateDialog } from "../updates/RestartToUpdateDialog.js";
+import { SidebarUpdateCard } from "../updates/SidebarUpdateCard.js";
 import { UpdatePill } from "../updates/UpdatePill.js";
 import { busyAgentCount } from "../updates/updateCopy.js";
 import { useUpdates } from "../updates/useUpdates.js";
@@ -168,8 +168,8 @@ import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
 import { launcherItems as buildLauncherItems } from "./launcherItems.js";
 import { type ChatFolder, NoProjectChat } from "./NoProjectChat.js";
-import { PanelLauncher } from "./PanelLauncher.js";
-import { PanelTabs } from "./PanelTabs.js";
+import { usePanelTerminals } from "../terminal/panelTerminals.js";
+import { PanelStart, PanelTabs } from "./PanelTabs.js";
 import {
   DisconnectedState,
   GridEmptyState,
@@ -178,11 +178,11 @@ import {
   RuntimeLoadingState,
   type StartChoice,
 } from "./ShellStates.js";
-import { type SidePane, sidePaneIcon, sidePaneLabel, Topbar } from "./Topbar.js";
+import { type SidePane, sidePaneIcon, sidePaneLabel, sidePaneShortcut, Topbar } from "./Topbar.js";
 
 /** The icon on a panel's tab. */
-const panelIcon = (pane: Exclude<SidePane, "launcher">) =>
-  pane === "pullRequest" ? "pullRequest" : pane === "sideChat" ? "message" : sidePaneIcon[pane];
+const panelIcon = (pane: SidePane) =>
+  pane === "pullRequest" ? "pullRequest" : pane === "start" ? "plus" : sidePaneIcon[pane];
 
 import { useGlobalShortcuts } from "./useGlobalShortcuts.js";
 import { WorktreeDialog } from "./WorktreeDialog.js";
@@ -230,8 +230,6 @@ function WorkspaceApp() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [sidePane, setSidePane] = useState<SidePane>();
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
-  /** The huddle tab in view in the Huddle panel. */
-  const [huddleId, setHuddleId] = useState<string>();
   /** What the main area shows instead of the chats: the buddies' home ("team") or one buddy's chat. */
   const [buddyView, setBuddyView] = useState<string>();
   /** The pull requests page, open on one worktree's pull request ("all" picks the newest). */
@@ -359,10 +357,27 @@ function WorkspaceApp() {
       if (state === "MERGED" || state === "CLOSED") archiveChatOnce(session.sessionId);
     }
   }, [settings.archiveMergedChats, sessions, pullRequests]);
-  const tiles = useMemo(
-    () => sessions.filter((session) => !workbench.closed.includes(session.sessionId)),
-    [sessions, workbench.closed],
+  const archivedIds = useArchivedChats();
+  const buddyChatNames = useMemo(
+    () => new Set((projection?.buddies ?? []).map((buddy) => `${buddy.name} chat`)),
+    [projection?.buddies],
   );
+  // The board holds what the sidebar lists as chats. Archived chats, buddies' jobs, agents brought into a
+  // chat, and sub-agent chats stay off it unless the person opens one. Sub-agents in a terminal stay.
+  const tiles = useMemo(() => {
+    const parents = sessionParents(sessions);
+    return sessions.filter(
+      (session) =>
+        !workbench.closed.includes(session.sessionId) &&
+        (session.sessionId === workbench.activeSessionId ||
+          !(
+            archivedIds.has(session.sessionId) ||
+            isBuddySession(session, buddyChatNames) ||
+            session.thread?.joins ||
+            (session.mode === "chat" && parents.has(session.sessionId))
+          )),
+    );
+  }, [sessions, workbench.closed, workbench.activeSessionId, archivedIds, buddyChatNames]);
   const projectOf = useMemo(
     () => sessionProjects(sessions, projection?.worktrees ?? []),
     [sessions, projection?.worktrees],
@@ -634,23 +649,37 @@ function WorkspaceApp() {
   const toggleSidePane = (next: SidePane) => setSidePane((current) => (current === next ? undefined : next));
   // The right-panel switch: closed, it opens on the picker; open, it closes whatever is showing.
   // The panels opened so far, one tab each in the right panel, in the order they were opened.
-  const [panelTabs, setPanelTabs] = useState<Exclude<SidePane, "launcher">[]>([]);
+  const [panelTabs, setPanelTabs] = useState<SidePane[]>([]);
   const lastPane = useRef<SidePane | undefined>(undefined);
   useEffect(() => {
-    if (!sidePane || sidePane === "launcher") return;
+    if (!sidePane || sidePane === "start") return;
     lastPane.current = sidePane;
     setPanelTabs((tabs) => (tabs.includes(sidePane) ? tabs : [...tabs, sidePane]));
   }, [sidePane]);
-  /** Opens the right panel on the tab in use last, or on the picker when no tab is open. */
+  /** Opens the right panel on the tool in use last, or on the list of panels when none is open yet. */
   const togglePanels = () =>
     setSidePane((current) => {
       if (current) return undefined;
       const last = lastPane.current;
-      return last && last !== "launcher" && panelTabs.includes(last) ? last : "launcher";
+      return last && panelTabs.includes(last) ? last : (panelTabs[0] ?? "start");
     });
-  // The side chat in the right panel: the chat in view draws its side question into this element.
-  const [sideChatSlot, setSideChatSlot] = useState<HTMLElement | null>(null);
-  const sideChatAvailable = !!activeSession?.thread;
+  /** Closes a panel's tab; the neighbour takes its place, and the last one closes the panel. */
+  const closePanelTab = (pane: SidePane) => {
+    const position = panelTabs.indexOf(pane);
+    const rest = panelTabs.filter((tab) => tab !== pane);
+    setPanelTabs(rest);
+    if (lastPane.current === pane) lastPane.current = undefined;
+    setSidePane((current) =>
+      current !== pane ? current : (rest[Math.min(Math.max(position, 0), rest.length - 1)] ?? undefined),
+    );
+  };
+  /** Where Files and the panel's terminal put their own tabs: a slot in the strip right after each one's tab. */
+  const [filesTabsHost, setFilesTabsHost] = useState<HTMLSpanElement | null>(null);
+  const [terminalTabsHost, setTerminalTabsHost] = useState<HTMLSpanElement | null>(null);
+  /** Counts up each time the plus asks the panel's terminal for one more shell. */
+  const [terminalRequest, setTerminalRequest] = useState(0);
+  /** The panel's plus menu is open; the browser's native page would cover it, so it steps aside meanwhile. */
+  const [panelMenuOpen, setPanelMenuOpen] = useState(false);
   // Zoomed far in, the window is too narrow to keep the sidebar beside the work, so it starts hidden
   // there without changing the saved choice for wider windows.
   const narrow = useNarrowWindow();
@@ -660,10 +689,6 @@ function WorkspaceApp() {
     narrow
       ? setNarrowSidebarOpen((open) => !open)
       : updateWorkbench((state) => ({ ...state, sidebarOpen: !state.sidebarOpen }));
-  const openHuddle = useCallback((next: string) => {
-    setHuddleId(next);
-    setSidePane("huddle");
-  }, []);
   const openPullRequests = useCallback(() => {
     setPullView("all");
     setBuddyView(undefined);
@@ -681,16 +706,24 @@ function WorkspaceApp() {
   const shownBuddy = buddyView === PRIMARY_VIEW ? (primaryId ?? "team") : buddyView;
   useStarterTeam(projection);
   useTeammatesToBuddies(projection);
-  // Chat only keeps the terminal out of sight: its toggle and shortcut only close a drawer something else opened.
   const chatOnly = workStyleOf(settings.defaults) === "chat";
+  // Whether the open terminal drawer starts a shell by itself: yes when the person opened it, no when a plugin
+  // action or a setup opened it to show its own terminal.
+  const [drawerAutoStart, setDrawerAutoStart] = useState(true);
+  /** Opens the terminal because the person asked for one, so it starts a shell if there is none. */
+  const openTerminalDrawer = () => {
+    setDrawerAutoStart(true);
+    updateWorkbench((state) => ({ ...state, drawerOpen: true }));
+  };
   // The right panel's picker: every panel with one key, and a live line for what is going on in it for this
-  // worktree. The terminal opens at the bottom, so picking it closes the picker; Chat only leaves it out.
+  // worktree. The terminal opens at the bottom and leaves the panel as it is.
   const contextWorktreeId = contextWorktree?.worktreeId;
   const contextPullRequest = contextWorktreeId ? pullRequests.get(contextWorktreeId)?.status : undefined;
+  const panelTerminalIds = usePanelTerminals();
   const launcherItems = buildLauncherItems(
     {
       mobileAvailable,
-      showTerminal: !chatOnly,
+      showTerminal: true,
       drawerOpen: workbench.drawerOpen,
       review: projection?.reviews?.find((review) => review.worktreeId === contextWorktreeId),
       uncommittedFiles: contextPullRequest?.uncommittedFiles,
@@ -698,24 +731,30 @@ function WorkspaceApp() {
         projection?.terminals.filter(
           (terminal) =>
             terminal.worktreeId === contextWorktreeId &&
+            panelTerminalIds.has(terminal.terminalId) &&
             (terminal.status === "running" || terminal.status === "starting"),
         ).length ?? 0,
       devServers: contextDevServers,
       pullRequest: contextPullRequest?.pullRequest,
-      activeHuddles: projection?.huddles?.filter((huddle) => !huddle.archived).length ?? 0,
-      sideChat: sideChatAvailable,
     },
     {
-      open: (pane) => setSidePane(pane),
+      open: (pane) => {
+        // Files picked again from the plus shows its file list, to open another file beside the open ones.
+        if (pane === "files" && panelTabs.includes("files")) setFilesFocus({ kind: "browse", nonce: Date.now() });
+        setSidePane(pane);
+      },
+      // The panel's terminal is its own; the drawer at the bottom keeps its shells apart.
       openTerminal: () => {
-        updateWorkbench((state) => ({ ...state, drawerOpen: true }));
-        setSidePane(undefined);
+        if (panelTabs.includes("terminal")) setTerminalRequest((count) => count + 1);
+        setSidePane("terminal");
       },
       openDevServer: (url) => openDevServer(url),
     },
   );
-  const toggleDrawer = () =>
-    updateWorkbench((state) => (chatOnly && !state.drawerOpen ? state : { ...state, drawerOpen: !state.drawerOpen }));
+  const toggleDrawer = () => {
+    setDrawerAutoStart(true);
+    updateWorkbench((state) => ({ ...state, drawerOpen: !state.drawerOpen }));
+  };
   const openSettings = (section: SettingsSection = "agents") => {
     setPaletteOpen(false);
     setFocusConnector(undefined);
@@ -791,7 +830,6 @@ function WorkspaceApp() {
       if (mobileAvailable) toggleSidePane("mobile");
     },
     toggleChanges: () => toggleSidePane("review"),
-    toggleHuddle: () => toggleSidePane("huddle"),
     focusProject: () => {
       if (contextProject) showOnlyProject(contextProject.projectId);
     },
@@ -1310,6 +1348,7 @@ function WorkspaceApp() {
     const withTerminal =
       request.mode === "chat" &&
       resolveLaunchDefaults(readAppSettings(), request.project.projectId).withTerminal === true;
+    if (withTerminal) setDrawerAutoStart(true);
     updateWorkbench((state) => ({
       ...state,
       pending: [...state.pending, launch],
@@ -1728,19 +1767,6 @@ function WorkspaceApp() {
     return undefined;
   };
 
-  /** Brings forward the tile that holds a huddle member, switching to that chat when it is an earlier one. */
-  const openHuddleAgent = async (agentId: string) => {
-    const session = sessionOfAgent(sessionsRef.current, agentId);
-    if (!session) {
-      showError("This agent is gone. It may have been deleted.");
-      return;
-    }
-    const isEarlierChat =
-      session.thread?.threadId !== agentId && session.threads?.some((thread) => thread.threadId === agentId);
-    if (isEarlierChat) await openChat(session, agentId);
-    showAgent(session.sessionId);
-  };
-
   const closeTileNow = (session: AgentSession) =>
     updateWorkbench((state) => ({
       ...state,
@@ -2141,6 +2167,21 @@ function WorkspaceApp() {
     })();
   };
 
+  // A side question still listed when the window opens has no panel left to close it. Once its agent has
+  // stopped (ZLI restarted), nothing can use it, so its chat is deleted. A live one may belong to another window.
+  const sideSweepDone = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once, on the first projection.
+  useEffect(() => {
+    if (sideSweepDone.current || !projection) return;
+    sideSweepDone.current = true;
+    for (const sessionId of sideChatIds) {
+      const threads = projection.threads.filter((thread) => thread.sessionId === sessionId);
+      if (threads.some((thread) => thread.status !== "stopped" && thread.status !== "failed")) continue;
+      if (threads.length === 0) forgetSideChat(sessionId);
+      else void send({ type: "session.delete", sessionId }).then((ok) => ok && forgetSideChat(sessionId));
+    }
+  }, [projection]);
+
   /** Shows the tile of the agent with this thread or terminal id. */
   const openAgent = (agentId: string) => {
     const session = sessionsRef.current.find(
@@ -2203,13 +2244,16 @@ function WorkspaceApp() {
   /** A draft chat's agent, model, or permission changed. Nothing runs yet, so this is only a setting. */
   const changeDraft = (sessionId: string, change: DraftChange) => {
     updateDraft(sessionId, (launch) => {
-      const { model: _model, ...rest } = launch;
+      const { model: _model, accountId: _accountId, ...rest } = launch;
       const provider = change.provider ?? launch.provider;
       const model = "model" in change ? change.model : provider === launch.provider ? launch.model : undefined;
+      // Picking an agent picks its login too: the one chosen, or that agent's default.
+      const accountId = change.provider ? launchAccountId(accounts, provider, change.accountId) : launch.accountId;
       return {
         ...rest,
         provider,
         ...(model ? { model } : {}),
+        ...(accountId ? { accountId } : {}),
         ...(change.permissionMode ? { permissionMode: change.permissionMode } : {}),
         ...("isolate" in change ? { isolate: change.isolate === true } : {}),
       };
@@ -2442,6 +2486,8 @@ function WorkspaceApp() {
         return;
       }
       setSelectedWorktreeId(worktree.worktreeId);
+      // The action's own terminal shows in the drawer; no extra shell starts beside it.
+      setDrawerAutoStart(false);
       updateWorkbench((state) => ({ ...state, drawerOpen: true }));
     } catch (cause) {
       showError(cause instanceof Error ? cause.message : "The action could not start.");
@@ -2479,6 +2525,7 @@ function WorkspaceApp() {
     setDeferredSetups((current) => current.filter((key) => !key.startsWith(`${worktreeId}:`)));
   const showSetupOutput = (worktreeId: string) => {
     focusWorktree(worktreeId);
+    setDrawerAutoStart(false);
     updateWorkbench((state) => ({ ...state, drawerOpen: true }));
   };
   const trustAgents = async (projectId: string): Promise<string | undefined> => {
@@ -2650,17 +2697,13 @@ function WorkspaceApp() {
           },
         ]
       : []),
-    ...(chatOnly
-      ? []
-      : [
-          {
-            label: "Toggle terminal",
-            icon: "terminal" as const,
-            group: "View" as const,
-            shortcut: shortcuts.toggleDrawer,
-            action: toggleDrawer,
-          },
-        ]),
+    {
+      label: "Toggle terminal",
+      icon: "terminal" as const,
+      group: "View" as const,
+      shortcut: shortcuts.toggleDrawer,
+      action: toggleDrawer,
+    },
     {
       label: "Focus files",
       icon: "folderTree",
@@ -2713,11 +2756,10 @@ function WorkspaceApp() {
       action: () => openBuddies(),
     },
     {
-      label: "Focus huddle",
+      label: "New team",
       icon: "users",
       group: "View",
-      shortcut: shortcuts.toggleHuddle,
-      action: () => setSidePane("huddle"),
+      action: () => openBuddies("team:new"),
     },
     {
       label: sidebarOpen ? "Hide sidebar" : "Show sidebar",
@@ -2754,6 +2796,16 @@ function WorkspaceApp() {
     { label: "Export support bundle", icon: "download", group: "App", action: () => void exportSupportBundle() },
     { label: "Import legacy snapshot", icon: "upload", group: "App", action: () => void startLegacyImport() },
     { label: "Settings", icon: "settings", group: "App", shortcut: shortcuts.settings, action: () => openSettings() },
+    ...(settings.theme === SYSTEM_THEME
+      ? []
+      : [
+          {
+            label: "Theme: System",
+            icon: "palette" as const,
+            group: "App" as const,
+            action: () => updateAppSettings((current) => ({ ...current, theme: SYSTEM_THEME })),
+          },
+        ]),
     ...themeChoices(settings.customThemes)
       .filter((theme) => theme.id !== settings.theme)
       .map((theme) => ({
@@ -2872,8 +2924,9 @@ function WorkspaceApp() {
       worktree={buddyView || pullView ? undefined : contextWorktree}
       hasProjects={hasProjects}
       drawerOpen={workbench.drawerOpen}
-      showTerminal={!chatOnly}
       showPanels={!buddyView && !pullView}
+      // Chat only keeps the terminal out of sight; the right panel still opens one.
+      showTerminal={!chatOnly}
       sidePane={sidePane}
       onShowSidebar={toggleSidebar}
       onNewAgent={() => openNewAgent()}
@@ -2883,13 +2936,16 @@ function WorkspaceApp() {
       onOpenDevServer={openDevServer}
       updateNotice={
         <>
-          <ReviewNotesPill worktree={contextWorktree} onShowAgent={showAgent} />
-          <UpdatePill
-            status={updates.status}
-            onRestart={restartToUpdate}
-            onOpenRelease={() => void updates.openReleasePage()}
-            onOpenSettings={() => openSettings("updates")}
-          />
+          {/* Changes lists the same notes with its own send button, and the strip under the bar needs the room. */}
+          {sidePane === "review" ? null : <ReviewNotesPill worktree={contextWorktree} onShowAgent={showAgent} />}
+          {sidebarOpen ? null : (
+            <UpdatePill
+              status={updates.status}
+              onRestart={restartToUpdate}
+              onOpenRelease={() => void updates.openReleasePage()}
+              onOpenSettings={() => openSettings("updates")}
+            />
+          )}
         </>
       }
     />
@@ -2940,6 +2996,16 @@ function WorkspaceApp() {
             onShowSetupOutput={(worktree) => showSetupOutput(worktree.worktreeId)}
             onOpenSettings={openSettings}
             onOpenUsage={openUsage}
+            updateCard={
+              <SidebarUpdateCard
+                status={updates.status}
+                connected={projection !== undefined}
+                onRestart={restartToUpdate}
+                onOpenRelease={() => void updates.openReleasePage()}
+                onDownload={() => void updates.download()}
+                onOpenSettings={() => openSettings("updates")}
+              />
+            }
             onOpenSearch={() => setPaletteOpen(true)}
             runGroups={workbench.groups}
             runStates={runStates}
@@ -3143,6 +3209,7 @@ function WorkspaceApp() {
                     height={shownDrawerHeight}
                     maxHeight={drawerMax}
                     onHeightChange={(drawerHeight) => updateWorkbench((state) => ({ ...state, drawerHeight }))}
+                    autoStart={drawerAutoStart}
                     onClose={() => updateWorkbench((state) => ({ ...state, drawerOpen: false }))}
                   />
                 ) : null}
@@ -3152,89 +3219,113 @@ function WorkspaceApp() {
                   <PanelResizer width={shownPanelWidth} max={panelMax} onChange={setPanelWidth} />
                   <aside
                     className="tool-panel"
-                    aria-label={`${sidePaneLabel[sidePane]} panel`}
+                    // The drawer at the bottom is the "Terminal panel"; this one is the right panel's own.
+                    aria-label={sidePane === "terminal" ? "Terminal side panel" : `${sidePaneLabel[sidePane]} panel`}
                     style={{ width: shownPanelWidth }}
                   >
-                    <PanelTabs
-                      tabs={panelTabs.map((pane) => ({ id: pane, label: sidePaneLabel[pane], icon: panelIcon(pane) }))}
-                      active={sidePane}
-                      items={launcherItems}
-                      onSelect={(pane) => setSidePane(pane as SidePane)}
-                    />
-                    {panelTabs.includes("sideChat") ? (
-                      <div className="side-chat-panel" hidden={sidePane !== "sideChat"}>
-                        {sideChatAvailable ? (
-                          <div className="side-chat-slot" ref={setSideChatSlot} />
+                    <div className="panel-tabs">
+                      <PanelTabs
+                        tabs={panelTabs.map((pane) => ({
+                          id: pane,
+                          label: sidePaneLabel[pane],
+                          icon: panelIcon(pane),
+                        }))}
+                        active={sidePane}
+                        items={launcherItems}
+                        shortcutFor={(id) =>
+                          id in sidePaneShortcut
+                            ? shortcutText(shortcuts[sidePaneShortcut[id as keyof typeof sidePaneShortcut]])
+                            : undefined
+                        }
+                        slots={{ files: setFilesTabsHost, terminal: setTerminalTabsHost }}
+                        onSelect={(pane) => setSidePane(pane as SidePane)}
+                        onClose={(pane) => closePanelTab(pane as SidePane)}
+                        onMenuChange={setPanelMenuOpen}
+                      />
+                    </div>
+                    <div className="panel-body">
+                      <div className="panel-main">
+                        {sidePane === "start" ? <PanelStart items={launcherItems} /> : null}
+                        {/* Files and the terminal stay put while another tab shows, so their own tabs stay in the
+                            strip and a shell keeps running where it was. */}
+                        {sidePane === "terminal" || panelTabs.includes("terminal") ? (
+                          <div className="panel-keep" hidden={sidePane !== "terminal"}>
+                            <TerminalDrawer
+                              place="side"
+                              projection={projection}
+                              worktree={contextWorktree}
+                              sessionId={activeSession?.sessionId}
+                              tabsHost={terminalTabsHost}
+                              newRequest={terminalRequest}
+                              // Kept mounted behind other panels: only the shown terminal starts a shell for a chat.
+                              autoStart={sidePane === "terminal"}
+                              onClose={() => closePanelTab("terminal")}
+                            />
+                          </div>
+                        ) : null}
+                        {sidePane === "files" || panelTabs.includes("files") ? (
+                          <div className="panel-keep" hidden={sidePane !== "files"}>
+                            <Suspense fallback={<LoadingFilesPane />}>
+                              <FilesPane
+                                worktree={files.worktree}
+                                tabsHost={filesTabsHost}
+                                onLastClosed={() => closePanelTab("files")}
+                                focus={filesFocus}
+                                askAgent={askAgent}
+                                projects={projection?.projects}
+                                onOpenProject={openFilesInProject}
+                                onQuickOpen={openQuickOpen}
+                                onOpenDiff={(path) => {
+                                  setSidePane("review");
+                                  setReviewFocus({ path, nonce: Date.now() });
+                                }}
+                              />
+                            </Suspense>
+                          </div>
+                        ) : null}
+                        {sidePane === "start" || sidePane === "terminal" || sidePane === "files" ? null : sidePane ===
+                          "browser" ? (
+                          <BrowserPane
+                            worktree={contextWorktree}
+                            obscured={overlayOpen || panelMenuOpen}
+                            reveal={browserReveal}
+                            openRequest={browserOpen}
+                            onShowAgent={showAgent}
+                            onNotice={showSent}
+                            projects={projection?.projects}
+                            onOpenProject={openBrowserInProject}
+                            showBranch={
+                              !!activeSession && runPosition(workbench.groups, activeSession.sessionId) !== undefined
+                            }
+                          />
+                        ) : sidePane === "pullRequest" ? (
+                          <PullRequestPane
+                            worktree={contextWorktree}
+                            onOpenChanges={() => setSidePane("review")}
+                            onShowAgent={showAgent}
+                          />
+                        ) : sidePane === "mobile" ? (
+                          <MobilePane
+                            reveal={mobileReveal}
+                            devServers={mobileDevServers}
+                            worktreeId={contextWorktree?.worktreeId}
+                            worktreeName={contextWorktree?.branch}
+                            popOutRequest={mobilePopOutRequest}
+                            onPopOutRequestDone={() => setMobilePopOutRequest(undefined)}
+                            onOpenTerminal={openTerminalDrawer}
+                          />
                         ) : (
-                          <p className="side-chat-panel-empty">Open a chat to ask a side question about it.</p>
+                          <Suspense fallback={<LoadingState label="Loading the changes" />}>
+                            <ReviewPane
+                              worktree={contextWorktree}
+                              focus={reviewFocus}
+                              onShowAgent={showAgent}
+                              onNotice={showSent}
+                            />
+                          </Suspense>
                         )}
                       </div>
-                    ) : null}
-                    {sidePane === "launcher" ? (
-                      <PanelLauncher
-                        title={contextWorktree?.branch ?? contextProject?.name}
-                        items={launcherItems}
-                        onClose={() => setSidePane(undefined)}
-                      />
-                    ) : sidePane === "files" ? (
-                      <Suspense fallback={<LoadingFilesPane />}>
-                        <FilesPane
-                          worktree={files.worktree}
-                          focus={filesFocus}
-                          askAgent={askAgent}
-                          projects={projection?.projects}
-                          onOpenProject={openFilesInProject}
-                          onQuickOpen={openQuickOpen}
-                          onOpenDiff={(path) => {
-                            setSidePane("review");
-                            setReviewFocus({ path, nonce: Date.now() });
-                          }}
-                        />
-                      </Suspense>
-                    ) : sidePane === "browser" ? (
-                      <BrowserPane
-                        worktree={contextWorktree}
-                        obscured={overlayOpen}
-                        reveal={browserReveal}
-                        openRequest={browserOpen}
-                        onShowAgent={showAgent}
-                        onNotice={showSent}
-                        projects={projection?.projects}
-                        onOpenProject={openBrowserInProject}
-                      />
-                    ) : sidePane === "pullRequest" ? (
-                      <PullRequestPane
-                        worktree={contextWorktree}
-                        onOpenChanges={() => setSidePane("review")}
-                        onShowAgent={showAgent}
-                      />
-                    ) : sidePane === "sideChat" ? null : sidePane === "huddle" ? (
-                      <HuddlePane
-                        projection={projection}
-                        selectedId={huddleId}
-                        onSelect={setHuddleId}
-                        onOpenAgent={(agentId) => void openHuddleAgent(agentId)}
-                      />
-                    ) : sidePane === "mobile" ? (
-                      <MobilePane
-                        reveal={mobileReveal}
-                        devServers={mobileDevServers}
-                        worktreeId={contextWorktree?.worktreeId}
-                        worktreeName={contextWorktree?.branch}
-                        popOutRequest={mobilePopOutRequest}
-                        onPopOutRequestDone={() => setMobilePopOutRequest(undefined)}
-                        onOpenTerminal={() => updateWorkbench((state) => ({ ...state, drawerOpen: true }))}
-                      />
-                    ) : (
-                      <Suspense fallback={<LoadingState label="Loading the changes" />}>
-                        <ReviewPane
-                          worktree={contextWorktree}
-                          focus={reviewFocus}
-                          onShowAgent={showAgent}
-                          onNotice={showSent}
-                        />
-                      </Suspense>
-                    )}
+                    </div>
                   </aside>
                 </>
               ) : null}
@@ -3308,7 +3399,10 @@ function WorkspaceApp() {
             initialSection={settingsSection}
             integrationsView={integrationsView}
             focusConnector={focusConnector}
-            notifications={{ settings: notifications.settings, update: (patch) => void notifications.update(patch) }}
+            notifications={{
+              settings: notifications.settings,
+              update: (patch) => void notifications.update(patch),
+            }}
             updates={updates}
             onRestartToUpdate={restartToUpdate}
             onSignIn={signInAccount}

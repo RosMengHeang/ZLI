@@ -41,7 +41,8 @@ test("browses, edits, finds, and searches files in a worktree", async () => {
     await expect(folder).toBeVisible({ timeout: 10_000 });
     await expect(folder.locator(".file-row-changed")).toHaveCount(1);
     await folder.click();
-    // Changed files are listed twice: in the Changed group at the top and in place in the tree.
+    // Changed files are listed twice: in the Changed group at the top, folded until opened, and in place in the tree.
+    await panel.locator(".file-group-header", { hasText: "Changed" }).click();
     const changed = panel.locator('.file-row[data-group="changed"]');
     await expect(changed).toHaveCount(1);
     await expect(changed.locator(".file-status-untracked")).toHaveText("U");
@@ -66,13 +67,12 @@ test("browses, edits, finds, and searches files in a worktree", async () => {
     await expect
       .poll(async () => (await readFile(join(worktreePath, "README.md"), "utf8")).replaceAll("\r\n", "\n"))
       .toBe("# ZLI integration fixture\nEdited in ZLI\n");
-    // A narrow panel hides the file list while a file is open, so read the status from the open file's path bar.
-    await expect(panel.locator(".file-path-bar .file-status-modified")).toHaveText("M", { timeout: 10_000 });
-    const diff = panel.getByRole("button", { name: "Diff", exact: true });
-    await diff.click();
-    await expect(diff).toHaveAttribute("aria-pressed", "true");
+    // The file's bar above it toggles between the file and what changed in it.
+    await panel.getByRole("button", { name: "Show what changed" }).click();
+    const fileButton = panel.getByRole("button", { name: "Show the file" });
+    await expect(fileButton).toHaveAttribute("aria-pressed", "true");
     await expect(panel.locator(".file-diff")).toContainText("Edited in ZLI", { timeout: 10_000 });
-    await diff.click();
+    await fileButton.click();
 
     await writeFile(join(worktreePath, "README.md"), "# Changed by an agent\n", "utf8");
     await expect(editor).toContainText("Changed by an agent", { timeout: 10_000 });
@@ -131,6 +131,8 @@ test("adds selected lines to the agent chat and sends them with the next message
 
     await togglePanel(page, "Files");
     const panel = page.getByRole("complementary", { name: "Files panel" });
+    // The Changed group starts folded; opened, it lists the file the agent touched.
+    await panel.locator(".file-group-header", { hasText: "Changed" }).click({ timeout: 10_000 });
     await panel.locator('.file-row[data-group="changed"]', { hasText: "math.ts" }).click({ timeout: 10_000 });
     const editor = panel.locator(".cm-content");
     await expect(editor).toContainText("export const two");
