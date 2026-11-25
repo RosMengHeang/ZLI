@@ -92,7 +92,7 @@ export class TerminalReactor {
 
   async restore(): Promise<void> {
     const projection = await this.engine.projection();
-    const events = await this.engine.eventsAfter(0);
+    const events = await this.engine.eventsOfTypes(["terminal.create.requested"]);
     for (const envelope of events) {
       if (envelope.event.type !== "terminal.create.requested") continue;
       const intent = envelope.event;

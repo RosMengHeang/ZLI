@@ -24,7 +24,8 @@
     "test": "vitest run",
     "lint": "biome lint .",
     "typecheck": "tsc -b --pretty false",
-    "verify": "pnpm run boundaries && pnpm run format:check && pnpm run lint && pnpm run test && pnpm run typecheck"
+    "verify": "pnpm run boundaries && pnpm run format:check && pnpm run lint && pnpm run test && pnpm run typecheck",
+    "bench": "playwright test -c bench/playwright.config.ts"
   },
   "pnpm": {
     "auditConfig": {

@@ -1,7 +1,7 @@
-import { build } from "esbuild";
 import { mkdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const desktopDist = resolve(root, "apps/desktop/dist");
@@ -55,6 +55,14 @@ await build({
   ...shared,
   entryPoints: [resolve(root, "apps/desktop/src/mobile-tool/zli-mobile.ts")],
   outfile: resolve(desktopDist, "zli-mobile.js"),
+  format: "esm",
+});
+
+// One process serving ZLI's MCP servers to every agent over HTTP; also run under ELECTRON_RUN_AS_NODE.
+await build({
+  ...shared,
+  entryPoints: [resolve(root, "apps/desktop/src/tool-host/zli-tool-host.ts")],
+  outfile: resolve(desktopDist, "zli-tool-host.js"),
   format: "esm",
 });
 

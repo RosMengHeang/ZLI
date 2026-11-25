@@ -22,6 +22,7 @@ import {
   zliMcpServerSpecs,
 } from "./browser-tool/browserTool.js";
 import { removeZliFromUserSettings, syncAccountMcpServers } from "./browser-tool/mcpSettingsFiles.js";
+import { ToolHostProcess } from "./browser-tool/toolHostProcess.js";
 import { BuddyChatReactor } from "./buddies/BuddyChatReactor.js";
 import { GoalReactor } from "./buddies/GoalReactor.js";
 import { BuddyHomes } from "./buddies/homes.js";
@@ -32,6 +33,7 @@ import { TeamGit } from "./buddies/teamGit.js";
 import { TurnCheckpoints } from "./checkpoints/TurnCheckpoints.js";
 import { DaemonSupervisor } from "./daemon/DaemonSupervisor.js";
 import { Database } from "./db/Database.js";
+import { HistoryRetention } from "./db/HistoryRetention.js";
 import { DevServerReactor } from "./devservers/DevServerReactor.js";
 import { DiagnosticsReactor } from "./diagnostics/DiagnosticsReactor.js";
 import { StructuredLogger } from "./diagnostics/StructuredLogger.js";
@@ -153,6 +155,20 @@ export async function startRuntime(options: {
   });
   const reviewReactor = new ReviewReactor(engine, new ReviewService(new GitProcess()));
   const browserTool = options.browserTool;
+  // One process serves ZLI's tool servers to every agent; without it each agent starts three of its own.
+  const toolHost =
+    browserTool?.toolHostScript && process.env.ZLI_TOOL_HOST !== "0"
+      ? new ToolHostProcess(
+          { ...browserTool, toolHostScript: browserTool.toolHostScript },
+          `${databasePath}.tool-host.json`,
+          { log: (message, detail) => logger.record("warn", message, {}, detail ?? {}) },
+        )
+      : undefined;
+  if (browserTool && toolHost) {
+    // Not awaited, so startup never waits on it; an agent that starts first gets its own servers.
+    void toolHost.start().catch(() => undefined);
+    browserTool.toolHost = toolHost;
+  }
   const userHome = options.userHome ?? homedir();
   const cleanUpUserSettings = options.cleanUpUserSettings !== false;
   const log = (level: "info" | "warn", message: string, context: Record<string, unknown>) =>
@@ -296,6 +312,13 @@ export async function startRuntime(options: {
     agentFiles.writeFile(worktreePath, relPath, contents);
   const agentSettings = new AgentSettingsStore(join(dirname(databasePath), "agent-settings.json"));
   await agentSettings.load();
+  // Off unless the person picked a shorter history in Settings; then old log entries go once a day.
+  const historyRetention = new HistoryRetention(
+    engine,
+    () => agentSettings.read().historyRetentionDays,
+    (message, detail) => logger.record("info", message, {}, detail),
+  );
+  historyRetention.start();
   const providerService = new ProviderService(
     createProviderRegistry(process.env, {
       ...(browserTool ? { browserTool } : {}),
@@ -329,6 +352,10 @@ export async function startRuntime(options: {
     resolveAccount,
     // What the person sends from an app card, ZLI runs itself with the saved key.
     runApps: (tool, params) => appsProxy.run(tool, params),
+    ...idleStopOption(process.env.ZLI_AGENT_IDLE_STOP_MS),
+    ...warmLimitOption(process.env.ZLI_AGENT_WARM_LIMIT),
+    // ZLI_AGENT_AUTO_RESUME=0 leaves a cut-off turn for the person, for tests of that path.
+    ...(process.env.ZLI_AGENT_AUTO_RESUME === "0" ? { autoResume: false } : {}),
   });
   const agentMessageReactor = new AgentMessageReactor(engine);
   const diagnosticsReactor = new DiagnosticsReactor(engine, logger);
@@ -498,6 +525,8 @@ export async function startRuntime(options: {
     userSettingsCleanup,
     token,
     close: async () => {
+      historyRetention.stop();
+      toolHost?.stop();
       signIns.close();
       accountSignIns.dispose();
       unsubscribeWorktrees();
@@ -606,4 +635,18 @@ async function isDirectory(path: string): Promise<boolean> {
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
   void main();
+}
+
+/** ZLI_AGENT_IDLE_STOP_MS overrides how long an idle agent keeps its process, for tests and benchmarks. */
+function idleStopOption(value: string | undefined): { idleStopMs?: number } {
+  const ms = Number(value);
+  return value !== undefined && value.trim() !== "" && Number.isFinite(ms) && ms >= 0 ? { idleStopMs: ms } : {};
+}
+
+/** ZLI_AGENT_WARM_LIMIT overrides how many idle agents keep their process, for tests and benchmarks. */
+function warmLimitOption(value: string | undefined): { maxWarmAgents?: number } {
+  const count = Number(value);
+  return value !== undefined && value.trim() !== "" && Number.isInteger(count) && count >= 0
+    ? { maxWarmAgents: count }
+    : {};
 }

@@ -1709,4 +1709,33 @@ describe("ChatView compacting", () => {
     expect(String(sent?.context)).toContain("<summary>\nLogin fixed in auth.ts.\n</summary>");
     expect(String(sent?.context)).not.toContain("Fix the login");
   });
+
+  it("draws a long chat's newest messages first and older ones on request", async () => {
+    const messages = Array.from({ length: 150 }, (_, index) => ({
+      messageId: `m${index}`,
+      threadId,
+      role: index % 2 === 0 ? "user" : "assistant",
+      text: `message ${index}`,
+    })) as RuntimeProjection["messages"];
+    const { container } = await render(projectionWith({ threads: [{ ...thread, status: "idle" }], messages }));
+    const drawn = () => container.querySelectorAll(".chat-message").length;
+    const drawnText = () =>
+      [...container.querySelectorAll(".chat-message")].map((entry) => entry.textContent).join(" ");
+    expect(drawn()).toBe(60);
+    expect(drawnText()).toContain("message 149");
+    expect(drawnText()).not.toContain("message 0 ");
+    const earlier = [...container.querySelectorAll("button")].find(
+      (entry) => entry.textContent === "Show earlier messages",
+    );
+    await act(async () => earlier?.click());
+    expect(drawn()).toBe(120);
+    await act(async () =>
+      [...container.querySelectorAll("button")].find((entry) => entry.textContent === "Show earlier messages")?.click(),
+    );
+    expect(drawn()).toBe(150);
+    expect(drawnText()).toContain("message 0 ");
+    expect(
+      [...container.querySelectorAll("button")].some((entry) => entry.textContent === "Show earlier messages"),
+    ).toBe(false);
+  });
 });

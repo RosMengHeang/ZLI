@@ -9,7 +9,7 @@ import { formatMobileDevResult, MOBILE_DEV_INSTRUCTIONS, MOBILE_DEV_MCP_TOOLS } 
 export const ZLI_MOBILE_VERSION = "1.0.0";
 
 const PANEL =
-  "ZLI's Mobile panel shows Android emulators, connected Android phones, and iOS simulators (on a Mac); the person sees the same screen you drive.";
+  "ZLI's Mobile panel shows Android emulators and phones, and iOS simulators on a Mac; the person sees the screen you drive.";
 
 const REF = { type: "string", description: "An element ref such as e12 from your latest mobile_snapshot." };
 const COORDINATE = {
@@ -235,14 +235,15 @@ function formatMobileResultBody(action: string, result: unknown): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify(result ?? null) }] };
 }
 
-export function createMobileMcpServer(call: ZliBrowserCall): McpServer {
+/** cwd is the agent's working folder, for a server that does not run in it, such as the shared tool host. */
+export function createMobileMcpServer(call: ZliBrowserCall, cwd?: () => string): McpServer {
   return createToolServer(call, {
     tools: MOBILE_MCP_TOOLS,
     serverInfo: { name: "zli-mobile", title: "ZLI mobile", version: ZLI_MOBILE_VERSION },
-    instructions: `${PANEL} Use mobile_devices to see what is available, mobile_boot to start a device, mobile_install and mobile_launch or mobile_open_url to run your app, then mobile_snapshot, mobile_tap, mobile_type, and mobile_screenshot to test it. Call mobile_release when you are done.${MOBILE_DEV_INSTRUCTIONS ? ` ${MOBILE_DEV_INSTRUCTIONS}` : ""}`,
+    instructions: `${PANEL} Run your app with mobile_devices, mobile_boot, mobile_install, and mobile_launch or mobile_open_url; test it with mobile_snapshot, mobile_tap, mobile_type, and mobile_screenshot; call mobile_release when done.${MOBILE_DEV_INSTRUCTIONS ? ` ${MOBILE_DEV_INSTRUCTIONS}` : ""}`,
     targetProperties: TARGET_PROPERTIES,
     failureMessage: "The mobile action failed.",
-    toInput: (tool, args) => mobileToolInput(tool, args),
+    toInput: (tool, args) => mobileToolInput(tool, args, cwd),
     formatResult: formatMobileResult,
     // The person can turn mobile tools off; then none are listed, so agents do not try them.
     visibleTools: async () => {

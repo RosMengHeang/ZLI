@@ -7,6 +7,7 @@ import { DroidClient, DroidProviderError } from "@zli-v2/provider-droid";
 import {
   AGENT_MCP_SERVER,
   agentEnv,
+  agentZliMcpServerSpecs,
   type BrowserToolConfig,
   codexMcpArgs,
   codexServerConfig,
@@ -35,7 +36,8 @@ import { type ProviderAccount, ProviderRegistry } from "./ProviderService.js";
 import { writeZliInstructions } from "./zliInstructions.js";
 
 export async function resolveClaudeCommand(probe: CliProbe = createDefaultCliProbe()): Promise<string> {
-  const discovered = await discoverCliProviders(probe, { models: false });
+  // Only this agent's path: starting a chat must not run every installed CLI's --version.
+  const discovered = await discoverCliProviders(probe, { models: false, version: false, only: "claude-code" });
   const claude = discovered.find((entry) => entry.provider === "claude-code");
   if (claude?.status === "found") return claude.path;
   throw new ClaudeProviderError(
@@ -45,7 +47,8 @@ export async function resolveClaudeCommand(probe: CliProbe = createDefaultCliPro
 }
 
 export async function resolveCodexCommand(probe: CliProbe = createDefaultCliProbe()): Promise<string> {
-  const discovered = await discoverCliProviders(probe, { models: false });
+  // Only this agent's path: starting a chat must not run every installed CLI's --version.
+  const discovered = await discoverCliProviders(probe, { models: false, version: false, only: "codex" });
   const codex = discovered.find((entry) => entry.provider === "codex");
   if (codex?.status === "found") return codex.path;
   throw new CodexProviderError(
@@ -55,7 +58,8 @@ export async function resolveCodexCommand(probe: CliProbe = createDefaultCliProb
 }
 
 export async function resolveCursorCommand(probe: CliProbe = createDefaultCliProbe()): Promise<string> {
-  const discovered = await discoverCliProviders(probe, { models: false });
+  // Only this agent's path: starting a chat must not run every installed CLI's --version.
+  const discovered = await discoverCliProviders(probe, { models: false, version: false, only: "cursor-agent" });
   const cursor = discovered.find((entry) => entry.provider === "cursor-agent");
   if (cursor?.status === "found") return cursor.path;
   throw new CursorProviderError(
@@ -65,7 +69,8 @@ export async function resolveCursorCommand(probe: CliProbe = createDefaultCliPro
 }
 
 export async function resolveDroidCommand(probe: CliProbe = createDefaultCliProbe()): Promise<string> {
-  const discovered = await discoverCliProviders(probe, { models: false });
+  // Only this agent's path: starting a chat must not run every installed CLI's --version.
+  const discovered = await discoverCliProviders(probe, { models: false, version: false, only: "droid" });
   const droid = discovered.find((entry) => entry.provider === "droid");
   if (droid?.status === "found") return droid.path;
   throw new DroidProviderError(
@@ -144,7 +149,8 @@ export async function resolveAcpCommand(
   provider: AcpProviderKind,
   probe: CliProbe = createDefaultCliProbe(),
 ): Promise<string> {
-  const discovered = await discoverCliProviders(probe, { models: false });
+  // Only this agent's path: starting a chat must not run every installed CLI's --version.
+  const discovered = await discoverCliProviders(probe, { models: false, version: false, only: provider });
   const entry = discovered.find((candidate) => candidate.provider === provider);
   if (entry?.status === "found") return entry.path;
   throw new AcpProviderError(
@@ -195,8 +201,13 @@ export function createProviderRegistry(
       return [];
     }
   };
-  const allServers = async (worktreeId: string | undefined) => [
-    ...(browserTool ? zliMcpServerSpecs(browserTool, worktreeId) : []),
+  // `shared` gives ZLI's own servers as URLs on the shared tool host, for agents whose config stays private.
+  const allServers = async (worktreeId: string | undefined, shared?: { cwd: string }) => [
+    ...(browserTool
+      ? shared
+        ? agentZliMcpServerSpecs(browserTool, worktreeId, shared.cwd)
+        : zliMcpServerSpecs(browserTool, worktreeId)
+      : []),
     ...(await addedServers(worktreeId)),
   ];
   // Claude Code, Codex, and Droid take folder trust only from their settings files, so nothing is added to the launch.
@@ -219,7 +230,8 @@ export function createProviderRegistry(
     }
   };
   // Servers for an agent that reads them from a file: the relay token moves to the agent's own environment.
-  const fileServers = async (worktreeId: string | undefined) => liftSecretEnv(await allServers(worktreeId));
+  const fileServers = async (worktreeId: string | undefined, shared?: { cwd: string }) =>
+    liftSecretEnv(await allServers(worktreeId, shared));
   const chatEnv = async (
     worktreeId: string | undefined,
     account?: ProviderAccount,
@@ -294,7 +306,8 @@ export function createProviderRegistry(
       createClient: async ({ worktreeId, account, trustedProjectPath, title, ...input }) => {
         await trustFolder("claude-code", { cwd: input.cwd, account, trustedProjectPath });
         const autoCompactTokens = options.claudeAutoCompactTokens?.();
-        const servers = await fileServers(worktreeId);
+        // Claude's config file sits in ZLI's own folder, so the tool host's token stays out of the project.
+        const servers = await fileServers(worktreeId, { cwd: input.cwd });
         return ClaudeCodeClient.start({
           ...input,
           approveTool: isBuddyToolCall,

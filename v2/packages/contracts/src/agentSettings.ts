@@ -4,13 +4,24 @@ import { z } from "zod";
 export const CLAUDE_AUTO_COMPACT_MIN = 100_000;
 export const CLAUDE_AUTO_COMPACT_MAX = 1_000_000;
 
-/** Settings the runtime applies when it starts a chat agent. Kept by the runtime, not the browser, because the runtime launches the agents. */
+/** The one shorter history a person can pick: a month of the change log. */
+export const HISTORY_RETENTION_DAYS = 30;
+
+/**
+ * Settings the runtime applies itself, such as when it starts a chat agent. Kept by the runtime, not the
+ * browser, because the runtime launches the agents and owns the database.
+ */
 export const AgentSettings = z.object({
   /**
    * Tokens at which Claude summarizes older context. Lower keeps each message cheaper but forgets
    * detail sooner. Missing keeps Claude Code's own setting.
    */
   claudeAutoCompactTokens: z.number().int().min(CLAUDE_AUTO_COMPACT_MIN).max(CLAUDE_AUTO_COMPACT_MAX).optional(),
+  /**
+   * Days of the runtime's change log to keep. Older entries are deleted once the saved state covers them;
+   * chats and their messages are kept either way. Missing keeps the whole log.
+   */
+  historyRetentionDays: z.literal(HISTORY_RETENTION_DAYS).optional(),
 });
 export type AgentSettings = z.infer<typeof AgentSettings>;
 

@@ -41,6 +41,5 @@ export const packagesTools: MobileDevToolModule = {
       lines.push("Every package was blocked, so there is nothing to install. Look for a supported alternative.");
     return { content: [{ type: "text", text: lines.join("\n") }] };
   },
-  instructions:
-    "Before adding an npm package to a mobile app, call mobile_check_package and propose the install command it returns.",
+  instructions: "Call mobile_check_package before adding an npm package, and propose the command it returns.",
 };

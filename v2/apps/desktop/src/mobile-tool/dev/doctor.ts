@@ -43,8 +43,7 @@ export const doctorTools: MobileDevToolModule = {
     const parsed = Facts.safeParse(result);
     return parsed.success ? { content: [{ type: "text", text: formatFacts(parsed.data) }] } : undefined;
   },
-  instructions:
-    "Before changing package versions, Gradle, Podfile, or native config in a mobile app, call mobile_doctor for the project's real versions and known problems.",
+  instructions: "Call mobile_doctor before changing package versions, Gradle, Podfile, or native config.",
 };
 
 export function formatFacts(facts: MobileProjectFacts): string {

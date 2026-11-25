@@ -278,7 +278,11 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
         description: "new (default) makes a worktree on its own branch. same shares your worktree and files.",
       },
       branch: { type: "string", description: "Branch name for a new worktree. Default: <provider>-<random>." },
-      model: { type: "string", description: "Model id, when the provider offers a choice." },
+      model: {
+        type: "string",
+        description:
+          "The model it runs, by id or name. Pick one per worker to match the task. Left out, an agent of the same kind as you runs your model. A name the agent does not offer returns the list to pick from.",
+      },
       name: {
         type: "string",
         description:
@@ -386,7 +390,7 @@ export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
   return createToolServer(call, {
     tools: AGENT_MCP_TOOLS,
     serverInfo: { name: "zli", title: "ZLI agents", version: ZLI_AGENT_TOOL_VERSION },
-    instructions: `${ROOM} Use list_agents to see who else is working in this project, read_agent to check on them, message_agent to coordinate, and start_agent to hand off a separate task. Refer to agents by name when they have one. An agent in another project can be named alone or as project/agent. When ZLI Settings keep agents to their own project, ZLI asks the person to allow it and the call waits for the answer. Services the person connected in ZLI, such as Vercel, GitHub, or Linear, are reached through find_tools and use_tool: search for what you want to do, then call the tool it returns. Use connect_service when find_tools has nothing for a service you need, or a tool says it needs a sign-in. When ZLI gave you a job as a buddy, finish with task_done, ask the person with ask_person, and hand parts to other buddies with hand_off. The Primary starts a team on a bigger goal with start_team; a team lead hands in its plan with team_plan.`,
+    instructions: `${ROOM} Work with other agents through list_agents, read_agent, message_agent, and start_agent; name them, or write project/agent for one in another project. A call across projects can wait for the person to allow it. Reach services the person connected, such as GitHub or Linear, with find_tools then use_tool, and connect_service when none fits or a sign-in is needed. Buddy jobs end with task_done; ask the person with ask_person and give parts away with hand_off. The Primary starts a team with start_team; a team lead hands in its plan with team_plan.`,
     targetProperties: {
       cwd: {
         type: "string",

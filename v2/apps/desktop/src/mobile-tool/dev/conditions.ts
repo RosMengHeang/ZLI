@@ -44,5 +44,5 @@ export const conditionsTools: MobileDevToolModule = {
     return { content: [{ type: "text", text: done.join("\n") }] };
   },
   instructions:
-    "To test dark mode, larger text, a location, or a permission prompt, call mobile_device_settings instead of tapping through the device's Settings app.",
+    "For dark mode, larger text, a location, or a permission prompt, use mobile_device_settings, not the device's Settings app.",
 };

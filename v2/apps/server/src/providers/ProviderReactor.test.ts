@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
-import { ProviderReactor, promptWithAttachments } from "./ProviderReactor.js";
+import { CONTINUE_PROMPT, ProviderReactor, promptWithAttachments } from "./ProviderReactor.js";
 import {
   type ProviderAdapter,
   type ProviderEvent,
@@ -905,12 +905,12 @@ describe("ProviderReactor", () => {
 });
 
 describe("ProviderReactor resume", () => {
-  async function setup(adapter: FakeAdapter) {
+  async function setup(adapter: FakeAdapter, options: ConstructorParameters<typeof ProviderReactor>[3] = {}) {
     const database = new Database({ path: ":memory:" });
     databases.push(database);
     const engine = new Engine({ database, environment });
     const service = new ProviderService(new ProviderRegistry([adapter]));
-    const reactor = new ProviderReactor(engine, service);
+    const reactor = new ProviderReactor(engine, service, undefined, options);
     let sequence = 0;
     const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
       sequence += 1;
@@ -1032,7 +1032,61 @@ describe("ProviderReactor resume", () => {
     await cleanup();
   });
 
-  it("starts the agent again on its conversation when a message follows a crash", async () => {
+  it("picks a turn cut off by a restart up again, but not one from long ago", async () => {
+    for (const [hoursLater, expectResume] of [
+      [0, true],
+      [2, false],
+    ] as const) {
+      const first = new IdentifiedAdapter();
+      const { engine, reactor, dispatch, cleanup } = await setup(first);
+      await dispatch({ type: "thread.queue", queueId: `r${hoursLater}`, threadId, text: "long job" });
+      await reactor.waitForIdle();
+      expect((await engine.projection()).threads[0]?.status).toBe("working");
+      // ZLI goes away mid-turn: the next run has no process behind the chat.
+      reactor.stop();
+      const next = new IdentifiedAdapter();
+      const service = new ProviderService(new ProviderRegistry([next]));
+      const later = Date.now() + hoursLater * 60 * 60_000;
+      const restarted = new ProviderReactor(engine, service, undefined, { now: () => later });
+      await restarted.reconcileOrphanedThreads();
+      await restarted.waitForIdle();
+      const thread = (await engine.projection()).threads[0];
+      if (expectResume) {
+        expect(next.startInputs.map((input) => input.resumeSessionId)).toEqual(["conv-1"]);
+        expect(next.turnInputs.map((input) => input.text)).toEqual([CONTINUE_PROMPT]);
+        expect(thread?.status).toBe("working");
+      } else {
+        expect(next.startInputs).toEqual([]);
+        expect(thread?.status).toBe("stopped");
+      }
+      restarted.stop();
+      service.dispose();
+      await cleanup();
+    }
+  });
+
+  it("leaves a turn that was asking the person something for them after a restart", async () => {
+    const first = new IdentifiedAdapter();
+    const { engine, reactor, dispatch, cleanup } = await setup(first);
+    await dispatch({ type: "thread.queue", queueId: "w1", threadId, text: "clean the build folder" });
+    await reactor.waitForIdle();
+    first.emit({ type: "approval.requested", threadId, requestId: "approval-1", payload: { command: "rm -rf build" } });
+    await reactor.waitForIdle();
+    expect((await engine.projection()).requests).toHaveLength(1);
+    reactor.stop();
+    const next = new IdentifiedAdapter();
+    const service = new ProviderService(new ProviderRegistry([next]));
+    const restarted = new ProviderReactor(engine, service);
+    await restarted.reconcileOrphanedThreads();
+    await restarted.waitForIdle();
+    expect(next.startInputs).toEqual([]);
+    expect((await engine.projection()).threads[0]?.status).toBe("stopped");
+    restarted.stop();
+    service.dispose();
+    await cleanup();
+  });
+
+  it("starts an agent that died mid-turn again by itself, once until a turn finishes", async () => {
     const adapter = new (class extends IdentifiedAdapter {
       override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
         this.turnInputs.push(input);
@@ -1040,6 +1094,50 @@ describe("ProviderReactor resume", () => {
       }
     })();
     const { reactor, dispatch, thread, cleanup } = await setup(adapter);
+    await dispatch({ type: "thread.queue", queueId: "a1", threadId, text: "long job" });
+    await reactor.waitForIdle();
+
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    await reactor.waitForIdle();
+    expect(adapter.startInputs.map((input) => input.resumeSessionId)).toEqual([undefined, "conv-1"]);
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["long job", CONTINUE_PROMPT]);
+    expect(await thread()).toMatchObject({ status: "working", providerSessionId: "conv-1" });
+
+    // Dying in the first turn after a resume reads as the conversation being refused: ZLI starts a fresh one
+    // and sends the same message, as it always has.
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    await reactor.waitForIdle();
+    expect(adapter.startInputs.map((input) => input.resumeSessionId)).toEqual([undefined, "conv-1", undefined]);
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["long job", CONTINUE_PROMPT, CONTINUE_PROMPT]);
+
+    // Dying yet again before any turn finished leaves it for the person instead of starting over and over.
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    await reactor.waitForIdle();
+    expect(adapter.turnInputs).toHaveLength(3);
+    expect(await thread()).toMatchObject({ status: "stopped", errorMessage: "Codex exited (1)." });
+
+    // A finished turn makes the next cut-off turn worth picking up again.
+    await dispatch({ type: "thread.queue", queueId: "a2", threadId, text: "next job" });
+    await reactor.waitForIdle();
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-4", status: "completed" });
+    await reactor.waitForIdle();
+    await dispatch({ type: "thread.queue", queueId: "a3", threadId, text: "third job" });
+    await reactor.waitForIdle();
+    adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });
+    await reactor.waitForIdle();
+    expect(adapter.turnInputs.map((input) => input.text).at(-1)).toBe(CONTINUE_PROMPT);
+    await cleanup();
+  });
+
+  it("starts the agent again on its conversation when a message follows a crash", async () => {
+    const adapter = new (class extends IdentifiedAdapter {
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        return { turnId: `turn-${this.turnInputs.length}` };
+      }
+    })();
+    // The person picks up by hand here; picking up by itself is tested below.
+    const { reactor, dispatch, thread, cleanup } = await setup(adapter, { autoResume: false });
     await dispatch({ type: "thread.queue", queueId: "c1", threadId, text: "before the crash" });
     await reactor.waitForIdle();
     expect((await thread())?.status).toBe("working");
@@ -1078,7 +1176,8 @@ describe("ProviderReactor resume", () => {
         this.interrupted.push(input?.turnId);
       }
     })();
-    const { reactor, dispatch, thread, cleanup } = await setup(adapter);
+    // The person sends after the crash here, so ZLI does not pick the turn up by itself.
+    const { reactor, dispatch, thread, cleanup } = await setup(adapter, { autoResume: false });
     await dispatch({ type: "thread.queue", queueId: "c1", threadId, text: "first" });
     await reactor.waitForIdle();
     adapter.emit({ type: "session.closed", threadId, reason: "Codex exited (1)." });

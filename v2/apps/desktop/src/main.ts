@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { RuntimeClient, type RuntimeTransport } from "@zli-v2/client-runtime";
@@ -85,6 +85,7 @@ import { ensureDesktopDaemon, shutdownDesktopDaemon } from "./runtime/DesktopDae
 import { EnvironmentProcess } from "./runtime/EnvironmentProcess.js";
 import { ensureScratchFolder } from "./scratch/ScratchFolder.js";
 import { shouldOpenExternal, withRendererPolicy } from "./security/NavigationPolicy.js";
+import { presenceSettings, registerPresenceIpc } from "./security/presenceSettings.js";
 import {
   handOffKey,
   removeHandoffs,
@@ -93,8 +94,8 @@ import {
   SECRETS_NO_KEYCHAIN_ENV,
   secretsKey,
 } from "./security/secretsKey.js";
-import { presenceSettings, registerPresenceIpc } from "./security/presenceSettings.js";
 import { windowsHello } from "./security/windowsHello.js";
+import { DISK_CACHE_BYTES, trimCodeCaches } from "./storage/cacheLimits.js";
 import { writeJsonFile } from "./storage/writeJsonFile.js";
 import { createElectronTray } from "./tray/electronTray.js";
 import { TrayController } from "./tray/TrayController.js";
@@ -117,6 +118,15 @@ import { windowsAppDetails, windowsAppId } from "./window/windowsTaskbar.js";
 const DEFAULT_ENVIRONMENT_ID = "00000000-0000-4000-8000-000000000001";
 const APP_ORIGIN = "zli-v2://app";
 const DESKTOP_DIST = dirname(fileURLToPath(import.meta.url));
+
+/** Changes with every build, so code compiled for an older one is cleared. */
+function appBuildId(): string {
+  try {
+    return `${app.getVersion()}:${statSync(fileURLToPath(import.meta.url)).mtimeMs}`;
+  } catch {
+    return app.getVersion();
+  }
+}
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -142,6 +152,10 @@ const defaultUserData = app.getPath("userData");
 // belong to the database. A launch with its own database gets its own userData, so it neither blocks nor
 // is blocked by a copy on other data, such as an installed ZLI or another test. This must run before the lock.
 if (process.env.ZLI_DATABASE_PATH) app.setPath("userData", `${resolve(process.env.ZLI_DATABASE_PATH)}.user-data`);
+
+// Chromium would otherwise size its caches from free disk space. Both run before the profile opens.
+app.commandLine.appendSwitch("disk-cache-size", String(DISK_CACHE_BYTES));
+trimCodeCaches(app.getPath("sessionData"), appBuildId());
 
 let environment: EnvironmentProcess | undefined;
 let runtime: RuntimeClient | undefined;
@@ -437,6 +451,7 @@ async function startBrowserControl(databasePath: string): Promise<BrowserToolPat
     agentScript: join(DESKTOP_DIST, "zli.js"),
     mobileScript: join(DESKTOP_DIST, "zli-mobile.js"),
     connectScript: join(DESKTOP_DIST, "zli-connect.js"),
+    toolHostScript: join(DESKTOP_DIST, "zli-tool-host.js"),
     shimDir: process.env.ZLI_DATABASE_PATH ? `${databasePath}.bin` : join(userData, "bin"),
   };
   const runtimeCommand: AgentControlHost["command"] = (request) =>

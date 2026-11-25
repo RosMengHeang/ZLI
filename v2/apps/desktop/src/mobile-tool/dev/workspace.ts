@@ -21,7 +21,7 @@ export const workspaceTools: MobileDevToolModule = {
     return { content: [{ type: "text", text: workspaceText(parsed.data) }] };
   },
   instructions:
-    "Start Metro on your worktree's port: npx expo start --port $ZLI_METRO_PORT (add --dev-client for a development build), or npx react-native start --port $ZLI_METRO_PORT. Call mobile_workspace to get the URL to open on the device.",
+    "Start Metro on $ZLI_METRO_PORT (npx expo start --port $ZLI_METRO_PORT, --dev-client for a development build, or npx react-native start --port $ZLI_METRO_PORT); mobile_workspace gives the URL to open on the device.",
 };
 
 /** For example: Metro port 8142 (free). Open with exp://localhost:8142. Device: android-avd:Pixel_7. */

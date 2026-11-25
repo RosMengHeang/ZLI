@@ -14,7 +14,8 @@ test("starts the agent again when a message follows a crash of its process", asy
   const { root, repo } = await createGitFixture();
   let fixture: DesktopFixture | undefined;
   try {
-    fixture = await launchDesktop(repo, root);
+    // The person picks the chat up here; the test below covers ZLI doing it by itself.
+    fixture = await launchDesktop(repo, root, { env: { ZLI_AGENT_AUTO_RESUME: "0" } });
     const page = fixture.page;
     await expect(page.locator(".project-label")).toContainText("repo");
 
@@ -42,6 +43,35 @@ test("starts the agent again when a message follows a crash of its process", asy
     await sendChatMessage(page, "Still with me?");
     await expect(page.locator(".chat-log").getByText("Mock response: Still with me?")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Session already exists/u)).toHaveCount(0);
+  } finally {
+    if (fixture) await closeDesktop(fixture);
+  }
+});
+
+test("picks a turn cut off by a crash up again by itself", async () => {
+  test.skip(process.env.ZLI_RUN_E2E !== "1", "Electron integration tests run explicitly in CI.");
+  const { root, repo } = await createGitFixture();
+  let fixture: DesktopFixture | undefined;
+  try {
+    fixture = await launchDesktop(repo, root);
+    const page = fixture.page;
+    await expect(page.locator(".project-label")).toContainText("repo");
+
+    await openNewAgentOptions(page);
+    const newAgent = page.getByRole("dialog", { name: "New agent" });
+    await newAgent.getByText("Codex", { exact: true }).click();
+    await newAgent.getByText("Chat", { exact: true }).click();
+    await newAgent.getByRole("button", { name: "Start agent" }).click();
+
+    await sendChatMessage(page, "[crash] start the build");
+    // ZLI says why it started the agent again, and the agent answers the request to carry on.
+    await expect(page.locator(".chat-log").getByText(/ZLI started it again on the same conversation/u)).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.locator(".chat-log").getByText(/Mock response: Your last turn was cut off/u)).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.locator(".chat-continue").getByRole("button", { name: "Continue" })).toHaveCount(0);
   } finally {
     if (fixture) await closeDesktop(fixture);
   }

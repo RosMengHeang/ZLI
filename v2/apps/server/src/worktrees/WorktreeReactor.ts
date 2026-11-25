@@ -173,7 +173,7 @@ export class WorktreeReactor {
   private async intentFor(worktreeId: string): Promise<CreateIntent | undefined> {
     const cached = this.intents.get(worktreeId);
     if (cached) return cached;
-    for (const envelope of await this.engine.eventsAfter(0)) {
+    for (const envelope of await this.engine.eventsOfTypes(["worktree.create.requested"])) {
       const event = envelope.event;
       if (event.type === "worktree.create.requested" && event.worktree.worktreeId === worktreeId) {
         this.intents.set(worktreeId, event);

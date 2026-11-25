@@ -152,10 +152,18 @@ export function unavailableProviderDiscovery(reason = "Provider discovery failed
 /** Pass `models: false` when only the executable path matters, such as resolving a command to spawn. */
 export async function discoverCliProviders(
   probe: CliProbe,
-  options: { models?: boolean } = {},
+  options: {
+    models?: boolean;
+    /** Off skips running each CLI's --version, for callers that only need where it is. */
+    version?: boolean;
+    /** Looks for this agent only. */
+    only?: ListedProviderKind;
+  } = {},
 ): Promise<ProviderDiscovery[]> {
   const includeModels = options.models ?? true;
-  const found = await Promise.all(LISTED.map((spec) => discoverOne(spec, probe, includeModels)));
+  const includeVersion = options.version ?? true;
+  const specs = options.only ? LISTED.filter((spec) => spec.provider === options.only) : LISTED;
+  const found = await Promise.all(specs.map((spec) => discoverOne(spec, probe, includeModels, includeVersion)));
   // Fable runs only on Claude plans that include it. When the person's Claude login says theirs does not, every
   // agent's Fable models go, OpenCode's and Copilot's routes to it too, so none is offered and then refused.
   const claude = found.find((entry) => entry.provider === "claude-code");
@@ -621,7 +629,12 @@ export function missingReason(provider: ListedProviderKind, displayName: string,
   return hint ? `${notFound} ${hint}` : notFound;
 }
 
-async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boolean): Promise<ProviderDiscovery> {
+async function discoverOne(
+  spec: ListedSpec,
+  probe: CliProbe,
+  includeModels: boolean,
+  includeVersion = true,
+): Promise<ProviderDiscovery> {
   const path = firstExisting(spec, probe);
   if (!path) {
     return {
@@ -632,7 +645,7 @@ async function discoverOne(spec: ListedSpec, probe: CliProbe, includeModels: boo
     };
   }
   const [version, models, login] = await Promise.all([
-    readFoundVersion(probe, path),
+    includeVersion ? readFoundVersion(probe, path) : Promise.resolve(undefined),
     includeModels ? readFoundModels(probe, spec.provider, path) : Promise.resolve(undefined),
     includeModels && probe.readLogin
       ? probe.readLogin(spec.provider, path).catch(() => undefined)

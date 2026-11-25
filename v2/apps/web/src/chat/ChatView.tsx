@@ -341,6 +341,30 @@ export function ChatView({
     return mergeRoomTimeline(ownTimeline, guestSaid, order);
   }, [ownTimeline, guests.length, roomMessages, guestIds]);
   const turns = useMemo(() => groupTurns(timeline), [timeline]);
+  // A long chat opens with its newest rows drawn; scrolling up draws older ones. Drawing a thousand messages
+  // through Markdown at once made long chats slow to open.
+  const [rowWindow, setRowWindow] = useState(() => ({ threadId: thread.threadId, count: ROW_WINDOW }));
+  const shownRows = rowWindow.threadId === thread.threadId ? rowWindow.count : ROW_WINDOW;
+  const hiddenRows = Math.max(0, turns.rows.length - shownRows);
+  const visibleRows = hiddenRows > 0 ? turns.rows.slice(hiddenRows) : turns.rows;
+  /** Distance from the bottom before older rows were added, so the view stays on the same message. */
+  const keepFromBottom = useRef<number | undefined>(undefined);
+  const showEarlier = useCallback(() => {
+    const log = logRef.current;
+    if (log) keepFromBottom.current = log.scrollHeight - log.scrollTop;
+    setRowWindow((current) => ({
+      threadId: thread.threadId,
+      count: (current.threadId === thread.threadId ? current.count : ROW_WINDOW) + ROW_WINDOW,
+    }));
+  }, [thread.threadId]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs after the added rows are drawn.
+  useLayoutEffect(() => {
+    const log = logRef.current;
+    const kept = keepFromBottom.current;
+    if (!log || kept === undefined) return;
+    keepFromBottom.current = undefined;
+    log.scrollTop = log.scrollHeight - kept;
+  }, [shownRows]);
   // Each compaction in the chat, how it went, and about how much it freed, for the divider in its place.
   const chainUsage = useRuntimeSelector(
     useCallback((value: RuntimeProjection | undefined) => entriesForThreads(value?.usage, chainKey), [chainKey]),
@@ -1735,10 +1759,11 @@ export function ChatView({
             }}
           >
             <div className="chat-column">
+              {hiddenRows > 0 ? <EarlierRows rootRef={logRef} onShow={showEarlier} /> : null}
               {timeline.length === 0 && earlyMessages.length === 0 ? (
                 <ChatStart provider={thread.provider} folder={project?.name} />
               ) : (
-                turns.rows.map((row) =>
+                visibleRows.map((row) =>
                   row.kind === "item" ? (
                     renderItem(row.index, true)
                   ) : (
@@ -2393,4 +2418,32 @@ function displayTitle(messages: readonly ThreadMessageProjection[]): string {
   const first = messages.find((message) => message.role === "user" && message.text.trim())?.text.trim() ?? "a chat";
   const line = splitAttachedContext(splitAttachedFiles(first).text).body.split(/\r?\n/u)[0]?.trim() || "a chat";
   return line.length > 60 ? `${line.slice(0, 59)}…` : line;
+}
+
+/** Rows a long chat draws at first, and how many more each step up adds. */
+const ROW_WINDOW = 60;
+
+/**
+ * Sits above the drawn rows of a long chat. Coming near it while scrolling up draws older rows; the button
+ * does the same for keyboard and screen reader users.
+ */
+function EarlierRows({ rootRef, onShow }: { rootRef: { current: HTMLElement | null }; onShow: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => entries.some((entry) => entry.isIntersecting) && onShow(), {
+      root: rootRef.current,
+      rootMargin: "600px 0px 0px 0px",
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onShow, rootRef]);
+  return (
+    <div ref={ref} className="chat-earlier">
+      <Button size="sm" onClick={onShow}>
+        Show earlier messages
+      </Button>
+    </div>
+  );
 }
