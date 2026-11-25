@@ -34,7 +34,6 @@ import type { Updates } from "../updates/useUpdates.js";
 import { AccountsSection } from "./AccountsSection.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AppearanceSection } from "./AppearanceSection.js";
-import { ConnectedAppsLock } from "./ConnectedAppsLock.js";
 import {
   type AppSettings,
   branchFromTemplate,
@@ -51,12 +50,14 @@ import {
   withWorkStyle,
   workStyleOf,
 } from "./appSettings.js";
+import { ConnectedAppsLock } from "./ConnectedAppsLock.js";
 import { ForgesSection } from "./ForgesSection.js";
 import { IntegrationsSection, type IntegrationsView } from "./IntegrationsSection.js";
 import { MobileAccessSection } from "./MobileAccessSection.js";
 import { MobileSection } from "./MobileSection.js";
 import { requestSettings } from "./openSettings.js";
 import { SettingsGroup, SettingsPageHeader, SettingsRow } from "./SettingsLayout.js";
+import { StorageGroup } from "./SidebarUsageSettings.js";
 import { SkillsSection } from "./SkillsSection.js";
 import { UsageSection } from "./UsageSection.js";
 import "./settings.css";
@@ -676,6 +677,7 @@ function GeneralSettings({
           />
         </SettingsRow>
       </SettingsGroup>
+      <StorageGroup />
       {onRunSetup ? (
         <SettingsGroup title="Setup">
           <SettingsRow

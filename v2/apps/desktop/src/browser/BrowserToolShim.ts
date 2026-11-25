@@ -14,6 +14,8 @@ export type BrowserToolPaths = {
   readonly mobileScript?: string;
   /** The bundled zli-connect.js MCP sign-in bridge script. */
   readonly connectScript: string;
+  /** The bundled zli-tool-host.js, which serves the three tool servers to every agent from one process. */
+  readonly toolHostScript?: string;
   readonly shimDir: string;
 };
 
@@ -26,6 +28,7 @@ export function browserToolEnvironment(paths: BrowserToolPaths): Record<string, 
     ZLI_AGENT_TOOL_SCRIPT: paths.agentScript,
     ...(paths.mobileScript ? { ZLI_MOBILE_TOOL_SCRIPT: paths.mobileScript } : {}),
     ZLI_CONNECT_TOOL_SCRIPT: paths.connectScript,
+    ...(paths.toolHostScript ? { ZLI_TOOL_HOST_SCRIPT: paths.toolHostScript } : {}),
     ZLI_BROWSER_SHIM_DIR: paths.shimDir,
   };
 }

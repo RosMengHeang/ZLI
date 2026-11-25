@@ -15,3 +15,6 @@ test-results/
 *.key
 *.p12
 id_rsa*
+
+# Benchmark output holds this machine's process command lines.
+bench/results/

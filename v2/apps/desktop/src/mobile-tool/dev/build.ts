@@ -24,6 +24,5 @@ export const buildTools: MobileDevToolModule = {
     const text = (result as { text?: unknown }).text;
     return typeof text === "string" ? { content: [{ type: "text", text }] } : undefined;
   },
-  instructions:
-    "When a build fails, call mobile_build_brief with the log before you change versions or config, and fix the first error it names.",
+  instructions: "When a build fails, call mobile_build_brief with the log and fix the first error it names.",
 };

@@ -18,7 +18,7 @@ describe("mobile_doctor", () => {
       result: { tools: { name: string; annotations?: { readOnlyHint?: boolean } }[] };
     };
     expect(listed.result.tools.find((tool) => tool.name === "mobile_doctor")).toBeDefined();
-    expect(doctorTools.instructions).toContain("call mobile_doctor");
+    expect(doctorTools.instructions).toContain("Call mobile_doctor");
   });
 
   it("tells the agent the versions, the problems, and to propose fixes instead of running them", async () => {

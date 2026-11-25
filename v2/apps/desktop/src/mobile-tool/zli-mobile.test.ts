@@ -46,7 +46,7 @@ describe("zli-mobile MCP server", () => {
         "mobile_propose",
       ]),
     );
-    expect(String(init.result.instructions)).toMatch(/call mobile_propose so the person can run it/u);
+    expect(String(init.result.instructions)).toMatch(/call mobile_propose so the person runs it/u);
   });
 
   it("proposes a command and tells the agent that nothing runs until the person chooses Run", async () => {

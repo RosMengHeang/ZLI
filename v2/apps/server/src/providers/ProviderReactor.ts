@@ -70,6 +70,38 @@ const MAX_ENDED_TURNS = 20;
 const MAX_PROVIDER_SESSION_ID = 500;
 const FRESH_START_NOTE =
   "The earlier conversation could not be resumed, so the agent started over. It does not remember the messages above.";
+/**
+ * How long an agent can sit idle before ZLI ends its process. Each idle CLI holds 100 MB or more, so a
+ * long list of chats would otherwise keep all of them in memory. The chat stays idle, keeps its name,
+ * and the next message starts the process again on the same conversation.
+ */
+export const DEFAULT_IDLE_STOP_MS = 10 * 60_000;
+
+/**
+ * Idle agents that keep their process, so switching between the chats in use answers at once. Past this,
+ * the agent idle longest gives back its process; its next message starts it again in about a second.
+ */
+export const DEFAULT_MAX_WARM_AGENTS = 4;
+
+/** What ZLI sends for the person when it starts an agent again after its turn was cut off. */
+export const CONTINUE_PROMPT = "Your last turn was cut off before it finished. Continue where you left off.";
+const CRASH_RESUME_NOTE =
+  "The agent stopped in the middle of its turn, so ZLI started it again on the same conversation and asked it to continue.";
+const RESTART_RESUME_NOTE =
+  "ZLI restarted while the agent was working, so it started the agent again on the same conversation and asked it to continue.";
+/** A turn cut off by a restart longer ago than this is left for the person, as their plans may have moved on. */
+const RESTART_RESUME_WINDOW_MS = 30 * 60_000;
+
+/** An idle thread whose agent process was ended to save memory. `stopped` settles once the process is gone. */
+type Parked = { stopped: Promise<void> };
+/** Events that mean the agent has work again, so its idle clock starts over. */
+const WAKING_EVENTS = new Set([
+  "thread.send.requested",
+  "thread.queued",
+  "thread.request.requested",
+  "thread.resume.requested",
+  "thread.start.requested",
+]);
 
 export class ProviderReactor {
   private readonly tasks = new Set<Promise<void>>();
@@ -101,6 +133,20 @@ export class ProviderReactor {
    * so the turn is interrupted as soon as its id arrives instead of being left running.
    */
   private readonly stoppedSends = new Set<object>();
+  /** Idle threads with no agent process behind them. The projection still shows them idle. */
+  private readonly parked = new Map<string, Parked>();
+  /** Threads starting their parked process again, so two sends at once start it once. */
+  private readonly waking = new Map<string, Promise<void>>();
+  private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** When each idle agent that still has its process went idle, oldest first to give back. */
+  private readonly idleSince = new Map<string, number>();
+  private readonly maxWarmAgents: number;
+  /** Threads ZLI already started again after a cut-off turn, until one of their turns finishes. */
+  private readonly autoContinued = new Set<string>();
+  private readonly autoResume: boolean;
+  /** When each thread's current turn first reported work, to tell if it beat the turn's file snapshot. */
+  private readonly firstActivity = new Map<string, number>();
+  private readonly idleStopMs: number;
   private readonly unsubscribe: () => void;
   private readonly unsubscribeProvider: () => void;
 
@@ -114,8 +160,17 @@ export class ProviderReactor {
       runApps?: (tool: string, params: Record<string, unknown> | undefined) => Promise<AppsRunResult>;
       /** The clock app cards expire by; tests set it. */
       now?: () => number;
+      /** How long an idle agent keeps its process. 0 keeps it until the chat stops. */
+      idleStopMs?: number;
+      /** Most idle agents that keep their process. 0 keeps every one until its idle timeout. */
+      maxWarmAgents?: number;
+      /** Off leaves a turn cut off by a crash or restart for the person to pick up. On unless set. */
+      autoResume?: boolean;
     } = {},
   ) {
+    this.idleStopMs = options.idleStopMs ?? DEFAULT_IDLE_STOP_MS;
+    this.maxWarmAgents = options.maxWarmAgents ?? DEFAULT_MAX_WARM_AGENTS;
+    this.autoResume = options.autoResume ?? true;
     this.unsubscribe = engine.subscribe((envelope) => this.onEvent(envelope));
     // App cards nobody answered within a day go away, so an old one is never sent by a late click.
     this.draftSweep = setInterval(() => void this.expireAppDrafts().catch(() => undefined), APP_DRAFT_SWEEP_MS);
@@ -131,6 +186,9 @@ export class ProviderReactor {
     this.pendingDeltas.clear();
     for (const open of this.openReasoning.values()) clearTimeout(open.timer);
     this.openReasoning.clear();
+    for (const timer of this.idleTimers.values()) clearTimeout(timer);
+    this.idleTimers.clear();
+    this.idleSince.clear();
   }
 
   async waitForIdle(): Promise<void> {
@@ -163,10 +221,49 @@ export class ProviderReactor {
           ? "The agent stopped when ZLI restarted. Send a message to pick up where it left off."
           : "The agent session ended when ZLI restarted. Start a new chat to continue.",
       });
+      // A turn that was running when ZLI went away is picked up again, unless it is old news.
+      const changed = thread.updatedAt ? Date.parse(thread.updatedAt) : Number.NaN;
+      const recent = Number.isFinite(changed) && this.now() - changed <= RESTART_RESUME_WINDOW_MS;
+      if (thread.status === "working" && recent) await this.autoContinue(thread.threadId, "restart");
+    }
+  }
+
+  /**
+   * Starts an agent whose turn was cut off again on the same conversation and asks it to carry on, so the
+   * person does not have to. It happens once until a turn finishes, so an agent that keeps failing stops and
+   * waits for the person instead of starting over and over.
+   */
+  private async autoContinue(threadId: string, reason: "crash" | "restart"): Promise<void> {
+    if (!this.autoResume || this.autoContinued.has(threadId) || this.deleted.has(threadId)) return;
+    const thread = (await this.engine.projection()).threads.find((entry) => entry.threadId === threadId);
+    if (thread?.status !== "stopped" || !thread.providerSessionId) return;
+    this.autoContinued.add(threadId);
+    await this.message(threadId, "system", reason === "crash" ? CRASH_RESUME_NOTE : RESTART_RESUME_NOTE);
+    try {
+      await this.engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        // Queued like a message the person sends to a stopped chat: the chat resumes, then it goes out.
+        command: {
+          type: "thread.queue",
+          queueId: randomUUID(),
+          threadId: ThreadId.parse(threadId),
+          text: CONTINUE_PROMPT,
+        },
+      });
+    } catch {
+      // The chat keeps its message saying how to pick up by hand.
     }
   }
 
   private onEvent(envelope: RuntimeEventEnvelope): void {
+    const event = envelope.event as { type: string; threadId?: unknown; status?: unknown };
+    if (typeof event.threadId === "string") {
+      if (event.type === "thread.status.changed") {
+        if (event.status === "idle") this.armIdleStop(event.threadId);
+        else this.clearIdleStop(event.threadId);
+      } else if (WAKING_EVENTS.has(event.type)) this.clearIdleStop(event.threadId);
+    }
     switch (envelope.event.type) {
       case "thread.start.requested":
         this.track(this.start(envelope.event));
@@ -242,6 +339,7 @@ export class ProviderReactor {
   /** Starts an ended chat's agent on its earlier conversation, or on a new one when that is gone. */
   private async resume(threadId: string, cwd: string): Promise<void> {
     if (this.deleted.has(threadId)) return;
+    await this.unpark(threadId);
     const thread = (await this.engine.projection()).threads.find((entry) => entry.threadId === threadId);
     if (!thread) return;
     let input: SessionInput;
@@ -268,6 +366,106 @@ export class ProviderReactor {
       }
     }
     await this.startFresh(threadId, input);
+  }
+
+  private armIdleStop(threadId: string): void {
+    if (this.parked.has(threadId) || this.deleted.has(threadId)) return;
+    this.clearIdleStop(threadId);
+    this.idleSince.set(threadId, Date.now());
+    if (this.idleStopMs > 0) {
+      const timer = setTimeout(() => {
+        this.idleTimers.delete(threadId);
+        this.idleSince.delete(threadId);
+        this.track(this.park(threadId));
+      }, this.idleStopMs);
+      timer.unref?.();
+      this.idleTimers.set(threadId, timer);
+    }
+    this.enforceWarmLimit();
+  }
+
+  private clearIdleStop(threadId: string): void {
+    const timer = this.idleTimers.get(threadId);
+    if (timer) clearTimeout(timer);
+    this.idleTimers.delete(threadId);
+    this.idleSince.delete(threadId);
+  }
+
+  /**
+   * Keeps only the agents that went idle most recently running. With many chats open, the ones nobody used
+   * for a while give back their process now instead of after the idle timeout.
+   */
+  private enforceWarmLimit(): void {
+    if (this.maxWarmAgents <= 0 || this.idleSince.size <= this.maxWarmAgents) return;
+    const oldest = [...this.idleSince].sort((a, b) => a[1] - b[1]).slice(0, this.idleSince.size - this.maxWarmAgents);
+    for (const [threadId] of oldest) {
+      this.clearIdleStop(threadId);
+      this.track(this.park(threadId));
+    }
+  }
+
+  /**
+   * Ends an idle agent's process and keeps the chat as it is. Only a chat that can pick up its conversation
+   * again is parked: it is idle, has the CLI's conversation id, and nothing waits on the agent or the person.
+   */
+  private async park(threadId: string): Promise<void> {
+    const id = ThreadId.parse(threadId);
+    if (this.deleted.has(threadId) || this.parked.has(threadId) || !this.service.hasSession(id)) return;
+    if (this.activeTurns.has(threadId) || this.sending.has(threadId) || this.resuming.has(threadId)) return;
+    const projection = await this.engine.projection();
+    const thread = projection.threads.find((entry) => entry.threadId === threadId);
+    if (thread?.status !== "idle" || !thread.providerSessionId) return;
+    if ((projection.requests ?? []).some((request) => request.threadId === threadId)) return;
+    if ((projection.queuedMessages ?? []).some((queued) => queued.threadId === threadId)) return;
+    // Checked again after the read: a send that arrived meanwhile keeps the process.
+    if (this.sending.has(threadId) || this.idleTimers.has(threadId)) return;
+    const stopped = this.service.stopSession({ threadId: id }).catch(() => undefined);
+    this.parked.set(threadId, { stopped });
+    await stopped;
+  }
+
+  /** Starts a parked agent again on its conversation before its next turn. */
+  private wake(threadId: string): Promise<void> {
+    const running = this.waking.get(threadId);
+    if (running) return running;
+    const parked = this.parked.get(threadId);
+    if (!parked) return Promise.resolve();
+    const waking = (async () => {
+      await parked.stopped;
+      const projection = await this.engine.projection();
+      const thread = projection.threads.find((entry) => entry.threadId === threadId);
+      const cwd = projection.worktrees.find((worktree) => worktree.worktreeId === thread?.worktreeId)?.path;
+      if (!thread || !cwd) throw new Error("This chat's worktree is gone. Start a new chat.");
+      const input = await this.sessionInput(thread, cwd);
+      if (thread.providerSessionId) {
+        try {
+          const session = await this.service.startSession({ ...input, resumeSessionId: thread.providerSessionId });
+          // Some CLIs only refuse an old conversation on its first turn; this keeps that turn's message to retry.
+          this.resuming.set(threadId, {});
+          await this.recordProviderSession(threadId, session.providerSessionId);
+          return;
+        } catch {
+          // The CLI refused the earlier conversation at startup. A fresh one below keeps the chat usable.
+        }
+      }
+      const session = await this.service.startSession(input);
+      await this.recordProviderSession(threadId, session.providerSessionId);
+      await this.message(threadId, "system", FRESH_START_NOTE);
+    })().finally(() => {
+      this.parked.delete(threadId);
+      this.waking.delete(threadId);
+    });
+    this.waking.set(threadId, waking);
+    return waking;
+  }
+
+  /** Forgets that a thread is parked, once its process has finished closing. */
+  private async unpark(threadId: string): Promise<void> {
+    const parked = this.parked.get(threadId);
+    if (!parked) return;
+    await this.waking.get(threadId)?.catch(() => undefined);
+    await parked.stopped;
+    this.parked.delete(threadId);
   }
 
   /** The earlier conversation is gone: start a new one in the same chat and say so once. */
@@ -332,6 +530,14 @@ export class ProviderReactor {
     const { threadId, text } = intent;
     const attachments = intent.attachments ?? [];
     if (options.record !== false) await this.message(threadId, "user", text, undefined, attachments);
+    if (this.parked.has(threadId)) {
+      try {
+        await this.wake(threadId);
+      } catch (error) {
+        await this.fail(threadId, error, "Provider session failed to start.");
+        return;
+      }
+    }
     const resuming = this.resuming.get(threadId);
     if (resuming && !resuming.retry) resuming.retry = intent;
     const sendToken = {};
@@ -350,8 +556,20 @@ export class ProviderReactor {
     sendToken: object,
   ): Promise<void> {
     const { threadId, text, model, reasoningEffort, fast, permissionMode } = intent;
-    // Taken before the provider sees the message, so none of the turn's edits can land first.
-    const start = await this.checkpoints?.capture(threadId);
+    // The snapshot runs beside the send instead of before it: the agent can change no file until the model has
+    // answered with a whole tool call, which takes longer than the snapshot. If the agent did report work before
+    // the snapshot finished, the turn gets no checkpoint rather than one that misses its first edits.
+    this.firstActivity.delete(threadId);
+    const capture = this.checkpoints
+      ?.capture(threadId)
+      .then((snapshot) => ({ snapshot, doneAt: Date.now() }))
+      .catch(() => undefined);
+    const turnStart = async () => {
+      const taken = await capture;
+      if (!taken?.snapshot) return undefined;
+      const firstWork = this.firstActivity.get(threadId);
+      return firstWork !== undefined && firstWork <= taken.doneAt ? undefined : taken.snapshot;
+    };
     try {
       const result = await this.service.sendTurn({
         threadId: ThreadId.parse(threadId),
@@ -364,6 +582,7 @@ export class ProviderReactor {
         ...(permissionMode ? { permissionMode } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       });
+      const start = await turnStart();
       if (start) this.turnStarts.set(turnKey(threadId, result.turnId), start);
       if (this.turnEnded(threadId, result.turnId)) {
         this.recordCheckpoint(threadId, result.turnId);
@@ -391,6 +610,8 @@ export class ProviderReactor {
   }
 
   private async interrupt(threadId: string, projectedTurnId?: string): Promise<void> {
+    // A parked agent has no process and no turn, so there is nothing to interrupt.
+    if (this.parked.has(threadId) && !this.waking.has(threadId)) return;
     // The projection keeps a sanitized turn id, so the provider's own id is preferred when known.
     const active = this.activeTurns.get(threadId);
     const pendingSend = this.sending.get(threadId);
@@ -426,6 +647,12 @@ export class ProviderReactor {
 
   private async stopSession(threadId: string): Promise<void> {
     this.resuming.delete(threadId);
+    this.clearIdleStop(threadId);
+    if (this.parked.has(threadId)) {
+      await this.unpark(threadId);
+      await this.status(threadId, "stopped");
+      return;
+    }
     try {
       await this.service.stopSession({ threadId: ThreadId.parse(threadId) });
       this.flushThreadDeltas(threadId);
@@ -438,6 +665,8 @@ export class ProviderReactor {
   private async forget(threadId: string): Promise<void> {
     this.deleted.add(threadId);
     this.resuming.delete(threadId);
+    this.clearIdleStop(threadId);
+    await this.unpark(threadId);
     this.activeTurns.delete(threadId);
     this.endedTurns.delete(threadId);
     for (const key of this.turnStarts.keys()) if (key.startsWith(`${threadId}\u0000`)) this.turnStarts.delete(key);
@@ -478,6 +707,7 @@ export class ProviderReactor {
       return;
     }
     if (event.type === "activity") {
+      if (!this.firstActivity.has(event.threadId)) this.firstActivity.set(event.threadId, Date.now());
       // Text streamed before the tool call has to land first so the work log keeps the provider's order.
       this.flushThreadDeltas(event.threadId);
       this.track(this.activity(event));
@@ -493,6 +723,8 @@ export class ProviderReactor {
     }
     if (event.type === "turn.completed") {
       this.resuming.delete(event.threadId);
+      // A finished turn means the agent works again, so a later cut-off turn may be picked up once more.
+      this.autoContinued.delete(event.threadId);
       this.flushThreadDeltas(event.threadId);
       // Only this turn's thinking closes, so a late completion after steering leaves the next turn's running,
       // and an interrupted turn's own thinking still ends here.
@@ -527,12 +759,20 @@ export class ProviderReactor {
       }
     }
     if (event.type === "session.closed") {
+      // ZLI ended this process itself to save memory; the chat is still idle.
+      if (this.parked.has(event.threadId) && !this.waking.has(event.threadId)) return;
       this.flushThreadDeltas(event.threadId);
       this.closeThreadReasoning(event.threadId);
       // The turn died with the process. Left active, it would be the one a Stop after the next send interrupts.
       const active = this.activeTurns.get(event.threadId);
       if (active) this.endTurn(event.threadId, active);
-      this.track(this.status(event.threadId, "stopped", { errorMessage: event.reason }));
+      const threadId = event.threadId;
+      // Only a process that died in the middle of a turn is started again; an idle one waits for the next message.
+      this.track(
+        this.status(threadId, "stopped", { errorMessage: event.reason }).then(() =>
+          active ? this.autoContinue(threadId, "crash") : undefined,
+        ),
+      );
       return;
     }
     if (event.threadId) {

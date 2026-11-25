@@ -1,5 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 
+/** The WAL file is cut back to this size after a checkpoint. */
+const WAL_SIZE_LIMIT_BYTES = 1024 * 1024;
+
 export type SqliteValue = string | number | bigint | Uint8Array | null;
 
 type Migration = {
@@ -47,6 +50,11 @@ const migrations: Migration[] = [
       INSERT OR IGNORE INTO projection_rebuilds (reason, requested_at) VALUES ('per-thread-history-caps', datetime('now'));
     `,
   },
+  {
+    // Reactors look up their start intents by type after a restart instead of reading the whole log.
+    id: "0003-events-by-type",
+    sql: "CREATE INDEX IF NOT EXISTS events_type_idx ON events(event_type);",
+  },
 ];
 
 export class Database {
@@ -55,7 +63,10 @@ export class Database {
   constructor(options: { path: string }) {
     this.raw = new DatabaseSync(options.path);
     try {
-      this.raw.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+      // journal_size_limit shrinks the WAL file back after each checkpoint instead of keeping its largest size.
+      this.raw.exec(
+        `PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES};`,
+      );
       this.raw.exec("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
       this.applyMigrations();
     } catch (error) {
@@ -81,6 +92,12 @@ export class Database {
   }
 
   close(): void {
+    try {
+      // Folds the WAL into the database and empties it, so a closed database is one file at its real size.
+      this.raw.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    } catch {
+      // Another connection still reading keeps the WAL; SQLite checkpoints it on the next open.
+    }
     this.raw.close();
   }
 

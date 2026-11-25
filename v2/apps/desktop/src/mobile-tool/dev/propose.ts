@@ -36,6 +36,5 @@ export const proposeTools: MobileDevToolModule = {
     const message = (result as { message?: unknown }).message;
     return typeof message === "string" ? { content: [{ type: "text", text: message }] } : undefined;
   },
-  instructions:
-    "When an install, fix, or build command needs to run, call mobile_propose so the person can run it from the Mobile panel; do not run it yourself.",
+  instructions: "Never run an install, fix, or build command yourself: call mobile_propose so the person runs it.",
 };

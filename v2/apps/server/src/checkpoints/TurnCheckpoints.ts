@@ -62,6 +62,8 @@ export class TurnCheckpoints {
   private readonly limits: UntrackedLimits;
   /** Git objects folders already swept for leftover temp objects since start-up. */
   private readonly swept = new Set<string>();
+  /** `git rev-parse --git-path` answers per worktree folder; they only change if the folder is moved. */
+  private readonly pathsByFolder = new Map<string, Promise<string[]>>();
 
   constructor(
     private readonly engine: Engine,
@@ -319,16 +321,18 @@ export class TurnCheckpoints {
    * folders over the limits (build output missing from .gitignore) are left out of both ends of every turn.
    */
   private async snapshot(cwd: string, alsoSkip: readonly string[] = []): Promise<Snapshot> {
-    const paths = (await this.git.run(["rev-parse", "--git-path", "index", "--git-path", "objects"], { cwd })).stdout
-      .trim()
-      .split(/\r?\n/u);
+    // Every Git start costs tens of milliseconds on Windows, so the repository's paths are looked up once per
+    // folder and the untracked-file scan runs beside that lookup.
+    const [paths, found] = await Promise.all([
+      this.gitPaths(cwd),
+      oversizedUntracked(this.git, cwd, this.limits).catch(() => [] as string[]),
+    ]);
     const indexPath = paths[0] ?? "index";
     const objectsDir = resolve(cwd, paths[1] ?? ".git/objects");
     if (!this.swept.has(objectsDir)) {
       this.swept.add(objectsDir);
       await sweepTempObjects(objectsDir, Date.now());
     }
-    const found = await oversizedUntracked(this.git, cwd, this.limits).catch(() => []);
     const skipped = [...new Set([...alsoSkip, ...found])].sort();
     return this.withIndex(async (env) => {
       try {
@@ -357,6 +361,22 @@ export class TurnCheckpoints {
       }
       return { tree: (await this.git.run(["write-tree"], { cwd, env })).stdout.trim(), skipped };
     });
+  }
+
+  private gitPaths(cwd: string): Promise<string[]> {
+    const cached = this.pathsByFolder.get(cwd);
+    if (cached) return cached;
+    const lookup = this.git
+      .run(["rev-parse", "--git-path", "index", "--git-path", "objects"], { cwd })
+      .then((result) => result.stdout.trim().split(/\r?\n/u));
+    // A failed lookup is not kept, so the next snapshot asks again.
+    lookup.catch(() => this.pathsByFolder.delete(cwd));
+    this.pathsByFolder.set(cwd, lookup);
+    if (this.pathsByFolder.size > 500) {
+      const oldest = this.pathsByFolder.keys().next().value;
+      if (oldest !== undefined) this.pathsByFolder.delete(oldest);
+    }
+    return lookup;
   }
 
   private async withIndex<T>(work: (env: { GIT_INDEX_FILE: string }) => Promise<T>): Promise<T> {

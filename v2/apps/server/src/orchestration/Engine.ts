@@ -126,6 +126,53 @@ export class Engine {
     return this.commandQueue.then(() => this.readEventsAfter(sequence));
   }
 
+  /**
+   * Every stored event of the given types, oldest first. Reactors that recover intents after a restart use
+   * this instead of eventsAfter(0), which would read and parse the whole log into memory.
+   */
+  eventsOfTypes(types: readonly string[]): Promise<RuntimeEventEnvelope[]> {
+    return this.commandQueue.then(() => this.readEventsOfTypes(types));
+  }
+
+  /**
+   * Deletes log entries older than `before` that the stored snapshot already includes, and command receipts
+   * no remaining event points to. Event types in `keep` stay, because reactors read them back after a
+   * restart. Once trimmed, the log no longer starts at 1, so a full replay keeps the stored snapshot instead.
+   */
+  trimHistory(before: Date, keep: readonly string[]): Promise<{ events: number; receipts: number }> {
+    const operation = this.commandQueue.then(() => {
+      const projection = this.current;
+      // Events after the stored snapshot are still needed to rebuild it on the next start.
+      if (projection && projection.lastSequence !== this.snapshotSequence) {
+        this.database.transaction(() => this.saveProjection(projection));
+      }
+      const cutoff = before.toISOString();
+      const keepList = keep.length > 0 ? `AND event_type NOT IN (${keep.map(() => "?").join(", ")})` : "";
+      const removed = this.database.transaction(() => {
+        // The newest event always stays: the next sequence number is counted from it.
+        const events = this.database.raw
+          .prepare(
+            `DELETE FROM events WHERE occurred_at < ? AND sequence <= ? AND sequence < (SELECT MAX(sequence) FROM events) ${keepList}`,
+          )
+          .run(cutoff, this.snapshotSequence, ...keep).changes;
+        const receipts = this.database.raw
+          .prepare(
+            "DELETE FROM commands WHERE created_at < ? AND command_id NOT IN (SELECT command_id FROM events WHERE command_id IS NOT NULL)",
+          )
+          .run(cutoff).changes;
+        return { events: Number(events), receipts: Number(receipts) };
+      });
+      // Deleted rows only free pages inside the file; VACUUM gives the space back to the disk.
+      if (removed.events + removed.receipts > 0) this.database.raw.exec("VACUUM");
+      return removed;
+    });
+    this.commandQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
   projection(): Promise<RuntimeProjection> {
     return this.commandQueue.then(() => this.readProjection());
   }
@@ -428,6 +475,20 @@ export class Engine {
     const rows = this.database.raw
       .prepare("SELECT sequence, event_json FROM events WHERE sequence > ? ORDER BY sequence ASC")
       .all(sequence) as Array<{ sequence: number; event_json: string }>;
+    return this.parseEventRows(rows);
+  }
+
+  private readEventsOfTypes(types: readonly string[]): RuntimeEventEnvelope[] {
+    if (types.length === 0) return [];
+    const rows = this.database.raw
+      .prepare(
+        `SELECT sequence, event_json FROM events WHERE event_type IN (${types.map(() => "?").join(", ")}) ORDER BY sequence ASC`,
+      )
+      .all(...types) as Array<{ sequence: number; event_json: string }>;
+    return this.parseEventRows(rows);
+  }
+
+  private parseEventRows(rows: ReadonlyArray<{ sequence: number; event_json: string }>): RuntimeEventEnvelope[] {
     const events: RuntimeEventEnvelope[] = [];
     for (const row of rows) {
       try {

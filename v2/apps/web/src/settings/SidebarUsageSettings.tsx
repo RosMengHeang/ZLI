@@ -1,4 +1,4 @@
-import type { PlanLimitProvider, ProviderDiscovery } from "@zli-v2/contracts";
+import { HISTORY_RETENTION_DAYS, type PlanLimitProvider, type ProviderDiscovery } from "@zli-v2/contracts";
 
 import { useId } from "react";
 
@@ -128,7 +128,57 @@ export function ClaudeContextGroup() {
             value: choice.tokens === undefined ? DEFAULT_CHOICE : String(choice.tokens),
             label: choice.label,
           }))}
-          onChange={(value) => void save(value === DEFAULT_CHOICE ? {} : { claudeAutoCompactTokens: Number(value) })}
+          onChange={(value) => {
+            if (state.status !== "ready") return;
+            // Keeps the runtime's other settings: a save replaces all of them.
+            const { claudeAutoCompactTokens: _previous, ...others } = state.settings;
+            void save(value === DEFAULT_CHOICE ? others : { ...others, claudeAutoCompactTokens: Number(value) });
+          }}
+        />
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
+const KEEP_ALL = "all";
+
+/**
+ * How much of the runtime's change log to keep. The log only grows, so a long-used ZLI can trim it; chats
+ * and their messages live in the saved state, which trimming leaves alone.
+ */
+export function StorageGroup() {
+  const { state, save } = useAgentSettings();
+  const id = useId();
+  const kept = state.status === "ready" ? state.settings.historyRetentionDays : undefined;
+  const failed = state.status === "error" || (state.status === "ready" && state.saveError !== undefined);
+  const description =
+    state.status === "error"
+      ? state.message
+      : state.status === "ready" && state.saveError
+        ? state.saveError
+        : `ZLI logs every change it makes. With ${HISTORY_RETENTION_DAYS} days, entries older than that are deleted once a day to save disk space. Your chats and their messages stay.`;
+  return (
+    <SettingsGroup title="Storage">
+      <SettingsRow
+        label="Keep change history"
+        description={description}
+        descriptionTone={failed ? "warning" : undefined}
+        htmlFor={id}
+      >
+        <Select<string>
+          id={id}
+          label="Keep change history"
+          value={kept === undefined ? KEEP_ALL : String(kept)}
+          disabled={state.status !== "ready"}
+          options={[
+            { value: KEEP_ALL, label: "Forever" },
+            { value: String(HISTORY_RETENTION_DAYS), label: `${HISTORY_RETENTION_DAYS} days` },
+          ]}
+          onChange={(value) => {
+            if (state.status !== "ready") return;
+            const { historyRetentionDays: _previous, ...others } = state.settings;
+            void save(value === KEEP_ALL ? others : { ...others, historyRetentionDays: HISTORY_RETENTION_DAYS });
+          }}
         />
       </SettingsRow>
     </SettingsGroup>

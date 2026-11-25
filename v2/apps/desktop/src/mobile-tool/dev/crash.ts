@@ -39,6 +39,5 @@ export const crashTools: MobileDevToolModule = {
     const more = reports.length > MAX_REPORTS ? [`${reports.length - MAX_REPORTS} older crashes are not shown.`] : [];
     return { content: [{ type: "text", text: [...shown, ...more].join("\n\n") }] };
   },
-  instructions:
-    "When a result carries crashNotice, the app crashed on your device: call mobile_crashes for the exception and stack before you change code.",
+  instructions: "A result with crashNotice means the app crashed: call mobile_crashes before changing code.",
 };

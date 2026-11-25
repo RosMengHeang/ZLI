@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   acpMcpServer,
   agentEnv,
+  agentZliMcpServerSpecs,
   type BrowserToolConfig,
   browserToolConfigFromEnv,
   claudeMcpConfig,
@@ -21,6 +22,7 @@ import {
   opencodeConfigContent,
   pathKey,
   prependPath,
+  toolCallerKey,
   writeAgentMcpConfig,
   writeMcpConfigFile,
   zliMcpServerSpecs,
@@ -431,3 +433,39 @@ function parseToml(source: string): unknown {
   if (index !== source.length) throw new Error(`Trailing input at ${index}`);
   return result;
 }
+
+describe("agentZliMcpServerSpecs", () => {
+  const config = {
+    command: "C:zlielectron.exe",
+    script: "C:zlizli-browser.js",
+    agentScript: "C:zlizli.js",
+    mobileScript: "C:zlizli-mobile.js",
+    controlFile: "C:zli\browser-control.json",
+    shimDir: "C:zli\bin",
+    mcpConfigDir: "C:zlimcp",
+  };
+
+  it("keeps the stdio servers while no tool host runs", () => {
+    expect(agentZliMcpServerSpecs(config, "w-1", "C:\repo")).toEqual(zliMcpServerSpecs(config, "w-1"));
+  });
+
+  it("keeps the stdio servers for an agent with no worktree, which find theirs from the folder", () => {
+    const hosted = { ...config, toolHost: { endpoint: () => ({ url: "http://127.0.0.1:9", token: "t" }) } };
+    expect(agentZliMcpServerSpecs(hosted, undefined, "C:\repo")).toEqual(zliMcpServerSpecs(hosted));
+  });
+
+  it("names every server on the shared host with the agent's worktree and folder", () => {
+    const hosted = { ...config, toolHost: { endpoint: () => ({ url: "http://127.0.0.1:9", token: "t" }) } };
+    const specs = agentZliMcpServerSpecs(hosted, "w-1", "C:\repo");
+    const key = toolCallerKey({ worktreeId: "w-1", cwd: "C:\repo" });
+    expect(specs).toEqual(
+      ["zli-browser", "zli", "zli-mobile"].map((name) => ({
+        transport: "http",
+        name,
+        url: `http://127.0.0.1:9/mcp/${name}/${key}`,
+        headers: { Authorization: "Bearer t" },
+      })),
+    );
+    expect(JSON.parse(Buffer.from(key, "base64url").toString("utf8"))).toEqual({ w: "w-1", c: "C:\repo" });
+  });
+});

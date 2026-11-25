@@ -624,6 +624,9 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         ? "Other agents share your worktree, so ZLI could not tell which one you are and did not record the new agent as your sub-agent. Pass as with your own name or id to link it."
         : undefined;
 
+    // Checked before a worktree is made, like the name, so a wrong model leaves nothing behind.
+    const model = workerModel(state, input, parent);
+
     let target: WorktreeProjection;
     if (input.worktree === "same" || plainFolder) target = callerWorktree;
     else {
@@ -665,7 +668,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         cwd: target.path,
         sessionId,
         permissionMode,
-        ...(input.model ? { model: input.model } : {}),
+        ...(model ? { model } : {}),
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(parent ? { startedBy: parent.id } : {}),
         ...(occupied ? { shareWorktree: true } : {}),
@@ -692,7 +695,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         agent: {
           provider: input.provider,
           permissionMode,
-          ...(input.model ? { model: input.model } : {}),
+          ...(model ? { model } : {}),
         },
       });
       await waitFor((next) => {
@@ -945,4 +948,33 @@ export function safeBranchName(branch: string): string {
     .trim()
     .replace(/[^a-zA-Z0-9._/-]/gu, "-")
     .replace(/^[-/]+|[-/]+$/gu, "");
+}
+
+/**
+ * The model a started agent runs. A model the caller names is checked against what that agent offers, by id
+ * or by its shown name, so a typo fails with the choices instead of starting an agent that cannot run. With
+ * none named, a worker of the same agent as its lead runs the lead's model, so a team set to one model
+ * stays on it.
+ */
+export function workerModel(
+  state: Pick<RuntimeProjection, "providers">,
+  input: { provider: string; model?: string | undefined },
+  lead: { provider: string; model?: string | undefined } | undefined,
+): string | undefined {
+  const asked = input.model?.trim();
+  const options = state.providers?.find((entry) => entry.provider === input.provider);
+  const models = options?.status === "found" ? (options.models ?? []) : [];
+  if (asked) {
+    if (models.length === 0) return asked;
+    const wanted = asked.toLowerCase();
+    const match = models.find((option) => option.id.toLowerCase() === wanted || option.label.toLowerCase() === wanted);
+    if (match) return match.id;
+    const choices = models.map((option) => (option.label === option.id ? option.id : `${option.id} (${option.label})`));
+    throw new BrowserControlError(
+      `${asked} is not a model ${options?.displayName ?? input.provider} offers here. Pick one of: ${choices.join(", ")}.`,
+      400,
+    );
+  }
+  if (lead && lead.provider === input.provider && lead.model) return lead.model;
+  return undefined;
 }

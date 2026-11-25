@@ -25,7 +25,17 @@ export type BrowserToolConfig = {
   shimDir: string;
   /** Where per-launch MCP config files for agent CLIs are written. */
   mcpConfigDir: string;
+  /** The bundled zli-tool-host.js, run the same way, which serves all three tool servers over HTTP. */
+  toolHostScript?: string;
+  /**
+   * The running tool host, once the runtime started it. While it answers, agents reach ZLI's tool servers
+   * by URL instead of each starting three processes.
+   */
+  toolHost?: { endpoint(): ToolHostEndpoint | undefined };
 };
+
+/** Where the shared tool host listens, and the token agents send it. */
+export type ToolHostEndpoint = { url: string; token: string };
 
 /** A server the agent starts as a process. ZLI's own specs and older callers leave out the transport. */
 export type McpStdioServerSpec = {
@@ -73,12 +83,14 @@ export function browserToolConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
   const agentScript = env.ZLI_AGENT_TOOL_SCRIPT?.trim();
   const connectScript = env.ZLI_CONNECT_TOOL_SCRIPT?.trim();
   const mobileScript = env.ZLI_MOBILE_TOOL_SCRIPT?.trim();
+  const toolHostScript = env.ZLI_TOOL_HOST_SCRIPT?.trim();
   return {
     command,
     script,
     ...(agentScript && isAbsolute(agentScript) ? { agentScript } : {}),
     ...(mobileScript && isAbsolute(mobileScript) ? { mobileScript } : {}),
     ...(connectScript && isAbsolute(connectScript) ? { connectScript } : {}),
+    ...(toolHostScript && isAbsolute(toolHostScript) ? { toolHostScript } : {}),
     controlFile,
     shimDir,
     mcpConfigDir: join(dirname(controlFile), "mcp"),
@@ -114,6 +126,38 @@ export function zliMcpServerSpecs(config: BrowserToolConfig, worktreeId?: string
   const agent = agentMcpServerSpec(config, worktreeId);
   const mobile = mobileMcpServerSpec(config, worktreeId);
   return [mcpServerSpec(config, worktreeId), ...(agent ? [agent] : []), ...(mobile ? [mobile] : [])];
+}
+
+/**
+ * ZLI's servers for one agent. With the shared tool host running and a worktree to name, they are URLs on
+ * that host, so the agent starts no process for them. Otherwise, as with no worktree (the servers then
+ * find it from their working folder), they are the stdio processes from zliMcpServerSpecs.
+ */
+export function agentZliMcpServerSpecs(
+  config: BrowserToolConfig,
+  worktreeId: string | undefined,
+  cwd?: string,
+): McpServerSpec[] {
+  const stdio = zliMcpServerSpecs(config, worktreeId);
+  const endpoint = worktreeId ? config.toolHost?.endpoint() : undefined;
+  if (!worktreeId || !endpoint) return stdio;
+  const caller = toolCallerKey({ worktreeId, ...(cwd ? { cwd } : {}) });
+  return stdio.map(
+    (spec): McpHttpServerSpec => ({
+      transport: "http",
+      name: spec.name,
+      url: `${endpoint.url}/mcp/${spec.name}/${caller}`,
+      headers: { Authorization: `Bearer ${endpoint.token}` },
+    }),
+  );
+}
+
+/** Matches encodeCaller in the desktop's tool host: base64url JSON of the worktree id and folder. */
+export function toolCallerKey(caller: { worktreeId?: string; cwd?: string }): string {
+  const compact: { w?: string; c?: string } = {};
+  if (caller.worktreeId) compact.w = caller.worktreeId;
+  if (caller.cwd) compact.c = caller.cwd;
+  return Buffer.from(JSON.stringify(compact), "utf8").toString("base64url");
 }
 
 /**

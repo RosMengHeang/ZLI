@@ -79,7 +79,7 @@ describe("SettingsDialog", () => {
     expect(tabs(container)).not.toContain("Notifications");
     expect(container.querySelector(".settings-page-title")?.textContent).toBe("General");
     const groups = [...container.querySelectorAll(".settings-group-title")].map((node) => node.textContent);
-    expect(groups).toEqual(["New agents", "Chats", "Notifications", "Files"]);
+    expect(groups).toEqual(["New agents", "Chats", "Notifications", "Files", "Storage"]);
     const mobile = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
       (tab) => tab.textContent === "Mobile",
     );
