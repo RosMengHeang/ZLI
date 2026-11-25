@@ -23,6 +23,9 @@ importers:
       '@biomejs/biome':
         specifier: 2.5.14
         version: 2.5.14
+      '@electron/fuses':
+        specifier: 1.8.0
+        version: 1.8.0
       '@playwright/test':
         specifier: 1.60.0
         version: 1.60.0

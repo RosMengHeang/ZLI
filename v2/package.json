@@ -45,6 +45,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
+    "@electron/fuses": "1.8.0",
     "@playwright/test": "1.60.0",
     "electron": "44.10.0",
     "electron-builder": "26.18.0",

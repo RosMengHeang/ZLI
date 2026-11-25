@@ -5,6 +5,7 @@ node_modules/
 **/*.tsbuildinfo
 apps/desktop/renderer/
 release/
+release-e2e/
 test-results/
 
 .env
