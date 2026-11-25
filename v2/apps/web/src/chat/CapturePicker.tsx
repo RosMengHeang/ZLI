@@ -20,6 +20,12 @@ export function captureFile(name: string, dataBase64: string): File {
   return new File([bytes], `${stem}.png`, { type: "image/png" });
 }
 
+/** What the main process said, without Electron's "Error invoking remote method …" wrapper. */
+function plainMessage(cause: unknown, fallback: string): string {
+  if (!(cause instanceof Error)) return fallback;
+  return cause.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/u, "") || fallback;
+}
+
 /** Lists open windows and screens with previews; picking one attaches a full-size picture of it. */
 export function CapturePicker({
   capture,
@@ -42,7 +48,7 @@ export function CapturePicker({
       setSources(await capture.sources());
     } catch (cause) {
       setSources([]);
-      setError(cause instanceof Error ? cause.message : "Open windows could not be listed.");
+      setError(plainMessage(cause, "Open windows could not be listed."));
     }
   }, [capture]);
 
@@ -63,7 +69,9 @@ export function CapturePicker({
       const shot = await capture.take(source.id);
       onPick(captureFile(shot.name, shot.dataBase64));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The window could not be captured.");
+      // A window that closed since the list was read is dropped from it, so the next pick is one that is still there.
+      setSources((current) => current?.filter((entry) => entry.id !== source.id));
+      setError(plainMessage(cause, "The window could not be captured."));
     } finally {
       setTaking(undefined);
     }

@@ -2,7 +2,7 @@
 
 import { CommandId, EnvironmentId, ProjectId, type RuntimeProjection, type ThreadProjection } from "@zli-v2/contracts";
 import { act } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { onIssueRequest } from "../issues/issueRequest.js";
 import type { ZliBridge } from "../runtime/bridge.js";
@@ -76,8 +76,10 @@ async function render(
   } as unknown as ZliBridge;
   const container = document.createElement("div");
   document.body.append(container);
+  const root = createRoot(container);
+  roots.push(root);
   await act(async () => {
-    createRoot(container).render(
+    root.render(
       <RuntimeProvider bridge={bridge}>
         <ChatView
           projection={projection}
@@ -99,7 +101,14 @@ const button = (container: HTMLElement, name: string) =>
     (candidate) => candidate.textContent?.trim() === name || candidate.getAttribute("aria-label") === name,
   );
 
-afterEach(() => document.body.replaceChildren());
+// Every chat is unmounted before the next test, so no React work is left to run once the test environment closes.
+const roots: Root[] = [];
+afterEach(() => {
+  act(() => {
+    for (const root of roots.splice(0)) root.unmount();
+  });
+  document.body.replaceChildren();
+});
 
 describe("ChatView", () => {
   it("offers the signed-in agents' models before the first message and moves the chat to the one picked", async () => {

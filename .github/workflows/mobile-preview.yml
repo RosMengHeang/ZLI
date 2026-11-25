@@ -2,14 +2,13 @@ name: Mobile preview
 
 # Builds ZLI Remote in demo mode for an iPhone simulator and an Android emulator, captures every screen
 # and the live status, and keeps one comment on the pull request up to date with the screenshots.
+# It runs only when the phone app or this workflow changes: work on the desktop app alone does not wait for phone
+# builds. After a change to a package the phone app shares (contracts, client-runtime, remote-protocol), run it by
+# hand from the Actions tab.
 on:
   pull_request:
     paths:
       - "v2/apps/mobile/**"
-      - "v2/packages/contracts/**"
-      - "v2/packages/client-runtime/**"
-      - "v2/packages/remote-protocol/**"
-      - "v2/pnpm-lock.yaml"
       - ".github/workflows/mobile-preview.yml"
   workflow_dispatch:
     inputs:

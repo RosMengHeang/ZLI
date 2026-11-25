@@ -939,9 +939,11 @@ async function runCommand(
   const worktree = projection.worktrees.find((candidate) => candidate.worktreeId === command.worktreeId);
   if (!worktree) throw new PullRequestError("Worktree does not exist.");
   if (worktree.status !== "ready") throw new PullRequestError("Worktree is not ready.");
+  // A review read against HEAD (before Changes knew the base branch) names no branch a pull request can target.
+  const reviewBase = projection.reviews?.find((review) => review.worktreeId === command.worktreeId)?.baseRef;
   const input: PullRequestInput = {
     worktreePath: worktree.path,
-    fallbackBase: projection.reviews?.find((review) => review.worktreeId === command.worktreeId)?.baseRef ?? "main",
+    fallbackBase: reviewBase && reviewBase !== "HEAD" ? reviewBase : "main",
   };
   switch (command.type) {
     case "review.pr.status":

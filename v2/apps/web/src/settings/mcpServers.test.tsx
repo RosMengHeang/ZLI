@@ -174,10 +174,10 @@ describe("McpServersSection", () => {
       });
     await show("installed");
     expect(container.textContent).toContain("No servers yet.");
-    // The zli tool's settings live in Agent messages; Integrations only says how they are set.
+    // The zli tool's settings live in Agents; Integrations only says how they are set.
     expect(container.querySelector('button[aria-label^="What agents may do with other agents"]')).toBeNull();
     expect(container.textContent).toContain("Start and message agents, in their own project.");
-    await act(async () => button(container, "Agent messages").click());
+    await act(async () => button(container, "Agents").click());
     expect(openedAgentMessages).toBe(true);
 
     await show("custom");
@@ -501,6 +501,35 @@ async function renderSection(bridge: ZliBridge, view: "installed" | "custom" = "
 }
 
 describe("McpServersSection tests, tools, projects, and import", () => {
+  it("says how keys are kept, which servers need them again, and what runs on this computer", async () => {
+    const list = () =>
+      McpListResult.parse({
+        servers: [github],
+        agentAccess: "full",
+        secrets: { sealed: true, unreadable: ["github"] },
+      });
+    const container = await renderSection(fakeBridge(() => list()));
+    const safety = container.querySelector(".mcp-safety")?.textContent ?? "";
+    expect(safety).toContain("Keys and headers are locked with your system keychain.");
+    expect(safety).toContain("Enter the keys again for github.");
+    expect(safety).toContain("1 server runs a command on this computer");
+  });
+
+  it("hides key values until asked and warns before a command server is added", async () => {
+    const container = await renderSection(
+      fakeBridge(() => McpListResult.parse({ servers: [], agentAccess: "full" })),
+      "custom",
+    );
+    const add = [...container.querySelectorAll("button")].find((button) => button.textContent === "Add server");
+    await act(async () => add?.click());
+    expect(container.querySelector(".mcp-trust")?.textContent).toContain("runs on your computer, with your access");
+    const env = container.querySelector<HTMLTextAreaElement>("textarea.is-masked");
+    expect(env).not.toBeNull();
+    const show = [...container.querySelectorAll("button")].find((button) => button.textContent === "Show values");
+    await act(async () => show?.click());
+    expect(container.querySelector("textarea.is-masked")).toBeNull();
+  });
+
   it("tests a server, lists its tools, and turns single tools off", async () => {
     let servers: McpServerConfig[] = [github];
     let health: McpListResult["health"] = [];

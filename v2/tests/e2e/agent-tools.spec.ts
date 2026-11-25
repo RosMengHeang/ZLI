@@ -176,7 +176,10 @@ test("lets agents list, start, read, and message each other with the zli command
     expect(started.stderr).toBe("");
     const helper = JSON.parse(started.stdout) as { agent: { id: string }; worktree: { branch: string; path: string } };
     expect(helper.worktree.branch).toBe("docs/changelog");
-    await expect(page.locator(".agent-tile")).toHaveCount(2);
+    // The helper runs beside its starter, listed under it in the sidebar; opening it shows the task it was given.
+    const helperRow = page.locator(".sub-agent-list .session-row").first();
+    await expect(helperRow).toBeVisible({ timeout: 20_000 });
+    await helperRow.click();
     await expect(
       page.getByText(/^Task from the agent in ZLI that started you, working on branch /u).first(),
     ).toBeVisible();
@@ -187,6 +190,8 @@ test("lets agents list, start, read, and message each other with the zli command
 
     const sent = await zli(["send", first?.id ?? "", "The changelog is done.", "--cwd", helper.worktree.path]);
     expect(sent.stderr).toBe("");
+    // Back on the starter, the helper's message is in its chat.
+    await page.locator(".session-entry:has(> .sub-agent-list) > .session-row").first().click();
     await expect(
       page.getByText(/Message from your sub-agent, working on branch docs\/changelog/u).first(),
     ).toBeVisible();

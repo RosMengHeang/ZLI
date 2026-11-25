@@ -77,7 +77,8 @@ test("hands a chat to another agent, starts a scratch chat, and attaches a windo
       await scratchTile.getByRole("button", { name: "Attach", exact: true }).click();
       await page.getByRole("menuitem", { name: /^A window/u }).click();
       const picker = scratchTile.getByRole("region", { name: "Attach a window" });
-      const source = picker.locator(".capture-source").first();
+      // The whole screen is always there; a window in the list may have closed since it was read.
+      const source = picker.locator(".capture-source", { hasText: "Entire screen" }).first();
       await expect(source).toBeVisible({ timeout: 20_000 });
       await source.click();
       await expect(picker).toHaveCount(0, { timeout: 20_000 });

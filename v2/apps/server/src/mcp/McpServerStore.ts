@@ -21,6 +21,7 @@ import {
 } from "@zli-v2/contracts";
 
 import { isPlainObject, type McpServerSpec, writeFileAtomic, writeFileIfChanged } from "../browser-tool/browserTool.js";
+import { SecretBox } from "../secrets/SecretBox.js";
 import type { ConnectedApps } from "./ConnectedApps.js";
 import { type ImportEnvironment, scanImportableServers } from "./importServers.js";
 import { type McpProbe, type McpProbeOptions, type McpProbeOutcome, probeMcpServer } from "./McpProbe.js";
@@ -37,6 +38,9 @@ export type McpSpecContext = { projectPath?: string; worktreeId?: string };
 
 /** A request about a server that cannot be done as asked, worth showing the person as is. */
 export class McpRequestError extends Error {}
+
+const KEYCHAIN_SLOW =
+  "Your system keychain didn't answer when ZLI started, so ZLI won't save keys or headers unprotected. Restart ZLI, then save them again.";
 
 type StoredFile = {
   version: 1;
@@ -196,9 +200,25 @@ export class McpServerStore {
       importFrom?: ImportEnvironment;
       /** Apps connected through Composio, whose server every agent gets. */
       apps?: ConnectedApps;
+      /** Seals server keys and header values on disk. Without it (no OS keychain) they are saved as typed. */
+      box?: SecretBox;
+      /**
+       * The keychain is there but did not answer in time when ZLI started: keys and headers are then not saved at
+       * all until a restart, rather than saved as typed.
+       */
+      keychainSlow?: boolean;
       now?: () => number;
     },
   ) {}
+
+  /** Servers whose saved keys or headers could not be opened with this computer's key. */
+  private unreadable: string[] = [];
+  /**
+   * The sealed text of each value that could not be opened, by server and then "env.NAME" or "headers.NAME". It is
+   * written back as it was until that value is typed again or removed, so a save of something else never wipes a
+   * key the right computer can still open.
+   */
+  private locked: Record<string, Record<string, string>> = {};
 
   async load(): Promise<void> {
     let text: string;
@@ -227,13 +247,19 @@ export class McpServerStore {
       const scope = AgentToolScope.safeParse(parsed.agentScope);
       if (scope.success) this.scope = scope.data;
     }
-    const servers = isPlainObject(parsed) ? McpServerList.safeParse(parsed.servers) : undefined;
-    if (!servers?.success) {
+    // Keys and headers are opened before the list is checked: sealed text is longer than what was typed.
+    const opened = isPlainObject(parsed) ? openSecrets(parsed.servers, this.options.box) : undefined;
+    const servers = opened ? McpServerList.safeParse(opened.servers) : undefined;
+    if (!opened || !servers?.success) {
       this.problem = "The saved MCP server list is not valid.";
       return;
     }
     this.servers = servers.data;
+    this.unreadable = opened.unreadable;
+    this.locked = opened.locked;
     this.owned = isPlainObject(parsed) ? ownedFrom(parsed.owned) : {};
+    // A list saved before sealing, or saved readable by others, is written again: sealed, and for this user only.
+    if (opened.plain && this.options.box) await this.write().catch(() => undefined);
     await this.writeBridgeFiles();
   }
 
@@ -327,6 +353,11 @@ export class McpServerStore {
       signIns: this.signInStates(),
       health: this.healthStates(),
       ...(this.problem ? { problem: this.problem } : {}),
+      secrets: {
+        sealed: this.options.box !== undefined,
+        ...(this.options.keychainSlow && !this.options.box ? { keychainSlow: true } : {}),
+        unreadable: [...this.unreadable],
+      },
     };
   }
 
@@ -614,15 +645,108 @@ export class McpServerStore {
   }
 
   private async write(servers: McpServerConfig[] = this.servers): Promise<void> {
+    if (this.options.keychainSlow && !this.options.box && servers.some(hasSecretValues)) {
+      throw new McpRequestError(KEYCHAIN_SLOW);
+    }
+    // Re-entered values replace ones that could not be opened.
+    const names = new Set(servers.map((server) => server.name.toLowerCase()));
+    this.unreadable = this.unreadable.filter(
+      (name) =>
+        names.has(name.toLowerCase()) && !servers.some((server) => server.name === name && hasSecretValues(server)),
+    );
     const file: StoredFile = {
       version: 1,
-      servers,
+      servers: keepLocked(sealSecrets(servers, this.options.box), this.locked),
       owned: this.owned,
       agentAccess: this.access,
       agentScope: this.scope,
     };
-    await writeFileAtomic(this.options.path, `${JSON.stringify(file, null, 2)}\n`);
+    // Only this user may read the list: it holds the servers' keys, sealed or not.
+    await writeFileAtomic(this.options.path, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
   }
+}
+
+/** Whether a server carries any key or header value of its own. */
+function hasSecretValues(server: McpServerConfig): boolean {
+  const values = server.transport === "http" ? server.headers : server.env;
+  return Object.values(values).some((value) => value.length > 0);
+}
+
+function mapValues(record: unknown, change: (value: string, key: string) => string): Record<string, unknown> | unknown {
+  if (!isPlainObject(record)) return record;
+  return Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [key, typeof value === "string" ? change(value, key) : value]),
+  );
+}
+
+/**
+ * Opens sealed env and header values in the saved list, as written. A value sealed with another key comes back
+ * empty, and its server is named in unreadable. plain says whether any value was saved without sealing.
+ */
+export function openSecrets(
+  servers: unknown,
+  box: SecretBox | undefined,
+): { servers: unknown; unreadable: string[]; plain: boolean; locked: Record<string, Record<string, string>> } {
+  if (!Array.isArray(servers)) return { servers, unreadable: [], plain: false, locked: {} };
+  const unreadable: string[] = [];
+  const locked: Record<string, Record<string, string>> = {};
+  let plain = false;
+  const opened = servers.map((server: unknown) => {
+    if (!isPlainObject(server)) return server;
+    let lost = false;
+    const opener = (field: "env" | "headers") => (value: string, key: string) => {
+      if (!SecretBox.isSealed(value)) {
+        if (value) plain = true;
+        return value;
+      }
+      const text = box?.open(value);
+      if (text === undefined) {
+        lost = true;
+        if (typeof server.name === "string") {
+          const kept = locked[server.name] ?? {};
+          kept[`${field}.${key}`] = value;
+          locked[server.name] = kept;
+        }
+      }
+      return text ?? "";
+    };
+    const next = {
+      ...server,
+      env: mapValues(server.env, opener("env")),
+      headers: mapValues(server.headers, opener("headers")),
+    };
+    if (server.env === undefined) delete (next as Record<string, unknown>).env;
+    if (server.headers === undefined) delete (next as Record<string, unknown>).headers;
+    if (lost && typeof server.name === "string") unreadable.push(server.name);
+    return next;
+  });
+  return { servers: opened, unreadable, plain, locked };
+}
+
+/** Puts back the sealed text of values that could not be opened and are still empty, as they were on disk. */
+function keepLocked(servers: McpServerConfig[], locked: Record<string, Record<string, string>>): McpServerConfig[] {
+  return servers.map((server) => {
+    const sealed = locked[server.name];
+    if (!sealed) return server;
+    const field = server.transport === "http" ? "headers" : "env";
+    const values = { ...(server.transport === "http" ? server.headers : server.env) };
+    for (const [key, value] of Object.entries(values)) {
+      const kept = sealed[`${field}.${key}`];
+      if (value === "" && kept) values[key] = kept;
+    }
+    return { ...server, [field]: values } as McpServerConfig;
+  });
+}
+
+/** Seals every env and header value for the file on disk; the list in memory keeps them open. */
+export function sealSecrets(servers: readonly McpServerConfig[], box: SecretBox | undefined): McpServerConfig[] {
+  if (!box) return servers.map(copyServer);
+  const seal = (value: string) => (value ? box.seal(value) : value);
+  return servers.map((server) =>
+    server.transport === "http"
+      ? { ...copyServer(server), headers: mapValues(server.headers, seal) as Record<string, string> }
+      : { ...copyServer(server), env: mapValues(server.env, seal) as Record<string, string> },
+  ) as McpServerConfig[];
 }
 
 function ownedFrom(value: unknown): Record<string, string[]> {

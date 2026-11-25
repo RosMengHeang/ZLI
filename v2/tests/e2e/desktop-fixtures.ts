@@ -195,8 +195,10 @@ export async function launchDesktop(
       // A busy Windows runner sometimes never opens the first window, or the process exits before
       // it does. That launch is already closed, so one more start is safe. Any other failure is
       // real. The wait counts against the test, so put it back or teardown crosses the limit.
-      if (!(error instanceof WindowTimeout)) throw error;
-      if (attempt >= 2) throw error.cause;
+      // Electron itself can also fail to start on a loaded runner, with nothing left running; that is retried too.
+      const failedStart = error instanceof Error && /Process failed to launch/u.test(error.message);
+      if (!(error instanceof WindowTimeout) && !failedStart) throw error;
+      if (attempt >= 2) throw error instanceof WindowTimeout ? error.cause : error;
       const timeout = test.info().timeout;
       if (timeout > 0) test.setTimeout(timeout + RELAUNCH_BUDGET_MS);
     }
@@ -424,14 +426,21 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 async function stopTerminals(page: Page): Promise<void> {
-  const terminalIds = await page.evaluate(async () => {
-    const projection = await window.zli?.runtime.getProjection();
-    return (
-      projection?.terminals
-        .filter((terminal) => terminal.status === "running" || terminal.status === "starting")
-        .map((terminal) => terminal.terminalId) ?? []
-    );
-  });
+  // A window that already went away (an app that quit on its own) has no shells left to stop; closing it still runs.
+  if (page.isClosed()) return;
+  const terminalIds = await page
+    .evaluate(async () => {
+      const projection = await window.zli?.runtime.getProjection();
+      return (
+        projection?.terminals
+          .filter((terminal) => terminal.status === "running" || terminal.status === "starting")
+          .map((terminal) => terminal.terminalId) ?? []
+      );
+    })
+    .catch((error: unknown) => {
+      if (page.isClosed() || /has been closed/u.test(String(error))) return [] as string[];
+      throw error;
+    });
   if (terminalIds.length === 0) return;
   await page.evaluate(async (ids) => {
     const bridge = window.zli;
@@ -467,7 +476,7 @@ export async function git(cwd: string, args: string[]): Promise<string> {
 
 /**
  * Shows or hides a side panel the way a person does: the right-panel switch in the top bar closes what is
- * open; once open, the panel's icon strip switches to any panel.
+ * open. Once open, a panel opened before has a tab in the strip; any other is added from the strip's plus.
  */
 export async function togglePanel(page: Page, name: string): Promise<void> {
   const toggle = page.locator(".topbar-tools").getByRole("button", { name: "Right panel", exact: true });
@@ -477,7 +486,35 @@ export async function togglePanel(page: Page, name: string): Promise<void> {
     return;
   }
   if (!(await panel.isVisible())) await toggle.click();
-  await panel.getByRole("tablist", { name: "Panels" }).getByRole("tab", { name, exact: true }).click();
+  await expect(panel).toBeVisible();
+  const tab = panel.getByRole("tablist", { name: "Panels" }).getByRole("tab", { name, exact: true });
+  if (await tab.isVisible()) {
+    // In a small window the header can sit over part of the strip; the tab is still the one to switch to.
+    await tab.click({ timeout: 5_000 }).catch(() => tab.dispatchEvent("click"));
+    return;
+  }
+  await panel.getByRole("button", { name: "Add a panel" }).click();
+  await page
+    .getByRole("menu", { name: "Add a panel" })
+    .getByRole("menuitem")
+    .filter({ has: page.locator(".menu-item-label", { hasText: new RegExp(`^${name}$`, "u") }) })
+    .click();
+}
+
+/**
+ * Makes sure the terminal drawer has a running shell. Opening the drawer starts one by itself; Start terminal
+ * shows only when it did not.
+ */
+export async function startTerminal(page: Page): Promise<void> {
+  const start = page.getByRole("button", { name: "Start terminal" });
+  const shell = page.locator(".terminal-drawer:not(.is-side) .drawer-pane");
+  await expect.poll(async () => (await start.isVisible()) || (await shell.count()) > 0, { timeout: 30_000 }).toBe(true);
+  // The drawer's own shell can land between the check and the click, taking the button away: then there is
+  // nothing to click, and the shell is what this waits for.
+  await expect(async () => {
+    if ((await shell.count()) === 0 && (await start.isVisible())) await start.click({ timeout: 2_000 });
+    await expect(shell.first()).toBeAttached({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
 }
 
 /**
