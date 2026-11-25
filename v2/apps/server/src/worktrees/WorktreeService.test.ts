@@ -57,6 +57,43 @@ describe("worktree lifecycle", () => {
     });
   });
 
+  it("starts from the freshly fetched remote branch when asked", async () => {
+    const { root, repoPath: upstream } = await createRepository();
+    const local = join(root, "local");
+    await execFileAsync("git", ["clone", upstream, local]);
+    await writeFile(join(upstream, "README.md"), "newer\n");
+    await execFileAsync("git", ["commit", "-am", "newer"], { cwd: upstream });
+    const states: string[] = [];
+    const service = new WorktreeService(new GitProcess());
+    const target = join(root, "local-worktrees", "fresh");
+    await service.create({
+      jobId: "job-remote",
+      repoPath: local,
+      workspaceRoot: join(root, "local-worktrees"),
+      worktreePath: target,
+      branch: "fresh",
+      baseRef: "main",
+      fromRemote: true,
+      onState: (state) => states.push(state),
+    }).promise;
+    expect(states).toEqual(["queued", "fetching", "creating", "ready"]);
+    expect((await readFile(join(target, "README.md"), "utf8")).trim()).toBe("newer");
+  });
+
+  it("keeps the local branch when there is no remote to fetch from", async () => {
+    const { repoPath, worktreesPath } = await createRepository();
+    const service = new WorktreeService(new GitProcess());
+    const result = await service.create({
+      jobId: "job-offline",
+      repoPath,
+      workspaceRoot: worktreesPath,
+      worktreePath: join(worktreesPath, "offline"),
+      branch: "offline",
+      fromRemote: true,
+    }).promise;
+    expect(result.status).toBe("ready");
+  });
+
   it("deduplicates concurrent creates for the same job id", async () => {
     const { repoPath, worktreesPath } = await createRepository();
     const service = new WorktreeService(new GitProcess());

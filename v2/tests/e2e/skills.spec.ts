@@ -34,18 +34,18 @@ test("creates skills in Settings for every agent and for the project", async () 
     const settings = page.getByRole("dialog", { name: "Settings" });
     await settings.getByRole("tab", { name: "Skills" }).click();
     await expect(settings).toContainText("No skills yet.");
-    await expect(settings).toContainText("ZLI gives your enabled skills only to agents it starts.");
+    await expect(settings).toContainText("ZLI copies the ones that are on into each worktree it starts an agent in");
 
-    await settings.getByRole("button", { name: "New skill" }).click();
+    await settings.getByRole("button", { name: "Write a skill" }).click();
     const form = settings.getByRole("form", { name: "New skill" });
     await form.getByLabel("Name").fill("code-review");
     await form.getByLabel("Description").fill("Review a diff for bugs before it merges.");
     await form.getByLabel("Instructions").fill("# Review\n\nRead the whole diff first.");
     await form.getByRole("button", { name: "Add skill" }).click();
     await expect(form).toHaveCount(0);
-    const row = settings.locator(".mcp-row", { hasText: "code-review" });
+    const row = settings.locator(".skill-card", { hasText: "code-review" });
     await expect(row).toContainText("Review a diff for bugs before it merges.");
-    await expect(row).toContainText("User");
+    await expect(row).toContainText("Yours");
     await expect(settings.getByRole("switch", { name: "Give agents code-review" })).toBeChecked();
 
     expect(await readFile(join(root, "skills", "code-review", "SKILL.md"), "utf8")).toBe(
@@ -56,15 +56,20 @@ test("creates skills in Settings for every agent and for the project", async () 
     await expect.poll(() => readFile(copy, "utf8").catch(() => "")).toContain("name: code-review");
     expect(await gitStatus(worktreePath)).toBe("");
 
-    await settings.getByRole("button", { name: "New skill" }).click();
+    await settings.getByRole("button", { name: "Write a skill" }).click();
     const projectForm = settings.getByRole("form", { name: "New skill" });
-    await projectForm.getByRole("button", { name: /^Save to: /u }).click();
-    await page.getByRole("option", { name: "repo, in .agents/skills" }).click();
+    // Where it goes is a choice of two in the form.
+    await projectForm.getByRole("button", { name: "repo, in .agents/skills" }).click();
     await projectForm.getByLabel("Name").fill("release-notes");
     await projectForm.getByLabel("Description").fill("Write release notes from merged changes.");
     await projectForm.getByRole("button", { name: "Add skill" }).click();
     await expect(projectForm).toHaveCount(0);
-    await expect(settings.locator(".mcp-row", { hasText: "release-notes" })).toContainText("Project");
+    // Project skills have a tab of their own.
+    await settings
+      .getByRole("tablist", { name: "Skills" })
+      .getByRole("tab", { name: /^Project/u })
+      .click();
+    await expect(settings.locator(".skill-card", { hasText: "release-notes" })).toContainText("Project");
     expect(await readFile(join(repo, ".agents", "skills", "release-notes", "SKILL.md"), "utf8")).toContain(
       "name: release-notes",
     );
@@ -72,7 +77,7 @@ test("creates skills in Settings for every agent and for the project", async () 
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Settings" }).click();
     await settings.getByRole("tab", { name: "Skills" }).click();
-    await expect(settings.locator(".mcp-row", { hasText: "code-review" })).toBeVisible();
+    await expect(settings.locator(".skill-card", { hasText: "code-review" })).toBeVisible();
 
     await settings.getByRole("button", { name: "Delete code-review" }).click();
     await settings.getByRole("button", { name: "Delete", exact: true }).click();

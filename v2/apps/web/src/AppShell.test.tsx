@@ -1108,10 +1108,11 @@ describe("Settings", () => {
     updateAppSettings((current) => ({ ...current, defaults: { permissionMode: "full-access" } }));
     const container = await render(makeBridge(discovered));
     const settings = await openSettings(container, "Projects");
+    await act(async () => settings.querySelector<HTMLButtonElement>(".project-open")?.click());
     expect(picker(settings, "Permissions").getAttribute("aria-label")).toBe("Permissions: Default");
     await choose(settings, "Permissions", "Edit files");
     expect(document.querySelector('[role="listbox"]')).toBeNull();
-    expect(button(settings, "Reset all to Default")).not.toBeUndefined();
+    expect(button(settings, "Reset")).not.toBeUndefined();
 
     await press(window, { key: "Escape", code: "Escape" });
     await openNewAgentOptions(container);
@@ -1133,17 +1134,20 @@ describe("Settings", () => {
     const list = settings.querySelector('[aria-label="Projects"]');
     expect(list?.textContent).toContain("repo");
     expect(list?.textContent).toContain("C:/repo");
-    await act(async () => button(settings, "Remove repo")?.click());
+    await act(async () => settings.querySelector<HTMLButtonElement>(".project-open")?.click());
+    await act(async () => button(settings, "Remove")?.click());
     expect(settings.textContent).toContain("Remove repo from ZLI?");
     expect(settings.textContent).toContain("1 agent and its chat are deleted from ZLI.");
     expect(settings.textContent).toContain("The folder and its files stay on disk.");
     expect(document.activeElement?.textContent).toBe("Keep");
     await act(async () => button(settings, "Keep")?.click());
-    expect(button(settings, "Remove")).toBeUndefined();
+    expect(settings.textContent).not.toContain("Remove repo from ZLI?");
     expect(commands(dispatched).some((command) => command.type === "project.archive")).toBe(false);
 
-    await act(async () => button(settings, "Remove repo")?.click());
     await act(async () => button(settings, "Remove")?.click());
+    await act(async () =>
+      [...settings.querySelectorAll<HTMLButtonElement>(".project-remove-actions button")].at(-1)?.click(),
+    );
     const sent = commands(dispatched);
     expect(sent).toContainEqual({ type: "session.delete", sessionId: agentSessionId });
     expect(sent.at(-1)).toEqual({ type: "project.archive", projectId });
@@ -1176,8 +1180,11 @@ describe("Settings", () => {
     };
     const container = await render(bridge);
     const settings = await openSettings(container, "Projects");
-    await act(async () => button(settings, "Remove repo")?.click());
+    await act(async () => settings.querySelector<HTMLButtonElement>(".project-open")?.click());
     await act(async () => button(settings, "Remove")?.click());
+    await act(async () =>
+      [...settings.querySelectorAll<HTMLButtonElement>(".project-remove-actions button")].at(-1)?.click(),
+    );
     expect(settings.querySelector('[role="alert"]')?.textContent).toBe(
       "Stop the agents and terminals in this project first.",
     );

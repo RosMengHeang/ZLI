@@ -151,17 +151,19 @@ test("removes a project from Settings after asking, and leaves its folder on dis
     const projects = settings.getByRole("list", { name: "Projects" });
     await expect(projects.getByRole("listitem")).toHaveCount(1);
     await expect(projects).toContainText(repo);
-    await settings.getByRole("button", { name: "Remove repo" }).click();
+    // A project opens on its own page; Remove there asks first, with Keep in focus.
+    await settings.locator(".project-open").first().click();
+    await settings.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(settings).toContainText("Remove repo from ZLI?");
     await expect(settings.getByRole("button", { name: "Keep" })).toBeFocused();
     await settings.getByRole("button", { name: "Keep" }).click();
-    await expect(settings.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0);
+    await expect(settings).not.toContainText("Remove repo from ZLI?");
     await expect(page.locator(".project-label")).toContainText("repo");
 
-    await settings.getByRole("button", { name: "Remove repo" }).click();
     await settings.getByRole("button", { name: "Remove", exact: true }).click();
+    await settings.locator(".project-remove-actions").getByRole("button", { name: "Remove", exact: true }).click();
     await expect(settings).toContainText("Removed repo from ZLI. Its folder is still on disk.");
-    await expect(settings).toContainText("No projects yet.");
+    await expect(settings.getByRole("button", { name: "Add project" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.locator(".project-label")).toHaveCount(0);
     expect((await stat(join(repo, ".git"))).isDirectory()).toBe(true);

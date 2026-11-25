@@ -10,6 +10,7 @@ import {
 
 import { providerDisplayName } from "../agent/providers.js";
 import { makeCommandId } from "../runtime/commandId.js";
+import { readAppSettings, type WorktreePrefs } from "../settings/appSettings.js";
 import type { SessionMode } from "./sessions.js";
 
 export type Dispatch = (request: unknown) => Promise<RpcResponse | undefined>;
@@ -70,6 +71,21 @@ export function checkoutWorktree(
   );
 }
 
+/**
+ * The folder that holds a project's worktrees: a subfolder named after the project inside the chosen location,
+ * or, with none chosen, a `<project>-worktrees` folder next to the project.
+ */
+export function worktreeFolder(
+  project: Pick<ProjectProjection, "path">,
+  prefs: Pick<WorktreePrefs, "location">,
+): string {
+  const projectPath = project.path.replace(/[\\/]+$/u, "");
+  const location = prefs.location?.trim().replace(/[\\/]+$/u, "");
+  if (!location) return `${projectPath}-worktrees`;
+  const name = projectPath.split(/[\\/]/u).pop() || "project";
+  return `${location}/${name}`;
+}
+
 export async function createWorktree(
   dispatch: Dispatch,
   project: ProjectProjection,
@@ -81,7 +97,8 @@ export async function createWorktree(
   const safeBranch = safeBranchName(branch);
   if (!safeBranch) return { error: "Choose a branch name before creating a worktree." };
   const worktreeId = makeCommandId();
-  const workspaceRoot = `${project.path.replace(/[\\/]+$/u, "")}-worktrees`;
+  const prefs = readAppSettings().worktrees;
+  const workspaceRoot = worktreeFolder(project, prefs);
   const response = await dispatch({
     protocolVersion: 1,
     commandId: makeCommandId(),
@@ -93,6 +110,7 @@ export async function createWorktree(
       workspaceRoot,
       branch: safeBranch,
       ...(existing ? { checkoutExistingBranch: true } : baseRef.trim() ? { baseRef: baseRef.trim() } : {}),
+      ...(!existing && prefs.fromRemote ? { fromRemote: true } : {}),
     },
   });
   if (response?.accepted === false) return { error: response.error.message };
