@@ -7,13 +7,14 @@ directories:
   output: release
 afterPack: ./scripts/after-pack.mjs
 # Electron fuses, flipped in the packaged binary. runAsNode stays on: the runtime, the terminal daemon, and the
-# connect bridge all run as ZLI with ELECTRON_RUN_AS_NODE=1. The rest close ways for another program on the computer
-# to run its own code as ZLI: NODE_OPTIONS and --inspect flags are ignored, the app loads only from app.asar, and
-# app.asar is checked against the hash built into the binary.
+# connect bridge all run as ZLI with ELECTRON_RUN_AS_NODE=1. Inspect flags stay on too: the release gate drives this
+# exact binary with Playwright, which attaches through --inspect, and the files it tests are the files that ship.
+# The rest close ways for another program on the computer to run its own code as ZLI: NODE_OPTIONS is ignored, the
+# app loads only from app.asar, and app.asar is checked against the hash built into the binary.
 electronFuses:
   runAsNode: true
   enableNodeOptionsEnvironmentVariable: false
-  enableNodeCliInspectArguments: false
+  enableNodeCliInspectArguments: true
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
 files:
