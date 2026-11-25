@@ -43,6 +43,21 @@ export const MobileWifiPairInput = z.object({
 });
 export type MobileWifiPairInput = z.infer<typeof MobileWifiPairInput>;
 
+/**
+ * Pairs by QR code, as Android Studio does: the phone scans adbQrPayload(name, password) from Wireless debugging >
+ * Pair device with QR code, then advertises a pairing service under that name, and ZLI pairs with the password.
+ */
+export const MobileWifiQrPairInput = z.object({
+  name: z.string().regex(/^zli-[a-z0-9]{6,16}$/u),
+  password: z.string().regex(/^[A-Za-z0-9]{6,32}$/u),
+});
+export type MobileWifiQrPairInput = z.infer<typeof MobileWifiQrPairInput>;
+
+/** What the QR code holds: the Wi-Fi QR format Android's Wireless debugging scanner reads for adb pairing. */
+export function adbQrPayload(name: string, password: string): string {
+  return `WIFI:T:ADB;S:${name};P:${password};;`;
+}
+
 /** Connects to a phone that already trusts this computer, at the address its Wireless debugging screen shows. */
 export const MobileWifiConnectInput = z.object({ host: MobileAdbHost, port: MobileAdbPort });
 export type MobileWifiConnectInput = z.infer<typeof MobileWifiConnectInput>;

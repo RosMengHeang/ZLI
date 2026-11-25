@@ -151,3 +151,17 @@ fieldset.mobile-avd-actions { min-width: 0; margin: 0; padding: 0; border: 0; }
 .mobile-license summary:hover { color: var(--zli-text); }
 .mobile-license-text { max-height: 220px; margin: var(--zli-space-1-5) 0 0; padding: var(--zli-space-2) var(--zli-space-3); overflow: auto; border: 1px solid var(--zli-border); border-radius: var(--zli-radius-md); background: var(--zli-well); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: var(--zli-leading-normal); white-space: pre-wrap; }
 .check-field.mobile-license-accept input { accent-color: var(--zli-accent); }
+
+/* Setup in three tabs: the emulator, a real phone, and the iPhone simulator. */
+.mobile-setup-tabs { align-self: flex-start; }
+/* Pairing by QR code: the code on the left, two steps and the wait on the right. */
+.phone-qr-step { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--zli-space-4); }
+.phone-qr { display: block; width: 168px; height: 168px; flex: 0 0 auto; border-radius: var(--zli-radius-md); }
+.phone-qr-copy { display: flex; min-width: 180px; flex: 1; flex-direction: column; align-items: flex-start; gap: var(--zli-space-2); }
+.phone-qr-status { display: flex; min-height: 20px; align-items: center; gap: var(--zli-space-2); margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); }
+.mobile-setup-actions[hidden] { display: none; }
+/* Room above and below the QR step, so it does not touch the choices above or the list below. */
+.phone-qr-step { margin: var(--zli-space-3) 0 var(--zli-space-2); }
+.phone-qr-copy .mobile-setup-list { margin: 0; }
+.phone-qr-copy .mobile-setup-hint { margin: var(--zli-space-1) 0 0; }
+.mobile-avd-form:has(.phone-qr-step) { padding-bottom: var(--zli-space-3); }

@@ -1,4 +1,9 @@
-import type { MobileWifiConnectInput, MobileWifiPairInput, MobileWifiResult } from "@zli-v2/contracts";
+import type {
+  MobileWifiConnectInput,
+  MobileWifiPairInput,
+  MobileWifiQrPairInput,
+  MobileWifiResult,
+} from "@zli-v2/contracts";
 
 import { androidDeviceId } from "./AndroidDriver.js";
 import {
@@ -23,11 +28,15 @@ export type AndroidWirelessDeps = {
   readonly sleep?: (milliseconds: number) => Promise<void>;
   /** How many times to look for the connect port after pairing, since the phone can take a moment to advertise. */
   readonly mdnsAttempts?: number;
+  /** How long to wait for a phone to scan the QR code. */
+  readonly qrTimeoutMs?: number;
 };
 
 const PAIR_TIMEOUT_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 20_000;
 const MDNS_TIMEOUT_MS = 10_000;
+const QR_TIMEOUT_MS = 120_000;
+const QR_POLL_MS = 1_000;
 
 /**
  * Wireless debugging for Android 11 and newer: pair with the code the phone shows, connect to the port its
@@ -37,6 +46,8 @@ const MDNS_TIMEOUT_MS = 10_000;
 export class AndroidWireless {
   readonly #deps: AndroidWirelessDeps;
   readonly #sleep: (milliseconds: number) => Promise<void>;
+  /** The QR pairing waiting for a phone; a new one or a cancel ends the one before. */
+  #qrWait = 0;
 
   constructor(deps: AndroidWirelessDeps) {
     this.#deps = deps;
@@ -58,6 +69,36 @@ export class AndroidWireless {
           "Paired with the phone. Enter the port under IP address & port on its Wireless debugging screen to connect.",
       };
     return this.connect({ host: input.host, port }, "Paired and connected");
+  }
+
+  /**
+   * Pairs with the phone that scans the QR code: waits for it to advertise a pairing service under the code's
+   * name, pairs with the code's password, then connects as a code pairing does.
+   */
+  async pairQr(input: MobileWifiQrPairInput): Promise<MobileWifiResult> {
+    this.#qrWait += 1;
+    const wait = this.#qrWait;
+    const deadline = Date.now() + (this.#deps.qrTimeoutMs ?? QR_TIMEOUT_MS);
+    for (;;) {
+      if (wait !== this.#qrWait) return { connected: false, message: "Stopped waiting for the phone." };
+      const output = await this.#adb(["mdns", "services"], MDNS_TIMEOUT_MS).catch(() => "");
+      const service = parseMdnsServices(output).find((entry) => entry.type === "pairing" && entry.name === input.name);
+      if (service) {
+        if (wait !== this.#qrWait) return { connected: false, message: "Stopped waiting for the phone." };
+        return this.pair({ host: service.host, pairPort: service.port, code: input.password });
+      }
+      if (Date.now() >= deadline)
+        throw new MobileDriverError(
+          "No phone scanned the code in time. Check that the phone and this computer are on the same Wi-Fi, then show a new code.",
+          408,
+        );
+      await this.#sleep(QR_POLL_MS);
+    }
+  }
+
+  /** Stops waiting for a phone to scan the QR code. */
+  cancelQr(): void {
+    this.#qrWait += 1;
   }
 
   async connect(input: MobileWifiConnectInput, done = "Connected"): Promise<MobileWifiResult> {
