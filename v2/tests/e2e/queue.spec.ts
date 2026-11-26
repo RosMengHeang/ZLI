@@ -27,18 +27,19 @@ test("queues messages while an agent is busy, removes them, and steers with Send
     await sendChatMessage(page, "[hold] keep working");
     const composer = page.getByRole("textbox", { name: "Message Codex" });
     const queue = page.getByRole("region", { name: "Queued messages" });
-    const queueButton = page.getByRole("button", { name: "Queue message", exact: true });
-    // While a turn runs, Stop holds Send's place; Queue shows once there is something to queue.
+    const steerButton = page.getByRole("button", { name: "Steer", exact: true });
+    // While a turn runs, Stop holds Send's place; Steer shows once there is something to send.
     await expect(page.getByRole("button", { name: "Stop Codex" })).toBeVisible({ timeout: 30_000 });
 
+    // Enter steers by default; Ctrl+Enter (Cmd+Enter) queues a message instead.
     await composer.fill("Update the docs");
-    await expect(queueButton).toBeVisible();
-    await queueButton.click();
+    await expect(steerButton).toBeVisible();
+    await composer.press("ControlOrMeta+Enter");
     await expect(queue.locator(".chat-queue-text")).toHaveText(["Update the docs"]);
     await composer.fill("Bump the version");
     // The turn can start before the first send settles; Enter is ignored until it does.
-    await expect(queueButton).toBeEnabled();
-    await composer.press("Enter");
+    await expect(steerButton).toBeEnabled();
+    await composer.press("ControlOrMeta+Enter");
     await expect(queue.locator(".chat-queue-text")).toHaveText(["Update the docs", "Bump the version"]);
 
     await queue.getByRole("button", { name: "Remove from queue: Bump the version" }).click();
