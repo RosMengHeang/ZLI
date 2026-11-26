@@ -108,6 +108,8 @@ export type AppSettings = {
   chatTint: ChatTint;
   /** A chat moves to Archived once its branch's pull request merges or closes. */
   archiveMergedChats: boolean;
+  /** A message sent while the agent works: steer stops the turn so it goes next, queue waits for the turn to end. */
+  busySend: BusySend;
   /** Several chats share the screen side by side. Off shows one at a time, switched from the sidebar. */
   severalChats: boolean;
   /** Columns: each column carries its own header on one row, no top bar. Classic: a top bar over separate panels. */
@@ -168,6 +170,8 @@ export type ChatBackdrop = {
 export type WindowLayout = "columns" | "classic";
 export type SidebarView = "activity" | "projects";
 export type ChatTint = "card" | "selection" | "none";
+/** What sending does while the agent is mid-turn. */
+export type BusySend = "steer" | "queue";
 
 export type WorktreePrefs = {
   /** A folder that holds every project's worktrees, one subfolder per project. Unset: next to each project. */
@@ -208,6 +212,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tintProjects: true,
   chatTint: "card",
   archiveMergedChats: true,
+  busySend: "steer",
   severalChats: false,
   layout: "classic",
   compactChats: true,
@@ -328,6 +333,7 @@ export function parseAppSettings(raw: string | null): AppSettings {
     tintProjects: value.tintProjects !== false,
     chatTint: value.chatTint === "selection" || value.chatTint === "none" ? value.chatTint : "card",
     archiveMergedChats: value.archiveMergedChats !== false,
+    busySend: value.busySend === "queue" ? "queue" : "steer",
     severalChats: value.severalChats === true,
     // Rounded panels are the default; Columns stays for whoever picked it.
     layout: value.layoutChosen === true && value.layout === "columns" ? "columns" : "classic",

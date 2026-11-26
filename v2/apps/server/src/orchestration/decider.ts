@@ -495,6 +495,19 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
           { type: "thread.resume.requested", threadId: command.threadId, cwd: worktree.path },
         ];
       }
+      // Steering cuts only a running turn short. An agent waiting on an answer keeps the message queued.
+      if (command.steer && thread.status === "working" && !readyForNext(projection, thread)) {
+        if (steersNatively(thread, message)) return [{ ...sendRequested(projection, message), steer: true }];
+        return [
+          { type: "thread.queued", message },
+          { type: "thread.queue.prioritized", threadId: command.threadId, queueId: command.queueId },
+          {
+            type: "thread.interrupt.requested",
+            threadId: command.threadId,
+            ...(thread.activeTurnId ? { turnId: thread.activeTurnId } : {}),
+          },
+        ];
+      }
       if (!readyForNext(projection, thread)) return [{ type: "thread.queued", message }];
       if (queue.length === 0) return [sendRequested(projection, message)];
       return [{ type: "thread.queued", message }, ...sendQueued(projection, queue[0] as ThreadQueuedMessage)];
@@ -510,6 +523,11 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
       if (readyForNext(projection, thread)) return sendQueued(projection, queued);
       if (thread.status !== "working")
         throw new DomainError("unsupported_command", "Answer the agent's request first, then send this message.");
+      if (steersNatively(thread, queued))
+        return [
+          { type: "thread.queue.removed", threadId: queued.threadId, queueId: queued.queueId },
+          { ...sendRequested(projection, queued), steer: true },
+        ];
       return [
         { type: "thread.queue.prioritized", threadId: command.threadId, queueId: command.queueId },
         {
@@ -1065,6 +1083,18 @@ function assertJoins(projection: RuntimeProjection, projectId: string, threadId:
   const hostProject = projection.worktrees.find((worktree) => worktree.worktreeId === host.worktreeId)?.projectId;
   if (hostProject !== projectId)
     throw new DomainError("unsupported_command", "An agent can only join a chat in the same project.");
+}
+
+/**
+ * The message can join the running turn: the agent takes messages mid-turn, and the message does not change
+ * the permission mode, which only a new turn can.
+ */
+function steersNatively(thread: ThreadProjection, message: { permissionMode?: PermissionMode | undefined }): boolean {
+  return (
+    thread.capabilities.steering === "native" &&
+    thread.activeTurnId !== undefined &&
+    !permissionChanged(thread, message.permissionMode)
+  );
 }
 
 function sendQueued(projection: RuntimeProjection, queued: ThreadQueuedMessage): DomainDecision[] {

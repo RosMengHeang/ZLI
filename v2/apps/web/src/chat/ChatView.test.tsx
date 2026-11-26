@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { onIssueRequest } from "../issues/issueRequest.js";
 import type { ZliBridge } from "../runtime/bridge.js";
 import { RuntimeProvider } from "../runtime/RuntimeProvider.js";
+import { updateAppSettings } from "../settings/appSettings.js";
 import { ChatView } from "./ChatView.js";
 import { addCodeReference } from "./codeReferences.js";
 import { readDraft } from "./drafts.js";
@@ -1049,14 +1050,43 @@ describe("ChatView", () => {
       "Then update the docs",
       "Also bump the version",
     ]);
-    // While the agent works, Stop stands alone until there is something to queue.
-    expect(button(container, "Queue message")).toBeUndefined();
+    // While the agent works, Stop stands alone until there is something to send.
+    expect(button(container, "Steer")).toBeUndefined();
     await typeDraft(container, "And the changelog");
-    expect(button(container, "Queue message")).toBeDefined();
+    // Steer is the default: the message stops the turn and goes next.
+    expect(button(container, "Steer")).toBeDefined();
+    await act(async () => button(container, "Steer")?.click());
+    expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", text: "And the changelog", steer: true });
     await act(async () => button(container, "Send now: Also bump the version")?.click());
     expect(dispatched.at(-1)?.command).toEqual({ type: "thread.steer", threadId, queueId: "q2" });
     await act(async () => button(container, "Remove from queue: Then update the docs")?.click());
     expect(dispatched.at(-1)?.command).toEqual({ type: "thread.queue.remove", threadId, queueId: "q1" });
+  });
+
+  it("sends one message the other way with Ctrl+Enter", async () => {
+    const { container, dispatched } = await render(projectionWith({ threads: [{ ...thread, status: "working" }] }));
+    await typeDraft(container, "And the changelog");
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    await act(async () => {
+      textarea?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+    });
+    const sent = dispatched.at(-1)?.command;
+    expect(sent).toMatchObject({ type: "thread.queue", text: "And the changelog" });
+    expect(sent).not.toHaveProperty("steer");
+  });
+
+  it("queues instead of steering when Settings say so", async () => {
+    updateAppSettings((current) => ({ ...current, busySend: "queue" }));
+    onTestFinished(() => {
+      updateAppSettings((current) => ({ ...current, busySend: "steer" }));
+    });
+    const { container, dispatched } = await render(projectionWith({ threads: [{ ...thread, status: "working" }] }));
+    await typeDraft(container, "And the changelog");
+    expect(button(container, "Steer")).toBeUndefined();
+    await act(async () => button(container, "Queue message")?.click());
+    const sent = dispatched.at(-1)?.command;
+    expect(sent).toMatchObject({ type: "thread.queue", text: "And the changelog" });
+    expect(sent).not.toHaveProperty("steer");
   });
 
   it("shows a message sent while the agent starts in the conversation, not in a queue", async () => {

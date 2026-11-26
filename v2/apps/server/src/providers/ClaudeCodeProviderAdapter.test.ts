@@ -56,6 +56,7 @@ describe("ClaudeCodeProviderAdapter", () => {
       permissionSwitch: "in-session",
       compaction: "native",
       compactionInstructions: true,
+      steering: "native",
     });
     await expect(adapter.startSession({ threadId, cwd: "/work/tree" })).resolves.toMatchObject({
       threadId,

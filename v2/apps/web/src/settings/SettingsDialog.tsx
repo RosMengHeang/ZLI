@@ -36,6 +36,7 @@ import { AgentsSection } from "./AgentsSection.js";
 import { AppearanceSection } from "./AppearanceSection.js";
 import {
   type AppSettings,
+  type BusySend,
   branchFromTemplate,
   DEFAULT_BRANCH_TEMPLATE,
   type FileTreePosition,
@@ -608,6 +609,7 @@ function GeneralSettings({
 }) {
   const settings = useAppSettings();
   const treeId = useId();
+  const busySendId = useId();
   const alerts = notifications.settings;
   return (
     <>
@@ -636,6 +638,19 @@ function GeneralSettings({
           checked={settings.archiveMergedChats}
           onChange={(checked) => updateAppSettings((current) => ({ ...current, archiveMergedChats: checked }))}
         />
+        <SettingsRow
+          label="Sending while the agent works"
+          description={`Steer gets your message to the agent during its turn. Claude Code and Codex read it at their next step; other agents stop and start again with it. Queue waits for the turn to finish. ${shortcutText("Mod+Enter")} sends one message the other way.`}
+          htmlFor={busySendId}
+        >
+          <Select
+            id={busySendId}
+            label="Sending while the agent works"
+            value={settings.busySend}
+            options={busySendOptions}
+            onChange={(busySend) => updateAppSettings((current) => ({ ...current, busySend }))}
+          />
+        </SettingsRow>
       </SettingsGroup>
       <SettingsGroup
         title="Notifications"
@@ -693,6 +708,11 @@ function GeneralSettings({
     </>
   );
 }
+
+const busySendOptions: readonly PickerOption<BusySend>[] = [
+  { value: "steer", label: "Steer", description: "Send during the turn" },
+  { value: "queue", label: "Queue", description: "Send after the turn finishes" },
+];
 
 const treePositionOptions: readonly PickerOption<FileTreePosition>[] = [
   { value: "right", label: "Right" },

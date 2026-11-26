@@ -113,6 +113,8 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
     attachments: z.array(ThreadAttachment).max(8).optional(),
     /** Read by the agent before the message, and not shown in the chat. */
     context: z.string().min(1).max(200_000).optional(),
+    /** Joins the agent's running turn instead of starting one. Only for agents whose steering is native. */
+    steer: z.literal(true).optional(),
   }),
   z.object({ type: z.literal("thread.queued"), message: ThreadQueuedMessage }),
   z.object({ type: z.literal("thread.usage.recorded"), record: ThreadUsageRecord }),

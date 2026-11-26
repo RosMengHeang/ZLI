@@ -175,6 +175,86 @@ describe("ProviderReactor", () => {
     service.dispose();
   });
 
+  it("hands a steer to the running turn, and queues it when that turn turns it down", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    let turns = 0;
+    const adapter = new (class extends FakeAdapter {
+      override readonly capabilities = {
+        structuredApproval: true,
+        structuredUserInput: true,
+        steering: "native" as const,
+      };
+      readonly steers: { turnId: string; text: string }[] = [];
+      interrupted = 0;
+      refuseSteer = false;
+      override async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
+        this.turnInputs.push(input);
+        turns += 1;
+        return { turnId: `turn-${turns}` };
+      }
+      override async interruptTurn(): Promise<void> {
+        this.interrupted += 1;
+      }
+      async steerTurn(input: { turnId: string; text: string }): Promise<void> {
+        if (this.refuseSteer) throw new Error("The turn already ended.");
+        this.steers.push({ turnId: input.turnId, text: input.text });
+      }
+    })();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let sequence = 0;
+    const dispatch = (command: Parameters<Engine["dispatchPromise"]>[0]["command"]) => {
+      sequence += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`10000000-0000-4000-8000-0000000019${String(sequence).padStart(2, "0")}`),
+        command,
+      });
+    };
+    const userTexts = async () =>
+      ((await engine.projection()).messages ?? [])
+        .filter((message) => message.role === "user")
+        .map((message) => message.text);
+
+    await dispatch({ type: "project.register", path: "C:workspacesteer" });
+    const project = (await engine.projection()).projects[0];
+    if (!project) throw new Error("Expected the registered project in the projection.");
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId: ProjectId.parse(project.projectId),
+      path: "C:workspacesteer-tree",
+      workspaceRoot: "C:workspace",
+      branch: "feature/steer",
+    });
+    await dispatch({ type: "thread.start", threadId, worktreeId, provider: "codex", cwd: "C:workspacesteer-tree" });
+    await reactor.waitForIdle();
+
+    await dispatch({ type: "thread.queue", queueId: "q1", threadId, text: "first" });
+    await reactor.waitForIdle();
+    await dispatch({ type: "thread.queue", queueId: "q2", threadId, text: "and the docs", steer: true });
+    await reactor.waitForIdle();
+    expect(adapter.steers).toEqual([{ turnId: "turn-1", text: "and the docs" }]);
+    expect(adapter.interrupted).toBe(0);
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["first"]);
+    expect(await userTexts()).toEqual(["first", "and the docs"]);
+
+    adapter.refuseSteer = true;
+    await dispatch({ type: "thread.queue", queueId: "q3", threadId, text: "and the changelog", steer: true });
+    await reactor.waitForIdle();
+    expect((await engine.projection()).queuedMessages?.map((queued) => queued.text)).toEqual(["and the changelog"]);
+    adapter.emit({ type: "turn.completed", threadId, turnId: "turn-1", status: "completed" });
+    await reactor.waitForIdle();
+    expect(adapter.turnInputs.map((input) => input.text)).toEqual(["first", "and the changelog"]);
+    expect(await userTexts()).toEqual(["first", "and the docs", "and the changelog"]);
+
+    reactor.stop();
+    await service.stopAll();
+    service.dispose();
+  });
+
   it("interrupts a turn that was stopped while the provider was still accepting it", async () => {
     const database = new Database({ path: ":memory:" });
     databases.push(database);

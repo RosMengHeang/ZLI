@@ -63,6 +63,7 @@ describe("createProviderRegistry", () => {
       structuredApproval: true,
       conversationRollback: true,
       compaction: "native",
+      steering: "native",
     });
     expect(registry.get("claude-code")?.capabilities).toEqual({
       exactResume: false,
@@ -73,6 +74,7 @@ describe("createProviderRegistry", () => {
       permissionSwitch: "in-session",
       compaction: "native",
       compactionInstructions: true,
+      steering: "native",
     });
     expect(registry.get("droid")?.capabilities).toEqual({
       exactResume: false,

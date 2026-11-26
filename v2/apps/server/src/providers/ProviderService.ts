@@ -85,12 +85,26 @@ export type ProviderTurnInput = {
   attachments?: readonly ThreadAttachment[];
 };
 
+export type ProviderSteerInput = {
+  threadId: ThreadId;
+  /** The running turn the message is for. */
+  turnId: string;
+  text: string;
+  /** Stored images. Their paths are already listed in `text`; adapters may also pass them natively. */
+  attachments?: readonly ThreadAttachment[];
+};
+
 export interface ProviderAdapter {
   readonly provider: ProviderKind;
   readonly capabilities: ProviderCapabilities;
   startSession(input: ProviderSessionStart): Promise<ProviderSession>;
   sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }>;
   interruptTurn(input: { threadId: ThreadId; turnId?: string }): Promise<void>;
+  /**
+   * Adds a message to the running turn, for adapters whose capabilities say steering is native. It throws when
+   * that turn is no longer running, and the caller then sends the message as a turn of its own.
+   */
+  steerTurn?(input: ProviderSteerInput): Promise<void>;
   respondToRequest(input: { threadId: ThreadId; requestId: string; decision: unknown }): Promise<void>;
   respondToUserInput(input: { threadId: ThreadId; requestId: string; answers: Record<string, string> }): Promise<void>;
   stopSession(input: { threadId: ThreadId }): Promise<void>;
@@ -233,6 +247,13 @@ export class ProviderService {
 
   async interruptTurn(input: { threadId: ThreadId; turnId?: string }): Promise<void> {
     await this.adapterFor(input.threadId).interruptTurn(input);
+  }
+
+  async steerTurn(input: ProviderSteerInput): Promise<void> {
+    const adapter = this.adapterFor(input.threadId);
+    if (!adapter.steerTurn)
+      throw new ProviderServiceError("unsupported", `${adapter.provider} cannot add a message to a running turn.`);
+    await adapter.steerTurn(input);
   }
 
   async respondToRequest(input: { threadId: ThreadId; requestId: string; decision: unknown }): Promise<void> {

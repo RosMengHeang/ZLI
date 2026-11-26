@@ -233,6 +233,26 @@ export class CodexAppServerClient {
     }
   }
 
+  /**
+   * Adds input to the running turn with turn/steer. Codex reads it at its next step and keeps working in the
+   * same turn. It fails when providerTurnId is no longer the thread's running turn.
+   */
+  async steerTurn(input: {
+    providerThreadId: string;
+    providerTurnId: string;
+    text: string;
+    imagePaths?: readonly string[];
+  }): Promise<void> {
+    await this.request("turn/steer", {
+      threadId: input.providerThreadId,
+      expectedTurnId: input.providerTurnId,
+      input: [
+        { type: "text", text: input.text },
+        ...(input.imagePaths ?? []).map((path) => ({ type: "localImage", path })),
+      ],
+    });
+  }
+
   async interruptTurn(providerThreadId: string, providerTurnId: string): Promise<void> {
     await this.request("turn/interrupt", { threadId: providerThreadId, turnId: providerTurnId });
   }

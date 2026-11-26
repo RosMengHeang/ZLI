@@ -7,12 +7,13 @@ import type {
   ProviderEvent,
   ProviderSession,
   ProviderSessionStart,
+  ProviderSteerInput,
   ProviderTurnInput,
 } from "./ProviderService.js";
 import { toolActivity } from "./toolActivity.js";
 
 type ClaudeClient = Pick<ClaudeCodeClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close"> &
-  Partial<Pick<ClaudeCodeClient, "respondToApproval" | "respondToQuestions" | "sessionId">>;
+  Partial<Pick<ClaudeCodeClient, "respondToApproval" | "respondToQuestions" | "sessionId" | "steerTurn">>;
 type ClientStart = Pick<
   ProviderSessionStart,
   | "cwd"
@@ -41,6 +42,8 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
     // ("/compact keep the API decisions") steers the summary.
     compaction: "native",
     compactionInstructions: true,
+    // A user message sent mid-turn is read between tool calls and answered in the same turn.
+    steering: "native",
   };
 
   private readonly sessions = new Map<
@@ -93,6 +96,14 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
   async interruptTurn(input: { threadId: ThreadId; turnId?: string }): Promise<void> {
     const context = this.context(input.threadId);
     await context.client.interruptTurn(input.turnId);
+  }
+
+  async steerTurn(input: ProviderSteerInput): Promise<void> {
+    const context = this.context(input.threadId);
+    if (!context.client.steerTurn) {
+      throw new ClaudeProviderError("unsupported", "This Claude Code session cannot take a message mid-turn.");
+    }
+    await context.client.steerTurn(input.turnId, input.text);
   }
 
   async respondToRequest(input: { threadId: ThreadId; requestId: string; decision: unknown }): Promise<void> {

@@ -503,6 +503,12 @@ export function ChatView({
   const resumable = ended && Boolean(thread.providerSessionId) && worktree !== undefined;
   const canSend = !ended || resumable;
   const working = thread.status === "working" || thread.status === "waiting";
+  const { busySend } = useAppSettings();
+  // Only a running turn takes a steer; a message sent while the agent waits on you still queues.
+  const steering =
+    thread.status === "working"
+      ? { byDefault: busySend === "steer", joins: thread.capabilities.steering === "native" }
+      : undefined;
   const busy = working || queued.length > 0;
   // A chat opens before its agent has started. Messages sent meanwhile read as sent, in the conversation,
   // and go out the moment the agent is up, so the start-up never looks like a queue.
@@ -582,7 +588,7 @@ export function ChatView({
   const sendToHost = async (
     text: string,
     attachments: readonly (ComposerAttachment | ThreadAttachment)[],
-    options: { permissionMode?: PermissionMode; note?: string } = {},
+    options: { permissionMode?: PermissionMode; note?: string; steer?: boolean } = {},
   ): Promise<boolean> => {
     setError(undefined);
     // The first message to an agent that took the chat over brings it the conversation so far. The chat
@@ -649,6 +655,7 @@ export function ChatView({
           ...(permissionSwitch && mode !== threadMode ? { permissionMode: mode } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
           ...(brief ? { context: brief } : {}),
+          ...(options.steer ? { steer: true } : {}),
         },
       });
       if (response?.accepted === false) {
@@ -1206,8 +1213,14 @@ export function ChatView({
    * A message that opens with @Name goes to that member of the chat, or to that buddy as a job. Anything else
    * goes to the chat's own agent.
    */
-  const send = async (text: string, attachments: ComposerAttachment[]): Promise<boolean> => {
+  const send = async (
+    text: string,
+    attachments: ComposerAttachment[],
+    options: { flip?: boolean } = {},
+  ): Promise<boolean> => {
     setError(undefined);
+    // Ctrl+Enter sends the other way from the setting, for this one message.
+    const steer = steering !== undefined && steering.byDefault !== (options.flip === true);
     // "/btw question" asks beside the chat instead of in it.
     const aside = /^\/btw\b\s*/iu.exec(text.trim());
     if (aside) {
@@ -1287,7 +1300,7 @@ export function ChatView({
         : editing
           ? "The person edited their previous message. This message replaces it: follow this version, and undo or drop what you did for the earlier one where it no longer applies."
           : undefined;
-      const sent = await sendToHost(text, attachments, note ? { note } : {});
+      const sent = await sendToHost(text, attachments, { ...(note ? { note } : {}), ...(steer ? { steer } : {}) });
       if (sent) {
         if (older && lastSent?.kind === "message") {
           markReplaced({ from: older.message.messageId, after: lastSent.message.messageId });
@@ -2122,6 +2135,7 @@ export function ChatView({
                 disabled={false}
                 blocked={unavailable}
                 queues={busy}
+                steering={steering}
                 models={models}
                 model={model}
                 modelLocked={modelLocked && !switchable}

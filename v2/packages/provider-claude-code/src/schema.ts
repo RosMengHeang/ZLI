@@ -3,7 +3,17 @@ import { costAmount, sumCounts, tokenCount } from "@zli-v2/shared";
 export type ClaudeInbound =
   | { kind: "init"; sessionId: string }
   | { kind: "text"; text: string; partial: boolean; subagent: boolean }
-  | { kind: "result"; isError: boolean; text?: string; subtype?: string; usage?: ClaudeResultUsage }
+  | {
+      kind: "result";
+      isError: boolean;
+      text?: string;
+      subtype?: string;
+      usage?: ClaudeResultUsage;
+      /** The uuids of the user messages this result answered, on CLIs that report them. */
+      promptIds?: string[];
+    }
+  /** Where a user message sent with a uuid stands: queued, started, completed, or dropped unread. */
+  | { kind: "prompt_state"; promptId: string; state: string }
   | {
       kind: "control_request";
       requestId: string;
@@ -26,20 +36,29 @@ export type ClaudeResultUsage = {
   contextWindow?: number;
 };
 
+/**
+ * A user message. One with a uuid and priority "next" sent during a turn is a steer: Claude reads it at its
+ * next step, between tool calls, and answers it in the same turn.
+ */
 export function userTurnMessage(
   text: string,
   sessionId: string,
+  steer?: { uuid: string },
 ): {
   type: "user";
   session_id: string;
   parent_tool_use_id: null;
   message: { role: "user"; content: string };
+  uuid?: string;
+  priority?: "next";
 } {
   return {
     type: "user",
     session_id: sessionId,
     parent_tool_use_id: null,
     message: { role: "user", content: text },
+    // "now" would cancel the tool calls in flight; "next" lets them finish first.
+    ...(steer ? { uuid: steer.uuid, priority: "next" as const } : {}),
   };
 }
 
@@ -273,13 +292,22 @@ export function classifyClaudeMessage(value: unknown): ClaudeInbound {
     const subtype = typeof record.subtype === "string" ? record.subtype : undefined;
     const text = typeof record.result === "string" ? record.result : undefined;
     const usage = resultUsage(record);
+    const promptIds = Array.isArray(record.user_message_uuids)
+      ? record.user_message_uuids.filter((id): id is string => typeof id === "string")
+      : undefined;
     return {
       kind: "result",
       isError: record.is_error === true || (subtype?.startsWith("error") ?? false),
       ...(text === undefined ? {} : { text }),
       ...(subtype === undefined ? {} : { subtype }),
       ...(usage ? { usage } : {}),
+      ...(promptIds ? { promptIds } : {}),
     };
+  }
+  if (record.type === "command_lifecycle") {
+    return typeof record.command_uuid === "string" && typeof record.state === "string"
+      ? { kind: "prompt_state", promptId: record.command_uuid, state: record.state }
+      : { kind: "ignore" };
   }
   if (record.type === "control_request") return classifyControlRequest(record);
   if (record.type === "control_response") return classifyControlResponse(record);

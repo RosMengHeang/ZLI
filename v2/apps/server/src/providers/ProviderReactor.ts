@@ -532,6 +532,10 @@ export class ProviderReactor {
   }
 
   private async send(intent: SendIntent, options: { record?: boolean } = {}): Promise<void> {
+    if (intent.steer) {
+      await this.steer(intent);
+      return;
+    }
     const { threadId, text } = intent;
     const attachments = intent.attachments ?? [];
     if (options.record !== false) await this.message(threadId, "user", text, undefined, attachments);
@@ -552,6 +556,59 @@ export class ProviderReactor {
     } finally {
       if (this.sending.get(threadId) === sendToken) this.sending.delete(threadId);
       this.stoppedSends.delete(sendToken);
+    }
+  }
+
+  /**
+   * Hands a message to the agent's running turn, which reads it at its next step. If that turn has ended or
+   * the agent turns the message down, it queues like any other message and goes out as the next turn.
+   */
+  private async steer(intent: SendIntent): Promise<void> {
+    const { threadId, text } = intent;
+    const attachments = intent.attachments ?? [];
+    const turnId = this.activeTurns.get(threadId);
+    if (turnId && !this.parked.has(threadId) && !this.sending.has(threadId) && !this.resuming.has(threadId)) {
+      // What the agent wrote before reading the message stays above it in the chat.
+      this.flushThreadDeltas(threadId);
+      const prompt = promptWithAttachments(text, attachments);
+      try {
+        await this.service.steerTurn({
+          threadId: ThreadId.parse(threadId),
+          turnId,
+          text: intent.context
+            ? `${intent.context}
+
+${prompt}`
+            : prompt,
+          ...(attachments.length > 0 ? { attachments } : {}),
+        });
+        this.flushThreadDeltas(threadId);
+        await this.message(threadId, "user", text, undefined, attachments);
+        return;
+      } catch {
+        // Queued below.
+      }
+    }
+    try {
+      await this.engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: {
+          type: "thread.queue",
+          queueId: randomUUID(),
+          threadId: ThreadId.parse(threadId),
+          text,
+          ...(intent.model ? { model: intent.model } : {}),
+          ...(intent.reasoningEffort ? { reasoningEffort: intent.reasoningEffort } : {}),
+          ...(intent.fast ? { fast: intent.fast } : {}),
+          ...(intent.permissionMode ? { permissionMode: intent.permissionMode } : {}),
+          ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
+          ...(intent.context ? { context: intent.context } : {}),
+        },
+      });
+    } catch (error) {
+      const reason = error instanceof Error && error.message ? ` ${error.message}` : "";
+      await this.message(threadId, "system", `This message did not reach the agent: "${text}".${reason}`);
     }
   }
 
