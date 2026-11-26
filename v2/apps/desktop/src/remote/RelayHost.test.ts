@@ -16,6 +16,8 @@ class FakeSocket extends EventEmitter {
   readyState = 0;
   sent: string[] = [];
   closeCode: number | undefined;
+  pings = 0;
+  autoPong = true;
   constructor(
     readonly url: string,
     readonly options: unknown,
@@ -30,6 +32,10 @@ class FakeSocket extends EventEmitter {
     this.readyState = 3;
     this.emit("close", code ?? 1005);
   }
+  ping() {
+    this.pings += 1;
+    if (this.autoPong) this.emit("pong");
+  }
   terminate() {
     this.readyState = 3;
     this.emit("close", 1006);
@@ -41,9 +47,9 @@ class FakeSocket extends EventEmitter {
   receive(message: unknown) {
     this.emit("message", Buffer.from(typeof message === "string" ? message : JSON.stringify(message)), false);
   }
-  drop() {
+  drop(code = 1006) {
     this.readyState = 3;
-    this.emit("close", 1006);
+    this.emit("close", code);
   }
 }
 
@@ -202,6 +208,7 @@ describe("RelayHost", () => {
     host.stop();
     host.start();
     expect(sockets).toHaveLength(2);
+    (sockets[1] as FakeSocket).open();
     vi.advanceTimersByTime(24 * 3600_000);
     expect(sockets).toHaveLength(2);
   });
@@ -256,5 +263,159 @@ describe("RelayHost", () => {
     host.start();
     host.start();
     expect(sockets).toHaveLength(1);
+  });
+
+  /** Waits for the next dial and returns how long it took, in 250 ms steps. */
+  const nextDial = (limit = 200_000) => {
+    const before = sockets.length;
+    let waited = 0;
+    while (sockets.length === before && waited < limit) {
+      vi.advanceTimersByTime(250);
+      waited += 250;
+    }
+    return sockets.length === before ? Number.POSITIVE_INFINITY : waited;
+  };
+  const last = () => sockets.at(-1) as FakeSocket;
+
+  it("keeps growing the backoff when the relay closes right after open", () => {
+    host.start();
+    const waits: number[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      last().open();
+      last().drop();
+      waits.push(nextDial());
+    }
+    expect(waits).toEqual([1000, 2000, 4000, 8000]);
+  });
+
+  it("starts the backoff over once the link has held for 30 seconds", () => {
+    host.start();
+    for (let index = 0; index < 3; index += 1) {
+      last().drop();
+      nextDial();
+    }
+    last().open();
+    vi.advanceTimersByTime(30_000);
+    last().drop();
+    expect(nextDial()).toBe(1000);
+  });
+
+  it("waits at least a minute after the relay rejects the claim", () => {
+    host.start();
+    control().open();
+    control().drop(1008);
+    expect(nextDial()).toBe(60_000);
+    last().open();
+    last().drop(1008);
+    expect(nextDial()).toBe(60_000);
+  });
+
+  it("stays replaced and does not retry when another desktop claims the room", () => {
+    host.start();
+    control().open();
+    control().drop(4000);
+    expect(states.at(-1)).toBe("replaced");
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(sockets).toHaveLength(1);
+    host.stop();
+    host.start();
+    expect(sockets).toHaveLength(2);
+  });
+
+  it("terminates a control socket that has not opened in 15 seconds", () => {
+    host.start();
+    const terminate = vi.spyOn(control(), "terminate");
+    vi.advanceTimersByTime(14_999);
+    expect(terminate).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(terminate).toHaveBeenCalled();
+    expect(states.at(-1)).toBe("offline");
+  });
+
+  it("does not terminate a control socket that opened in time", () => {
+    host.start();
+    const terminate = vi.spyOn(control(), "terminate");
+    control().open();
+    vi.advanceTimersByTime(14_000);
+    expect(terminate).not.toHaveBeenCalled();
+  });
+
+  it("terminates a session socket that has not opened in 15 seconds and frees its slot", () => {
+    host.start();
+    control().open();
+    for (let index = 0; index < 8; index += 1) control().receive({ type: "open", session, client: `c${index}` });
+    control().receive({ type: "open", session, client: "extra" });
+    expect(sockets).toHaveLength(9);
+    vi.advanceTimersByTime(15_000);
+    expect(accepted).toHaveLength(0);
+    control().receive({ type: "open", session, client: "later" });
+    expect(sockets).toHaveLength(10);
+  });
+
+  it("sends a protocol ping with each app ping", () => {
+    host.start();
+    control().open();
+    vi.advanceTimersByTime(20_000);
+    expect(control().pings).toBe(1);
+  });
+
+  it("drops a control socket that stops answering pings, then backs off", () => {
+    host.start();
+    control().open();
+    control().autoPong = false;
+    vi.advanceTimersByTime(20_000 * 3);
+    expect(control().readyState).toBe(3);
+    expect(states.at(-1)).toBe("offline");
+    expect(nextDial()).toBe(1000);
+  });
+
+  it("treats a throwing createSocket as a failed dial, not an escaped error", () => {
+    let fail = false;
+    const flaky = new RelayHost({
+      route,
+      secret,
+      gateway: { accept: () => undefined },
+      createSocket: (url, options) => {
+        if (fail) throw new Error("no network");
+        const socket = new FakeSocket(url, options);
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+      onState: (state) => states.push(state),
+      now: () => clock,
+      random: () => 0.5,
+    });
+    flaky.start();
+    fail = true;
+    control().drop();
+    expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+    expect(states.at(-1)).toBe("offline");
+    fail = false;
+    vi.advanceTimersByTime(2000);
+    expect(sockets).toHaveLength(2);
+    flaky.stop();
+  });
+
+  it("rejects a bad route at construction", () => {
+    expect(
+      () =>
+        new RelayHost({
+          route: { url: "ws://plain.example.test", room: route.room } as RelayRoute,
+          secret,
+          gateway: { accept: () => undefined },
+          createSocket: () => undefined as never,
+          onState: () => undefined,
+        }),
+    ).toThrow();
+  });
+
+  it("ignores a late open on a control socket it detached after a budget message", () => {
+    host.start();
+    control().open();
+    control().receive({ type: "budget" });
+    const sent = control().sent.length;
+    control().open();
+    expect(control().sent).toHaveLength(sent);
+    expect(states.at(-1)).toBe("budget-exhausted");
   });
 });

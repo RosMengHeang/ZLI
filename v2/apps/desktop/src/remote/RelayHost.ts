@@ -3,7 +3,7 @@ import type { WebSocket } from "ws";
 
 import { type MobileGateway, PHONE_SOCKET_OPTIONS } from "./MobileGateway.js";
 
-export type RelayState = "off" | "connecting" | "online" | "offline" | "budget-exhausted";
+export type RelayState = "off" | "connecting" | "online" | "offline" | "budget-exhausted" | "replaced";
 
 export interface RelayHostOptions {
   readonly route: RelayRoute;
@@ -23,6 +23,11 @@ const MAX_SESSIONS = 8;
 /** The control channel only carries small JSON, so anything bigger is not the relay speaking. */
 const MAX_CONTROL_BYTES = 4096;
 const CLOSE_TOO_BIG = 1009;
+const CLOSE_REJECTED = 1008;
+/** The relay closes the older desktop with this when a second one claims the room. */
+const CLOSE_REPLACED = 4000;
+const STABLE_MS = 30_000;
+const CONNECT_DEADLINE_MS = 15_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BUDGET_JITTER_MS = 5 * 60 * 1000;
 
@@ -40,9 +45,15 @@ export class RelayHost {
   #pingTimer: ReturnType<typeof setInterval> | undefined;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
   #attempt = 0;
+  #missedPongs = 0;
+  #stableTimer: ReturnType<typeof setTimeout> | undefined;
+  #controlDeadline: ReturnType<typeof setTimeout> | undefined;
+  readonly #sessionDeadlines = new Map<WebSocket, ReturnType<typeof setTimeout>>();
 
   constructor(options: RelayHostOptions) {
     this.#options = options;
+    // Fails here, not on a timer later, if the route is bad.
+    relayUrl(options.route, "host");
   }
 
   start(): void {
@@ -57,6 +68,9 @@ export class RelayHost {
     clearTimeout(this.#retryTimer);
     this.#retryTimer = undefined;
     this.#clearPing();
+    clearTimeout(this.#controlDeadline);
+    for (const timer of this.#sessionDeadlines.values()) clearTimeout(timer);
+    this.#sessionDeadlines.clear();
     const control = this.#control;
     this.#control = undefined;
     closeSocket(control);
@@ -75,30 +89,62 @@ export class RelayHost {
     this.#retryTimer = undefined;
     this.#setState("connecting");
     const { route, secret, createSocket } = this.#options;
-    const socket = createSocket(relayUrl(route, "host"), PHONE_SOCKET_OPTIONS);
+    let socket: WebSocket;
+    try {
+      socket = createSocket(relayUrl(route, "host"), PHONE_SOCKET_OPTIONS);
+    } catch {
+      // Nothing escapes a timer callback, so a failed dial is treated like a dropped link.
+      this.#setState("offline");
+      this.#schedule(this.#backoff());
+      return;
+    }
     this.#control = socket;
+    this.#controlDeadline = deadline(socket);
     // A failed dial or dropped link is handled by the close that follows.
     socket.on("error", () => undefined);
+    socket.on("pong", () => {
+      this.#missedPongs = 0;
+    });
     socket.on("open", () => {
       if (this.#control !== socket) return;
-      this.#attempt = 0;
+      clearTimeout(this.#controlDeadline);
       socket.send(JSON.stringify({ type: "claim", secret: toBase64Url(secret) }));
+      this.#missedPongs = 0;
       this.#pingTimer = setInterval(() => {
-        if (socket.readyState === 1) socket.send(JSON.stringify({ type: "ping" }));
+        if (socket.readyState !== 1) return;
+        // The relay only counts our app pings, and a dead path would never tell us otherwise.
+        if (this.#missedPongs >= 2) {
+          socket.terminate();
+          return;
+        }
+        this.#missedPongs += 1;
+        socket.ping();
+        socket.send(JSON.stringify({ type: "ping" }));
       }, PING_MS);
+      // A relay that rejects the claim closes right after open, so only a link that holds earns a fresh backoff.
+      this.#stableTimer = setTimeout(() => {
+        this.#attempt = 0;
+      }, STABLE_MS);
       this.#setState("online");
     });
     socket.on("message", (data, isBinary) => {
       if (this.#control === socket) this.#onControlMessage(socket, data, isBinary);
     });
-    socket.on("close", () => {
+    socket.on("close", (code: number) => {
+      clearTimeout(this.#controlDeadline);
       if (this.#control !== socket) return;
       this.#control = undefined;
       this.#clearPing();
       // After a budget message the wait is already scheduled, and the relay closing is expected.
       if (!this.#running || this.#state === "budget-exhausted") return;
+      if (code === CLOSE_REPLACED) {
+        // Another desktop owns the room. Retrying would only evict it back and forth.
+        this.#setState("replaced");
+        return;
+      }
       this.#setState("offline");
-      this.#schedule(this.#backoff());
+      const delay = this.#backoff();
+      this.#schedule(code === CLOSE_REJECTED ? Math.max(delay, BACKOFF_MAX_MS) : delay);
     });
   }
 
@@ -124,20 +170,33 @@ export class RelayHost {
     const { route, gateway, createSocket } = this.#options;
     const socket = createSocket(relayUrl(route, "host", session), PHONE_SOCKET_OPTIONS);
     this.#sessions.add(socket);
+    this.#sessionDeadlines.set(socket, deadline(socket));
     // The gateway adds its own error handler once it owns the socket; until then an unheard error would throw.
     socket.on("error", () => undefined);
     socket.once("open", () => {
+      this.#clearDeadline(socket);
       // Handed over only when open: the gateway pings the socket, which throws on one still connecting.
       if (!this.#sessions.has(socket) || !this.#running) return;
       gateway.accept(socket, { route: "relay", client });
     });
     // When the phone leaves, the relay closes this socket, which is how the gateway learns the phone is gone.
-    socket.once("close", () => this.#sessions.delete(socket));
+    socket.once("close", () => {
+      this.#clearDeadline(socket);
+      this.#sessions.delete(socket);
+    });
+  }
+
+  #clearDeadline(socket: WebSocket): void {
+    clearTimeout(this.#sessionDeadlines.get(socket));
+    this.#sessionDeadlines.delete(socket);
   }
 
   #onBudget(socket: WebSocket): void {
     this.#setState("budget-exhausted");
     this.#clearPing();
+    clearTimeout(this.#controlDeadline);
+    // Detached first, so nothing the closing socket still says is acted on.
+    this.#control = undefined;
     // Retrying earlier only burns the relay's budget on reconnects, so wait out the UTC day.
     const now = this.#now();
     const untilMidnight = DAY_MS - (now % DAY_MS);
@@ -159,6 +218,8 @@ export class RelayHost {
   }
 
   #clearPing(): void {
+    clearTimeout(this.#stableTimer);
+    this.#stableTimer = undefined;
     clearInterval(this.#pingTimer);
     this.#pingTimer = undefined;
   }
@@ -170,6 +231,13 @@ export class RelayHost {
   #random(): number {
     return (this.#options.random ?? Math.random)();
   }
+}
+
+/** A relay that never finishes the upgrade would otherwise hold the socket, and a session slot, forever. */
+function deadline(socket: WebSocket): ReturnType<typeof setTimeout> {
+  return setTimeout(() => {
+    if (socket.readyState !== 1) socket.terminate();
+  }, CONNECT_DEADLINE_MS);
 }
 
 function byteLength(data: unknown): number {
