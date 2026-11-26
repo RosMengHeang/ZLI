@@ -33,6 +33,9 @@ class FakeClient {
   async interruptTurn(threadId: string, turnId: string) {
     this.calls.push({ method: "interrupt", value: { threadId, turnId } });
   }
+  async steerTurn(input: { providerThreadId: string; providerTurnId: string; text: string }) {
+    this.calls.push({ method: "steer", value: input });
+  }
   async respondToRequest(requestId: string, result: unknown) {
     this.calls.push({ method: "respond", value: { requestId, result } });
   }

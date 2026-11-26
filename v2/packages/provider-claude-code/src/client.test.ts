@@ -254,6 +254,50 @@ describe("ClaudeCodeClient", () => {
     ]);
   });
 
+  it("steers a running turn with a uuid'd message and ends the turn once a result answers it", async () => {
+    const { client, peer, events } = await startedClient();
+    const turn = await client.sendTurn({ text: "Run the tests" });
+    await client.steerTurn(turn.providerTurnId, "Skip the slow ones");
+    const steer = JSON.parse(peer.written.at(-1) ?? "{}") as { uuid?: string; priority?: string; message?: unknown };
+    expect(steer).toMatchObject({ type: "user", priority: "next", message: { content: "Skip the slow ones" } });
+    // Claude read the steer between tool calls, so one result answers both messages.
+    peer.emit({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "ok",
+      user_message_uuids: ["p1", steer.uuid],
+    });
+    expect(events.at(-1)).toEqual({ type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" });
+    await expect(client.steerTurn(turn.providerTurnId, "Too late")).rejects.toThrow(/no longer running/u);
+  });
+
+  it("keeps the turn open when Claude finished its reply before reading the steer", async () => {
+    const { client, peer, events } = await startedClient();
+    const turn = await client.sendTurn({ text: "Say hi" });
+    await client.steerTurn(turn.providerTurnId, "Also say bye");
+    const steer = JSON.parse(peer.written.at(-1) ?? "{}") as { uuid: string };
+    peer.emit({ type: "result", subtype: "success", is_error: false, result: "hi", user_message_uuids: ["p1"] });
+    expect(events.some((event) => event.type === "turn.completed")).toBe(false);
+    // Claude answers the steer as its next reply, and that result ends the turn.
+    peer.emit({ type: "result", subtype: "success", is_error: false, result: "bye", user_message_uuids: [steer.uuid] });
+    expect(events.filter((event) => event.type === "assistant.delta")).toEqual([
+      { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "hi" },
+      { type: "assistant.delta", providerTurnId: turn.providerTurnId, text: "bye" },
+    ]);
+    expect(events.at(-1)).toEqual({ type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" });
+  });
+
+  it("ends a held turn when Claude drops the steer unread", async () => {
+    const { client, peer, events } = await startedClient();
+    const turn = await client.sendTurn({ text: "Say hi" });
+    await client.steerTurn(turn.providerTurnId, "Also say bye");
+    const steer = JSON.parse(peer.written.at(-1) ?? "{}") as { uuid: string };
+    peer.emit({ type: "result", subtype: "success", is_error: false, result: "hi", user_message_uuids: ["p1"] });
+    peer.emit({ type: "command_lifecycle", command_uuid: steer.uuid, state: "cancelled" });
+    expect(events.at(-1)).toEqual({ type: "turn.completed", providerTurnId: turn.providerTurnId, status: "completed" });
+  });
+
   it("does not fail the next turn with the stopped turn's late result", async () => {
     const { client, peer, events } = await startedClient();
     const turn = await client.sendTurn({ text: "Write a long story" });

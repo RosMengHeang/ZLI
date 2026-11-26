@@ -83,6 +83,28 @@ describe("CodexAppServerClient", () => {
     expect(peer.requests.at(-1)).toEqual({ method: "thread/compact/start", params: { threadId: "provider-thread-1" } });
   });
 
+  it("steers the running turn with turn/steer, naming the turn it expects", async () => {
+    const peer = new FakePeer();
+    const client = await CodexAppServerClient.connect({ peer });
+    await client.steerTurn({
+      providerThreadId: "provider-thread-1",
+      providerTurnId: "provider-turn-1",
+      text: "Skip the slow tests",
+      imagePaths: ["C:shotsa.png"],
+    });
+    expect(peer.requests.at(-1)).toEqual({
+      method: "turn/steer",
+      params: {
+        threadId: "provider-thread-1",
+        expectedTurnId: "provider-turn-1",
+        input: [
+          { type: "text", text: "Skip the slow tests" },
+          { type: "localImage", path: "C:shotsa.png" },
+        ],
+      },
+    });
+  });
+
   it("fails a compaction that never starts a turn", async () => {
     const peer = new FakePeer();
     const client = await CodexAppServerClient.connect({ peer });

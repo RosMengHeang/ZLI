@@ -44,6 +44,7 @@ describe("app settings", () => {
       tintProjects: true,
       chatTint: "card",
       archiveMergedChats: true,
+      busySend: "steer",
       severalChats: false,
       layout: "classic",
       compactChats: true,

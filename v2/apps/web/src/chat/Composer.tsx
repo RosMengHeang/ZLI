@@ -27,6 +27,7 @@ import { MenuButton, type MenuEntry } from "../ui/Menu.js";
 import { DEFAULT_MODEL, modelOptions } from "../ui/ModelMark.js";
 import { Picker } from "../ui/Picker.js";
 import { StopButton } from "../ui/StopButton.js";
+import { shortcutText } from "../ui/shortcuts.js";
 import { AgentModelPicker } from "./AgentModelPicker.js";
 import type { AgentChoice } from "./agentModels.js";
 import { fileName, parentName, type SkippedFile, skippedFilesMessage, withAttachedFiles } from "./attachedFiles.js";
@@ -77,6 +78,17 @@ export function seedComposerDraft(key: string, text: string, options: { send?: b
   writeDraft(key, text);
   if (options.send && text.trim()) sendOnOpen.add(key);
   else sendOnOpen.delete(key);
+}
+
+/** What the send button does now, and what Ctrl+Enter does instead while a turn runs. */
+function sendTooltip(name: string, queues: boolean, steering: { byDefault: boolean; joins: boolean } | undefined) {
+  const steer = steering?.joins ? `${name} reads it at the next step` : `Stops ${name}'s turn and sends this next`;
+  const queue = `${name} gets it after the current turn`;
+  if (!steering) return queues ? `Queue. ${queue}` : "Send";
+  const other = shortcutText("Mod+Enter");
+  return steering.byDefault
+    ? `Steer. ${steer}. ${other} queues it instead`
+    : `Queue. ${queue}. ${other} steers instead`;
 }
 
 const CapturePicker = lazy(() => import("./CapturePicker.js").then((module) => ({ default: module.CapturePicker })));
@@ -138,6 +150,7 @@ export function Composer({
   blocked,
   disabled,
   queues = false,
+  steering,
   models,
   model,
   modelLocked,
@@ -193,6 +206,11 @@ export function Composer({
   disabled: boolean;
   /** The agent is busy, so a submitted message waits in its queue. */
   queues?: boolean;
+  /**
+   * Set while the agent's turn runs and can take a steer. byDefault: Enter steers and Ctrl+Enter queues, or the
+   * other way round. joins: the agent reads a steer mid-turn; otherwise a steer stops the turn and goes next.
+   */
+  steering?: { byDefault: boolean; joins: boolean } | undefined;
   models: readonly ProviderModelOption[] | undefined;
   model: string | undefined;
   /** The provider cannot switch models inside a running session. */
@@ -232,7 +250,8 @@ export function Composer({
   references?: readonly CodeReference[] | undefined;
   onRemoveReference?(id: string): void;
   onReferencesSent?(): void;
-  onSubmit(text: string, attachments: ComposerAttachment[]): Promise<boolean>;
+  /** flip: sent with Ctrl+Enter, the other way from the steer or queue setting. */
+  onSubmit(text: string, attachments: ComposerAttachment[], options?: { flip?: boolean }): Promise<boolean>;
   /** Stops the turn that is running. Absent while the agent is not working. */
   onStop?: (() => void) | undefined;
   bestOf?: ComposerBestOf | undefined;
@@ -267,6 +286,8 @@ export function Composer({
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
   const sendingNow = useRef(false);
+  /** The Enter that is submitting held Ctrl (or Cmd), so this message steers or queues the other way. */
+  const flipNext = useRef(false);
   const [capturing, setCapturing] = useState(false);
   const [preview, setPreview] = useState<{ url: string; name: string }>();
   const [dragging, setDragging] = useState(false);
@@ -433,6 +454,8 @@ export function Composer({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    const flip = flipNext.current;
+    flipNext.current = false;
     const text = draft.trim();
     // The ref turns a second Enter away at once, before the state that disables Send has rendered.
     if (
@@ -468,10 +491,8 @@ export function Composer({
       const message =
         text || (images.length > 0 ? attachmentOnlyMessage(uploads.length - texts, texts, paths.length) : "");
       const asked = withChips(message, sentChips, { knownSkills: menu.skillNames, provider, blocks });
-      const sent = await onSubmit(
-        withPersonChips(sentChips, withReferences(references, withAttachedFiles(paths, asked))),
-        attachments,
-      );
+      const outgoing = withPersonChips(sentChips, withReferences(references, withAttachedFiles(paths, asked)));
+      const sent = await (flip ? onSubmit(outgoing, attachments, { flip }) : onSubmit(outgoing, attachments));
       if (sent) {
         setPicks((current) => current.filter((chip) => !sentChips.includes(chip)));
         if (references.length > 0) onReferencesSent?.();
@@ -933,6 +954,7 @@ export function Composer({
             }
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
+              flipNext.current = steering !== undefined && (event.ctrlKey || event.metaKey);
               event.currentTarget.form?.requestSubmit();
             }
           }}
@@ -1043,8 +1065,8 @@ export function Composer({
             <button
               className="send-button"
               type="submit"
-              aria-label={queues ? "Queue message" : "Send"}
-              data-tooltip={queues ? `Queue. ${displayName} gets it after the current turn` : "Send"}
+              aria-label={steering?.byDefault ? "Steer" : queues ? "Queue message" : "Send"}
+              data-tooltip={sendTooltip(displayName, queues, steering)}
               data-shortcut="Enter"
               aria-keyshortcuts="Enter"
               disabled={disabled || Boolean(blocked) || sending || !hasContent}

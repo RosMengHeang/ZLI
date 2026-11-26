@@ -148,6 +148,10 @@ type ActiveTurn = {
   sawPartialThinking: boolean;
   /** Set while Claude refuses requests because the plan's usage limit is reached. */
   usageLimit?: { resetsAt?: string };
+  /** Steers sent into this turn that no result has answered yet, by uuid. */
+  steers: Set<string>;
+  /** Claude ended its reply before reading a steer, so it answers the steer next and the turn waits for that. */
+  heldForSteer?: true;
 };
 
 export class ClaudeCodeClient {
@@ -253,6 +257,7 @@ export class ClaudeCodeClient {
       thinking: new Map(),
       thinkingCount: 0,
       sawPartialThinking: false,
+      steers: new Set(),
     };
     try {
       // The session keeps its model across turns, so only a different one needs a switch.
@@ -277,6 +282,22 @@ export class ClaudeCodeClient {
     }
     this.emit({ type: "turn.started", providerTurnId });
     return { providerTurnId };
+  }
+
+  /** Adds a message to the running turn. Claude reads it between tool calls and answers it in this turn. */
+  async steerTurn(providerTurnId: string, text: string): Promise<void> {
+    this.assertOpen();
+    if (!this.active || this.active.id !== providerTurnId) {
+      throw new ClaudeProviderError("request_failed", "Claude Code turn is no longer running.");
+    }
+    const uuid = randomUUID();
+    this.active.steers.add(uuid);
+    try {
+      this.write(userTurnMessage(text, this.currentSessionId, { uuid }));
+    } catch (error) {
+      this.active.steers.delete(uuid);
+      throw error;
+    }
   }
 
   async interruptTurn(providerTurnId?: string): Promise<void> {
@@ -393,6 +414,9 @@ export class ClaudeCodeClient {
       case "result":
         this.onResult(message);
         return;
+      case "prompt_state":
+        this.onPromptState(message.promptId, message.state);
+        return;
       case "control_request":
         this.answerControl(message);
         return;
@@ -417,7 +441,13 @@ export class ClaudeCodeClient {
     }
   }
 
-  private onResult(message: { isError: boolean; text?: string; subtype?: string; usage?: ClaudeResultUsage }): void {
+  private onResult(message: {
+    isError: boolean;
+    text?: string;
+    subtype?: string;
+    usage?: ClaudeResultUsage;
+    promptIds?: string[];
+  }): void {
     // The result of a turn that was stopped arrives late; applied to the next turn, it would fail that one.
     if (this.staleResult) {
       this.staleResult = false;
@@ -425,6 +455,16 @@ export class ClaudeCodeClient {
     }
     if (!this.active) return;
     this.emitUsage(this.active, message.usage);
+    for (const id of message.promptIds ?? []) this.active.steers.delete(id);
+    // Claude finished its reply before it read a steer, so it answers the steer next, as a reply of its own
+    // with its own result. The turn stays open for it. A CLI that reports no uuids cannot say, so it ends.
+    if (!message.isError && !this.active.usageLimit && this.active.steers.size > 0 && message.promptIds?.length) {
+      if (!this.active.sawText && message.text?.trim()) this.emitText(message.text, false);
+      this.active.heldForSteer = true;
+      this.active.sawText = false;
+      this.active.sawPartial = false;
+      return;
+    }
     if (this.active.usageLimit) {
       const usageLimit = this.active.usageLimit;
       this.finishTurn("error", message.text?.trim() || "You've hit your usage limit.", usageLimit);
@@ -439,6 +479,15 @@ export class ClaudeCodeClient {
     }
     if (!this.active.sawText && message.text?.trim()) this.emitText(message.text, false);
     this.finishTurn("completed");
+  }
+
+  /** A steer Claude dropped unread no longer holds the turn open. */
+  private onPromptState(promptId: string, state: string): void {
+    const active = this.active;
+    if (!active?.steers.has(promptId)) return;
+    if (state !== "cancelled" && state !== "discarded" && state !== "refused") return;
+    active.steers.delete(promptId);
+    if (active.heldForSteer && active.steers.size === 0) this.finishTurn("completed");
   }
 
   private emitUsage(active: ActiveTurn, reported: ClaudeResultUsage | undefined): void {

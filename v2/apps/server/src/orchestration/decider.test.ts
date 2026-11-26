@@ -483,6 +483,13 @@ describe("queued messages", () => {
     threadId,
     text,
   });
+  const steer = (queueId: string): RuntimeCommand => ({
+    type: "thread.queue",
+    queueId,
+    threadId,
+    text: queueId,
+    steer: true,
+  });
 
   it("sends at once to an idle agent and marks it working so the next message waits", () => {
     const state = withThread("idle");
@@ -541,6 +548,41 @@ describe("queued messages", () => {
     ]);
     const steered = apply(state, { type: "thread.steer", threadId, queueId: "q2" });
     expect(steered.queuedMessages?.map((entry) => entry.queueId)).toEqual(["q2", "q1"]);
+  });
+
+  it("steers a message sent with steer while the agent works", () => {
+    const state = apply(withThread("working"), queue("q1"));
+    const events = decide(state, steer("q2"));
+    expect(events.map((event) => event.type)).toEqual([
+      "thread.queued",
+      "thread.queue.prioritized",
+      "thread.interrupt.requested",
+    ]);
+    expect(events[2]).toEqual({ type: "thread.interrupt.requested", threadId, turnId });
+    const steered = apply(state, steer("q2"));
+    expect(steered.queuedMessages?.map((entry) => entry.queueId)).toEqual(["q2", "q1"]);
+  });
+
+  it("queues a steer message while the agent waits on an answer", () => {
+    const waiting = apply(withThread("waiting"), {
+      type: "thread.request",
+      request: { requestId: "r1", threadId, kind: "approval", payload: {} },
+    });
+    expect(decide(waiting, steer("q1")).map((event) => event.type)).toEqual(["thread.queued"]);
+  });
+
+  it("sends a steer into the running turn of an agent that takes messages mid-turn", () => {
+    const base = withThread("working");
+    const native: RuntimeProjection = {
+      ...base,
+      threads: base.threads.map((entry) => ({ ...entry, capabilities: { steering: "native" as const } })),
+    };
+    expect(decide(native, steer("q1"))).toEqual([{ type: "thread.send.requested", threadId, text: "q1", steer: true }]);
+    const queued = apply(native, queue("q2"));
+    expect(decide(queued, { type: "thread.steer", threadId, queueId: "q2" })).toEqual([
+      { type: "thread.queue.removed", threadId, queueId: "q2" },
+      { type: "thread.send.requested", threadId, text: "q2", steer: true },
+    ]);
   });
 
   it("steers an idle agent by sending the message straight away", () => {

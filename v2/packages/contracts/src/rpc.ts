@@ -208,6 +208,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
      * before the message; the chat shows only the message.
      */
     context: z.string().min(1).max(200_000).optional(),
+    /** While the agent works, stop its turn so this message goes next, as thread.steer does. */
+    steer: z.boolean().optional(),
   }),
   z.object({ type: z.literal("thread.queue.remove"), threadId: ThreadId, queueId: z.string().min(1).max(200) }),
   /** Moves a queued message to the front and interrupts the running turn so it goes next. */

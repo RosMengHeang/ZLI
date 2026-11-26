@@ -119,6 +119,11 @@ export const ProviderCapabilities = z.object({
   compaction: z.enum(["native"]).optional(),
   /** The native "/compact" takes focus text after it, such as "/compact keep the API decisions". */
   compactionInstructions: z.boolean().optional(),
+  /**
+   * native: a message sent mid-turn joins the running turn, and the agent reads it at its next step without
+   * stopping. Missing means a steer stops the turn and sends the message as the next one.
+   */
+  steering: z.enum(["native"]).optional(),
 });
 export type ProviderCapabilities = z.infer<typeof ProviderCapabilities>;
 

@@ -7,6 +7,7 @@ import type {
   ProviderEvent,
   ProviderSession,
   ProviderSessionStart,
+  ProviderSteerInput,
   ProviderTurnInput,
 } from "./ProviderService.js";
 import { toolActivity } from "./toolActivity.js";
@@ -18,6 +19,7 @@ type CodexClient = Pick<
   | "sendTurn"
   | "compactThread"
   | "interruptTurn"
+  | "steerTurn"
   | "respondToRequest"
   | "readThread"
   | "rollbackThread"
@@ -49,6 +51,8 @@ export class CodexProviderAdapter implements ProviderAdapter {
     modelSwitch: "unsupported",
     // "/compact" goes to the app server's thread/compact/start instead of a turn.
     compaction: "native",
+    // turn/steer adds a message to the running turn.
+    steering: "native",
   };
   private readonly connections = new Map<string, Promise<Connection>>();
   private readonly sessions = new Map<string, Context>();
@@ -118,6 +122,19 @@ export class CodexProviderAdapter implements ProviderAdapter {
       ...(imagePaths.length > 0 ? { imagePaths } : {}),
     });
     return { turnId: result.providerTurnId };
+  }
+
+  async steerTurn(input: ProviderSteerInput): Promise<void> {
+    const context = this.context(input.threadId);
+    const imagePaths = (input.attachments ?? [])
+      .filter((attachment) => isImageMimeType(attachment.mimeType))
+      .map((attachment) => attachment.path);
+    await (await this.clientFor(context)).steerTurn({
+      providerThreadId: context.providerThreadId,
+      providerTurnId: input.turnId,
+      text: input.text,
+      ...(imagePaths.length > 0 ? { imagePaths } : {}),
+    });
   }
 
   async interruptTurn(input: { threadId: ThreadId; turnId?: string }): Promise<void> {
