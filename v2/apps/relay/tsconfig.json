@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types"],
+    // Vitest's bundled .d.ts files clash with the Workers globals; our own sources are still checked.
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"]
+}
