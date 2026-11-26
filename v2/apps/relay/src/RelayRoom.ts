@@ -265,7 +265,8 @@ export class RelayRoom {
     // A desktop that reconnects replaces its own stale socket.
     if (previous && previous !== socket)
       this.#closeControl(previous, CLOSE_REPLACED, "Another desktop claimed this room.");
-    if (this.#overBudget()) this.#tellBudget();
+    // Told even if an earlier desktop heard it today: this one was not there, and would wait on phones that cannot come.
+    if (this.#overBudget()) this.#tellBudget(true);
     this.#schedule();
     return true;
   }
@@ -551,10 +552,10 @@ export class RelayRoom {
     if (budget.count === 1 || budget.count % BUDGET_SAVE_EVERY === 0) this.#saveBudget();
   }
 
-  /** Tells the host once a day. If no host is there, the next one to claim is told. */
-  #tellBudget(): void {
+  /** Tells the host once a day, and each desktop that claims on a used-up day. */
+  #tellBudget(claiming = false): void {
     const budget = this.#today();
-    if (!budget.told && this.#host) {
+    if (this.#host && (claiming || !budget.told)) {
       this.#host.send(JSON.stringify({ type: "budget" }));
       budget.told = true;
     }

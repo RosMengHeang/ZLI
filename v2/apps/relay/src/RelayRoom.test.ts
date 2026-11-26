@@ -622,8 +622,19 @@ describe("RelayRoom limits", () => {
 
     const second = limited({ messagesPerDay: 3 }, store);
     expect(second.room.phoneConnected(new FakeSocket(), "client-a")).toBe("rejected");
-    // Already told today, so the new host is not told again.
-    expect(budgetNotices(second.host)).toBe(0);
+    // A desktop that claims after the restart was not there to hear it, so it is told too and waits for the next day.
+    expect(budgetNotices(second.host)).toBe(1);
+  });
+
+  it("tells every desktop that claims on a used-up day, once each", () => {
+    const store = new MemoryBudget();
+    store.state = { day: "1970-01-01", count: 3, told: true };
+    const { room, host } = limited({ messagesPerDay: 3 }, store);
+    expect(budgetNotices(host)).toBe(1);
+    const next = new FakeSocket();
+    room.claimHost(next, secret);
+    expect(budgetNotices(next)).toBe(1);
+    expect(budgetNotices(host)).toBe(1);
   });
 
   it("tells a host that claims after the budget ran out with no host present", () => {
