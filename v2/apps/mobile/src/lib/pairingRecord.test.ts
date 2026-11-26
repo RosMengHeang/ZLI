@@ -60,15 +60,17 @@ describe("stored pairing", () => {
     expect(parseStoredPairing(serializePairing(next))).toEqual(next);
   });
 
-  it("leaves lastHost alone after a relay win", () => {
+  it("puts the desktop's own addresses first after a relay win, and drops the stale lastHost", () => {
     const next = withReady(
       { ...pairing, lastHost: "10.0.0.5" },
       { type: "gateway.ready", desktopName: "Studio", environmentId, hosts: ["172.16.0.9"], port: 47321 },
       undefined,
       "relay",
     );
-    expect(next).toMatchObject({ lastRoute: "relay", lastHost: "10.0.0.5" });
+    expect(next.lastRoute).toBe("relay");
+    expect(next).not.toHaveProperty("lastHost");
     expect(next.hosts).toEqual(["172.16.0.9", "192.168.1.20", "10.0.0.5"]);
+    expect(hostsToTry(next)[0]).toBe("172.16.0.9");
   });
 
   describe("the relay route the desktop reports", () => {

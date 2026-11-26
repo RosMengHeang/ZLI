@@ -144,6 +144,11 @@ export function openRemoteSession(options: {
   random: RandomBytes;
   createSocket: CreateWebSocket;
   timeoutMs?: number;
+  /**
+   * How long the socket may take to open, inside `timeoutMs`. A LAN address that is gone often never answers at all,
+   * so without this one dead address would hold the attempt for the whole timeout.
+   */
+  openTimeoutMs?: number;
   /** Aborting closes the socket and rejects with a network failure, so a losing route does not linger. */
   signal?: AbortSignal;
   /** The desktop is holding this pairing until the person there allows it. */
@@ -188,6 +193,7 @@ export function openRemoteSession(options: {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
+        clearTimeout(openTimer);
         options.signal?.removeEventListener("abort", onAbort);
         reject(new RemoteConnectError(failure, message));
       }
@@ -201,6 +207,8 @@ export function openRemoteSession(options: {
       }
     };
     let timer = setTimeout(() => fail("timeout", 1000), options.timeoutMs ?? 10_000);
+    const openTimer =
+      options.openTimeoutMs === undefined ? undefined : setTimeout(() => fail("network", 1000), options.openTimeoutMs);
     // Only matters until the session settles; after that the caller closes the transport itself.
     const onAbort = () => fail("network", 1000);
     options.signal?.addEventListener("abort", onAbort, { once: true });
@@ -229,7 +237,10 @@ export function openRemoteSession(options: {
       },
     };
 
-    socket.onopen = () => socket.send(JSON.stringify(handshake.hello));
+    socket.onopen = () => {
+      clearTimeout(openTimer);
+      socket.send(JSON.stringify(handshake.hello));
+    };
     socket.onerror = () => {
       if (!settled) fail("network", 1000);
     };
@@ -241,6 +252,7 @@ export function openRemoteSession(options: {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
+        clearTimeout(openTimer);
         options.signal?.removeEventListener("abort", onAbort);
         reject(new RemoteConnectError(failure, failureMessage(failure)));
         return;

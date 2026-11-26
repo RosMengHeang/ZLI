@@ -53,6 +53,10 @@ describe("failureForCloseCode", () => {
 });
 
 describe("openRemoteSession abort", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("closes the socket and rejects with network when aborted", async () => {
     const { socket, closes } = fakeSocket();
     const controller = new AbortController();
@@ -60,6 +64,31 @@ describe("openRemoteSession abort", () => {
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: "RemoteConnectError", failure: "network" });
     expect(closes.length).toBe(1);
+  });
+
+  it("gives up as a network failure when the socket has not opened within openTimeoutMs", async () => {
+    vi.useFakeTimers();
+    const { socket, closes } = fakeSocket();
+    const pending = openRemoteSession({ ...options(() => socket), openTimeoutMs: 1_500, timeoutMs: 8_000 });
+    const outcome = pending.catch((error: RemoteConnectError) => error.failure);
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(closes).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await outcome).toBe("network");
+    expect(closes).toEqual([1000]);
+  });
+
+  it("keeps the whole timeout for the handshake once the socket opened in time", async () => {
+    vi.useFakeTimers();
+    const { socket, closes } = fakeSocket();
+    const pending = openRemoteSession({ ...options(() => socket), openTimeoutMs: 1_500, timeoutMs: 8_000 });
+    const outcome = pending.catch((error: RemoteConnectError) => error.failure);
+    await vi.advanceTimersByTimeAsync(100);
+    socket.onopen?.({});
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(closes).toEqual([]);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(await outcome).toBe("timeout");
   });
 
   it("does not open a socket when already aborted", async () => {

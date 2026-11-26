@@ -18,7 +18,7 @@ import {
 } from "@zli-v2/remote-protocol";
 
 import { hostsToTry, type StoredPairing, withReady } from "./pairingRecord.js";
-import { raceRoutes } from "./routes.js";
+import { LAN_OPEN_TIMEOUT_MS, raceRoutes } from "./routes.js";
 
 export class PairError extends Error {
   override name = "PairError";
@@ -112,6 +112,7 @@ export async function pairWithDesktop(
           createSocket: deps.createSocket,
           // A relay attempt the desktop holds for approval gets the longer approval timeout from the session itself.
           timeoutMs: 8_000,
+          ...(route === "lan" ? { openTimeoutMs: LAN_OPEN_TIMEOUT_MS } : {}),
           signal,
           ...(route === "relay" && events.onWaiting ? { onWaiting: events.onWaiting } : {}),
         }),

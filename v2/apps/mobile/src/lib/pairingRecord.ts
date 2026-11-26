@@ -57,13 +57,14 @@ export function withReady(
   host: string | undefined,
   route: "lan" | "relay" = "lan",
 ): StoredPairing {
-  // A relay win says nothing about which LAN address works, so lastHost stays as it was and only the desktop's reported addresses are merged in.
+  // A relay win means the LAN did not answer, so the old lastHost is likely stale: it is dropped, and the desktop's own
+  // addresses lead next time.
   const hosts =
     host === undefined
       ? [...new Set([...ready.hosts, ...pairing.hosts])].slice(0, MAX_HOSTS)
       : [...new Set([...ready.hosts, host, ...pairing.hosts])].slice(0, MAX_HOSTS);
   // A relay route sets or replaces the stored one, and null clears it. Older desktops leave it out, so it stays.
-  const { relay: _stored, ...rest } = pairing;
+  const { relay: _stored, lastHost: _lastHost, ...rest } = pairing;
   const relay = ready.relay === undefined ? pairing.relay : (ready.relay ?? undefined);
   return {
     ...rest,

@@ -36,6 +36,15 @@ export function routeBadge(state: string, route: RouteKind | undefined): string 
 
 export const DEFAULT_LAN_HEAD_START_MS = 1_500;
 
+/*
+ * How long a LAN socket may take to open. A phone on its home network opens one in well under a second; an address
+ * from another network usually never answers, and would otherwise hold the chain for the whole handshake budget. With
+ * this, one dead address costs 1.5 s and the next host still gets its turn. Hosts stay in order rather than racing in
+ * parallel: pairing must try them one at a time (the code works once), and a parallel resume would spend several of
+ * the desktop's per-address attempts on each connect.
+ */
+export const LAN_OPEN_TIMEOUT_MS = 1_500;
+
 export type RaceOptions = {
   lanHosts: string[];
   port: number;
