@@ -82,6 +82,9 @@ async function fakeRuntime() {
   };
 }
 
+/** Set by a test to make the relay stand-in close like the real relay does. */
+let relayDropsCloseCodes = false;
+
 /**
  * A stand-in for the byte relay. A phone dials /phone?client=<key>; the relay then dials itself at /desktop, as the
  * desktop would, hands that outbound socket to `onDesktop`, and pipes frames between the two once it is accepted.
@@ -100,7 +103,8 @@ async function fakeRelay(onDesktop: (socket: WsSocket, client: string) => void) 
   };
   const closeWith = (socket: WsSocket, code: number) => {
     try {
-      socket.close(code);
+      // The real relay closes the other side with a plain code, whatever the desktop used.
+      socket.close(relayDropsCloseCodes ? 1000 : code);
     } catch {
       socket.close();
     }
@@ -194,6 +198,7 @@ describe("MobileGateway", () => {
   }
 
   beforeEach(async () => {
+    relayDropsCloseCodes = false;
     directory = await mkdtemp(join(tmpdir(), "zli-mobile-"));
     runtime = await fakeRuntime();
     store = new MobileAccessStore(join(directory, "mobile.json"), plainCodec, random);
@@ -250,7 +255,13 @@ describe("MobileGateway", () => {
 
   async function pairPhone(
     phone = generateKeyPair(random),
-    extra: { url?: string; onWaiting?: () => void; signal?: AbortSignal } = {},
+    extra: {
+      url?: string;
+      onWaiting?: () => void;
+      signal?: AbortSignal;
+      deviceName?: string;
+      createSocket?: CreateWebSocket;
+    } = {},
   ) {
     const pending = pairing.open();
     const session = await openRemoteSession({
@@ -261,10 +272,10 @@ describe("MobileGateway", () => {
         mode: "pair",
         pairingId: pending.pairingId,
         pairingSecret: pending.secret,
-        deviceName: "Pixel\u0007 9",
+        deviceName: extra.deviceName ?? "Pixel\u0007 9",
       },
       random,
-      createSocket,
+      createSocket: extra.createSocket ?? createSocket,
       ...(extra.onWaiting ? { onWaiting: extra.onWaiting } : {}),
       ...(extra.signal ? { signal: extra.signal } : {}),
     });
@@ -747,7 +758,7 @@ describe("MobileGateway", () => {
       return { asked, approvePairing };
     }
 
-    function pairOverRelay(extra: { onWaiting?: () => void; signal?: AbortSignal } = {}) {
+    function pairOverRelay(extra: Parameters<typeof pairPhone>[1] = {}) {
       return pairPhone(undefined, { url: relay.phoneUrl("phone-a"), ...extra });
     }
 
@@ -770,6 +781,133 @@ describe("MobileGateway", () => {
       expect(session.paired?.deviceId).toBeTruthy();
       expect(store.devices().map((device) => device.name)).toEqual(["Pixel 9"]);
       session.transport.close();
+    });
+
+    it("drops direction controls from the name it asks about, so they cannot reorder the prompt", async () => {
+      const { asked, approvePairing } = approver();
+      await restartGateway({ approvePairing });
+      const attempt = pairOverRelay({ deviceName: "Pixel\u202e 9\u2066\u200f \u{1F469}\u200d\u{1F4BB}\u2069" });
+      await until(() => asked.length === 1);
+      // The emoji's zero-width joiner stays.
+      expect(asked[0]?.deviceName).toBe("Pixel 9 \u{1F469}\u200d\u{1F4BB}");
+      asked[0]?.answer(true);
+      const { session } = await attempt;
+      expect(store.devices()[0]?.name).toBe("Pixel 9 \u{1F469}\u200d\u{1F4BB}");
+      session.transport.close();
+    });
+
+    it("removes the phone again when it leaves while the desktop is still storing it", async () => {
+      const { asked, approvePairing } = approver();
+      await restartGateway({ approvePairing });
+      const add = store.addDevice.bind(store);
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let adding = false;
+      vi.spyOn(store, "addDevice").mockImplementation(async (device) => {
+        adding = true;
+        await held;
+        return add(device);
+      });
+      const controller = new AbortController();
+      const attempt = failure(pairOverRelay({ signal: controller.signal }));
+      await until(() => asked.length === 1);
+      asked[0]?.answer(true);
+      await until(() => adding);
+      controller.abort();
+      expect(await attempt).toBe("network");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(store.devices()).toEqual([]);
+    });
+
+    it("says it is still waiting every 20 seconds, and stops once allowed or closed", async () => {
+      vi.useFakeTimers({
+        toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+        shouldAdvanceTime: true,
+      });
+      const { asked, approvePairing } = approver();
+      await restartGateway({ approvePairing });
+      const frames = { count: 0 };
+      const counting: CreateWebSocket = (url) => {
+        const socket = new WebSocket(url);
+        socket.addEventListener("message", (event) => {
+          if (typeof event.data !== "string") frames.count += 1;
+        });
+        return socket as unknown as WebSocketLike;
+      };
+      let waited = false;
+      const attempt = pairOverRelay({
+        createSocket: counting,
+        onWaiting: () => {
+          waited = true;
+        },
+      });
+      await until(() => waited);
+      expect(frames.count).toBe(1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await until(() => frames.count === 2);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await until(() => frames.count === 3);
+      asked[0]?.answer(true);
+      const { session } = await attempt;
+      // paired, then ready.
+      await until(() => frames.count === 5);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(frames.count).toBe(5);
+      session.transport.close();
+
+      const second = approver();
+      await restartGateway({ approvePairing: second.approvePairing });
+      // The gateway's own heartbeat.
+      const idle = vi.getTimerCount();
+      const closing = new AbortController();
+      const left = failure(pairOverRelay({ signal: closing.signal }));
+      await until(() => second.asked.length === 1);
+      closing.abort();
+      expect(await left).toBe("network");
+      await until(() => second.asked[0]?.signal.aborted === true);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      // The repeat and the approval deadline are both gone.
+      expect(vi.getTimerCount()).toBe(idle);
+    });
+
+    it("tells the phone sealed that it was refused, for a relay that drops close codes", async () => {
+      relayDropsCloseCodes = true;
+      // Nothing can ask the person, so the phone is refused before any wait; only the sealed message says why.
+      const attempt = pairOverRelay().then(
+        () => "connected",
+        (error: RemoteConnectError) => [error.failure, error.message],
+      );
+      expect(await attempt).toEqual([
+        "pairing-denied",
+        "The PC didn't allow this phone. Make a new code on the PC and try again.",
+      ]);
+    });
+
+    it("tells the phone sealed that nobody answered in time", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+      relayDropsCloseCodes = true;
+      const { approvePairing } = approver();
+      await restartGateway({ approvePairing });
+      let waited = false;
+      const attempt = pairOverRelay({
+        onWaiting: () => {
+          waited = true;
+        },
+      }).then(
+        () => "connected",
+        (error: RemoteConnectError) => [error.failure, error.message],
+      );
+      await until(() => waited);
+      await vi.advanceTimersByTimeAsync(PAIRING_APPROVAL_WAIT_MS);
+      expect(await attempt).toEqual([
+        "pairing-denied",
+        "The PC didn't answer in time. Make a new code on the PC and try again.",
+      ]);
     });
 
     it("refuses the pairing and stores nothing when the desktop does not allow it", async () => {

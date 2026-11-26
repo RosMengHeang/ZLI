@@ -337,6 +337,16 @@ export class MobileGateway {
       }
     };
 
+    const isClosed = () => phase === "closed";
+
+    /** Says why before closing, since the relay does not pass the close code on to the phone. */
+    const deny = (reason: "refused" | "expired") => {
+      if (phase === "closed") return;
+      const denied: ServerControl = { type: "gateway.denied", reason };
+      sendSealed(denied);
+      close(RemoteCloseCode.pairingDenied);
+    };
+
     /**
      * Holds a pairing until the person allows it. The connection stays unpaired meanwhile: it keeps its place in the
      * unpaired count and the small frame limit, and anything the phone sends closes it.
@@ -348,7 +358,7 @@ export class MobileGateway {
       approval = controller;
       // The approval wait replaces the handshake deadline.
       clearTimeout(timer);
-      timer = setTimeout(() => close(RemoteCloseCode.pairingDenied), PAIRING_APPROVAL_WAIT_MS);
+      timer = setTimeout(() => deny("expired"), PAIRING_APPROVAL_WAIT_MS);
       const waiting: ServerControl = { type: "gateway.waiting", reason: "approval" };
       sendSealed(waiting);
       approvalRepeat = setInterval(() => sendSealed(waiting), APPROVAL_REPEAT_MS);
@@ -357,7 +367,11 @@ export class MobileGateway {
       );
       try {
         const allowed = await Promise.race([ask({ deviceName, route, signal: controller.signal }), cancelled]);
-        return allowed === true && !controller.signal.aborted;
+        if (allowed !== true || controller.signal.aborted) return false;
+        // Storing the phone gets the usual short deadline, not what is left of the approval wait.
+        clearTimeout(timer);
+        timer = setTimeout(() => close(RemoteCloseCode.handshake), HANDSHAKE_TIMEOUT_MS);
+        return true;
       } catch {
         return false;
       } finally {
@@ -372,7 +386,7 @@ export class MobileGateway {
       if (hello.mode === "pair") {
         if (control.data.type !== "gateway.pair") return close(RemoteCloseCode.protocol);
         const name = cleanName(control.data.deviceName);
-        if (relay && !(await approve(name))) return close(RemoteCloseCode.pairingDenied);
+        if (relay && !(await approve(name))) return deny("refused");
         if (phase === "closed") return;
         const credential = options.random(32);
         const id = toBase64Url(options.random(16));
@@ -383,6 +397,13 @@ export class MobileGateway {
           credentialHash: toBase64Url(hashSecret(credential)),
           pairedAt: new Date(options.now?.() ?? Date.now()).toISOString(),
         });
+        // The phone left or the deadline passed while the phone was being stored; it never got its credential.
+        // Read through a call: the check above narrowed `phase`, and the await may have changed it since.
+        if (isClosed()) {
+          await options.store.removeDevice(id).catch(() => undefined);
+          options.onChange();
+          return;
+        }
         deviceId = id;
         sendSealed({ type: "gateway.paired", deviceId: id, credential: toBase64Url(credential) });
       } else {
@@ -611,10 +632,15 @@ function rawText(data: RawData): string {
   return Buffer.from(rawBytes(data)).toString("utf8");
 }
 
-/** Phone names show in Settings, so control characters and extra spaces are dropped. */
+/**
+ * Phone names show in Settings, so control characters and extra spaces are dropped. So are direction controls, which
+ * could reorder the words of the prompt that asks the person to allow a pairing. Other format characters stay, since
+ * emoji need the zero-width joiner.
+ */
 function cleanName(name: string): string {
   const cleaned = name
     .replace(/\p{Cc}/gu, "")
+    .replace(/[؜‎‏‪-‮⁦-⁩]/gu, "")
     .replace(/\s+/gu, " ")
     .trim()
     .slice(0, 60);

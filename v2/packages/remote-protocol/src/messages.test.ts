@@ -48,4 +48,11 @@ describe("ServerControl", () => {
     expect(ServerControl.safeParse({ type: "gateway.waiting", reason: "other" }).success).toBe(false);
     expect(ServerControl.safeParse({ type: "gateway.waiting" }).success).toBe(false);
   });
+
+  it("parses the gateway's refusal, refused or expired", () => {
+    for (const reason of ["refused", "expired"] as const) {
+      expect(ServerControl.parse({ type: "gateway.denied", reason })).toEqual({ type: "gateway.denied", reason });
+    }
+    expect(ServerControl.safeParse({ type: "gateway.denied", reason: "other" }).success).toBe(false);
+  });
 });

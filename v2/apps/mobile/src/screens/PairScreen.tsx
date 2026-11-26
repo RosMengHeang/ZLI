@@ -4,7 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { PairError, pairingCodeFromLink, pairWithDesktop, previewPairingCode } from "../lib/pairing.js";
+import {
+  PairError,
+  pairingCodeFromLink,
+  pairingPrivacyNote,
+  pairWithDesktop,
+  previewPairingCode,
+} from "../lib/pairing.js";
 import type { StoredPairing } from "../lib/pairingRecord.js";
 import { createSocket, defaultDeviceName, random } from "../platform.js";
 import { radius, space, type, usePalette } from "../theme.js";
@@ -224,8 +230,7 @@ export function PairScreen({
         <View style={local.privacy}>
           <Icon name="shieldCheck" size={16} color={palette.muted} />
           <Text style={[local.footnote, local.privacyText, { color: palette.muted }]}>
-            The phone and the desktop need to be on the same network. Everything between them is encrypted with keys
-            that stay on the two devices.
+            {pairingPrivacyNote(code, Date.now())}
           </Text>
         </View>
       </ScrollView>

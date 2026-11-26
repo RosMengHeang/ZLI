@@ -85,6 +85,11 @@ export const ServerControl = z.discriminatedUnion("type", [
    * while it waits, so the relay does not close the quiet connection. Only phones that can use the relay ever see it.
    */
   z.object({ type: z.literal("gateway.waiting"), reason: z.literal("approval") }),
+  /**
+   * The desktop did not allow that pairing: the person refused it, or nobody answered in time. Sent sealed just before
+   * the close, because the relay does not pass the desktop's close code on to the phone.
+   */
+  z.object({ type: z.literal("gateway.denied"), reason: z.enum(["refused", "expired"]) }),
   z.object({
     type: z.literal("gateway.ready"),
     desktopName: z.string().min(1).max(80),

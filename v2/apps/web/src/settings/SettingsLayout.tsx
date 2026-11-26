@@ -36,7 +36,7 @@ export function SettingsRow({
   htmlFor,
   children,
 }: {
-  label: string;
+  label: ReactNode;
   description?: ReactNode;
   descriptionTone?: "warning" | undefined;
   htmlFor?: string | undefined;

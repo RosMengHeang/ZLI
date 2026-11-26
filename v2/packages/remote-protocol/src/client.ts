@@ -83,6 +83,9 @@ const failureMessages: Record<RemoteFailure, string> = {
   unavailable: "ZLI on the desktop is still starting. Try again in a moment.",
 };
 
+/** Shown instead of the pairing-denied message when the desktop stopped waiting for the person to answer. */
+const PAIRING_EXPIRED_MESSAGE = "The PC didn't answer in time. Make a new code on the PC and try again.";
+
 export function failureMessage(failure: RemoteFailure): string {
   return failureMessages[failure];
 }
@@ -174,12 +177,16 @@ export function openRemoteSession(options: {
     const messageListeners = new Set<(message: unknown) => void>();
     const closeListeners = new Set<(info: RemoteCloseInfo) => void>();
 
-    const fail = (failure: RemoteFailure, code: number = RemoteCloseCode.protocol) => {
+    const fail = (
+      failure: RemoteFailure,
+      code: number = RemoteCloseCode.protocol,
+      message = failureMessage(failure),
+    ) => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
         options.signal?.removeEventListener("abort", onAbort);
-        reject(new RemoteConnectError(failure, failureMessage(failure)));
+        reject(new RemoteConnectError(failure, message));
       }
       if (!closed) {
         closed = true;
@@ -268,6 +275,11 @@ export function openRemoteSession(options: {
           if (target.mode !== "pair" || paired) return fail("protocol");
           paired = { deviceId: control.data.deviceId, credential: control.data.credential };
           return;
+        }
+        if (control.data.type === "gateway.denied") {
+          if (target.mode !== "pair" || paired || settled) return fail("protocol");
+          const expired = control.data.reason === "expired";
+          return fail("pairing-denied", 1000, expired ? PAIRING_EXPIRED_MESSAGE : failureMessage("pairing-denied"));
         }
         if (control.data.type === "gateway.waiting") {
           if (target.mode !== "pair" || paired || settled) return fail("protocol");

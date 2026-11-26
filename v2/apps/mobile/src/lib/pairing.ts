@@ -42,6 +42,18 @@ export function previewPairingCode(text: string, now: number): { desktopName: st
   }
 }
 
+/** The privacy line on the pair screen. It names the relay only when the code carries one. */
+export function pairingPrivacyNote(text: string, now: number): string {
+  let relay: boolean | undefined;
+  if ("desktopName" in previewPairingCode(text, now)) relay = decodePairingCode(text).relay !== undefined;
+  if (relay === undefined) {
+    return "Everything between the phone and the desktop is encrypted with keys that stay on the two devices.";
+  }
+  return relay
+    ? "The phone connects on the same network as the desktop, or through ZLI's relay when it is away. Everything between them is encrypted with keys that stay on the two devices, so the relay can't read it."
+    : "The phone and the desktop need to be on the same network. Everything between them is encrypted with keys that stay on the two devices.";
+}
+
 /**
  * The pairing code carried by a link that opened the app: the code itself, which is a
  * `zli-remote:` URL, or a link with the code in its `code` parameter, as development builds use.

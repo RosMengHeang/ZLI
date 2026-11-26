@@ -1,4 +1,5 @@
 import {
+  decodePairingCode,
   encodePairingCode,
   failureMessage,
   RemoteConnectError,
@@ -9,7 +10,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { ids } from "./fixtures.js";
-import { PairError, pairingCodeFromLink, pairWithDesktop, previewPairingCode } from "./pairing.js";
+import { PairError, pairingCodeFromLink, pairingPrivacyNote, pairWithDesktop, previewPairingCode } from "./pairing.js";
 
 const now = 1_800_000_000_000;
 const code = encodePairingCode({
@@ -53,6 +54,24 @@ describe("previewPairingCode", () => {
       error: "This pairing code expired. Make a new one on the desktop.",
     });
     expect(previewPairingCode("hello", now)).toEqual({ error: "This is not a ZLI pairing code." });
+  });
+});
+
+describe("pairingPrivacyNote", () => {
+  it("mentions the relay only when the code has one, and stays neutral before there is a code", () => {
+    const relayCode = encodePairingCode({
+      ...decodePairingCode(code),
+      relay: { url: "wss://relay.example.com", room: toBase64Url(webCryptoRandomBytes(16)) },
+    });
+    expect(pairingPrivacyNote(code, now)).toBe(
+      "The phone and the desktop need to be on the same network. Everything between them is encrypted with keys that stay on the two devices.",
+    );
+    expect(pairingPrivacyNote(relayCode, now)).toBe(
+      "The phone connects on the same network as the desktop, or through ZLI's relay when it is away. Everything between them is encrypted with keys that stay on the two devices, so the relay can't read it.",
+    );
+    expect(pairingPrivacyNote("", now)).toBe(
+      "Everything between the phone and the desktop is encrypted with keys that stay on the two devices.",
+    );
   });
 });
 

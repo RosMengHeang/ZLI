@@ -208,6 +208,38 @@ describe("openRemoteSession while the desktop asks the person to allow a pairing
     await expect(pending).rejects.toMatchObject({ failure: "pairing-denied" });
   });
 
+  it("reports a refusal the desktop sends sealed, since the relay may not pass the close code on", async () => {
+    const desktop = fakeDesktop("pair");
+    const pending = openRemoteSession(desktop.options);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    desktop.send({ type: "gateway.waiting", reason: "approval" });
+    desktop.send({ type: "gateway.denied", reason: "refused" });
+    await expect(pending).rejects.toMatchObject({
+      failure: "pairing-denied",
+      message: "The PC didn't allow this phone. Make a new code on the PC and try again.",
+    });
+  });
+
+  it("says when the desktop stopped waiting for an answer", async () => {
+    const desktop = fakeDesktop("pair");
+    const pending = openRemoteSession(desktop.options);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    desktop.send({ type: "gateway.waiting", reason: "approval" });
+    desktop.send({ type: "gateway.denied", reason: "expired" });
+    await expect(pending).rejects.toMatchObject({
+      failure: "pairing-denied",
+      message: "The PC didn't answer in time. Make a new code on the PC and try again.",
+    });
+  });
+
+  it("treats a refusal on a resume as a protocol failure", async () => {
+    const desktop = fakeDesktop("resume");
+    const pending = openRemoteSession(desktop.options);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    desktop.send({ type: "gateway.denied", reason: "refused" });
+    await expect(pending).rejects.toMatchObject({ failure: "protocol" });
+  });
+
   it("still reads a plain close before any wait as a network failure", async () => {
     const desktop = fakeDesktop("pair");
     const pending = openRemoteSession(desktop.options);

@@ -3,7 +3,7 @@
 import type { MobileAccessStatus } from "@zli-v2/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ZliBridge } from "../runtime/bridge.js";
 import { MobileAccessSection } from "./MobileAccessSection.js";
@@ -265,6 +265,20 @@ describe("MobileAccessSection", () => {
       expiresAt: new Date(Date.now() + seconds * 1_000).toISOString(),
     });
 
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Allow turns on a second after the request shows, so waiting that long is part of every answer. */
+    async function settle() {
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+      });
+    }
+
     it("asks before the phone pairs, with the time left, and allows it with the request id", async () => {
       const bridge = fakeBridge(listening);
       const container = await render();
@@ -274,7 +288,10 @@ describe("MobileAccessSection", () => {
       expect(container.textContent).toContain('Allow "Pixel 9" to control this PC from anywhere?');
       expect(container.textContent).toMatch(/1:[23]\d/u);
       expect(container.textContent).not.toContain("expired or was already used");
+      // The name is isolated, so its text direction cannot reorder the question around it.
+      expect(container.querySelector("bdi")?.textContent).toBe("Pixel 9");
 
+      await settle();
       await act(async () => button(container, "Allow").click());
       expect(bridge.api.respondToPairing).toHaveBeenCalledWith("req-1", true);
       await act(async () => bridge.push({ ...listening, devices: [{ ...pixel, connected: true }] }));
@@ -290,6 +307,41 @@ describe("MobileAccessSection", () => {
       expect(bridge.api.respondToPairing).toHaveBeenCalledWith("req-1", false);
       expect(container.textContent).not.toContain("to control this PC from anywhere?");
       expect(container.textContent).toContain("The phone was not paired. Make a new code to try again.");
+    });
+
+    it("keeps Allow off for a second after the request shows, so a click meant for the code cannot land on it", async () => {
+      const bridge = fakeBridge(listening);
+      const container = await render();
+      await act(async () => bridge.push({ ...listening, pairingRequest: request(90) }));
+      expect(button(container, "Allow").disabled).toBe(true);
+      expect(button(container, "Don't allow").disabled).toBe(false);
+      await act(async () => {
+        vi.advanceTimersByTime(999);
+      });
+      expect(button(container, "Allow").disabled).toBe(true);
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(button(container, "Allow").disabled).toBe(false);
+    });
+
+    it("says the phone was not paired when an allowed phone never shows up", async () => {
+      const bridge = fakeBridge(listening);
+      const container = await render();
+      await act(async () => button(container, "Pair a new phone").click());
+      await act(async () => bridge.push({ ...listening, pairingRequest: request(90) }));
+      await settle();
+      await act(async () => button(container, "Allow").click());
+      // The phone left before the desktop stored it.
+      await act(async () => bridge.push(listening));
+      expect(container.textContent).not.toContain("The phone was not paired");
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(container.textContent).toContain("The phone was not paired. Make a new code to try again.");
+      // It does not stick: a phone that shows up later is not reported as paired by this code.
+      await act(async () => bridge.push({ ...listening, devices: [pixel] }));
+      expect(container.textContent).not.toContain("Paired with");
     });
   });
 
