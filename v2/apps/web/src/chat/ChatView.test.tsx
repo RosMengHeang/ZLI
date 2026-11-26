@@ -478,6 +478,45 @@ describe("ChatView", () => {
     expect(document.querySelector('[aria-label="Restore files"]')).toBeNull();
   });
 
+  it("shows a turn's first four changed files and the rest on request", async () => {
+    const turnId = "provider-turn-8";
+    const paths = ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts"];
+    const { container } = await render(
+      projectionWith({
+        threads: [{ ...thread, status: "idle" }],
+        messages: [
+          { messageId: "m1", threadId, role: "user", text: "Refactor" },
+          { messageId: "m2", threadId, turnId, role: "assistant", text: "Done." },
+        ] as RuntimeProjection["messages"],
+        checkpoints: [
+          {
+            checkpointId: "00000000-0000-4000-8000-000000000888",
+            threadId,
+            worktreeId,
+            turnId,
+            startTree: "a".repeat(40),
+            endTree: "b".repeat(40),
+            files: paths.map((path) => ({ path, kind: "modified", additions: 1, deletions: 0, binary: false })),
+            fileCount: 7,
+            additions: 6,
+            deletions: 0,
+          },
+        ] as RuntimeProjection["checkpoints"],
+      }),
+    );
+    const changes = container.querySelector<HTMLElement>('[aria-label="Changes in this turn"]') as HTMLElement;
+    const listed = () => [...changes.querySelectorAll(".turn-file-name")].map((node) => node.textContent);
+    expect(listed()).toEqual(["a.ts", "b.ts", "c.ts", "d.ts"]);
+    expect(changes.querySelector(".turn-changes-more")).toBeNull();
+    const toggle = button(changes, "Show all 7 files") as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => toggle.click());
+    expect(listed()).toEqual(paths);
+    expect(changes.querySelector(".turn-changes-more")?.textContent).toBe("and 1 more");
+    await act(async () => button(changes, "Show fewer")?.click());
+    expect(listed()).toHaveLength(4);
+  });
+
   it("blocks restoring while an agent in the worktree is working", async () => {
     const { container } = await render(
       projectionWith({
