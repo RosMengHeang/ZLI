@@ -23,7 +23,7 @@ import {
 } from "@zli-v2/contracts";
 
 import type { CommandReceipt, Engine } from "../orchestration/Engine.js";
-import { candidatesFor, modelTier, pickEngine, profileJob, trackRecords } from "./autopick.js";
+import { candidatesFor, modelTier, pickEngine, profileJob, qualityFor, trackRecords } from "./autopick.js";
 import {
   answerText,
   handbackText,
@@ -411,7 +411,7 @@ export class TaskReactor {
       profile,
       candidates: candidatesFor(await this.options.providers().catch(() => []), buddy, task.override),
       records: trackRecords(tasks),
-      quality: state.buddySettings?.quality ?? "balanced",
+      quality: qualityFor(buddy, state.buddySettings),
       used,
       lastProvider: last,
       preferred,

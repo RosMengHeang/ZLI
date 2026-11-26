@@ -27,7 +27,7 @@ import { Icon, type IconName } from "../ui/Icon.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { AppDraftCard } from "./AppDraftCard.js";
 import { friendlySteps } from "./stepLabel.js";
-import { triggerLabel } from "./team.js";
+import { FOCUS_PRESETS, focusSaved, triggerLabel } from "./team.js";
 import "./buddyChat.css";
 
 type Run = (command: Record<string, unknown>) => Promise<boolean>;
@@ -410,6 +410,7 @@ export function BuddyChat({
   };
   // A note that the buddy could not answer offers the person's message again, as a new message.
   const resend = (text: string) => void deliver(makeCommandId(), text);
+  const asking = asksFocus(buddy, projection);
   return (
     <div className="buddy-chat" ref={view}>
       <div
@@ -455,6 +456,11 @@ export function BuddyChat({
               />
             </div>
           ))}
+          {asking ? (
+            <div className="buddy-chat-entry is-answers">
+              <FocusAnswers buddy={buddy} run={run} />
+            </div>
+          ) : null}
           {drafts.map((request) => (
             <div key={request.requestId} className="buddy-chat-entry is-draft">
               <AppDraftCard
@@ -481,6 +487,54 @@ export function BuddyChat({
 }
 
 const TEAMMATE_WAY = { asked: "asked", replied: "replied", sent: "To" } as const;
+
+/** The buddy's newest words ask what it should focus on, and the person has not answered yet. */
+export function asksFocus(buddy: BuddyProjection, state: RuntimeProjection): boolean {
+  const last = (state.buddyMessages ?? []).findLast(
+    (message) => message.buddyId === buddy.buddyId && !message.progress && !message.from && !message.to,
+  );
+  return last?.role === "buddy" && last.asks === "focus";
+}
+
+/**
+ * Answers to the buddy's focus question, one tap each. A pick is kept as its focus straight away; a typed
+ * answer goes to the buddy, which keeps it the same way.
+ */
+function FocusAnswers({ buddy, run }: { buddy: BuddyProjection; run: Run }) {
+  const [busy, setBusy] = useState(false);
+  const pick = async (focus: string | undefined) => {
+    setBusy(true);
+    const entry = FOCUS_PRESETS.find((candidate) => candidate.focus === focus);
+    const saved =
+      !entry ||
+      (await run({
+        type: "buddy.update",
+        buddyId: buddy.buddyId,
+        changes: { title: entry.focus, instructions: entry.instructions },
+      }));
+    if (saved)
+      await run({
+        type: "buddy.chat.reply",
+        buddyId: buddy.buddyId,
+        messageId: makeCommandId(),
+        text: focusSaved(entry),
+      });
+    setBusy(false);
+  };
+  return (
+    <fieldset className="buddy-focus-answers" disabled={busy}>
+      <legend className="sr-only">What {buddy.name} should focus on</legend>
+      {FOCUS_PRESETS.map((entry) => (
+        <Button key={entry.focus} size="sm" tooltip={entry.blurb} onClick={() => void pick(entry.focus)}>
+          {entry.focus}
+        </Button>
+      ))}
+      <Button size="sm" variant="ghost" onClick={() => void pick(undefined)}>
+        Anything
+      </Button>
+    </fieldset>
+  );
+}
 
 /** Dark ink on a light buddy color, white on the rest, so the send arrow always reads. */
 function inkOn(hex: string): string {

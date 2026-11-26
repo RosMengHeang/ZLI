@@ -39,6 +39,7 @@ export function Picker<T extends string>({
   footer,
   variant = "ghost",
   id,
+  repick,
 }: {
   /** Names the trigger and the list for assistive technology. */
   label: string;
@@ -55,6 +56,8 @@ export function Picker<T extends string>({
   variant?: "ghost" | "field";
   /** Lets a form label point at the trigger. */
   id?: string | undefined;
+  /** This option reports a pick even when it is already chosen, for options that open an editor. */
+  repick?: T | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -113,7 +116,7 @@ export function Picker<T extends string>({
 
   const pick = (next: T) => {
     close(true);
-    if (next !== value) onChange(next);
+    if (next !== value || next === repick) onChange(next);
   };
 
   const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

@@ -357,10 +357,12 @@ describe("Library", () => {
     });
     const { commands } = await render(state, "b2");
     await act(async () => buttonNamed("Library").click());
-    const labels = [...document.querySelectorAll(".buddy-learned-label")].map((node) => node.textContent);
-    expect(labels).toEqual(["From you 1", "Learned on jobs 1"]);
-    expect(document.querySelector(".buddy-learned-summary")?.textContent).toContain("1 learned on its own");
-    expect(document.querySelector(".buddy-playbook ol")?.textContent).toBe("Add src/api/x.tsRun pnpm test");
+    const metas = [...document.querySelectorAll(".blib-item-meta")].map((node) => node.textContent);
+    expect(metas[0]).toContain("Learned on a job");
+    expect(metas[1]).toContain("From you");
+    // The tab only reads; no text box until Add opens one.
+    expect(document.querySelector(".blib input, .blib textarea")).toBeNull();
+    expect(document.querySelector(".blib-item ol")?.textContent).toBe("Add src/api/x.tsRun pnpm test");
     await act(async () => buttonNamed("Delete Add an API route").click());
     expect(commands.at(-1)).toEqual({ type: "buddy.playbook.remove", buddyId: "b2", playbookId: "pb1" });
   });
@@ -428,24 +430,166 @@ describe("BuddyList", () => {
     expect(onSelect).toHaveBeenLastCalledWith("b2");
   });
 
-  it("makes a buddy from the + with its name, color and what it may do, then opens it", async () => {
+  it("makes a buddy from the + with a name, model and access, then asks in its chat what it is for", async () => {
     const { commands, onSelect } = await render(projection({ buddies: [buddy("b2", "Builder", 0)] }));
     await act(async () => buttonNamed("Add a buddy").click());
     const name = document.querySelector<HTMLInputElement>(".new-buddy input");
     if (!name) throw new Error("No name box");
     await typeInput(name, "Nova");
-    const role = [...document.querySelectorAll<HTMLButtonElement>(".new-buddy-role")].find((entry) =>
-      entry.textContent?.startsWith("Reviewer"),
-    );
-    await act(async () => role?.click());
     await act(async () => buttonNamed("rose").click());
-    await act(async () => buttonNamed("Read only").click());
     await act(async () => buttonNamed("Create").click());
-    expect(commands.at(-1)).toMatchObject({
-      type: "buddy.create",
-      buddy: { name: "Nova", title: "Reviewer", color: "rose", permissionMode: "read-only", role: "buddy" },
+    const made = commands.find((command) => command.type === "buddy.create") as { buddy: Record<string, unknown> };
+    expect(made.buddy).toMatchObject({
+      name: "Nova",
+      color: "rose",
+      permissionMode: "supervised",
+      role: "buddy",
+      engine: { mode: "auto", quality: "balanced" },
     });
-    expect(onSelect).toHaveBeenCalledWith((commands.at(-1) as { buddy: { buddyId: string } }).buddy.buddyId);
+    expect(made.buddy.instructions).toBeUndefined();
+    expect(commands.at(-1)).toMatchObject({
+      type: "buddy.chat.reply",
+      buddyId: made.buddy.buddyId,
+      asks: "focus",
+      text: expect.stringContaining("What do you want me to work on?"),
+    });
+    expect(onSelect).toHaveBeenCalledWith(made.buddy.buddyId);
+  });
+
+  it("will not make a buddy without a name", async () => {
+    const { commands } = await render(projection({ buddies: [buddy("b2", "Builder", 0)] }));
+    await act(async () => buttonNamed("Add a buddy").click());
+    await act(async () => buttonNamed("Create").click());
+    expect(commands.some((command) => command.type === "buddy.create")).toBe(false);
+    expect(document.querySelector(".new-buddy [role=alert]")?.textContent).toBe("Give it a name.");
+  });
+
+  it("keeps a focus picked under the buddy's question, and confirms in its chat", async () => {
+    const state = projection({
+      buddies: [buddy("b2", "Builder", 0), buddy("b3", "Nova", 1)],
+      buddyMessages: [
+        {
+          messageId: "m1",
+          buddyId: "b3",
+          role: "buddy",
+          text: "Hi, I'm Nova. What do you want me to work on?",
+          at,
+          asks: "focus",
+        },
+      ],
+    });
+    const { commands } = await render(state, "b3");
+    const answers = document.querySelector(".buddy-focus-answers");
+    const reviews = [...(answers?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+      (entry) => entry.textContent === "Reviews",
+    );
+    await act(async () => reviews?.click());
+    expect(commands.at(-2)).toMatchObject({
+      type: "buddy.update",
+      buddyId: "b3",
+      changes: { title: "Reviews", instructions: expect.stringContaining("Read the diff") },
+    });
+    expect(commands.at(-1)).toMatchObject({
+      type: "buddy.chat.reply",
+      buddyId: "b3",
+      text: expect.stringContaining("Got it"),
+    });
+  });
+
+  it("keeps its settings to one list of pickers, with no text box in the tab", async () => {
+    const { commands } = await render(
+      projection({
+        buddies: [
+          { ...buddy("b2", "Builder", 0), rules: { alone: ["Run the tests"], ask: [], never: ["Push to main"] } },
+        ],
+      }),
+      "b2",
+    );
+    await act(async () => buttonNamed("Settings").click());
+    expect([...document.querySelectorAll(".bset-row .bset-label")].map((label) => label.textContent)).toEqual([
+      "Model",
+      "Most it may do",
+      "Personality",
+      "Weekly budget",
+      "Rules",
+      "Passes work on",
+    ]);
+    expect(document.querySelector(".bset input, .bset textarea")).toBeNull();
+    expect(document.querySelector(".bset-row.is-link")?.textContent).toContain("1 on its own, 1 never");
+    // A budget is one pick.
+    await act(async () => buttonNamed("Weekly budget: No limit").click());
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) =>
+      entry.textContent?.startsWith("$25"),
+    );
+    await act(async () => option?.click());
+    expect(commands.at(-1)).toEqual({ type: "buddy.update", buddyId: "b2", changes: { budgetUsd: 25 } });
+  });
+
+  it("removes a buddy from its settings with the trash button, after asking", async () => {
+    const { commands, onSelect } = await render(projection({ buddies: [buddy("b2", "Builder", 0)] }), "b2");
+    await act(async () => buttonNamed("Settings").click());
+    await act(async () => buttonNamed("Remove Builder").click());
+    expect(commands.some((command) => command.type === "buddy.archive")).toBe(false);
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>(".bset-actions button")].find(
+      (entry) => entry.textContent?.trim() === "Remove",
+    );
+    await act(async () => confirm?.click());
+    expect(commands.at(-1)).toEqual({ type: "buddy.archive", buddyId: "b2" });
+    expect(onSelect).toHaveBeenCalledWith(undefined);
+  });
+
+  it("edits what a buddy is here for in a dialog", async () => {
+    const { commands } = await render(
+      projection({ buddies: [{ ...buddy("b2", "Builder", 0), instructions: "Builds." }] }),
+      "b2",
+    );
+    await act(async () => buttonNamed("Settings").click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".bset-here")?.click());
+    const box = document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea');
+    if (!box) throw new Error("No dialog");
+    await typeInput(box, "Writes the docs.");
+    await act(async () => buttonNamed("Save").click());
+    expect(commands.at(-1)).toEqual({
+      type: "buddy.update",
+      buddyId: "b2",
+      changes: { instructions: "Writes the docs." },
+    });
+  });
+
+  it("describes a voice in the person's own words, with a sample line", async () => {
+    const { commands } = await render(projection({ buddies: [buddy("b2", "Builder", 0)] }), "b2");
+    await act(async () => buttonNamed("Settings").click());
+    await act(async () => buttonNamed("Personality: Default").click());
+    const own = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) =>
+      entry.textContent?.startsWith("In your words"),
+    );
+    await act(async () => own?.click());
+    const voice = document.querySelector<HTMLInputElement>('[aria-label="Personality in your words"]');
+    const sample = document.querySelector<HTMLInputElement>('[aria-label="Sample reply, optional"]');
+    if (!voice || !sample) throw new Error("No voice dialog");
+    await typeInput(voice, "patient and a bit nerdy");
+    await typeInput(sample, "Fixed. It was the cache.");
+    await act(async () => buttonNamed("Save").click());
+    expect(commands.at(-1)).toEqual({
+      type: "buddy.update",
+      buddyId: "b2",
+      changes: { personality: "patient and a bit nerdy", sampleReply: "Fixed. It was the cache." },
+    });
+  });
+
+  it("reopens a voice in the person's own words when it is picked again", async () => {
+    await render(
+      projection({ buddies: [{ ...buddy("b2", "Builder", 0), personality: "patient and a bit nerdy" }] }),
+      "b2",
+    );
+    await act(async () => buttonNamed("Settings").click());
+    await act(async () => buttonNamed("Personality: patient and a bit nerdy").click());
+    const own = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) =>
+      entry.textContent?.startsWith("patient and a bit nerdy"),
+    );
+    await act(async () => own?.click());
+    const voice = document.querySelector<HTMLInputElement>('[aria-label="Personality in your words"]');
+    expect(voice?.value).toBe("patient and a bit nerdy");
   });
 
   it("moves a buddy one place down when dropped on the row below it", async () => {

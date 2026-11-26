@@ -86,10 +86,6 @@
 .buddy-stats dd { margin: 0; color: var(--zli-text); font-size: var(--zli-text-md); font-variant-numeric: tabular-nums; font-weight: 500; }
 .buddy-models, .buddy-memory { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .buddy-models li, .buddy-memory li { display: flex; align-items: center; justify-content: space-between; gap: var(--zli-space-2); color: var(--zli-muted); font-size: var(--zli-text-xs); }
-.buddy-memory li span { color: var(--zli-text); font-size: var(--zli-text-sm); }
-.buddy-lessons { display: flex; flex-direction: column; gap: var(--zli-space-1-5); padding: var(--zli-space-2); border: 1px solid var(--zli-accent-line); border-radius: var(--zli-radius-md); }
-.buddy-lesson { display: flex; flex-wrap: wrap; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-text); font-size: var(--zli-text-sm); }
-.buddy-lesson span { min-width: 160px; flex: 1; }
 .buddy-rule { display: flex; align-items: center; gap: var(--zli-space-1-5); color: var(--zli-text); font-size: var(--zli-text-sm); }
 .buddy-rule span { flex: 1; }
 .buddy-rule.is-paused span { color: var(--zli-muted); }
@@ -118,19 +114,3 @@ fieldset.job-card-actions, fieldset.buddy-colors { padding: 0; border: 0; }
 .buddy-color-choice:focus-visible { outline: 2px solid var(--zli-accent); outline-offset: 2px; }
 
 /* What a buddy has learned: a one-line tally, playbooks, then notes grouped by where they came from. */
-.buddy-learned-summary { margin: 0; color: var(--zli-muted); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
-.buddy-learned-summary strong { color: var(--zli-text); font-weight: 500; }
-.buddy-learned-group { display: flex; flex-direction: column; gap: 6px; }
-.buddy-learned-group + .buddy-learned-group { margin-top: var(--zli-space-2); }
-.buddy-learned-label { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--zli-muted); font-size: var(--zli-text-xs); font-weight: 500; }
-.buddy-learned-label span { color: var(--zli-dim); font-variant-numeric: tabular-nums; }
-.buddy-memory li .buddy-learned-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
-.buddy-learned-meta { color: var(--zli-dim); font-size: var(--zli-text-xs); }
-.buddy-playbooks { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.buddy-playbook { display: flex; align-items: flex-start; gap: var(--zli-space-2); }
-.buddy-playbook details { min-width: 0; flex: 1; }
-.buddy-playbook summary { display: flex; flex-direction: column; gap: 2px; cursor: default; list-style: none; }
-.buddy-playbook summary::-webkit-details-marker { display: none; }
-.buddy-playbook-title { color: var(--zli-text); font-size: var(--zli-text-sm); font-weight: 500; }
-.buddy-playbook ol { margin: var(--zli-space-2) 0 0; padding-left: 18px; color: var(--zli-text); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
-.buddy-playbook ol li + li { margin-top: 2px; }

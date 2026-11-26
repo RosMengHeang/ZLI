@@ -16,6 +16,34 @@ import {
   workProjects,
 } from "@zli-v2/contracts";
 
+const DONE: ReadonlySet<TaskProjection["status"]> = new Set(["ready", "shipped", "closed"]);
+
+/**
+ * One teammate as a lead sees it when handing out work: its name, what it focuses on, and the kinds of
+ * jobs it has finished. Buddies have no fixed role, so this is what the lead picks by.
+ */
+export function teamLine(entry: BuddyProjection, tasks: readonly TaskProjection[]): string {
+  const sentence = entry.instructions
+    ?.trim()
+    .split(/(?<=[.!?])\s/u)[0]
+    ?.trim();
+  const focus = sentence ? (sentence.length > 140 ? `${sentence.slice(0, 139)}…` : sentence) : undefined;
+  const kinds = new Map<string, number>();
+  for (const task of tasks)
+    if (task.buddyId === entry.buddyId && DONE.has(task.status) && task.profile)
+      kinds.set(task.profile.kind, (kinds.get(task.profile.kind) ?? 0) + 1);
+  const done = [...kinds]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 3)
+    .map(([kind, count]) => `${count} ${kind}`);
+  return [
+    `- ${entry.name}${entry.title ? ` (${entry.title})` : ""}`,
+    focus ? `: ${focus}` : ": takes any job",
+    entry.permissionMode === "read-only" ? " Read only, so it cannot change files." : "",
+    done.length > 0 ? ` Finished: ${done.join(", ")}.` : "",
+  ].join("");
+}
+
 /** The first message a buddy's job chat gets: who it is, the job, and how to report back. */
 export function jobBrief(options: {
   buddy: BuddyProjection;
@@ -140,6 +168,7 @@ export function leadBrief(options: {
     "4. If a decision only the person can make blocks the goal, call ask_person with options.",
     "5. End the turn with task_done and one line on what you handed out. You are woken again when those jobs end, with their results.",
     "Do not do the work yourself unless it is a tiny check. Give a job to yourself only if no teammate suits it.",
+    "Pick each teammate by its focus and the jobs it has finished. A teammate without a focus takes any job.",
     "",
     ...rulesText(rulesOf(buddy)),
     "",
@@ -150,7 +179,7 @@ export function leadBrief(options: {
     }; or "web".`,
     "Team:",
     ...(team.length > 0
-      ? team.map((entry) => `- ${entry.name}${entry.title ? ` (${entry.title})` : ""}`)
+      ? team.map((entry) => teamLine(entry, state.tasks ?? []))
       : ["- Only you. Give the jobs to yourself."]),
   ];
   if (jobs.length > 0)
@@ -219,10 +248,7 @@ function teamLeadBrief(options: {
     "",
     `Project: ${project && !isBuddyHome(project) ? project.name : "the web"}.`,
     picked.length > 0 ? "The person picked this team:" : "Team:",
-    ...team.map(
-      (entry) =>
-        `- ${entry.name}${entry.title ? ` (${entry.title})` : ""}${entry.buddyId === buddy.buddyId ? " (you)" : ""}`,
-    ),
+    ...team.map((entry) => `${teamLine(entry, state.tasks ?? [])}${entry.buddyId === buddy.buddyId ? " (you)" : ""}`),
   );
   const about = state.buddySettings?.aboutMe ?? [];
   if (about.length > 0)
