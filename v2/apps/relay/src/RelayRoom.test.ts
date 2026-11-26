@@ -134,15 +134,15 @@ describe("RelayRoom", () => {
     const { session } = openMessage(host);
 
     const binary = new Uint8Array([1, 2, 3]).buffer;
-    room.onFrame("phone", session, "first");
-    room.onFrame("phone", session, binary);
-    room.onFrame("phone", session, "third");
+    room.onFrame("phone", session, "first", phone);
+    room.onFrame("phone", session, binary, phone);
+    room.onFrame("phone", session, "third", phone);
 
     const sessionHost = new FakeSocket();
     expect(room.sessionHostConnected(session, sessionHost)).toBe(true);
     expect(sessionHost.sent).toEqual(["first", binary, "third"]);
 
-    room.onFrame("phone", session, "fourth");
+    room.onFrame("phone", session, "fourth", phone);
     expect(sessionHost.sent.at(-1)).toBe("fourth");
     // Frames never leak onto the control socket.
     expect(host.sent).toHaveLength(1);
@@ -156,10 +156,11 @@ describe("RelayRoom", () => {
     room.phoneConnected(phoneB, "client-b");
     const sessionA = openMessage(host, 0).session;
     const sessionB = openMessage(host, 1).session;
+    const hostB = new FakeSocket();
     room.sessionHostConnected(sessionA, new FakeSocket());
-    room.sessionHostConnected(sessionB, new FakeSocket());
+    room.sessionHostConnected(sessionB, hostB);
 
-    room.onFrame("host", sessionB, "for b");
+    room.onFrame("host", sessionB, "for b", hostB);
     expect(phoneB.sent).toEqual(["for b"]);
     expect(phoneA.sent).toEqual([]);
   });
@@ -202,15 +203,17 @@ describe("RelayRoom", () => {
 
   it("closes the host side when the phone leaves", () => {
     const { room, host } = claimedRoom();
-    room.phoneConnected(new FakeSocket(), "client-a");
+    const phone = new FakeSocket();
+    room.phoneConnected(phone, "client-a");
     const { session } = openMessage(host);
     const sessionHost = new FakeSocket();
     room.sessionHostConnected(session, sessionHost);
 
-    room.onClose("phone", session);
+    room.onClose("phone", session, phone);
     expect(sessionHost.closed?.code).toBe(1000);
     // The session is gone, so a late frame goes nowhere.
-    room.onFrame("host", session, "late");
+    room.onFrame("host", session, "late", sessionHost);
+    expect(phone.sent).toEqual([]);
   });
 
   it("closes the phone when the host side leaves", () => {
@@ -218,9 +221,10 @@ describe("RelayRoom", () => {
     const phone = new FakeSocket();
     room.phoneConnected(phone, "client-a");
     const { session } = openMessage(host);
-    room.sessionHostConnected(session, new FakeSocket());
+    const sessionHost = new FakeSocket();
+    room.sessionHostConnected(session, sessionHost);
 
-    room.onClose("host", session);
+    room.onClose("host", session, sessionHost);
     expect(phone.closed?.code).toBe(1000);
     expect(room.sessionHostConnected(session, new FakeSocket())).toBe(false);
   });
@@ -230,7 +234,7 @@ describe("RelayRoom", () => {
     const phone = new FakeSocket();
     room.phoneConnected(phone, "client-a");
     const { session } = openMessage(host);
-    room.onClose("phone", session);
+    room.onClose("phone", session, phone);
     expect(room.sessionHostConnected(session, new FakeSocket())).toBe(false);
     clock.advance(DEFAULT_LIMITS.dialTimeoutMs);
     expect(phone.closed).toBeNull();
@@ -264,6 +268,22 @@ describe("RelayRoom", () => {
     room.phoneConnected(new FakeSocket(), "client-a");
     expect(host.sent).toEqual([]);
     expect(openMessage(second).type).toBe("open");
+  });
+
+  it("drops the room at once when the current host re-claims with a wrong secret", () => {
+    const { room, host } = claimedRoom();
+    expect(room.claimHost(host, wrongSecret)).toBe(false);
+    expect(room.isHost(host)).toBe(false);
+
+    const phone = new FakeSocket();
+    expect(room.phoneConnected(phone, "client-a")).toBe("rejected");
+    expect(phone.closed?.code).toBe(1013);
+  });
+
+  it("keeps the current host when a stranger fails to claim", () => {
+    const { room, host } = claimedRoom();
+    expect(room.claimHost(new FakeSocket(), wrongSecret)).toBe(false);
+    expect(room.isHost(host)).toBe(true);
   });
 
   it("goes offline when the host control socket closes, ignoring a replaced host", () => {
@@ -318,7 +338,7 @@ describe("RelayRoom", () => {
     ]);
 
     expect(room.isHost(control)).toBe(true);
-    room.onFrame("phone", joined, "after wake");
+    room.onFrame("phone", joined, "after wake", joinedPhone);
     expect(joinedHost.sent).toEqual(["after wake"]);
     expect(lonelyPhone.closed?.code).toBe(1013);
     expect(lonelyHost.closed?.code).toBe(1008);

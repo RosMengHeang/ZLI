@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
 import { type PipeSocket, RelayRoom, type RestoredSocket, newSessionId } from "./RelayRoom.js";
+import { isWebSocketUpgrade } from "./routes.js";
 
 export interface Env {
   ROOMS: DurableObjectNamespace<RoomObject>;
@@ -21,6 +22,48 @@ interface Tagged {
 }
 
 /*
+ * A socket as RelayRoom sees it. Until the Durable Object has accepted the socket it only records
+ * what the room asked for, so the DO can pick how to accept it once the room has decided.
+ */
+class SocketPipe implements PipeSocket {
+  readonly #ws: WebSocket;
+  #accepted: boolean;
+  #queued: Array<string | ArrayBuffer> = [];
+  closeRequest: { code: number; reason: string | undefined } | null = null;
+
+  constructor(ws: WebSocket, accepted: boolean) {
+    this.#ws = ws;
+    this.#accepted = accepted;
+  }
+
+  send(data: string | ArrayBuffer): void {
+    if (!this.#accepted) {
+      this.#queued.push(data);
+      return;
+    }
+    // Sends and closes on a socket that is already closing throw; the room treats them as no-ops.
+    try {
+      this.#ws.send(data);
+    } catch {}
+  }
+
+  close(code: number, reason?: string): void {
+    if (!this.#accepted) {
+      this.closeRequest ??= { code, reason };
+      return;
+    }
+    try {
+      this.#ws.close(code, reason);
+    } catch {}
+  }
+
+  accepted(): void {
+    this.#accepted = true;
+    for (const data of this.#queued.splice(0)) this.send(data);
+  }
+}
+
+/*
  * A thin adapter: it accepts sockets with the Hibernation API and turns their events into RelayRoom
  * calls. Every socket is tagged with its role, room, and session, and the control socket stores
  * whether it holds the room. On wake the RelayRoom in memory is gone, so it is rebuilt from those
@@ -28,12 +71,13 @@ interface Tagged {
  */
 export class RoomObject extends DurableObject<Env> {
   #room: RelayRoom | null = null;
-  readonly #pipes = new WeakMap<WebSocket, PipeSocket>();
+  readonly #pipes = new WeakMap<WebSocket, SocketPipe>();
 
   override async fetch(request: Request): Promise<Response> {
     const role = request.headers.get(ROLE_HEADER);
     const roomId = request.headers.get(ROOM_HEADER);
-    if (request.headers.get("Upgrade") !== "websocket" || !roomId || !isRole(role)) {
+    const session = role === "phone" ? newSessionId() : request.headers.get(SESSION_HEADER);
+    if (!isWebSocketUpgrade(request) || !roomId || !isRole(role) || (role !== "control" && !session)) {
       return new Response("Not found", { status: 404 });
     }
     const room = this.#roomFor(roomId);
@@ -41,17 +85,26 @@ export class RoomObject extends DurableObject<Env> {
     const client = pair[0];
     const server = pair[1];
 
-    if (role === "control") {
-      this.ctx.acceptWebSocket(server, ["control", `room:${roomId}`]);
-    } else if (role === "phone") {
-      const session = newSessionId();
-      this.ctx.acceptWebSocket(server, ["phone", `room:${roomId}`, `session:${session}`]);
-      room.phoneConnected(this.#pipe(server), request.headers.get(CLIENT_HEADER) ?? "unknown", session);
+    // The room decides before the socket is accepted.
+    const pipe = new SocketPipe(server, false);
+    this.#pipes.set(server, pipe);
+    if (role === "phone" && session) {
+      room.phoneConnected(pipe, request.headers.get(CLIENT_HEADER) ?? "unknown", session);
+    } else if (role === "host" && session) {
+      room.sessionHostConnected(session, pipe);
+    }
+
+    if (pipe.closeRequest) {
+      // A refused socket gets a plain accept and close. Closing a hibernatable socket whose client
+      // has not sent anything yet leaves the client waiting in workerd, so it never learns why.
+      server.accept();
+      server.close(pipe.closeRequest.code, pipe.closeRequest.reason);
     } else {
-      const session = request.headers.get(SESSION_HEADER);
-      if (!session) return new Response("Not found", { status: 404 });
-      this.ctx.acceptWebSocket(server, ["host", `room:${roomId}`, `session:${session}`]);
-      room.sessionHostConnected(session, this.#pipe(server));
+      this.ctx.acceptWebSocket(
+        server,
+        session ? [role, `room:${roomId}`, `session:${session}`] : [role, `room:${roomId}`],
+      );
+      pipe.accepted();
     }
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -72,10 +125,6 @@ export class RoomObject extends DurableObject<Env> {
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
     this.#closed(ws);
-    // Finish the closing handshake; the socket may already be gone.
-    try {
-      ws.close(1000);
-    } catch {}
   }
 
   override async webSocketError(ws: WebSocket): Promise<void> {
@@ -125,22 +174,11 @@ export class RoomObject extends DurableObject<Env> {
     return { role, room, session: tagValue(tags, "session:") };
   }
 
-  #pipe(ws: WebSocket): PipeSocket {
+  /** The pipe for a socket the runtime already accepted (the map is empty again after a wake). */
+  #pipe(ws: WebSocket): SocketPipe {
     let pipe = this.#pipes.get(ws);
     if (!pipe) {
-      // Sends and closes on a socket that is already closing throw; the room treats them as no-ops.
-      pipe = {
-        send: (data) => {
-          try {
-            ws.send(data);
-          } catch {}
-        },
-        close: (code, reason) => {
-          try {
-            ws.close(code, reason);
-          } catch {}
-        },
-      };
+      pipe = new SocketPipe(ws, true);
       this.#pipes.set(ws, pipe);
     }
     return pipe;

@@ -92,6 +92,8 @@ export class RelayRoom {
       matches = false;
     }
     if (!matches) {
+      // The socket is being closed, so if it held the room the room is offline from now on.
+      if (this.#host === socket) this.#host = null;
       socket.close(CLOSE_POLICY, "Wrong room secret.");
       return false;
     }
@@ -143,10 +145,10 @@ export class RelayRoom {
   }
 
   /*
-   * `socket`, when given, must be the one joined on that side. A socket the room turned away
-   * (a duplicate dial, a reused session id) still fires its events and must not touch the pair.
+   * `socket` must be the one joined on that side. A socket the room turned away (a duplicate dial,
+   * a reused session id) still fires its events and must not touch the pair.
    */
-  onFrame(from: "phone" | "host", session: string, data: string | ArrayBuffer, socket?: PipeSocket): void {
+  onFrame(from: "phone" | "host", session: string, data: string | ArrayBuffer, socket: PipeSocket): void {
     const entry = this.#sessions.get(session);
     if (!entry || !isJoined(entry, from, socket)) return;
     if (from === "host") {
@@ -158,7 +160,7 @@ export class RelayRoom {
     }
   }
 
-  onClose(from: "phone" | "host", session: string, socket?: PipeSocket): void {
+  onClose(from: "phone" | "host", session: string, socket: PipeSocket): void {
     const entry = this.#sessions.get(session);
     if (!entry || !isJoined(entry, from, socket)) return;
     const peer = from === "phone" ? entry.host : entry.phone;
@@ -207,10 +209,8 @@ export class RelayRoom {
   }
 }
 
-function isJoined(entry: Session, from: "phone" | "host", socket: PipeSocket | undefined): boolean {
-  const joined = from === "phone" ? entry.phone : entry.host;
-  if (!joined) return false;
-  return socket === undefined || socket === joined;
+function isJoined(entry: Session, from: "phone" | "host", socket: PipeSocket): boolean {
+  return (from === "phone" ? entry.phone : entry.host) === socket;
 }
 
 function parseControl(text: string): RelayHostMessage | null {
