@@ -42,6 +42,33 @@ export interface UpgradeLimiter {
  */
 export async function withinRateLimit(limiter: UpgradeLimiter | undefined, request: Request): Promise<boolean> {
   if (!limiter) return true;
-  const { success } = await limiter.limit({ key: request.headers.get("CF-Connecting-IP") ?? "unknown" });
+  const { success } = await limiter.limit({ key: rateLimitKey(request.headers.get("CF-Connecting-IP") ?? "unknown") });
   return success;
+}
+
+/*
+ * IPv4 as it is. IPv6 by its /64, since one subscriber usually holds a whole /64 and could
+ * otherwise get a fresh limit per address.
+ */
+export function rateLimitKey(address: string): string {
+  if (!address.includes(":")) return address;
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/iu.exec(address);
+  if (mapped?.[1]) return mapped[1];
+  const groups = expandIPv6(address);
+  if (!groups) return address;
+  return `${groups.slice(0, 4).join(":")}::/64`;
+}
+
+/** The eight groups of an IPv6 address, lowercased without leading zeros, or null if malformed. */
+function expandIPv6(address: string): string[] | null {
+  const halves = address.toLowerCase().split("::");
+  if (halves.length > 2) return null;
+  const split = (part: string | undefined) => (part ? part.split(":") : []);
+  const head = split(halves[0]);
+  const tail = split(halves[1]);
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+  const groups = [...head, ...Array<string>(halves.length === 1 ? 0 : missing).fill("0"), ...tail];
+  if (!groups.every((group) => /^[0-9a-f]{1,4}$/u.test(group))) return null;
+  return groups.map((group) => Number.parseInt(group, 16).toString(16));
 }

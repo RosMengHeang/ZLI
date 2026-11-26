@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   type BudgetState,
   type BudgetStore,
+  type HandshakeState,
   limitsFrom,
   newSessionId,
   type PipeSocket,
@@ -41,7 +42,15 @@ interface Tagged {
 interface Attachment {
   claimed?: boolean | undefined;
   seenAt?: number | undefined;
+  /** Session host only: when it dialed in, and whether it has sent its first frame. */
+  joinedAt?: number | undefined;
+  hostSpoke?: boolean | undefined;
+  /** Phone only: what it sent before the desktop's first frame. */
+  unansweredBytes?: number | undefined;
+  unansweredFrames?: number | undefined;
 }
+
+const NUMBER_FIELDS = ["seenAt", "joinedAt", "unansweredBytes", "unansweredFrames"] as const;
 
 /*
  * A socket as RelayRoom sees it. Until the Durable Object has accepted the socket it only records
@@ -54,6 +63,8 @@ class SocketPipe implements PipeSocket {
   closeRequest: { code: number; reason: string | undefined } | null = null;
   /** When `seenAt` was last written to the attachment, to keep those writes rare. */
   seenSavedAt = 0;
+  /** The session host's attachment already says it has spoken. */
+  spokeSaved = false;
 
   constructor(ws: WebSocket, accepted: boolean) {
     this.#ws = ws;
@@ -133,8 +144,11 @@ export class RoomObject extends DurableObject<Env> {
         server,
         session ? [role, `room:${roomId}`, `session:${session}`] : [role, `room:${roomId}`],
       );
-      server.serializeAttachment({ claimed: false, seenAt: Date.now() } satisfies Attachment);
-      pipe.seenSavedAt = Date.now();
+      const now = Date.now();
+      server.serializeAttachment(
+        (role === "host" ? { seenAt: now, joinedAt: now } : { claimed: false, seenAt: now }) satisfies Attachment,
+      );
+      pipe.seenSavedAt = now;
       pipe.accepted();
     }
     return new Response(null, { status: 101, webSocket: client });
@@ -153,11 +167,7 @@ export class RoomObject extends DurableObject<Env> {
       if (room.isHost(pipe)) ws.serializeAttachment({ claimed: true, seenAt: Date.now() } satisfies Attachment);
     } else if (tagged.session) {
       room.onFrame(tagged.role, tagged.session, message, pipe);
-      const now = Date.now();
-      if (now - pipe.seenSavedAt >= this.#limits.idleTimeoutMs / 10) {
-        ws.serializeAttachment({ seenAt: now } satisfies Attachment);
-        pipe.seenSavedAt = now;
-      }
+      this.#recordFrame(ws, pipe, tagged.role, room.handshakeState(tagged.session));
     }
   }
 
@@ -175,6 +185,26 @@ export class RoomObject extends DurableObject<Env> {
     room.sweep();
     // A sweep can drop a host that stopped sending heartbeats; a later wake must not restore it.
     this.#saveClaims(room);
+  }
+
+  /*
+   * Keeps what a wake needs. Handshake progress is written on every unanswered phone frame (at most
+   * eight) and once when the session host first speaks, so pausing until the object hibernates
+   * cannot reset the caps. Plain activity is written rarely, since idle closes can be a little early.
+   */
+  #recordFrame(ws: WebSocket, pipe: SocketPipe, role: "phone" | "host", state: HandshakeState | undefined): void {
+    if (!state) return;
+    const now = Date.now();
+    let patch: Attachment | null = null;
+    if (role === "phone" && !state.hostSpoke) {
+      patch = { unansweredBytes: state.unansweredBytes, unansweredFrames: state.unansweredFrames };
+    } else if (role === "host" && state.hostSpoke && !pipe.spokeSaved) {
+      patch = { hostSpoke: true };
+      pipe.spokeSaved = true;
+    }
+    if (!patch && now - pipe.seenSavedAt < this.#limits.idleTimeoutMs / 10) return;
+    ws.serializeAttachment({ ...readAttachment(ws), ...patch, seenAt: now } satisfies Attachment);
+    pipe.seenSavedAt = now;
   }
 
   #closed(ws: WebSocket): void {
@@ -206,8 +236,25 @@ export class RoomObject extends DurableObject<Env> {
       const attachment = readAttachment(ws);
       if (tagged.role === "control") {
         restored.push({ role: "control", socket, claimed: attachment.claimed === true, seenAt: attachment.seenAt });
+      } else if (tagged.role === "phone" && tagged.session) {
+        restored.push({
+          role: "phone",
+          session: tagged.session,
+          socket,
+          seenAt: attachment.seenAt,
+          unansweredBytes: attachment.unansweredBytes,
+          unansweredFrames: attachment.unansweredFrames,
+        });
       } else if (tagged.session) {
-        restored.push({ role: tagged.role, session: tagged.session, socket, seenAt: attachment.seenAt });
+        if (attachment.hostSpoke === true) socket.spokeSaved = true;
+        restored.push({
+          role: "host",
+          session: tagged.session,
+          socket,
+          seenAt: attachment.seenAt,
+          joinedAt: attachment.joinedAt,
+          hostSpoke: attachment.hostSpoke === true,
+        });
       }
     }
     this.#room = room;
@@ -276,9 +323,14 @@ function tagValue(tags: readonly string[], prefix: string): string | undefined {
 function readAttachment(ws: WebSocket): Attachment {
   const value: unknown = ws.deserializeAttachment();
   if (typeof value !== "object" || value === null) return {};
+  const record = value as Record<string, unknown>;
   const attachment: Attachment = {};
-  if ("claimed" in value && value.claimed === true) attachment.claimed = true;
-  if ("seenAt" in value && typeof value.seenAt === "number") attachment.seenAt = value.seenAt;
+  if (record.claimed === true) attachment.claimed = true;
+  if (record.hostSpoke === true) attachment.hostSpoke = true;
+  for (const field of NUMBER_FIELDS) {
+    const number = record[field];
+    if (typeof number === "number") attachment[field] = number;
+  }
   return attachment;
 }
 

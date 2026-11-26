@@ -1,7 +1,7 @@
 import { toBase64Url } from "@zli-v2/remote-protocol";
 import { describe, expect, it } from "vitest";
 
-import { clientKey, isWebSocketUpgrade, parseRoute, withinRateLimit } from "./routes.js";
+import { clientKey, isWebSocketUpgrade, parseRoute, rateLimitKey, withinRateLimit } from "./routes.js";
 
 const room = toBase64Url(new Uint8Array(16).fill(1));
 const session = toBase64Url(new Uint8Array(16).fill(2));
@@ -72,5 +72,30 @@ describe("withinRateLimit", () => {
     expect(await withinRateLimit(limiter, request("203.0.113.7"))).toBe(true);
     expect(await withinRateLimit(limiter, request())).toBe(false);
     expect(keys).toEqual(["203.0.113.7", "unknown"]);
+  });
+});
+
+describe("rateLimitKey", () => {
+  it("keeps an IPv4 address as it is", () => {
+    expect(rateLimitKey("203.0.113.7")).toBe("203.0.113.7");
+  });
+
+  it("keys IPv6 by its /64, so one host cannot rotate through its own block", () => {
+    const key = rateLimitKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd");
+    expect(key).toBe("2001:db8:1:2::/64");
+    expect(rateLimitKey("2001:0DB8:0001:0002:1::1")).toBe(key);
+    expect(rateLimitKey("2001:db8:1:2::")).toBe(key);
+    expect(rateLimitKey("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(rateLimitKey("::1")).toBe("0:0:0:0::/64");
+    expect(rateLimitKey("2001:db8:1:3::1")).not.toBe(key);
+  });
+
+  it("keys an IPv4-mapped IPv6 address by its IPv4 part", () => {
+    expect(rateLimitKey("::ffff:203.0.113.7")).toBe("203.0.113.7");
+  });
+
+  it("passes through anything it cannot parse", () => {
+    expect(rateLimitKey("unknown")).toBe("unknown");
+    expect(rateLimitKey("1:2:3:4:5:6:7:8:9")).toBe("1:2:3:4:5:6:7:8:9");
   });
 });

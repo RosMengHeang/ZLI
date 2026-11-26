@@ -2,7 +2,7 @@ import { request as httpRequest } from "node:http";
 import { URL as NodeURL, fileURLToPath } from "node:url";
 
 import { roomIdFromSecret, toBase64Url } from "@zli-v2/remote-protocol";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { unstable_startWorker } from "wrangler";
 
 /*
@@ -39,15 +39,28 @@ afterAll(async () => {
   await worker?.dispose();
 });
 
-function socketUrl(path: string): string {
-  const url = new URL(path, base);
+/*
+ * Every request counts against the 30-a-minute limit for its address, so each test gets its own
+ * address and the tests never share a bucket.
+ */
+let address = "";
+let nextAddress = 1;
+beforeEach(() => {
+  address = `192.0.2.${nextAddress}`;
+  nextAddress += 1;
+});
+
+function socketUrl(path: string, at: string): string {
+  const url = new URL(path, at);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
 
 /** A WebSocket that records what it receives and how it closed. */
-function connect(path: string) {
-  const ws = new WebSocket(socketUrl(path));
+function connect(path: string, at: string = base) {
+  // Node's WebSocket takes headers in place of protocols; the Workers types here do not know that.
+  const init = { headers: { "CF-Connecting-IP": address } } as unknown as string[];
+  const ws = new WebSocket(socketUrl(path, at), init);
   ws.binaryType = "arraybuffer";
   const messages: Array<string | ArrayBuffer> = [];
   const waiters: Array<() => void> = [];
@@ -83,7 +96,7 @@ function rawStatus(
   upgrade: string | null,
   extra: Record<string, string> = {},
 ): Promise<number> {
-  const headers: Record<string, string> = { ...extra };
+  const headers: Record<string, string> = { "CF-Connecting-IP": address, ...extra };
   if (upgrade) {
     Object.assign(headers, {
       Connection: "Upgrade",
@@ -111,9 +124,9 @@ function rawStatus(
  * The claim travels on the control socket and the phone on its own request, so the phone can reach
  * the room before the claim is read. Retry until the host hears about one.
  */
-async function dialPhone(room: string, control: ReturnType<typeof connect>) {
+async function dialPhone(room: string, control: ReturnType<typeof connect>, at: string = base) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const phone = connect(`/v1/phone/${room}`);
+    const phone = connect(`/v1/phone/${room}`, at);
     const heard = control.next(1).then(() => "open" as const);
     const outcome = await within(Promise.race([heard, phone.closed.then(() => "closed" as const)]));
     if (outcome === "open") return phone;
@@ -174,11 +187,11 @@ describe("relay worker", () => {
   });
 
   it("answers 429 once an address passes 30 requests a minute", async () => {
-    const address = { "CF-Connecting-IP": "198.51.100.30" };
-    for (let i = 0; i < 30; i += 1) expect(await rawStatus("/", "GET", null, address)).toBe(404);
-    expect(await rawStatus("/", "GET", null, address)).toBe(429);
+    const limited = { "CF-Connecting-IP": "198.51.100.30" };
+    for (let i = 0; i < 30; i += 1) expect(await rawStatus("/", "GET", null, limited)).toBe(404);
+    expect(await rawStatus("/", "GET", null, limited)).toBe(429);
     const room = toBase64Url(new Uint8Array(16));
-    expect(await rawStatus(`/v1/phone/${room}`, "GET", "websocket", address)).toBe(429);
+    expect(await rawStatus(`/v1/phone/${room}`, "GET", "websocket", limited)).toBe(429);
     expect(await rawStatus("/", "GET", null, { "CF-Connecting-IP": "198.51.100.31" })).toBe(404);
   });
 
@@ -202,22 +215,30 @@ describe("relay worker", () => {
   it("frees a silent control socket's slot at its claim deadline, and closes it with 1008", async () => {
     const room = toBase64Url(crypto.getRandomValues(new Uint8Array(16)));
     const first = connect(`/v1/host/${room}`);
+    await within(first.opened);
     const second = connect(`/v1/host/${room}`);
-    await within(Promise.all([first.opened, second.opened]));
-    // Only two may wait to claim at once.
-    const third = connect(`/v1/host/${room}`);
-    expect(await within(third.closed)).toBe(1013);
-
+    await within(second.opened);
     await new Promise((resolve) => setTimeout(resolve, DIAL_MS + 500));
+    // The room let go of both at the deadline, so two newcomers fit without pushing anyone out.
+    const third = connect(`/v1/host/${room}`);
     const fourth = connect(`/v1/host/${room}`);
-    const fifth = connect(`/v1/host/${room}`);
-    await within(Promise.all([fourth.opened, fifth.opened]));
-    const sixth = connect(`/v1/host/${room}`);
-    expect(await within(sixth.closed)).toBe(1013);
-
+    await within(Promise.all([third.opened, fourth.opened]));
     expect(await within(first.closed, 25_000)).toBe(1008);
     expect(await within(second.closed, 5_000)).toBe(1008);
   }, 45_000);
+
+  it("closes the oldest unclaimed control socket to admit a newcomer, which can then claim", async () => {
+    const secretBytes = crypto.getRandomValues(new Uint8Array(32));
+    const room = roomIdFromSecret(secretBytes);
+    const squatters = [connect(`/v1/host/${room}`), connect(`/v1/host/${room}`)];
+    await within(Promise.all(squatters.map((squatter) => squatter.opened)));
+    const desktop = connect(`/v1/host/${room}`);
+    await within(desktop.opened);
+    desktop.ws.send(JSON.stringify({ type: "claim", secret: toBase64Url(secretBytes) }));
+    const phone = await dialPhone(room, desktop);
+    await within(phone.opened);
+    desktop.ws.close(1000);
+  });
 
   it("closes a joined session that goes quiet for the idle timeout", async () => {
     const control = await claimedControl();
@@ -245,11 +266,63 @@ describe("relay worker", () => {
 });
 
 /** A control socket that has claimed a fresh room. */
-async function claimedControl() {
+async function claimedControl(at: string = base) {
   const secretBytes = crypto.getRandomValues(new Uint8Array(32));
   const room = roomIdFromSecret(secretBytes);
-  const control = connect(`/v1/host/${room}`);
+  const control = connect(`/v1/host/${room}`, at);
   await within(control.opened);
   control.ws.send(JSON.stringify({ type: "claim", secret: toBase64Url(secretBytes) }));
   return { ...control, room };
 }
+
+/*
+ * A separate worker with long timers, so the room can sit idle long enough for workerd to
+ * hibernate it without any deadline firing first.
+ */
+describe("relay worker across hibernation", () => {
+  let sleepy: Worker;
+  let sleepyBase: string;
+
+  beforeAll(async () => {
+    sleepy = await unstable_startWorker({
+      config: fileURLToPath(new URL("../wrangler.toml", import.meta.url).href),
+      bindings: {
+        RELAY_TEST_LIMITS: {
+          type: "plain_text",
+          value: JSON.stringify({ dialTimeoutMs: 60_000, idleTimeoutMs: 120_000 }),
+        },
+      },
+      dev: { server: { hostname: "127.0.0.1", port: 0 }, inspector: false, persist: false },
+    });
+    await sleepy.ready;
+    sleepyBase = (await sleepy.url).href;
+  }, 120_000);
+
+  afterAll(async () => {
+    await sleepy?.dispose();
+  });
+
+  it("keeps the handshake frame cap on an unanswered phone after a wake", async () => {
+    const control = await claimedControl(sleepyBase);
+    const phone = await dialPhone(control.room, control, sleepyBase);
+    const open = JSON.parse(String((await control.next(1))[0])) as { session: string };
+    await within(phone.opened);
+    const sessionHost = connect(`/v1/host/${control.room}/${open.session}`, sleepyBase);
+    await within(sessionHost.opened);
+    for (let i = 0; i < 8; i += 1) phone.ws.send(`frame ${i}`);
+    await within(sessionHost.next(8));
+
+    // A witness: the room pushes out a silent unclaimed socket, and workerd only delivers that
+    // close when the object hibernates. Seeing it proves the next frame lands on a rebuilt room.
+    const witness = connect(`/v1/host/${control.room}`, sleepyBase);
+    await within(witness.opened);
+    const others = [connect(`/v1/host/${control.room}`, sleepyBase), connect(`/v1/host/${control.room}`, sleepyBase)];
+    await within(Promise.all(others.map((other) => other.opened)));
+    expect(await within(witness.closed, 30_000)).toBe(1013);
+
+    phone.ws.send("one too many");
+    expect(await within(phone.closed)).toBe(1008);
+    // The session host never sent anything, so its close waits for the next hibernation.
+    control.ws.close(1000);
+  }, 60_000);
+});

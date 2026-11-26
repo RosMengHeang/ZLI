@@ -77,8 +77,14 @@ export interface BudgetStore {
   save(state: BudgetState): void;
 }
 
-/** Saving every frame would cost a storage write per frame; a restart can lose at most this many. */
-const BUDGET_SAVE_EVERY = 64;
+/*
+ * Saving every frame would cost a storage write per frame. A restart forgets at most 7 frames of
+ * count, so the worst case is 7 extra frames per eviction, a rounding error against the daily cap.
+ */
+const BUDGET_SAVE_EVERY = 8;
+
+/** Phone frames allowed before the desktop's first frame. A handshake needs only a couple. */
+export const MAX_HANDSHAKE_FRAMES = 8;
 
 export const CLOSE_NORMAL = 1000;
 export const CLOSE_POLICY = 1008;
@@ -86,10 +92,35 @@ export const CLOSE_TOO_BIG = 1009;
 export const CLOSE_TRY_AGAIN = 1013;
 export const CLOSE_REPLACED = 4000;
 
-/** A socket as the Durable Object knows it after waking from hibernation. */
+/*
+ * A socket as the Durable Object knows it after waking from hibernation. The handshake fields come
+ * back too, so a pause long enough to hibernate does not reset the caps on an unanswered phone.
+ */
 export type RestoredSocket =
   | { role: "control"; socket: PipeSocket; claimed: boolean; seenAt?: number | undefined }
-  | { role: "phone" | "host"; session: string; socket: PipeSocket; seenAt?: number | undefined };
+  | {
+      role: "phone";
+      session: string;
+      socket: PipeSocket;
+      seenAt?: number | undefined;
+      unansweredBytes?: number | undefined;
+      unansweredFrames?: number | undefined;
+    }
+  | {
+      role: "host";
+      session: string;
+      socket: PipeSocket;
+      seenAt?: number | undefined;
+      joinedAt?: number | undefined;
+      hostSpoke?: boolean | undefined;
+    };
+
+/** What the Durable Object records per session so a wake keeps the handshake caps. */
+export interface HandshakeState {
+  hostSpoke: boolean;
+  unansweredBytes: number;
+  unansweredFrames: number;
+}
 
 interface Session {
   phone: PipeSocket;
@@ -97,9 +128,12 @@ interface Session {
   /** Frames the phone sent before the desktop dialed in. */
   waiting: Array<string | ArrayBuffer>;
   openedAt: number;
+  /** When the desktop dialed in; it must speak within twice the dial timeout after that. */
+  joinedAt: number;
   seenAt: number;
-  /** Bytes the phone sent before the desktop's first frame. */
-  unanswered: number;
+  /** Bytes and frames the phone sent before the desktop's first frame. */
+  unansweredBytes: number;
+  unansweredFrames: number;
   hostSpoke: boolean;
 }
 
@@ -123,7 +157,6 @@ export class RelayRoom {
   readonly #closed = new WeakSet<PipeSocket>();
   readonly #sessions = new Map<string, Session>();
   #budget: BudgetState;
-  #unsaved = 0;
   #timer: { handle: unknown; at: number } | null = null;
 
   constructor(
@@ -143,11 +176,16 @@ export class RelayRoom {
     return this.#host === socket;
   }
 
-  /** A new control socket. It must claim within the dial timeout, and only a few may wait. */
+  /*
+   * A new control socket. It must claim within the dial timeout, and only a few may wait. When the
+   * slots are full the oldest one goes, not the newcomer: refusing newcomers would let a stranger
+   * keep the real desktop out just by refilling the slots.
+   */
   controlConnected(socket: PipeSocket): boolean {
-    if (this.#unclaimed.size >= MAX_UNCLAIMED_CONTROLS) {
-      this.#closeControl(socket, CLOSE_TRY_AGAIN, "Too many unclaimed connections.");
-      return false;
+    while (this.#unclaimed.size >= MAX_UNCLAIMED_CONTROLS) {
+      const [oldest] = this.#unclaimed.keys();
+      if (!oldest) break;
+      this.#closeControl(oldest, CLOSE_TRY_AGAIN, "Replaced by a newer connection.");
     }
     this.#unclaimed.set(socket, this.#clock.now());
     this.#schedule();
@@ -213,8 +251,10 @@ export class RelayRoom {
       host: null,
       waiting: [],
       openedAt: now,
+      joinedAt: now,
       seenAt: now,
-      unanswered: 0,
+      unansweredBytes: 0,
+      unansweredFrames: 0,
       hostSpoke: false,
     });
     host.send(JSON.stringify({ type: "open", session, client }));
@@ -229,7 +269,8 @@ export class RelayRoom {
       return false;
     }
     entry.host = socket;
-    entry.seenAt = this.#clock.now();
+    entry.joinedAt = this.#clock.now();
+    entry.seenAt = entry.joinedAt;
     for (const frame of entry.waiting) socket.send(frame);
     entry.waiting = [];
     return true;
@@ -252,10 +293,12 @@ export class RelayRoom {
       this.#endSession(session, entry, CLOSE_TRY_AGAIN, "The daily message budget is used up.");
       return;
     }
-    if (from === "phone" && !entry.hostSpoke) {
-      // Until the desktop answers, the phone is unauthenticated, so it may only send a handshake.
-      entry.unanswered += size;
-      if (entry.unanswered > this.#limits.handshakeBytesCap) {
+    // Until the desktop answers, the phone is unauthenticated, so it may only send a handshake.
+    const unanswered = from === "phone" && !entry.hostSpoke;
+    if (unanswered) {
+      entry.unansweredBytes += size;
+      entry.unansweredFrames += 1;
+      if (entry.unansweredBytes > this.#limits.handshakeBytesCap || entry.unansweredFrames > MAX_HANDSHAKE_FRAMES) {
         this.#endSession(session, entry, CLOSE_POLICY, "Too much data before the desktop answered.");
         return;
       }
@@ -269,7 +312,18 @@ export class RelayRoom {
     } else {
       entry.waiting.push(data);
     }
-    this.#countFrame();
+    // Unanswered frames are not counted, or one stranger could spend the room's day.
+    if (!unanswered) this.#countFrame();
+  }
+
+  handshakeState(session: string): HandshakeState | undefined {
+    const entry = this.#sessions.get(session);
+    if (!entry) return undefined;
+    return {
+      hostSpoke: entry.hostSpoke,
+      unansweredBytes: entry.unansweredBytes,
+      unansweredFrames: entry.unansweredFrames,
+    };
   }
 
   onClose(from: "phone" | "host", session: string, socket: PipeSocket): void {
@@ -288,8 +342,8 @@ export class RelayRoom {
    */
   restore(sockets: readonly RestoredSocket[]): void {
     const now = this.#clock.now();
-    const phones = new Map<string, { socket: PipeSocket; seenAt: number }>();
-    const hosts = new Map<string, { socket: PipeSocket; seenAt: number }>();
+    const phones = new Map<string, RestoredSocket & { role: "phone" }>();
+    const hosts = new Map<string, RestoredSocket & { role: "host" }>();
     for (const item of sockets) {
       const seenAt = item.seenAt ?? now;
       if (item.role === "control") {
@@ -299,22 +353,26 @@ export class RelayRoom {
         } else {
           this.#closeControl(item.socket, CLOSE_TRY_AGAIN, "The relay restarted.");
         }
+      } else if (item.role === "phone") {
+        phones.set(item.session, item);
       } else {
-        (item.role === "phone" ? phones : hosts).set(item.session, { socket: item.socket, seenAt });
+        hosts.set(item.session, item);
       }
     }
     for (const [session, phone] of phones) {
       const host = hosts.get(session);
       if (host) {
-        // A joined pair is past its handshake as far as the room can tell, so the cap is lifted.
         this.#sessions.set(session, {
           phone: phone.socket,
           host: host.socket,
           waiting: [],
           openedAt: now,
-          seenAt: Math.max(phone.seenAt, host.seenAt),
-          unanswered: 0,
-          hostSpoke: true,
+          joinedAt: host.joinedAt ?? now,
+          seenAt: Math.max(phone.seenAt ?? now, host.seenAt ?? now),
+          unansweredBytes: phone.unansweredBytes ?? 0,
+          unansweredFrames: phone.unansweredFrames ?? 0,
+          // Unknown means not yet: lifting the caps on a guess would let a pause bypass them.
+          hostSpoke: host.hostSpoke === true,
         });
       } else {
         phone.socket.close(CLOSE_TRY_AGAIN, "The relay restarted.");
@@ -338,6 +396,9 @@ export class RelayRoom {
       if (!entry.host && now - entry.openedAt >= this.#limits.dialTimeoutMs) {
         this.#sessions.delete(session);
         entry.phone.close(CLOSE_TRY_AGAIN, "The desktop did not answer.");
+      } else if (entry.host && !entry.hostSpoke && now - entry.joinedAt >= this.#limits.dialTimeoutMs * 2) {
+        // A desktop that dials but never answers would hold the slot while the phone trickles.
+        this.#endSession(session, entry, CLOSE_POLICY, "The desktop did not answer.");
       } else if (now - entry.seenAt >= this.#limits.idleTimeoutMs) {
         this.#endSession(session, entry, CLOSE_NORMAL, "Idle for too long.");
       }
@@ -380,10 +441,7 @@ export class RelayRoom {
 
   #today(): BudgetState {
     const day = utcDay(this.#clock.now());
-    if (this.#budget.day !== day) {
-      this.#budget = { day, count: 0, told: false };
-      this.#unsaved = 0;
-    }
+    if (this.#budget.day !== day) this.#budget = { day, count: 0, told: false };
     return this.#budget;
   }
 
@@ -394,9 +452,8 @@ export class RelayRoom {
   #countFrame(): void {
     const budget = this.#today();
     budget.count += 1;
-    this.#unsaved += 1;
     if (budget.count >= this.#limits.messagesPerDay) this.#tellBudget();
-    if (this.#unsaved >= BUDGET_SAVE_EVERY || budget.count === 1) this.#saveBudget();
+    if (budget.count === 1 || budget.count % BUDGET_SAVE_EVERY === 0) this.#saveBudget();
   }
 
   /** Tells the host once a day. If no host is there, the next one to claim is told. */
@@ -410,7 +467,6 @@ export class RelayRoom {
   }
 
   #saveBudget(): void {
-    this.#unsaved = 0;
     this.#store?.save(this.#budget);
   }
 
@@ -421,6 +477,7 @@ export class RelayRoom {
     for (const entry of this.#sessions.values()) {
       next = Math.min(next, entry.seenAt + this.#limits.idleTimeoutMs);
       if (!entry.host) next = Math.min(next, entry.openedAt + this.#limits.dialTimeoutMs);
+      else if (!entry.hostSpoke) next = Math.min(next, entry.joinedAt + this.#limits.dialTimeoutMs * 2);
     }
     // Deadlines only move later between sweeps, so an earlier timer can stay; the sweep reschedules.
     if (this.#timer && this.#timer.at <= next) return;
@@ -457,11 +514,15 @@ function byteLength(data: string | ArrayBuffer): number {
     const code = data.charCodeAt(i);
     if (code < 0x80) bytes += 1;
     else if (code < 0x800) bytes += 2;
-    else if (code >= 0xd800 && code < 0xdc00 && i + 1 < data.length) {
+    else if (code >= 0xd800 && code < 0xdc00 && isLowSurrogate(data.charCodeAt(i + 1))) {
       // A surrogate pair is one four-byte character.
       bytes += 4;
       i += 1;
     } else bytes += 3;
   }
   return bytes;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
 }
