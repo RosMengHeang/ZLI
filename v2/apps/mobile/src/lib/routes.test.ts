@@ -304,4 +304,35 @@ describe("raceRoutes", () => {
     await vi.advanceTimersByTimeAsync(50);
     await expect(result).resolves.toMatchObject({ route: "relay" });
   });
+  it("sequential with no LAN hosts goes straight to the relay", async () => {
+    const relaySession = fakeSession();
+    const result = raceRoutes({
+      lanHosts: [],
+      port: 1,
+      relay,
+      sequential: true,
+      open: (_url, signal) => after(10, relaySession, signal),
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(result).resolves.toMatchObject({ route: "relay" });
+  });
+
+  it("sequential with no LAN hosts and no relay rejects at once", async () => {
+    const result = raceRoutes({ lanHosts: [], port: 1, sequential: true, open: () => new Promise(() => {}) });
+    await expect(result).rejects.toMatchObject({ failure: "network" });
+  });
+
+  it("lets a later LAN blocking failure outrank an earlier relay one", async () => {
+    const result = raceRoutes({
+      lanHosts: ["a"],
+      port: 1,
+      relay,
+      lastRoute: "relay",
+      open: (url, signal) =>
+        url.startsWith("wss://") ? after(0, fail("not-paired"), signal) : after(500, fail("handshake"), signal),
+    });
+    const settled = expect(result).rejects.toMatchObject({ failure: "handshake", route: "lan" });
+    await vi.advanceTimersByTimeAsync(600);
+    await settled;
+  });
 });

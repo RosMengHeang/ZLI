@@ -70,11 +70,20 @@ export function raceRoutes(options: RaceOptions): Promise<RouteResult> {
       for (const attempt of attempts) if (attempt !== winner) attempt.abort();
       outcome();
     };
-    const rank = (failure: RemoteFailure) =>
-      blockingRouteFailures.has(failure) ? 0 : failure === "network" ? 3 : failure === "timeout" ? 2 : 1;
+    // A LAN blocking failure is authenticated by the route itself; a relay's is only a hint.
+    const rank = ({ error, route }: { error: RemoteConnectError; route: RouteKind }) =>
+      blockingRouteFailures.has(error.failure)
+        ? route === "lan"
+          ? 0
+          : 1
+        : error.failure === "network"
+          ? 4
+          : error.failure === "timeout"
+            ? 3
+            : 2;
     const rejectBest = () => {
       // Blocking evidence first, then anything but a bare network or timeout failure.
-      const best = [...failures].sort((left, right) => rank(left.error.failure) - rank(right.error.failure))[0];
+      const best = [...failures].sort((left, right) => rank(left) - rank(right))[0];
       finish(() =>
         reject(
           best
@@ -151,7 +160,8 @@ export function raceRoutes(options: RaceOptions): Promise<RouteResult> {
     }
     if (relay) {
       if (options.sequential) {
-        // The LAN chain starts the relay when it ends.
+        // The LAN chain starts the relay when it ends; with no LAN hosts there is no chain.
+        if (lanHosts.length === 0) startRelay();
       } else if (lanHosts.length === 0 || headStart === 0) startRelay();
       else headStartTimer = setTimeout(startRelay, headStart);
     }
