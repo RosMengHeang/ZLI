@@ -176,6 +176,11 @@ export class MobileGateway {
   accept(socket: WebSocket, origin: ConnectionOrigin): void {
     // The gateway owns the socket from here. A refused one can still fail late, and an unheard error would throw.
     socket.on("error", () => undefined);
+    // A heartbeat ping on a socket that is still connecting would throw.
+    if (socket.readyState !== WebSocket.OPEN) {
+      socket.terminate();
+      return;
+    }
     if (!this.#server) {
       socket.close(RemoteCloseCode.tryAgain);
       return;
@@ -183,6 +188,8 @@ export class MobileGateway {
     // A compressed frame can inflate far past what the frame cap saw on the wire.
     if (socket.extensions.includes("permessage-deflate")) {
       socket.close(RemoteCloseCode.protocol);
+      // The peer may never answer the close, and a refused socket should not linger.
+      socket.terminate();
       return;
     }
     this.#accept(socket, origin);

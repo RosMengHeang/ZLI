@@ -1,0 +1,260 @@
+import { EventEmitter } from "node:events";
+
+import { type RelayRoute, toBase64Url } from "@zli-v2/remote-protocol";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { WebSocket } from "ws";
+
+import { PHONE_SOCKET_OPTIONS } from "./MobileGateway.js";
+import { RelayHost, type RelayState } from "./RelayHost.js";
+
+const route: RelayRoute = { url: "wss://relay.example.test", room: "AAAAAAAAAAAAAAAAAAAAAA" };
+const session = "BBBBBBBBBBBBBBBBBBBBBQ";
+const secret = new Uint8Array(32).fill(7);
+
+/** Just enough of a ws socket for the host: events, send, close, terminate. */
+class FakeSocket extends EventEmitter {
+  readyState = 0;
+  sent: string[] = [];
+  closeCode: number | undefined;
+  constructor(
+    readonly url: string,
+    readonly options: unknown,
+  ) {
+    super();
+  }
+  send(data: string) {
+    this.sent.push(data);
+  }
+  close(code?: number) {
+    this.closeCode = code;
+    this.readyState = 3;
+    this.emit("close", code ?? 1005);
+  }
+  terminate() {
+    this.readyState = 3;
+    this.emit("close", 1006);
+  }
+  open() {
+    this.readyState = 1;
+    this.emit("open");
+  }
+  receive(message: unknown) {
+    this.emit("message", Buffer.from(typeof message === "string" ? message : JSON.stringify(message)), false);
+  }
+  drop() {
+    this.readyState = 3;
+    this.emit("close", 1006);
+  }
+}
+
+describe("RelayHost", () => {
+  let sockets: FakeSocket[];
+  let states: RelayState[];
+  let accepted: Array<{ socket: unknown; origin: unknown }>;
+  let clock: number;
+  let host: RelayHost;
+
+  const control = () => sockets[0] as FakeSocket;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    sockets = [];
+    states = [];
+    accepted = [];
+    clock = Date.UTC(2026, 10, 26, 12, 0, 0);
+    host = new RelayHost({
+      route,
+      secret,
+      gateway: { accept: (socket, origin) => accepted.push({ socket, origin }) },
+      createSocket: (url, options) => {
+        const socket = new FakeSocket(url, options);
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+      onState: (state) => states.push(state),
+      now: () => clock,
+      random: () => 0.5,
+    });
+  });
+  afterEach(() => {
+    host.stop();
+    vi.useRealTimers();
+  });
+
+  it("dials the host url with the phone socket options and claims the room on open", () => {
+    host.start();
+    expect(states).toEqual(["connecting"]);
+    expect(control().url).toBe(`wss://relay.example.test/v1/host/${route.room}`);
+    expect(control().options).toBe(PHONE_SOCKET_OPTIONS);
+    control().open();
+    expect(JSON.parse(control().sent[0] as string)).toEqual({ type: "claim", secret: toBase64Url(secret) });
+    expect(states.at(-1)).toBe("online");
+  });
+
+  it("pings every 20 seconds while connected", () => {
+    host.start();
+    control().open();
+    vi.advanceTimersByTime(20_000);
+    expect(JSON.parse(control().sent[1] as string)).toEqual({ type: "ping" });
+    vi.advanceTimersByTime(40_000);
+    expect(control().sent).toHaveLength(4);
+  });
+
+  it("dials the session and hands it to the gateway only once it is open", () => {
+    host.start();
+    control().open();
+    control().receive({ type: "open", session, client: "abc123" });
+    const dialed = sockets[1] as FakeSocket;
+    expect(dialed.url).toBe(`wss://relay.example.test/v1/host/${route.room}/${session}`);
+    expect(dialed.options).toBe(PHONE_SOCKET_OPTIONS);
+    expect(accepted).toHaveLength(0);
+    dialed.open();
+    expect(accepted).toEqual([{ socket: dialed, origin: { route: "relay", client: "abc123" } }]);
+  });
+
+  it("drops a session socket that fails before it opens", () => {
+    host.start();
+    control().open();
+    control().receive({ type: "open", session, client: "abc123" });
+    const dialed = sockets[1] as FakeSocket;
+    dialed.emit("error", new Error("nope"));
+    dialed.drop();
+    dialed.open();
+    expect(accepted).toHaveLength(0);
+    // The slot is free again.
+    for (let index = 0; index < 8; index += 1) control().receive({ type: "open", session, client: `c${index}` });
+    expect(sockets).toHaveLength(10);
+  });
+
+  it("refuses a ninth simultaneous session", () => {
+    host.start();
+    control().open();
+    for (let index = 0; index < 9; index += 1) control().receive({ type: "open", session, client: `c${index}` });
+    expect(sockets).toHaveLength(9);
+  });
+
+  it("goes offline when the control socket drops, then reconnects after a backoff", () => {
+    host.start();
+    control().open();
+    control().drop();
+    expect(states.at(-1)).toBe("offline");
+    vi.advanceTimersByTime(499);
+    expect(sockets).toHaveLength(1);
+    vi.advanceTimersByTime(1000);
+    expect(sockets).toHaveLength(2);
+    expect(states.at(-1)).toBe("connecting");
+  });
+
+  it("backs off further on repeated failures, capped at a minute", () => {
+    host.start();
+    let previous = 0;
+    for (let index = 0; index < 10; index += 1) {
+      (sockets.at(-1) as FakeSocket).drop();
+      const before = sockets.length;
+      let waited = 0;
+      while (sockets.length === before) {
+        vi.advanceTimersByTime(250);
+        waited += 250;
+      }
+      expect(waited).toBeGreaterThanOrEqual(previous);
+      expect(waited).toBeLessThanOrEqual(60_000);
+      previous = waited;
+    }
+    expect(previous).toBeGreaterThan(20_000);
+  });
+
+  it("stops pinging once the control socket is gone", () => {
+    host.start();
+    control().open();
+    control().drop();
+    vi.advanceTimersByTime(19_000);
+    expect(control().sent).toHaveLength(1);
+  });
+
+  it("waits for the next UTC midnight after a budget message", () => {
+    host.start();
+    control().open();
+    control().receive({ type: "budget" });
+    expect(states.at(-1)).toBe("budget-exhausted");
+    expect(control().readyState).toBe(3);
+    // Twelve hours to midnight, plus 2.5 minutes of jitter at random() = 0.5.
+    vi.advanceTimersByTime(12 * 3600_000);
+    expect(sockets).toHaveLength(1);
+    vi.advanceTimersByTime(150_000);
+    expect(sockets).toHaveLength(2);
+    expect(states.at(-1)).toBe("connecting");
+  });
+
+  it("does not treat the control close after a budget message as an outage", () => {
+    host.start();
+    control().open();
+    control().receive({ type: "budget" });
+    control().drop();
+    vi.advanceTimersByTime(3600_000);
+    expect(sockets).toHaveLength(1);
+    expect(states.at(-1)).toBe("budget-exhausted");
+  });
+
+  it("retries a budget-exhausted host on an explicit start after stop", () => {
+    host.start();
+    control().open();
+    control().receive({ type: "budget" });
+    host.stop();
+    host.start();
+    expect(sockets).toHaveLength(2);
+    vi.advanceTimersByTime(24 * 3600_000);
+    expect(sockets).toHaveLength(2);
+  });
+
+  it("stop closes everything and never reconnects", () => {
+    host.start();
+    control().open();
+    control().receive({ type: "open", session, client: "abc123" });
+    const dialed = sockets[1] as FakeSocket;
+    dialed.open();
+    host.stop();
+    expect(control().readyState).toBe(3);
+    expect(dialed.readyState).toBe(3);
+    expect(states.at(-1)).toBe("off");
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(sockets).toHaveLength(2);
+  });
+
+  it("does not hand over a session that opens after stop", () => {
+    host.start();
+    control().open();
+    control().receive({ type: "open", session, client: "abc123" });
+    const pending = sockets[1] as FakeSocket;
+    host.stop();
+    pending.open();
+    expect(accepted).toHaveLength(0);
+  });
+
+  it("ignores a malformed server message", () => {
+    host.start();
+    control().open();
+    for (const bad of ["not json", "{}", { type: "open", session: "../x", client: "a" }, { type: "nope" }, "[]"]) {
+      expect(() => control().receive(bad)).not.toThrow();
+    }
+    expect(sockets).toHaveLength(1);
+    expect(states.at(-1)).toBe("online");
+  });
+
+  it("closes a control socket that sends more than 4 KiB", () => {
+    host.start();
+    control().open();
+    control().receive("x".repeat(4097));
+    expect(control().closeCode).toBe(1009);
+  });
+
+  it("survives a control socket error", () => {
+    host.start();
+    expect(() => control().emit("error", new Error("boom"))).not.toThrow();
+  });
+
+  it("start is a no-op while already running", () => {
+    host.start();
+    host.start();
+    expect(sockets).toHaveLength(1);
+  });
+});

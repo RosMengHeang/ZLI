@@ -621,6 +621,22 @@ describe("MobileGateway", () => {
       expect(await code).toBe(RemoteCloseCode.protocol);
     });
 
+    it("cuts off a compressed relay socket after refusing it", async () => {
+      const { desktop, far } = await relay.bare({});
+      far.pause();
+      gateway.accept(desktop, { route: "relay", client: "abc123" });
+      // The peer never answers the close, so only terminate() gets it to CLOSED quickly.
+      await until(() => desktop.readyState === WsSocket.CLOSED);
+    });
+
+    it("drops a relay socket that is not open yet", async () => {
+      const connecting = new WsSocket("ws://127.0.0.1:9/never", PHONE_SOCKET_OPTIONS);
+      connecting.on("error", () => undefined);
+      expect(connecting.readyState).toBe(WsSocket.CONNECTING);
+      expect(() => gateway.accept(connecting, { route: "relay", client: "abc123" })).not.toThrow();
+      await until(() => connecting.readyState === WsSocket.CLOSED);
+    });
+
     it("lets stop() cut off a refused relay socket that is still closing", async () => {
       const held = await Promise.all([1, 2, 3, 4].map(() => relay.bare()));
       held.forEach(({ desktop }, index) => {
