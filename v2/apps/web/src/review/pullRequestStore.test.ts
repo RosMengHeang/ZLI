@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Dispatch } from "./pullRequestClient.js";
 import {
   pullRequestEntry,
+  pullRequestTriggers,
   recordPullRequest,
   refreshPullRequest,
   resetPullRequestStoreForTests,
@@ -74,7 +75,56 @@ describe("pullRequestStore", () => {
       status: { ...STATUS, pullRequest: { ...pullRequest, checks: [{ name: "test", state: "pending" as const }] } },
       checking: false,
     };
-    const quiet = { status: STATUS, checking: false };
-    expect(staleAfter(pending)).toBeLessThan(staleAfter(quiet));
+    const passed = {
+      status: { ...STATUS, pullRequest: { ...pullRequest, checks: [{ name: "test", state: "passed" as const }] } },
+      checking: false,
+    };
+    expect(staleAfter(pending)).toBeLessThan(staleAfter(passed));
+    // A pull request CI has not picked up yet is looked at as soon as one with checks running.
+    const noChecksYet = { status: { ...STATUS, pullRequest: { ...pullRequest, checks: [] } }, checking: false };
+    expect(staleAfter(noChecksYet)).toBe(staleAfter(pending));
+  });
+
+  it("checks a pushed branch without a pull request sooner than one never pushed", () => {
+    const { pullRequest: _pullRequest, ...withoutPullRequest } = STATUS;
+    const pushed = {
+      status: { ...withoutPullRequest, commitsAhead: 2, upstream: { name: "origin/feature", ahead: 0, behind: 0 } },
+      checking: false,
+    };
+    const local = { status: withoutPullRequest, checking: false };
+    expect(staleAfter(pushed)).toBeLessThan(staleAfter(local));
+  });
+});
+
+describe("pullRequestTriggers", () => {
+  const threads = [{ threadId: "t1", worktreeId: "w1" }] as never;
+  const command = (id: string, line: string, status: "running" | "completed" = "completed") => ({
+    activityId: id,
+    threadId: "t1",
+    kind: "command" as const,
+    title: "Run a command",
+    command: line,
+    status,
+  });
+
+  it("lists finished gh pr create and git push steps and replies that link a pull request", () => {
+    const key = pullRequestTriggers({
+      threads,
+      activities: [
+        command("a1", 'gh pr create --title "x" --body "y"'),
+        command("a2", "git push -u origin feature"),
+        command("a3", "gh pr create", "running"),
+        command("a4", "npm test"),
+      ],
+      messages: [
+        { messageId: "m1", threadId: "t1", role: "assistant", text: "Opened https://github.com/acme/app/pull/180." },
+        { messageId: "m2", threadId: "t1", role: "assistant", text: "Done." },
+      ],
+    } as never);
+    expect(key.split("\n")).toEqual(["w1 a1", "w1 a2", "w1 m1"]);
+  });
+
+  it("is empty without a projection", () => {
+    expect(pullRequestTriggers(undefined)).toBe("");
   });
 });

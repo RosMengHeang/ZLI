@@ -203,7 +203,7 @@ export class AcpClient {
     private readonly cwd: string,
     private readonly displayName: string,
     private readonly authHint: string | undefined,
-    private readonly permissionMode: AcpPermissionMode,
+    private permissionMode: AcpPermissionMode,
     private readonly timeoutMs: number,
     private readonly readAttachment: (path: string) => Promise<Buffer>,
   ) {
@@ -288,12 +288,15 @@ export class AcpClient {
     model?: string;
     reasoningEffort?: string;
     attachments?: readonly AcpImageAttachment[];
+    /** ZLI answers the agent's permission requests itself, so a new mode applies from this turn on. */
+    permissionMode?: AcpPermissionMode;
   }): Promise<AcpTurnResult> {
     this.assertOpen();
     if (this.active)
       throw new AcpProviderError("request_failed", `${this.displayName} already has a turn in progress.`);
     const turn: ActiveTurn = { id: randomUUID(), text: "", tools: new Map(), prompted: false };
     this.active = turn;
+    if (input.permissionMode) this.permissionMode = input.permissionMode;
     let prompt: Array<Record<string, unknown>>;
     try {
       await settleWithin(this.promptSettled, CANCEL_SETTLE_MS);

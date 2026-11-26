@@ -53,6 +53,7 @@ export function AgentModelPicker({
   prefer = "above",
   className,
   field = false,
+  onOpen,
 }: {
   provider: string | undefined;
   agentName: string;
@@ -75,6 +76,8 @@ export function AgentModelPicker({
   className?: string | undefined;
   /** Looks like a form field, full width, instead of a toolbar button. */
   field?: boolean;
+  /** Called each time the menu opens, so the agent and model lists can be read again. */
+  onOpen?: (() => void) | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -323,6 +326,7 @@ export function AgentModelPicker({
           else {
             setShown(ownKey);
             setOpen(true);
+            onOpen?.();
           }
         }}
         onKeyDown={(event) => {

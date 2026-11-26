@@ -172,7 +172,7 @@ describe("ChatView", () => {
         .find((option) => option.dataset.label === "Opus")
         ?.click(),
     );
-    expect(onSwitchAgent).toHaveBeenCalledWith("claude-code", "opus");
+    expect(onSwitchAgent).toHaveBeenCalledWith("claude-code", "opus", undefined);
   });
 
   it("offers other agents in a started chat once the agent is idle, but not while it works", async () => {
@@ -218,7 +218,7 @@ describe("ChatView", () => {
         .find((option) => option.dataset.label === "Opus")
         ?.click(),
     );
-    expect(onSwitchAgent).toHaveBeenCalledWith("claude-code", "opus");
+    expect(onSwitchAgent).toHaveBeenCalledWith("claude-code", "opus", undefined);
 
     const busy = await render(
       projectionWith({ threads: [{ ...thread, status: "working" }], providers, messages }),
@@ -1175,6 +1175,33 @@ describe("ChatView", () => {
     await act(async () => button(container, "Send")?.click());
     expect(dispatched.at(-1)?.command).toMatchObject({ type: "thread.queue", text: "hi", model: "gpt-5.1-codex" });
   });
+  it("keeps the effort the last message used when the chat opens again, instead of going back to Low", async () => {
+    const idle = {
+      ...thread,
+      status: "idle",
+      capabilities: { reasoningEfforts: ["low", "medium", "high"] },
+    } as ThreadProjection;
+    const shown = async (projection: RuntimeProjection) => {
+      const { container } = await render(projection);
+      return container.querySelector('[aria-label^="Reasoning: "]')?.getAttribute("aria-label");
+    };
+    // Sent: the thread holds the level.
+    expect(await shown(projectionWith({ threads: [{ ...idle, reasoningEffort: "medium" }] }))).toBe(
+      "Reasoning: Medium",
+    );
+    // Still waiting in the queue, before the thread records it.
+    expect(
+      await shown(
+        projectionWith({
+          threads: [idle],
+          queuedMessages: [{ queueId: "q1", threadId: idle.threadId, text: "first", reasoningEffort: "high" }],
+        }),
+      ),
+    ).toBe("Reasoning: High");
+    // Nothing sent yet: a new chat starts on Low.
+    expect(await shown(projectionWith({ threads: [idle] }))).toBe("Reasoning: Low");
+  });
+
   it("shows a Claude tool request in plain words and can allow the tool for the chat", async () => {
     const { container, dispatched } = await render(
       projectionWith({

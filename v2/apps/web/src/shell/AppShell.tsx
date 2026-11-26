@@ -66,7 +66,7 @@ import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.
 import { PullRequestPane } from "../review/PullRequestPane.js";
 import { PullRequestsPage } from "../review/PullRequestsPage.js";
 import { copyFilesFrom } from "../review/pullRequestClient.js";
-import { usePullRequestEntries, usePullRequestPolling } from "../review/pullRequestStore.js";
+import { usePullRequestEntries, usePullRequestPolling, usePullRequestTriggers } from "../review/pullRequestStore.js";
 import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
 import type { SentNotice } from "../review/SendToAgentButton.js";
@@ -141,6 +141,7 @@ import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { chatAfterDelete } from "../sidebar/nextChat.js";
 import { isBuddySession, type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { SidebarResizer, useSidebarWidth } from "../sidebar/SidebarResizer.js";
+import { usePanelTerminals } from "../terminal/panelTerminals.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { SYSTEM_THEME, themeChoices } from "../theme/customThemes.js";
 import { ThemeEditor } from "../theme/ThemeEditor.js";
@@ -172,7 +173,6 @@ import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
 import { launcherItems as buildLauncherItems } from "./launcherItems.js";
 import { type ChatFolder, NoProjectChat } from "./NoProjectChat.js";
-import { usePanelTerminals } from "../terminal/panelTerminals.js";
 import { PanelStart, PanelTabs } from "./PanelTabs.js";
 import {
   DisconnectedState,
@@ -351,6 +351,8 @@ function WorkspaceApp() {
   }, [projection?.worktrees, projection?.projects]);
   // Keeps the sidebar's pull request and CI badges current; checks still running are revisited sooner.
   usePullRequestPolling(dispatch, readyWorktreeIds);
+  // An agent that opens a pull request or pushes shows it at once, not on the next poll.
+  usePullRequestTriggers(dispatch);
   // A chat whose pull request merged or closed is done; it moves to Archived, once, unless that is turned off.
   const pullRequests = usePullRequestEntries();
   useEffect(() => {
@@ -400,7 +402,8 @@ function WorkspaceApp() {
   const maximized = tiles.find((session) => session.sessionId === workbench.maximizedSessionId);
   // One chat fills the board unless the person asked for several side by side; the sidebar switches between them.
   // Terminal work keeps its board of agents.
-  const severalOnScreen = settings.severalChats || workStyleOf(settings.defaults) === "terminal";
+  // Only the "several chats at once" setting puts more than one on screen; the work style never does.
+  const severalOnScreen = settings.severalChats;
   const shownAlone = severalOnScreen ? undefined : (activeSession ?? tiles.at(-1));
   const visibleTiles = maximized ? [maximized] : shownAlone ? [shownAlone] : tiles;
   const findWorktree = useCallback(
@@ -1967,6 +1970,7 @@ function WorkspaceApp() {
     session: AgentSession,
     provider: string,
     model: string | undefined,
+    pickedAccount?: string,
   ): Promise<string | undefined> => {
     const current = projectionRef.current;
     const worktree = findWorktree(session.worktreeId);
@@ -1980,7 +1984,7 @@ function WorkspaceApp() {
       if (!(await send({ type: "thread.stop", threadId: thread.threadId })))
         return "The current chat could not be stopped.";
     }
-    const accountId = launchAccountId(accounts, provider, undefined);
+    const accountId = launchAccountId(accounts, provider, pickedAccount);
     const failure = await startSessionAgent(dispatch, current, {
       provider,
       mode: "chat",
@@ -3223,7 +3227,7 @@ function WorkspaceApp() {
                               onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
                               onSwitchAgent={
                                 newChatTarget(session)
-                                  ? (provider, model) => switchChatAgent(session, provider, model)
+                                  ? (provider, model, accountId) => switchChatAgent(session, provider, model, accountId)
                                   : undefined
                               }
                               onDraftChange={(change) => changeDraft(session.sessionId, change)}

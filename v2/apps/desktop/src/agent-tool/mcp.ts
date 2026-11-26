@@ -57,7 +57,8 @@ const BUDDY_TOOLS: readonly McpTool[] = [
     name: "ask_person",
     title: "Ask the person",
     action: "buddyask",
-    description: `${BUDDY_JOB} Ask the person for a decision you should not guess, such as a product choice. It shows in their Needs you list. End your turn after asking; the answer comes as your next message.`,
+    description:
+      "Ask the person for a decision you should not guess, such as a choice between approaches or whether a project rule applies. Look into it first, then ask one clear question with options. It shows as a question card in your chat (in a buddy job, in their Needs you list). End your turn after asking; the answer comes as your next message.",
     properties: {
       question: { type: "string", description: "One clear question." },
       options: { type: "array", items: { type: "string" }, description: "Up to 6 short answers to pick from." },
@@ -350,8 +351,11 @@ const SERVICE_TOOL_NAMES = new Set(
   ),
 );
 
+/** Asking the person changes nothing, so every agent keeps it whatever the access setting. */
+const ALWAYS_TOOL_NAMES = new Set([...SERVICE_TOOL_NAMES, "ask_person"]);
+
 const READ_TOOL_NAMES = new Set([
-  ...SERVICE_TOOL_NAMES,
+  ...ALWAYS_TOOL_NAMES,
   ...AGENT_MCP_TOOLS.filter((tool) => READ_AGENT_CONTROL_ACTIONS.some((action) => action === tool.action)).map(
     (tool) => tool.name,
   ),
@@ -390,7 +394,7 @@ export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
   return createToolServer(call, {
     tools: AGENT_MCP_TOOLS,
     serverInfo: { name: "zli", title: "ZLI agents", version: ZLI_AGENT_TOOL_VERSION },
-    instructions: `${ROOM} Work with other agents through list_agents, read_agent, message_agent, and start_agent; name them, or write project/agent for one in another project. A call across projects can wait for the person to allow it. Reach services the person connected, such as GitHub or Linear, with find_tools then use_tool, and connect_service when none fits or a sign-in is needed. Buddy jobs end with task_done; ask the person with ask_person and give parts away with hand_off. The Primary starts a team with start_team; a team lead hands in its plan with team_plan.`,
+    instructions: `${ROOM} Work with other agents through list_agents, read_agent, message_agent, and start_agent; name them, or write project/agent for one in another project. A call across projects can wait for the person to allow it. Reach services the person connected, such as GitHub or Linear, with find_tools then use_tool, and connect_service when none fits or a sign-in is needed. When only the person can decide something, ask with ask_person. Buddy jobs end with task_done and give parts away with hand_off. The Primary starts a team with start_team; a team lead hands in its plan with team_plan.`,
     targetProperties: {
       cwd: {
         type: "string",
@@ -403,7 +407,7 @@ export function createAgentMcpServer(call: ZliBrowserCall): McpServer {
     // Settings can limit what agents may do; listing only allowed tools keeps agents from trying the rest.
     visibleTools: async () => {
       const result = (await call("agentaccess")) as { access?: unknown } | null;
-      if (result?.access === "off") return SERVICE_TOOL_NAMES;
+      if (result?.access === "off") return ALWAYS_TOOL_NAMES;
       if (result?.access === "read") return READ_TOOL_NAMES;
       return undefined;
     },

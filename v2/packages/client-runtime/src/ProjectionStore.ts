@@ -318,6 +318,15 @@ export class ProjectionStore {
           lastSequence: envelope.sequence,
         };
         break;
+      case "thread.titled":
+        this.#projection = {
+          ...current,
+          threads: current.threads.map((thread) =>
+            thread.threadId === event.threadId ? { ...thread, chatTitle: event.title } : thread,
+          ),
+          lastSequence: envelope.sequence,
+        };
+        break;
       case "terminal.activity.changed":
         this.#projection = {
           ...current,

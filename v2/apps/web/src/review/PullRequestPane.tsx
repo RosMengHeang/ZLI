@@ -4,6 +4,7 @@ import { type KeyboardEvent, useEffect, useState } from "react";
 import { Markdown } from "../chat/Markdown.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { relativeTime, type SessionMode } from "../sessions/sessions.js";
+import { checksView } from "../shell/overview.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { openExternalLink } from "./links.js";
@@ -104,6 +105,7 @@ export function PullRequestPane({
   };
   const checks = pullRequest.checks ?? [];
   const summary = checks.length > 0 ? checksSummary(checks) : undefined;
+  const count = checksView(pullRequest);
   const mergeable = pullRequest.state === "OPEN" && !pullRequest.isDraft;
   const state = pullRequestState(pullRequest);
   const base = pullRequest.baseRefName ?? entry?.status?.defaults.base;
@@ -228,6 +230,7 @@ export function PullRequestPane({
                   size={13}
                 />
                 <span className="pr-pane-checks-text">{summary.text}</span>
+                {count ? <span className={`pr-checks-count is-${count.tone}`}>{count.count}</span> : null}
                 <Icon name={showChecks ? "chevronUp" : "chevronDown"} size={12} />
               </button>
               {showChecks ? (

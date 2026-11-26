@@ -28,7 +28,15 @@ const UNATTENDED_OFF = ["AskUserQuestion", "EnterPlanMode", "ExitPlanMode"] as c
 /** The file-writing tools, refused outright for a read-only agent that runs unattended. */
 const READ_ONLY_OFF = ["Edit", "Write", "NotebookEdit"] as const;
 
-export const CLAUDE_SESSION_ARGS = [...BASE_ARGS, "--permission-mode", "bypassPermissions"] as const;
+// The prompt tool is on in full access too: Claude still sends AskUserQuestion through it, which shows as a question
+// card in ZLI instead of failing. Every other tool runs without asking.
+export const CLAUDE_SESSION_ARGS = [
+  ...BASE_ARGS,
+  "--permission-mode",
+  "bypassPermissions",
+  "--permission-prompt-tool",
+  "stdio",
+] as const;
 
 /**
  * ZLI's own files in its data folder (keys, settings, the database, saved sign-ins, the browser's key store), by

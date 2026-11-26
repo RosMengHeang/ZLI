@@ -227,6 +227,8 @@ export const RuntimeCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread.stop"), threadId: ThreadId }),
   /** Names a chat agent, or clears its name with null. */
   z.object({ type: z.literal("thread.rename"), threadId: ThreadId, name: AgentName.nullable() }),
+  /** Sets the short title ZLI made for a chat from its first message. */
+  z.object({ type: z.literal("thread.title"), threadId: ThreadId, title: z.string().trim().min(1).max(80) }),
   /** Stops every terminal and thread in the session and removes them, with their history, for good. */
   z.object({ type: z.literal("session.delete"), sessionId: SessionId }),
   z.object({

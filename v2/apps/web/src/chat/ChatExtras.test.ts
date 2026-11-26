@@ -63,7 +63,17 @@ describe("checksSummary", () => {
     expect(checksSummary(pullRequest(["passed", "failed", "skipped"]))).toEqual({
       state: "failed",
       failed: 1,
+      passed: 1,
       total: 2,
+    });
+  });
+
+  it("counts the checks that passed so the chip can show 0/4 while they run", () => {
+    expect(checksSummary(pullRequest(["pending", "pending", "pending", "pending"]))).toEqual({
+      state: "pending",
+      failed: 0,
+      passed: 0,
+      total: 4,
     });
   });
 

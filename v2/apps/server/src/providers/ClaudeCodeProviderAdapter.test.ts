@@ -50,9 +50,10 @@ describe("ClaudeCodeProviderAdapter", () => {
     expect(adapter.capabilities).toEqual({
       exactResume: false,
       structuredApproval: true,
-      structuredUserInput: false,
+      structuredUserInput: true,
       conversationRollback: false,
       modelSwitch: "in-session",
+      permissionSwitch: "in-session",
       compaction: "native",
       compactionInstructions: true,
       steering: "native",
@@ -152,6 +153,60 @@ describe("ClaudeCodeProviderAdapter", () => {
     });
     expect(service.listSessions()).toEqual([]);
     await expect(service.rollbackThread({ threadId, numTurns: 1 })).rejects.toMatchObject({ code: "session_missing" });
+  });
+});
+
+describe("ClaudeCodeProviderAdapter permission change", () => {
+  it("starts Claude again in the new mode on the same conversation, then sends the turn", async () => {
+    const first = Object.assign(new FakeClient(), { sessionId: "conv-1" });
+    const second = Object.assign(new FakeClient(), { sessionId: "conv-1" });
+    const starts: unknown[] = [];
+    const clients = [first, second];
+    const adapter = new ClaudeCodeProviderAdapter({
+      createClient: async (input) => {
+        starts.push(input);
+        const next = clients.shift();
+        if (!next) throw new Error("no more clients");
+        return next;
+      },
+    });
+    const events: ProviderEvent[] = [];
+    adapter.subscribe((event) => events.push(event));
+    await adapter.startSession({ threadId, cwd: "/repo", permissionMode: "full-access", model: "opus" });
+
+    await adapter.sendTurn({ threadId, text: "same mode", permissionMode: "full-access" });
+    expect(starts).toHaveLength(1);
+
+    await adapter.sendTurn({ threadId, text: "ask first", permissionMode: "supervised" });
+    expect(starts[1]).toEqual({ cwd: "/repo", permissionMode: "supervised", model: "opus", resumeSessionId: "conv-1" });
+    expect(first.calls.map((call) => call.method)).toEqual(["turn", "close"]);
+    expect(second.calls).toEqual([{ method: "turn", value: expect.objectContaining({ text: "ask first" }) }]);
+    // The old process closing is part of the switch, not the session ending.
+    expect(events.some((event) => event.type === "session.closed")).toBe(false);
+
+    second.emit({ type: "turn.started", providerTurnId: "t2" });
+    expect(events.at(-1)).toMatchObject({ type: "turn.started", threadId });
+  });
+
+  it("ends the session when Claude does not start again in the new mode", async () => {
+    const first = Object.assign(new FakeClient(), { sessionId: "conv-2" });
+    let started = false;
+    const adapter = new ClaudeCodeProviderAdapter({
+      createClient: async () => {
+        if (started) throw new ClaudeProviderError("request_failed", "Claude Code CLI did not start a session.");
+        started = true;
+        return first;
+      },
+    });
+    const events: ProviderEvent[] = [];
+    adapter.subscribe((event) => events.push(event));
+    await adapter.startSession({ threadId, cwd: "/repo" });
+
+    await expect(adapter.sendTurn({ threadId, text: "x", permissionMode: "read-only" })).rejects.toThrow(
+      "did not start a session",
+    );
+    expect(adapter.hasSession({ threadId })).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({ type: "session.closed", threadId }));
   });
 });
 

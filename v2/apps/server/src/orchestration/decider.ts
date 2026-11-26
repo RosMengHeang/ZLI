@@ -7,8 +7,8 @@ import {
   type BuddyEvent,
   HuddleCommand,
   type HuddleEvent,
-  isAppDraft,
   isBuddyCommand,
+  isZliCard,
   type PermissionMode,
   ProjectId,
   type ProjectProjection,
@@ -139,6 +139,7 @@ export type DomainDecision = Extract<
       | "thread.interrupt.requested"
       | "thread.stop.requested"
       | "thread.renamed"
+      | "thread.titled"
       | "thread.resume.requested"
       | "session.deleted"
       | "thread.status.changed"
@@ -573,6 +574,9 @@ export function decide(projection: RuntimeProjection, command: RuntimeCommand): 
         },
       ];
     }
+    case "thread.title":
+      assertThread(projection, command.threadId);
+      return [{ type: "thread.titled", threadId: command.threadId, title: command.title }];
     case "session.delete": {
       // The session's drawer shells go with it. Agent records from before sessions existed are
       // their own session, keyed by their own id.
@@ -983,13 +987,13 @@ function readyForNext(projection: RuntimeProjection, thread: ThreadProjection): 
   return (
     thread.status === "idle" &&
     !(projection.requests ?? []).some(
-      (request) => request.threadId === thread.threadId && !isAppDraft(request.requestId),
+      (request) => request.threadId === thread.threadId && !isZliCard(request.requestId),
     )
   );
 }
 
 function hasAgentRequest(projection: RuntimeProjection, threadId: string): boolean {
-  return (projection.requests ?? []).some((request) => request.threadId === threadId && !isAppDraft(request.requestId));
+  return (projection.requests ?? []).some((request) => request.threadId === threadId && !isZliCard(request.requestId));
 }
 
 /**
@@ -1002,9 +1006,9 @@ function expiredRequests(
   status: ThreadProjection["status"],
 ): DomainDecision[] {
   if (status === "working" || status === "waiting") return [];
-  // An app card is ZLI's own: it runs without the agent, so it stays until the person sends or discards it.
+  // ZLI's own cards (app cards, ask_person questions) need no running turn, so they stay until answered.
   return (projection.requests ?? [])
-    .filter((request) => request.threadId === threadId && !isAppDraft(request.requestId))
+    .filter((request) => request.threadId === threadId && !isZliCard(request.requestId))
     .map((request): DomainDecision => ({ type: "thread.request.resolved", threadId, requestId: request.requestId }));
 }
 

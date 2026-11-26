@@ -93,6 +93,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
       structuredUserInput: false,
       conversationRollback: false,
       modelSwitch: "in-session",
+      permissionSwitch: "in-session",
       ...(config.compaction ? { compaction: "native" as const } : {}),
       ...(config.compaction?.instructions ? { compactionInstructions: true } : {}),
     };
@@ -168,6 +169,7 @@ export class AcpProviderAdapter implements ProviderAdapter {
       text: acpCompactText(input.text, this.config.compaction) ?? input.text,
       ...(input.model ? { model: input.model } : {}),
       ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+      ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
     return { turnId: result.providerTurnId };

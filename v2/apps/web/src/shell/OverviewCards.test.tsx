@@ -63,6 +63,7 @@ const full: OverviewData = {
     local: { files: 3, additions: 12, deletions: 4 },
   },
   checks: {
+    count: "7/7",
     headline: "7/7 passed",
     tone: "passed",
     checks: Array.from({ length: 7 }, (_, index) => ({ name: `check ${index}`, state: "passed" as const })),
@@ -114,7 +115,7 @@ describe("OverviewCards", () => {
     expect(text).toContain("#1988");
     expect(text).toContain(`+${(190788).toLocaleString()}`);
     expect(text).toContain("3 files not committed");
-    expect(text).toContain("7/7 passed");
+    expect(text).toContain("Checks7/7");
     expect(text).toContain("Show 2 more checks");
     expect(text).toContain("8% used");
     expect(text).toContain("80k / 1M");

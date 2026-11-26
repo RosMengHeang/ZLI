@@ -315,7 +315,7 @@ describe("ClaudeCodeClient", () => {
     );
   });
 
-  it("denies tool approval without a thread-fatal session error", async () => {
+  it("runs a tool Claude still asks about in full access, without an error", async () => {
     const { client, peer, events } = await startedClient();
     await client.sendTurn({ text: "Run tests" });
     peer.emit({
@@ -328,20 +328,64 @@ describe("ClaudeCodeClient", () => {
       response: {
         subtype: "success",
         request_id: "req-tool",
+        response: { behavior: "allow", updatedInput: { command: "ls" } },
+      },
+    });
+    expect(events).toEqual([{ type: "turn.started", providerTurnId: expect.any(String) }]);
+  });
+
+  it("shows AskUserQuestion as a question card and answers Claude by each question's text", async () => {
+    const { client, peer, events } = await startedClient();
+    await client.sendTurn({ text: "Ask me" });
+    const input = {
+      questions: [
+        {
+          question: "Tea or coffee?",
+          header: "Drink",
+          options: [{ label: "Tea", description: "Hot leaves" }, { label: "Coffee" }],
+          multiSelect: false,
+        },
+        { question: "Sugar?", options: [] },
+      ],
+    };
+    peer.emit({
+      type: "control_request",
+      request_id: "req-ask",
+      request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input },
+    });
+    expect(events.at(-1)).toEqual({
+      type: "user-input.requested",
+      requestId: "req-ask",
+      payload: {
+        questions: [
+          {
+            id: "q1",
+            question: "Tea or coffee?",
+            header: "Drink",
+            options: [{ label: "Tea", description: "Hot leaves" }, { label: "Coffee" }],
+            isOther: true,
+          },
+          { id: "q2", question: "Sugar?", options: [], isOther: true },
+        ],
+      },
+    });
+    const before = peer.written.length;
+    await client.respondToQuestions("req-ask", { q1: "Tea", q2: " No " });
+    expect(peer.written).toHaveLength(before + 1);
+    expect(JSON.parse(peer.written.at(-1) ?? "{}")).toEqual({
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: "req-ask",
         response: {
-          behavior: "deny",
-          message: "Claude Code adapter does not support tool approvals.",
+          behavior: "allow",
+          updatedInput: { ...input, answers: { "Tea or coffee?": "Tea", "Sugar?": "No" } },
         },
       },
     });
-    expect(events).toEqual([
-      { type: "turn.started", providerTurnId: expect.any(String) },
-      {
-        type: "protocol.error",
-        message: "Claude Code requested tool approval, which this adapter does not support.",
-      },
-    ]);
-    expect(events.some((event) => event.type === "turn.failed")).toBe(false);
+    await expect(client.respondToQuestions("req-ask", { q1: "Tea" })).rejects.toMatchObject({
+      code: "request_failed",
+    });
   });
 
   it("fails the active turn when the CLI process closes", async () => {

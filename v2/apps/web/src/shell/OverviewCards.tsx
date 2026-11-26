@@ -343,12 +343,7 @@ export function OverviewCards({
         )
       : null,
     checks
-      ? card(
-          "checks",
-          "Checks",
-          <span className={`ov-meta is-${checks.tone}`}>{checks.headline}</span>,
-          <ChecksBody checks={checks} onOpenLink={openLink} />,
-        )
+      ? card("checks", "Checks", <ChecksCount checks={checks} />, <ChecksBody checks={checks} onOpenLink={openLink} />)
       : null,
     context
       ? card(
@@ -499,6 +494,22 @@ const PULL_ICON: Record<PullRequestTone, IconName> = {
   closed: "pullRequest",
 };
 
+const CHECK_ICON = { pending: "loader", failed: "alert", passed: "check" } as const;
+
+/** Checks passed out of all of them: amber while any run, red once one fails, green when all pass. */
+export function ChecksCount({ checks }: { checks: ChecksView }) {
+  return (
+    <span className={`ov-meta ov-checks-count is-${checks.tone}`} title={`Checks ${checks.headline}`}>
+      <Icon
+        name={CHECK_ICON[checks.tone]}
+        size={11}
+        className={checks.tone === "pending" ? "ov-checks-spin" : undefined}
+      />
+      {checks.count}
+    </span>
+  );
+}
+
 function PullRequestState({ pullRequest }: { pullRequest: PullRequestInfo }) {
   const tone = pullRequestTone(pullRequest);
   return <span className={`ov-meta ov-pr-state is-${tone}`}>{pullRequestStateLabel[tone]}</span>;
@@ -519,6 +530,7 @@ function ChangesBody({
 }) {
   const { pullRequest, local, conflicts, toPush } = changes;
   const tone = pullRequest ? pullRequestTone(pullRequest) : undefined;
+  const checks = pullRequest?.state === "OPEN" ? checksView(pullRequest) : undefined;
   const nothing = !pullRequest && !local && !conflicts && !toPush;
   return (
     <>
@@ -544,6 +556,7 @@ function ChangesBody({
                       {pullRequest.changedFiles === 1 ? "1 file" : `${count(pullRequest.changedFiles)} files`}
                     </span>
                   ) : null}
+                  {checks ? <ChecksCount checks={checks} /> : null}
                 </span>
               </span>
             </button>

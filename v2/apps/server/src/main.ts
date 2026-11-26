@@ -57,6 +57,7 @@ import { AgentMessageReactor } from "./orchestration/AgentMessageReactor.js";
 import { Engine } from "./orchestration/Engine.js";
 import { PluginStore } from "./plugins/PluginStore.js";
 import { AgentSettingsStore } from "./providers/AgentSettingsStore.js";
+import { ChatTitler, claudeTitleWriter } from "./providers/ChatTitler.js";
 import { ProviderReactor } from "./providers/ProviderReactor.js";
 import { ProviderService } from "./providers/ProviderService.js";
 import { createProviderRegistry } from "./providers/registerProviders.js";
@@ -477,6 +478,10 @@ export async function startRuntime(options: {
   await terminalReactor.restore();
   await providerReactor.reconcileOrphanedThreads();
   const usageLimitResumer = new UsageLimitResumer(engine);
+  const chatTitler = new ChatTitler(
+    engine,
+    claudeTitleWriter(() => providerService.discoverProviders()),
+  );
   const unsubscribeWorktrees = engine.subscribe((envelope) => {
     const event = envelope.event;
     if (
@@ -566,6 +571,7 @@ export async function startRuntime(options: {
       await signInBroker.stop();
       providerReactor.stop();
       usageLimitResumer.stop();
+      chatTitler.stop();
       checkpoints.stop();
       agentMessageReactor.stop();
       diagnosticsReactor.stop();

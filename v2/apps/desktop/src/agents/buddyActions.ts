@@ -1,4 +1,5 @@
 import {
+  ASK_CARD_PREFIX,
   type BuddyProjection,
   buddiesInOrder,
   buddyNamed,
@@ -159,6 +160,45 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
     return { state, task, project };
   };
 
+  /**
+   * Any agent outside a buddy job asks on a question card in its own chat. The caller is known only by its worktree,
+   * so the card goes to the agent working there now.
+   */
+  const askInChat = async (
+    state: RuntimeProjection,
+    worktreeId: string,
+    input: { question: string; options?: string[] | undefined },
+  ) => {
+    const thread = state.threads
+      .filter((candidate) => candidate.worktreeId === worktreeId)
+      .filter((candidate) => ["working", "starting", "waiting"].includes(candidate.status))
+      .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
+    if (!thread)
+      throw new BrowserControlError("No chat of yours is running here. Ask the question in your reply instead.", 404);
+    await host.run({
+      type: "thread.request",
+      request: {
+        requestId: `${ASK_CARD_PREFIX}${host.newId()}`,
+        threadId: thread.threadId,
+        kind: "user-input",
+        payload: {
+          questions: [
+            {
+              id: "answer",
+              question: input.question,
+              options: (input.options ?? []).map((label) => ({ label })),
+              isOther: true,
+            },
+          ],
+        },
+      },
+    });
+    return {
+      asked: true,
+      note: "The person sees a question card in your chat. End your turn now; their answer arrives as your next message.",
+    };
+  };
+
   const projectFor = (state: RuntimeProjection, ref: string | undefined, fallback: ProjectProjection) => {
     // "web": the work runs in the buddy's own home, with its own browser.
     if (ref && /^(web|browser|home|internet|online)$/iu.test(ref.trim())) {
@@ -249,6 +289,10 @@ export function createBuddyActions(host: BuddyActionHost): Record<BuddyAction, (
     },
     buddyask: async (raw) => {
       const input = parse("buddyask", raw);
+      const state = host.projection();
+      const { worktreeId } = host.caller((raw ?? {}) as Record<string, unknown>, state);
+      const inJob = (state.tasks ?? []).some((task) => task.worktreeId === worktreeId && isOpenTask(task));
+      if (!inJob) return askInChat(state, worktreeId, input);
       const { task } = callerJob(raw);
       await host.run({
         type: "task.question.ask",

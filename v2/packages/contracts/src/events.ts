@@ -130,6 +130,8 @@ export const RuntimeEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread.stop.requested"), threadId: ThreadId }),
   /** No name means the name was cleared. */
   z.object({ type: z.literal("thread.renamed"), threadId: ThreadId, name: AgentName.optional() }),
+  /** ZLI titled the chat from its first message. */
+  z.object({ type: z.literal("thread.titled"), threadId: ThreadId, title: z.string().min(1).max(80) }),
   /** A message reached an ended chat that knows its agent's conversation id, so the agent is started again on it. */
   z.object({ type: z.literal("thread.resume.requested"), threadId: ThreadId, cwd: z.string().min(1) }),
   z.object({
