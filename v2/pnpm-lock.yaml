@@ -29,6 +29,9 @@ importers:
       '@playwright/test':
         specifier: 1.60.0
         version: 1.60.0
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
       electron:
         specifier: 44.10.0
         version: 44.10.0
@@ -50,6 +53,9 @@ importers:
       vitest:
         specifier: 4.1.12
         version: 4.1.12(@types/node@26.6.2)(jsdom@26.1.0)(vite@8.3.4(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.51.2))
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
 
   apps/desktop:
     dependencies:

@@ -48,12 +48,14 @@
     "@biomejs/biome": "2.5.14",
     "@electron/fuses": "1.8.0",
     "@playwright/test": "1.60.0",
+    "@types/ws": "8.18.1",
     "electron": "44.10.0",
     "electron-builder": "26.18.0",
     "esbuild": "0.28.1",
     "playwright-core": "1.60.0",
     "typescript": "6.0.3",
     "vite": "8.3.4",
-    "vitest": "4.1.12"
+    "vitest": "4.1.12",
+    "ws": "8.21.3"
   }
 }
