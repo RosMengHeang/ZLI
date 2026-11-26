@@ -377,6 +377,10 @@ describe("MobileAccessSection", () => {
         "Turning it off stops paired phones from using the relay. Turned back on, it gets a new address, which each phone picks up the next time it connects on the same network.",
       );
       expect(toggle(container, "Allow terminal input from anywhere").checked).toBe(false);
+      // Honest about its reach: it guards terminals, not what agents run.
+      expect(container.textContent).toContain(
+        "When off, a phone away from this network can read terminals but cannot open one or type into it. Agents it starts or messages can still run commands, as their approval settings allow.",
+      );
 
       await act(async () => bridge.push({ ...listening, relay: { enabled: true, state: "online" } }));
       expect(container.textContent).toContain("Online");

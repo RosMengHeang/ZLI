@@ -287,7 +287,7 @@ export function MobileAccessSection() {
         {relay.enabled ? (
           <Switch
             label="Allow terminal input from anywhere"
-            hint="When off, a phone away from this network can read terminals but cannot open one or type into it."
+            hint="When off, a phone away from this network can read terminals but cannot open one or type into it. Agents it starts or messages can still run commands, as their approval settings allow."
             checked={relay.remoteTerminalInput}
             disabled={access.busy}
             onChange={(enabled) => void access.setRemoteTerminalInput(enabled)}
