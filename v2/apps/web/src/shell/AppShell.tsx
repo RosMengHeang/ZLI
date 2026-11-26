@@ -19,9 +19,11 @@ import {
 import {
   type CSSProperties,
   lazy,
+  type SetStateAction,
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -233,7 +235,16 @@ function WorkspaceApp() {
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
   /** A project the person just added from this window. It has no worktree yet, so no worktree can stand for it. */
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
-  const [sidePane, setSidePane] = useState<SidePane>();
+  const [sidePane, setSidePaneState] = useState<SidePane>();
+  /**
+   * A pane was opened since the last render. A click that moves to another chat and opens a pane at once,
+   * like a tile's pull request button, means that pane for the chat it moves to.
+   */
+  const paneOpened = useRef(false);
+  const setSidePane = useCallback((next: SetStateAction<SidePane | undefined>) => {
+    paneOpened.current = true;
+    setSidePaneState(next);
+  }, []);
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
   /** What the main area shows instead of the chats: the buddies' home ("team") or one buddy's chat. */
   const [buddyView, setBuddyView] = useState<string>();
@@ -628,7 +639,7 @@ function WorkspaceApp() {
       setSidePane("browser");
       focusWorktree(worktreeId);
     });
-  }, [bridge, focusWorktree]);
+  }, [bridge, focusWorktree, setSidePane]);
   const mobileAvailable = Boolean(bridge?.mobile);
   const mobilePopOutAvailable = Boolean(bridge?.mobile?.popOut);
   useEffect(() => {
@@ -639,7 +650,7 @@ function WorkspaceApp() {
       setMobileReveal({ deviceId, key });
       setSidePane("mobile");
     });
-  }, [bridge]);
+  }, [bridge, setSidePane]);
 
   const contextDevServers = useMemo(
     () => worktreeDevServers(projection?.devServers, contextWorktree?.worktreeId),
@@ -656,7 +667,7 @@ function WorkspaceApp() {
       setBrowserOpen({ url, worktreeId, key: Date.now() });
       setSidePane("browser");
     },
-    [contextWorktree?.worktreeId],
+    [contextWorktree?.worktreeId, setSidePane],
   );
 
   const openFile = useCallback(
@@ -666,7 +677,7 @@ function WorkspaceApp() {
       focusWorktree(worktreeId);
       setFilesFocus({ kind: "open", path, line, column, nonce: Date.now() });
     },
-    [focusWorktree],
+    [focusWorktree, setSidePane],
   );
   const contextWorktreeRef = useRef(contextWorktree);
   contextWorktreeRef.current = contextWorktree;
@@ -679,7 +690,7 @@ function WorkspaceApp() {
     setPaletteOpen(false);
     setSidePane("files");
     setFilesFocus({ kind: "search", nonce: Date.now() });
-  }, []);
+  }, [setSidePane]);
 
   const openNewAgentDialog = useCallback(
     (project?: ProjectProjection) => {
@@ -709,6 +720,39 @@ function WorkspaceApp() {
     lastPane.current = sidePane;
     setPanelTabs((tabs) => (tabs.includes(sidePane) ? tabs : [...tabs, sidePane]));
   }, [sidePane]);
+  // Each chat keeps its own right panel: its tabs, the one showing, and the one used last. A chat that opened
+  // nothing shows no panel, so a pull request opened beside one chat never sits empty beside another.
+  const chatPanels = useRef(new Map<string, { tabs: SidePane[]; pane: SidePane | undefined; last?: SidePane }>());
+  const panelOwner = useRef(workbench.activeSessionId ?? "");
+  const shownPanel = useRef<{ tabs: SidePane[]; pane: SidePane | undefined }>({ tabs: [], pane: undefined });
+  useLayoutEffect(() => {
+    const owner = workbench.activeSessionId ?? "";
+    if (owner === panelOwner.current) return;
+    chatPanels.current.set(panelOwner.current, {
+      ...shownPanel.current,
+      ...(lastPane.current ? { last: lastPane.current } : {}),
+    });
+    panelOwner.current = owner;
+    const saved = chatPanels.current.get(owner);
+    lastPane.current = saved?.last;
+    if (paneOpened.current && sidePane) {
+      // Opened by the same click that moved here: it belongs to this chat, next to what it had open.
+      setPanelTabs(
+        sidePane === "start" || saved?.tabs.includes(sidePane)
+          ? (saved?.tabs ?? [])
+          : [...(saved?.tabs ?? []), sidePane],
+      );
+      return;
+    }
+    setPanelTabs(saved?.tabs ?? []);
+    setSidePaneState(saved?.pane);
+  }, [workbench.activeSessionId, sidePane]);
+  // What the chat in focus has open, saved when focus moves on. Runs after the swap above, so the click that
+  // opened a pane counts once.
+  useEffect(() => {
+    shownPanel.current = { tabs: panelTabs, pane: sidePane };
+    paneOpened.current = false;
+  });
   /** Opens the right panel on the tool in use last, or on the list of panels when none is open yet. */
   const togglePanels = () =>
     setSidePane((current) => {
@@ -746,14 +790,20 @@ function WorkspaceApp() {
     setPullView("all");
     setBuddyView(undefined);
     setSidePane(undefined);
-  }, []);
-  const openBuddies = useCallback((next?: string) => {
-    setPullView(undefined);
-    // Opening Buddies starts on Primary's chat; the team board is one click away in the list.
-    setBuddyView(next ?? PRIMARY_VIEW);
-    // A buddy's chat has its own details column, so the workspace panel steps aside.
-    setSidePane(undefined);
-  }, []);
+  }, [setSidePane]);
+  const openBuddies = useCallback(
+    (next?: string) => {
+      setPullView(undefined);
+      // Opening Buddies starts on Primary's chat; the team board is one click away in the list.
+      setBuddyView(next ?? PRIMARY_VIEW);
+      // A buddy's chat has its own details column, so the workspace panel steps aside.
+      setSidePane(undefined);
+    },
+    [
+      // A buddy's chat has its own details column, so the workspace panel steps aside.
+      setSidePane,
+    ],
+  );
   // "primary" stands for whoever is Primary now, so it still opens once the starter team has just been made.
   const primaryId = projection ? primaryBuddy(projection)?.buddyId : undefined;
   const shownBuddy = buddyView === PRIMARY_VIEW ? (primaryId ?? "team") : buddyView;
