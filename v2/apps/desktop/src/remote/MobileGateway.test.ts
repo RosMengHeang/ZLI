@@ -7,6 +7,7 @@ import {
   fromBase64Url,
   generateKeyPair,
   openRemoteSession,
+  RemoteCloseCode,
   type RemoteConnectError,
   type RemoteSession,
   webCryptoRandomBytes as random,
@@ -15,7 +16,7 @@ import {
   type WebSocketLike,
 } from "@zli-v2/remote-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { WebSocketServer } from "ws";
+import { type RawData, WebSocketServer, WebSocket as WsSocket } from "ws";
 
 import { MobileAccessStore, type SecretCodec } from "./MobileAccessStore.js";
 import { MobileGateway } from "./MobileGateway.js";
@@ -73,6 +74,77 @@ async function fakeRuntime() {
   };
 }
 
+/**
+ * A stand-in for the byte relay. A phone dials /phone?client=<key>; the relay then dials itself at /desktop, as the
+ * desktop would, hands that outbound socket to `onDesktop`, and pipes frames between the two once it is accepted.
+ * /bare gives a plain socket pair with nothing piped.
+ */
+async function fakeRelay(onDesktop: (socket: WsSocket, client: string) => void) {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await new Promise<void>((resolve) => server.once("listening", () => resolve()));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const waiting = new Map<string, (socket: WsSocket) => void>();
+  let next = 0;
+  const forward = (to: WsSocket, data: RawData, isBinary: boolean) => {
+    if (to.readyState === WsSocket.OPEN) to.send(data, { binary: isBinary });
+  };
+  const closeWith = (socket: WsSocket, code: number) => {
+    try {
+      socket.close(code);
+    } catch {
+      socket.close();
+    }
+  };
+  server.on("connection", (socket, request) => {
+    const url = new URL(request.url ?? "/", "http://relay");
+    if (url.pathname !== "/phone") {
+      waiting.get(url.searchParams.get("id") ?? "")?.(socket);
+      return;
+    }
+    const client = url.searchParams.get("client") ?? "";
+    const id = String(next++);
+    const queued: Array<[RawData, boolean]> = [];
+    let peer: WsSocket | undefined;
+    socket.on("message", (data, isBinary) => {
+      if (peer) forward(peer, data, isBinary);
+      else queued.push([data, isBinary]);
+    });
+    const far = new Promise<WsSocket>((resolve) => waiting.set(id, resolve));
+    const desktop = new WsSocket(`ws://127.0.0.1:${port}/desktop?id=${id}`);
+    const opened = new Promise<void>((resolve) => desktop.once("open", () => resolve()));
+    void Promise.all([far, opened]).then(([other]) => {
+      waiting.delete(id);
+      other.on("message", (data, isBinary) => forward(socket, data, isBinary));
+      other.on("close", (code) => closeWith(socket, code));
+      socket.on("close", () => other.close());
+      onDesktop(desktop, client);
+      peer = other;
+      for (const [data, isBinary] of queued.splice(0)) forward(other, data, isBinary);
+    });
+  });
+  return {
+    phoneUrl: (client: string) => `ws://127.0.0.1:${port}/phone?client=${encodeURIComponent(client)}`,
+    /** An open desktop-side socket and the relay's end of it. */
+    bare: async () => {
+      const id = String(next++);
+      const far = new Promise<WsSocket>((resolve) => waiting.set(id, resolve));
+      const desktop = new WsSocket(`ws://127.0.0.1:${port}/bare?id=${id}`);
+      await new Promise<void>((resolve) => desktop.once("open", () => resolve()));
+      return { desktop, far: await far };
+    },
+    close: () =>
+      new Promise<void>((resolve) => {
+        for (const client of server.clients) client.terminate();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+function closeCode(socket: WsSocket) {
+  return new Promise<number>((resolve) => socket.once("close", (code) => resolve(code)));
+}
+
 function nextMessage(session: RemoteSession, predicate: (message: { type?: string }) => boolean = () => true) {
   return new Promise<{ type?: string; [key: string]: unknown }>((resolve) => {
     const off = session.transport.onMessage((message) => {
@@ -100,6 +172,7 @@ describe("MobileGateway", () => {
   let pairing: PairingWindow;
   let gateway: MobileGateway;
   let port: number;
+  let relay: Awaited<ReturnType<typeof fakeRelay>>;
   let changes = 0;
   let now = Date.now();
 
@@ -146,10 +219,12 @@ describe("MobileGateway", () => {
       },
     });
     port = await gateway.start({ port: 0, host: "127.0.0.1" });
+    relay = await fakeRelay((socket, client) => gateway.accept(socket, { route: "relay", client }));
   });
 
   afterEach(async () => {
     await gateway.stop();
+    await relay.close();
     await runtime.close();
     await rm(directory, { recursive: true, force: true });
   });
@@ -172,9 +247,14 @@ describe("MobileGateway", () => {
     return { session, phone, pending };
   }
 
-  async function resume(phone: ReturnType<typeof generateKeyPair>, deviceId: string, credential: string) {
+  async function resume(
+    phone: ReturnType<typeof generateKeyPair>,
+    deviceId: string,
+    credential: string,
+    url = remoteUrl("127.0.0.1", port),
+  ) {
     return openRemoteSession({
-      url: remoteUrl("127.0.0.1", port),
+      url,
       serverPublicKey: (await store.keyPair()).publicKey,
       clientStatic: phone,
       target: { mode: "resume", deviceId, credential: fromBase64Url(credential) },
@@ -416,6 +496,136 @@ describe("MobileGateway", () => {
     // The gateway still pairs phones afterwards.
     const { session } = await pairPhone();
     expect(session).toBeDefined();
+  });
+
+  describe("over the relay", () => {
+    async function pairedPhone() {
+      const { session, phone } = await pairPhone();
+      const { deviceId, credential } = session.paired ?? { deviceId: "", credential: "" };
+      session.transport.close();
+      return { phone, deviceId, credential };
+    }
+
+    it("resumes a paired phone and relays the runtime, as on the LAN", async () => {
+      const { phone, deviceId, credential } = await pairedPhone();
+      const session = await resume(phone, deviceId, credential, relay.phoneUrl("phone-a"));
+      expect(session.ready).toMatchObject({ type: "gateway.ready", desktopName: "Test desk", environmentId });
+      expect(gateway.connectedDeviceIds().has(deviceId)).toBe(true);
+
+      const response = nextMessage(session, (message) => message.type === "response");
+      session.transport.send({
+        type: "command",
+        request: { protocolVersion: 1, commandId, command: { type: "thread.send", threadId, text: "hi" } },
+      });
+      expect(await response).toMatchObject({ response: { commandId, accepted: true } });
+
+      const refused = nextMessage(session, (message) => message.type === "response");
+      session.transport.send({
+        type: "command",
+        request: { protocolVersion: 1, commandId, command: { type: "project.register", path: "/etc" } },
+      });
+      expect(await refused).toMatchObject({ response: { accepted: false, error: { code: "unauthorized" } } });
+      session.transport.close();
+    });
+
+    it("refuses a wrong credential over the relay", async () => {
+      const { phone, deviceId } = await pairedPhone();
+      const attempt = resume(phone, deviceId, toBase64Url(random(32)), relay.phoneUrl("phone-a"));
+      expect(await failure(attempt)).toBe("not-paired");
+    });
+
+    it("rate limits attempts per relay client, not across them", async () => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const { desktop, far } = await relay.bare();
+        const gone = closeCode(desktop);
+        gateway.accept(desktop, { route: "relay", client: "abc123" });
+        far.close();
+        await gone;
+      }
+      const limited = await relay.bare();
+      const limitedCode = closeCode(limited.far);
+      gateway.accept(limited.desktop, { route: "relay", client: "abc123" });
+      expect(await limitedCode).toBe(RemoteCloseCode.rateLimited);
+
+      const other = await relay.bare();
+      const otherCode = closeCode(other.far);
+      gateway.accept(other.desktop, { route: "relay", client: "def456" });
+      const timeout = new Promise<string>((resolve) => setTimeout(() => resolve("still open"), 100));
+      expect(await Promise.race([otherCode, timeout])).toBe("still open");
+      other.far.close();
+    });
+
+    it("limits relay keys that are not plain short tokens together", async () => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const { desktop, far } = await relay.bare();
+        const gone = closeCode(desktop);
+        gateway.accept(desktop, { route: "relay", client: attempt % 2 ? "" : `bad key ${attempt}` });
+        far.close();
+        await gone;
+      }
+      const limited = await relay.bare();
+      const limitedCode = closeCode(limited.far);
+      gateway.accept(limited.desktop, { route: "relay", client: "x".repeat(65) });
+      expect(await limitedCode).toBe(RemoteCloseCode.rateLimited);
+    });
+
+    it("holds at most four unpaired relay connections, and leaves the LAN alone", async () => {
+      const sockets = await Promise.all([1, 2, 3, 4, 5].map(() => relay.bare()));
+      const codes = sockets.map(({ far }) => closeCode(far));
+      sockets.forEach(({ desktop }, index) => {
+        gateway.accept(desktop, { route: "relay", client: `client-${index}` });
+      });
+      expect(await codes[4]).toBe(RemoteCloseCode.tryAgain);
+
+      const { session } = await pairPhone();
+      expect(session.ready.type).toBe("gateway.ready");
+      session.transport.close();
+      for (const { far } of sockets.slice(0, 4)) {
+        expect(far.readyState).toBe(WsSocket.OPEN);
+        far.close();
+      }
+    });
+
+    it("closes a relay connection that sends a large frame before pairing", async () => {
+      const { desktop, far } = await relay.bare();
+      const code = closeCode(far);
+      gateway.accept(desktop, { route: "relay", client: "abc123" });
+      far.send(new Uint8Array(65 * 1024));
+      expect(await code).toBe(RemoteCloseCode.protocol);
+    });
+
+    it("closes an open relay connection that sends a frame over the phone limit", async () => {
+      const { phone, deviceId, credential } = await pairedPhone();
+      const session = await resume(phone, deviceId, credential, relay.phoneUrl("phone-a"));
+      const code = closed(session);
+      session.transport.send({ type: "hello", protocolVersion: 1, token: "x".repeat(8 * 1024 * 1024), environmentId });
+      expect(await code).toBe(RemoteCloseCode.protocol);
+    });
+
+    it("refuses relay sockets while phone access is off", async () => {
+      await gateway.stop();
+      const { desktop, far } = await relay.bare();
+      const code = closeCode(far);
+      gateway.accept(desktop, { route: "relay", client: "abc123" });
+      expect(await code).toBe(RemoteCloseCode.tryAgain);
+    });
+
+    it("closes a relay session when its phone is revoked", async () => {
+      const { phone, deviceId, credential } = await pairedPhone();
+      const session = await resume(phone, deviceId, credential, relay.phoneUrl("phone-a"));
+      const code = closed(session);
+      await store.removeDevice(deviceId);
+      gateway.disconnect(deviceId);
+      expect(await code).toBe(RemoteCloseCode.notPaired);
+    });
+
+    it("closes relay sessions when phone access is turned off", async () => {
+      const { phone, deviceId, credential } = await pairedPhone();
+      const session = await resume(phone, deviceId, credential, relay.phoneUrl("phone-a"));
+      const code = closed(session);
+      await gateway.stop();
+      expect(await code).toBe(1001);
+    });
   });
 
   it("stops listening when phone access is turned off", async () => {
