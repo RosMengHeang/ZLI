@@ -89,8 +89,8 @@ export function TerminalDrawer({
     .filter(
       (terminal) =>
         panelIds.has(terminal.terminalId) === side &&
-        // The bottom drawer belongs to the chat on screen: a new chat gets its own shell, not the last chat's.
-        (side || terminal.sessionId === sessionId) &&
+        // The bottom drawer shows the chat on screen's shells and any shell no chat owns; another chat's stay with it.
+        (side || !terminal.sessionId || terminal.sessionId === sessionId) &&
         !dismissed.includes(terminal.terminalId) &&
         !(stopping.includes(terminal.terminalId) && terminal.status !== "running"),
     )
@@ -129,7 +129,8 @@ export function TerminalDrawer({
       title: nextTerminalTitle(
         drawerTerminals(projection.terminals, worktree.worktreeId).filter(
           (terminal) =>
-            panelIds.has(terminal.terminalId) === side && (side || terminal.sessionId === sessionId),
+            panelIds.has(terminal.terminalId) === side &&
+            (side || !terminal.sessionId || terminal.sessionId === sessionId),
         ),
       ),
       cols: 120,

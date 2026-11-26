@@ -470,9 +470,7 @@ describe("TerminalDrawer", () => {
       ] as TerminalProjection[],
       sessionId,
     );
-    expect([...container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
-      "Terminal 1",
-    ]);
+    expect([...container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual(["Terminal 1"]);
     // The chat already had a shell, so opening the drawer started none.
     expect(dispatched.filter((request) => request.command.type === "terminal.create")).toHaveLength(0);
     await act(async () => button(container, "New terminal")?.click());
@@ -505,6 +503,17 @@ describe("TerminalDrawer", () => {
       sessionId: "00000000-0000-4000-8000-000000000201",
       title: "Terminal 1",
     });
+  });
+
+  it("keeps a shell no chat owns in view when a chat opens, and starts no other", async () => {
+    const { bridge, dispatched } = makeBridge();
+    const container = await render(
+      bridge,
+      [{ terminalId: firstId, worktreeId, title: "Terminal 1", status: "running", lastSequence: 0 }],
+      "00000000-0000-4000-8000-000000000201",
+    );
+    expect([...container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual(["Terminal 1"]);
+    expect(dispatched.filter((request) => request.command.type === "terminal.create")).toHaveLength(0);
   });
 
   it("stops a running shell from its tab, and closing the last one closes the drawer", async () => {
