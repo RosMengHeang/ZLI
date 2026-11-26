@@ -101,7 +101,10 @@ export const CLOSE_TOO_BIG = 1009;
 export const CLOSE_TRY_AGAIN = 1013;
 /** No desktop holds the room, or it did not dial back. Apart from 1013 so the phone can say the PC is unreachable. */
 export const CLOSE_DESKTOP_OFFLINE = RemoteCloseCode.desktopOffline;
-export const CLOSE_REPLACED = 4000;
+/** Apart from RemoteCloseCode.protocol (4000), which the desktop and phone use for unreadable frames. */
+export const CLOSE_REPLACED = RemoteCloseCode.replaced;
+/** Close reasons passed from one side to the other are cut to this, under the 123-byte frame limit. */
+export const MAX_PASSED_REASON_BYTES = 120;
 
 /*
  * A socket as the Durable Object knows it after waking from hibernation. The handshake fields come
@@ -343,12 +346,22 @@ export class RelayRoom {
     };
   }
 
-  onClose(from: "phone" | "host", session: string, socket: PipeSocket): void {
+  /*
+   * An application close code (4000-4999) and its reason go on to the other side, so a phone over
+   * the relay still learns it is not paired or that its code expired. They are not authenticated:
+   * the phone treats them as hints. Any other code says nothing the far side can act on, so it
+   * becomes a plain 1000.
+   */
+  onClose(from: "phone" | "host", session: string, socket: PipeSocket, code?: number, reason?: string): void {
     const entry = this.#sessions.get(session);
     if (!entry || !isJoined(entry, from, socket)) return;
     const peer = from === "phone" ? entry.host : entry.phone;
     this.#sessions.delete(session);
-    peer?.close(CLOSE_NORMAL, "The other side left.");
+    if (code !== undefined && Number.isInteger(code) && code >= 4000 && code <= 4999) {
+      peer?.close(code, truncateUtf8(reason ?? "", MAX_PASSED_REASON_BYTES));
+    } else {
+      peer?.close(CLOSE_NORMAL, "The other side left.");
+    }
   }
 
   /*
@@ -538,6 +551,19 @@ function byteLength(data: string | ArrayBuffer): number {
     } else bytes += 3;
   }
   return bytes;
+}
+
+/** The longest prefix of `text` that fits in `max` UTF-8 bytes, never splitting a character. */
+function truncateUtf8(text: string, max: number): string {
+  if (byteLength(text) <= max) return text;
+  let bytes = 0;
+  let end = 0;
+  for (const character of text) {
+    bytes += byteLength(character);
+    if (bytes > max) break;
+    end += character.length;
+  }
+  return text.slice(0, end);
 }
 
 function isLowSurrogate(code: number): boolean {

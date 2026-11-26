@@ -171,8 +171,8 @@ export class RoomObject extends DurableObject<Env> {
     }
   }
 
-  override async webSocketClose(ws: WebSocket): Promise<void> {
-    this.#closed(ws);
+  override async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    this.#closed(ws, code, reason);
   }
 
   override async webSocketError(ws: WebSocket): Promise<void> {
@@ -207,13 +207,13 @@ export class RoomObject extends DurableObject<Env> {
     pipe.seenSavedAt = now;
   }
 
-  #closed(ws: WebSocket): void {
+  #closed(ws: WebSocket, code?: number, reason?: string): void {
     const tagged = this.#tagged(ws);
     if (!tagged) return;
     const room = this.#roomFor(tagged.room);
     const pipe = this.#pipe(ws);
     if (tagged.role === "control") room.hostControlClosed(pipe);
-    else if (tagged.session) room.onClose(tagged.role, tagged.session, pipe);
+    else if (tagged.session) room.onClose(tagged.role, tagged.session, pipe, code, reason);
   }
 
   /** Rebuilds the room after a wake that did not come with a request naming it. */

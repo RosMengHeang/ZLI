@@ -314,13 +314,21 @@ describe("RelayHost", () => {
   it("stays replaced and does not retry when another desktop claims the room", () => {
     host.start();
     control().open();
-    control().drop(4000);
+    control().drop(4409);
     expect(states.at(-1)).toBe("replaced");
     vi.advanceTimersByTime(10 * 60_000);
     expect(sockets).toHaveLength(1);
     host.stop();
     host.start();
     expect(sockets).toHaveLength(2);
+  });
+
+  it("treats 4000 as an ordinary drop and retries, since 4000 is the protocol code and not a replacement", () => {
+    host.start();
+    control().open();
+    control().drop(4000);
+    expect(states.at(-1)).toBe("offline");
+    expect(nextDial()).toBe(1000);
   });
 
   it("terminates a control socket that has not opened in 15 seconds", () => {

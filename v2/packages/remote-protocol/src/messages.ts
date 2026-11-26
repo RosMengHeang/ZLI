@@ -87,7 +87,7 @@ export const ServerControl = z.discriminatedUnion("type", [
   z.object({ type: z.literal("gateway.waiting"), reason: z.literal("approval") }),
   /**
    * The desktop did not allow that pairing: the person refused it, or nobody answered in time. Sent sealed just before
-   * the close, because the relay does not pass the desktop's close code on to the phone.
+   * the close, because a close code that crossed the relay is not authenticated and older relays replaced it with 1000.
    */
   z.object({ type: z.literal("gateway.denied"), reason: z.enum(["refused", "expired"]) }),
   z.object({
@@ -123,6 +123,8 @@ export const RemoteCloseCode = {
   rateLimited: 4029,
   /** The relay has no desktop for this room, or the desktop did not dial back in time. */
   desktopOffline: 4404,
+  /** The relay closes a desktop's control socket with this when another desktop claims the room. */
+  replaced: 4409,
   /** The desktop runtime is not reachable yet. */
   tryAgain: 1013,
 } as const;

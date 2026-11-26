@@ -1,4 +1,4 @@
-import { roomIdFromSecret, toBase64Url } from "@zli-v2/remote-protocol";
+import { RemoteCloseCode, roomIdFromSecret, toBase64Url } from "@zli-v2/remote-protocol";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -237,6 +237,56 @@ describe("RelayRoom", () => {
     expect(room.sessionHostConnected(session, new FakeSocket())).toBe(false);
   });
 
+  it("passes the desktop's 4000-4999 close code and reason on to the phone", () => {
+    const { room, host } = claimedRoom();
+    const phone = new FakeSocket();
+    room.phoneConnected(phone, "client-a");
+    const { session } = openMessage(host);
+    const sessionHost = new FakeSocket();
+    room.sessionHostConnected(session, sessionHost);
+
+    room.onClose("host", session, sessionHost, 4003, "This phone is not paired.");
+    expect(phone.closed).toEqual({ code: 4003, reason: "This phone is not paired." });
+  });
+
+  it("passes the phone's 4000-4999 close code on to the desktop", () => {
+    const { room, host } = claimedRoom();
+    const phone = new FakeSocket();
+    room.phoneConnected(phone, "client-a");
+    const { session } = openMessage(host);
+    const sessionHost = new FakeSocket();
+    room.sessionHostConnected(session, sessionHost);
+
+    room.onClose("phone", session, phone, 4000);
+    expect(sessionHost.closed?.code).toBe(4000);
+  });
+
+  it("turns any other close code into 1000", () => {
+    for (const code of [1011, 1001, 1006, 3000, 5000, undefined]) {
+      const { room, host } = claimedRoom();
+      const phone = new FakeSocket();
+      room.phoneConnected(phone, "client-a");
+      const { session } = openMessage(host);
+      const sessionHost = new FakeSocket();
+      room.sessionHostConnected(session, sessionHost);
+
+      room.onClose("host", session, sessionHost, code, "internal detail");
+      expect(phone.closed).toEqual({ code: 1000, reason: "The other side left." });
+    }
+  });
+
+  it("cuts a passed-on close reason to 120 bytes without splitting a character", () => {
+    const { room, host } = claimedRoom();
+    const phone = new FakeSocket();
+    room.phoneConnected(phone, "client-a");
+    const { session } = openMessage(host);
+    const sessionHost = new FakeSocket();
+    room.sessionHostConnected(session, sessionHost);
+
+    room.onClose("host", session, sessionHost, 4003, `${"a".repeat(119)}étail`);
+    expect(phone.closed).toEqual({ code: 4003, reason: "a".repeat(119) });
+  });
+
   it("frees a pending session when the phone leaves before the host dials", () => {
     const { room, host, clock } = claimedRoom();
     const phone = new FakeSocket();
@@ -270,11 +320,12 @@ describe("RelayRoom", () => {
     expect(phone.closed).toBeNull();
   });
 
-  it("closes the first host with 4000 when a second one claims the room", () => {
+  it("closes the first host with 4409, apart from the protocol code 4000, when a second one claims the room", () => {
     const { room, host } = claimedRoom();
     const second = new FakeSocket();
     expect(room.claimHost(second, secret)).toBe(true);
-    expect(host.closed?.code).toBe(4000);
+    expect(host.closed?.code).toBe(RemoteCloseCode.replaced);
+    expect(RemoteCloseCode.replaced).toBe(4409);
 
     room.phoneConnected(new FakeSocket(), "client-a");
     expect(host.sent).toEqual([]);

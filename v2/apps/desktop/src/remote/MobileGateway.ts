@@ -339,7 +339,7 @@ export class MobileGateway {
 
     const isClosed = () => phase === "closed";
 
-    /** Says why before closing, since the relay does not pass the close code on to the phone. */
+    /** Says why, sealed, before closing: the relay passes the close code on, but anyone on the path could fake that. */
     const deny = (reason: "refused" | "expired") => {
       if (phase === "closed") return;
       const denied: ServerControl = { type: "gateway.denied", reason };

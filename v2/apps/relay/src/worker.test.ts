@@ -79,7 +79,7 @@ function connect(path: string, at: string = base) {
     while (messages.length < count) await new Promise<void>((resolve) => waiters.push(resolve));
     return messages.slice(0, count);
   };
-  return { ws, opened, closed, next };
+  return { ws, opened, closed, next, messages };
 }
 
 function within<T>(promise: Promise<T>, ms = 5_000): Promise<T> {
@@ -183,6 +183,27 @@ describe("relay worker", () => {
 
     phone.ws.close(1000);
     expect(await within(sessionHost.closed)).toBe(1000);
+    control.ws.close(1000);
+  });
+
+  it("passes the desktop's 4003 close on to the phone, and turns 3000 into 1000", async () => {
+    const control = await claimedControl();
+    for (const [sent, expected] of [
+      [4003, 4003],
+      // A browser-style client may not send 1011; any code outside 4000-4999 takes the same path.
+      [3000, 1000],
+    ] as const) {
+      const phone = await dialPhone(control.room, control);
+      const open = JSON.parse(String(control.messages.splice(0, 1)[0])) as { session: string };
+      await within(phone.opened);
+      phone.ws.send("hello desktop");
+      const sessionHost = connect(`/v1/host/${control.room}/${open.session}`);
+      await within(sessionHost.next(1));
+      sessionHost.ws.send("hi");
+      await within(phone.next(1));
+      sessionHost.ws.close(sent, "This phone is not paired.");
+      expect(await within(phone.closed)).toBe(expected);
+    }
     control.ws.close(1000);
   });
 

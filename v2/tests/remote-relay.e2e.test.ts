@@ -9,7 +9,7 @@ import { MobileAccessStore, type SecretCodec } from "../apps/desktop/src/remote/
 import { MobileGateway, type PairingApprovalRequest } from "../apps/desktop/src/remote/MobileGateway.js";
 import { PairingWindow } from "../apps/desktop/src/remote/PairingWindow.js";
 import { RelayHost, type RelayState } from "../apps/desktop/src/remote/RelayHost.js";
-import { raceRoutes } from "../apps/mobile/src/lib/routes.js";
+import { type RouteFailure, raceRoutes } from "../apps/mobile/src/lib/routes.js";
 import { DEFAULT_LIMITS, newSessionId, type PipeSocket, RelayRoom } from "../apps/relay/src/RelayRoom.js";
 import { parseRoute } from "../apps/relay/src/routes.js";
 import {
@@ -88,7 +88,7 @@ async function relayHarness() {
   const rooms = new Map<string, RelayRoom>();
   const controls = new Map<string, Set<PipeSocket>>();
   const sessions: Array<{ room: string; session: string }> = [];
-  /** Close codes the desktop sent on its session sockets. The relay hands the phone a plain 1000 instead. */
+  /** Close codes the desktop sent on its session sockets. The relay passes 4000-4999 on to the phone. */
   const desktopCloses: Array<{ session: string; code: number }> = [];
   /** Every byte the relay received, on every socket. */
   const captured: Buffer[] = [];
@@ -163,12 +163,12 @@ async function relayHarness() {
     if (route.role === "phone") {
       sessions.push({ room: roomId, session });
       room.phoneConnected(side, url.searchParams.get("client") ?? "unknown", session);
-      socket.on("close", () => room.onClose("phone", session, side));
+      socket.on("close", (code, reason) => room.onClose("phone", session, side, code, reason.toString()));
     } else {
       room.sessionHostConnected(session, side);
-      socket.on("close", (code) => {
+      socket.on("close", (code, reason) => {
         desktopCloses.push({ session, code });
-        room.onClose("host", session, side);
+        room.onClose("host", session, side, code, reason.toString());
       });
     }
   });
@@ -678,8 +678,8 @@ describe("remote access through the relay", () => {
     await other.store.addDevice({ ...record });
     relay.hostile.phoneRoom = (room) => (room === home.route.room ? other.route.room : room);
 
-    // The other desktop's handshake close reaches the phone as the relay's plain close, so it reads as network.
-    expect(await failure(resume(home, paired))).toBe("network");
+    // The other desktop cannot verify the hello, and the relay passes its handshake close on to the phone.
+    expect(await failure(resume(home, paired))).toBe("handshake");
     await until(() => other.logs.some(({ message }) => message === "phone handshake failed"));
     expect(other.runtime.connections()).toBe(0);
     expect(home.runtime.connections()).toBe(0);
@@ -774,6 +774,34 @@ describe("remote access through the relay", () => {
     await within(gone, "the revoked session to close", 1_000);
     expect(Date.now() - started).toBeLessThan(1_000);
     expect(await failure(resume(desk, paired))).not.toBe("connected");
+  });
+
+  it("tells a revoked phone over the relay that it is not paired, as a hint that is still retried", async () => {
+    const desk = await desktop();
+    const paired = await pairedPhone(desk);
+    await desk.store.removeDevice(paired.deviceId);
+    const outcome = await raceRoutes({
+      lanHosts: [],
+      port: desk.port,
+      relay: desk.route,
+      open: (url, signal) =>
+        openRemoteSession({
+          url,
+          serverPublicKey: desk.publicKey,
+          clientStatic: paired.phone,
+          target: { mode: "resume", deviceId: paired.deviceId, credential: fromBase64Url(paired.credential) },
+          random,
+          createSocket: phoneSocket(),
+          timeoutMs: PHONE_TIMEOUT_MS,
+          signal,
+        }),
+    }).then(
+      () => ({ failure: "connected", route: undefined }),
+      (error: RouteFailure) => ({ failure: error.failure, route: error.route }),
+    );
+    // The desktop's 4003 reaches the phone. It came through the relay, so the link retries it instead of unpairing.
+    expect(outcome).toEqual({ failure: "not-paired", route: "relay" });
+    expect(relay.desktopCloses.at(-1)?.code).toBe(RemoteCloseCode.notPaired);
   });
 
   describe("with the desktop offline", () => {

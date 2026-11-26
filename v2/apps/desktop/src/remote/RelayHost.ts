@@ -1,4 +1,4 @@
-import { RelayHostMessage, type RelayRoute, relayUrl, toBase64Url } from "@zli-v2/remote-protocol";
+import { RelayHostMessage, type RelayRoute, RemoteCloseCode, relayUrl, toBase64Url } from "@zli-v2/remote-protocol";
 import type { WebSocket } from "ws";
 
 import { type MobileGateway, PHONE_SOCKET_OPTIONS } from "./MobileGateway.js";
@@ -25,7 +25,7 @@ const MAX_CONTROL_BYTES = 4096;
 const CLOSE_TOO_BIG = 1009;
 const CLOSE_REJECTED = 1008;
 /** The relay closes the older desktop with this when a second one claims the room. */
-const CLOSE_REPLACED = 4000;
+const CLOSE_REPLACED = RemoteCloseCode.replaced;
 const STABLE_MS = 30_000;
 const CONNECT_DEADLINE_MS = 15_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
