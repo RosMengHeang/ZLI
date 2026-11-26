@@ -316,12 +316,13 @@ export function MobileAccessSection() {
               }
               description={
                 <>
-                  It used your pairing code through ZLI's relay. Allow it only if you are pairing that phone now.
-                  Expires in <span className="mobile-countdown">{countdown(request.expiresAt, now)}</span>.
+                  It used your pairing code through ZLI's relay. Allow only if your phone shows this code. Expires in{" "}
+                  <span className="mobile-countdown">{countdown(request.expiresAt, now)}</span>.
                 </>
               }
             >
               <div className="mobile-pairing-actions">
+                <span className="mobile-confirm-code">{`${request.code.slice(0, 3)} ${request.code.slice(3)}`}</span>
                 <Button
                   size="sm"
                   variant="primary"

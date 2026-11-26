@@ -257,7 +257,7 @@ describe("MobileGateway", () => {
     phone = generateKeyPair(random),
     extra: {
       url?: string;
-      onWaiting?: () => void;
+      onWaiting?: (code: string) => void;
       signal?: AbortSignal;
       deviceName?: string;
       createSocket?: CreateWebSocket;
@@ -780,7 +780,7 @@ describe("MobileGateway", () => {
   });
 
   describe("pairing over the relay", () => {
-    type Ask = { deviceName: string; route: "lan" | "relay"; signal: AbortSignal };
+    type Ask = { deviceName: string; route: "lan" | "relay"; code: string; signal: AbortSignal };
 
     /** An approvePairing that records each request and lets the test answer it. */
     function approver() {
@@ -798,15 +798,18 @@ describe("MobileGateway", () => {
     it("holds the pairing until the desktop allows it, then stores the phone", async () => {
       const { asked, approvePairing } = approver();
       await restartGateway({ approvePairing });
-      let waited = false;
+      let shown: string | undefined;
       const attempt = pairOverRelay({
-        onWaiting: () => {
-          waited = true;
+        onWaiting: (code) => {
+          shown = code;
         },
       });
       await until(() => asked.length === 1);
       expect(asked[0]).toMatchObject({ deviceName: "Pixel 9", route: "relay" });
-      await until(() => waited);
+      await until(() => shown !== undefined);
+      // The person compares the code on the PC with the one on the phone.
+      expect(asked[0]?.code).toMatch(/^\d{6}$/u);
+      expect(shown).toBe(asked[0]?.code);
       expect(store.devices()).toEqual([]);
 
       asked[0]?.answer(true);

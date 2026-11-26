@@ -317,7 +317,7 @@ describe("preload API", () => {
         { deviceId: "d1", name: "Pixel 9", pairedAt: "2026-01-02T03:04:05.000Z", connected: true, push: false },
       ],
       relay: { available: true, enabled: true, state: "online", remoteTerminalInput: false },
-      pairingRequest: { id: "req-1", deviceName: "Pixel 9", expiresAt: "2026-01-02T03:06:05.000Z" },
+      pairingRequest: { id: "req-1", deviceName: "Pixel 9", code: "042917", expiresAt: "2026-01-02T03:06:05.000Z" },
     };
     const api = createPreloadApi({
       invoke: async (channel, payload) => {

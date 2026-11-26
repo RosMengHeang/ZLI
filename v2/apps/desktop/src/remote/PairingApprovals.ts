@@ -2,7 +2,7 @@ import { type RandomBytes, toBase64Url } from "@zli-v2/remote-protocol";
 
 import { PAIRING_APPROVAL_WAIT_MS, type PairingApprovalRequest } from "./MobileGateway.js";
 
-export type PendingApproval = { id: string; deviceName: string; expiresAt: number };
+export type PendingApproval = { id: string; deviceName: string; code: string; expiresAt: number };
 
 /**
  * The one relay pairing waiting for the person at the desktop to allow it. Settings answers it by id, so an answer
@@ -31,6 +31,7 @@ export class PairingApprovals {
         request: {
           id,
           deviceName: request.deviceName,
+          code: request.code,
           expiresAt: (this.options.now?.() ?? Date.now()) + PAIRING_APPROVAL_WAIT_MS,
         },
         finish,

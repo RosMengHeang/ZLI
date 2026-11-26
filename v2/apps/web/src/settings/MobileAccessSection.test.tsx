@@ -262,6 +262,7 @@ describe("MobileAccessSection", () => {
     const request = (seconds: number) => ({
       id: "req-1",
       deviceName: "Pixel 9",
+      code: "042917",
       expiresAt: new Date(Date.now() + seconds * 1_000).toISOString(),
     });
 
@@ -290,6 +291,9 @@ describe("MobileAccessSection", () => {
       expect(container.textContent).not.toContain("expired or was already used");
       // The name is isolated, so its text direction cannot reorder the question around it.
       expect(container.querySelector("bdi")?.textContent).toBe("Pixel 9");
+      // The same code shows on the phone, so the person can tell their phone from someone else's.
+      expect(container.querySelector(".mobile-confirm-code")?.textContent).toBe("042 917");
+      expect(container.textContent).toContain("Allow only if your phone shows this code.");
 
       await settle();
       await act(async () => button(container, "Allow").click());

@@ -1,5 +1,5 @@
 import { fromBase64Url, type RandomBytes, toBase64Url } from "./bytes.js";
-import { type KeyPair, type SecureChannel, startClientHandshake } from "./crypto.js";
+import { confirmationCode, type KeyPair, type SecureChannel, startClientHandshake } from "./crypto.js";
 import {
   type ClientControl,
   isControlType,
@@ -151,8 +151,11 @@ export function openRemoteSession(options: {
   openTimeoutMs?: number;
   /** Aborting closes the socket and rejects with a network failure, so a losing route does not linger. */
   signal?: AbortSignal;
-  /** The desktop is holding this pairing until the person there allows it. */
-  onWaiting?: () => void;
+  /**
+   * The desktop is holding this pairing until the person there allows it. `code` is the session's confirmation code,
+   * which the desktop shows next to Allow.
+   */
+  onWaiting?: (code: string) => void;
 }): Promise<RemoteSession> {
   const { target } = options;
   return new Promise((resolve, reject) => {
@@ -303,7 +306,7 @@ export function openRemoteSession(options: {
           waiting = true;
           clearTimeout(timer);
           timer = setTimeout(() => fail("timeout", 1000), PAIRING_APPROVAL_TIMEOUT_MS);
-          options.onWaiting?.();
+          if (options.onWaiting && channel) options.onWaiting(confirmationCode(channel));
           return;
         }
         if (settled) return fail("protocol");

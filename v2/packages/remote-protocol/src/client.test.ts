@@ -193,6 +193,7 @@ describe("openRemoteSession while the desktop asks the person to allow a pairing
     expect(desktop.received).toEqual([{ type: "gateway.pair", deviceName: "Pixel 9" }]);
     desktop.send({ type: "gateway.waiting", reason: "approval" });
     expect(onWaiting).toHaveBeenCalledTimes(1);
+    expect(onWaiting.mock.calls[0]?.[0]).toMatch(/^\d{6}$/u);
     // The desktop repeats it to keep the relay from closing an idle connection.
     await vi.advanceTimersByTimeAsync(20_000);
     desktop.send({ type: "gateway.waiting", reason: "approval" });

@@ -23,6 +23,8 @@ export type MobilePairing = z.infer<typeof MobilePairing>;
 export const MobilePairingRequest = z.object({
   id: z.string().min(1).max(100),
   deviceName: z.string().min(1).max(60),
+  /** Six digits the phone shows too, so the person can tell their phone from someone else's. */
+  code: z.string().regex(/^\d{6}$/u),
   expiresAt: z.string().datetime({ offset: true }),
 });
 export type MobilePairingRequest = z.infer<typeof MobilePairingRequest>;

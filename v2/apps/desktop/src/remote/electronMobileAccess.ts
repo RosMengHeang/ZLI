@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { hostname, networkInterfaces } from "node:os";
 
 import { MobileAccessStatus, type RuntimeProjection } from "@zli-v2/contracts";
-import { fromBase64Url, toBase64Url } from "@zli-v2/remote-protocol";
+import { fromBase64Url, type RelayRoute, toBase64Url } from "@zli-v2/remote-protocol";
 import { type BrowserWindow, ipcMain, safeStorage } from "electron";
 import { WebSocket } from "ws";
 
@@ -101,6 +101,7 @@ export async function registerMobileAccess(options: {
             pairingRequest: {
               id: request.id,
               deviceName: request.deviceName,
+              code: request.code,
               expiresAt: new Date(request.expiresAt).toISOString(),
             },
           }
@@ -145,7 +146,7 @@ export async function registerMobileAccess(options: {
     hosts: reachableHosts,
     onChange: publish,
     // Read when a phone connects, so a phone paired before the relay was on, or before its room changed, learns it.
-    relayRoute: () => relay.route(),
+    relayRoute: (): RelayRoute | undefined => relay.route(),
     log: (message, detail) => options.log?.("info", message, detail),
   });
 

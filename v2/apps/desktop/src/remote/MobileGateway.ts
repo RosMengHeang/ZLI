@@ -6,6 +6,7 @@ import {
   ClientControl,
   ClientHello,
   checkPhoneMessage,
+  confirmationCode,
   equalBytes,
   fromBase64Url,
   HandshakeError,
@@ -33,8 +34,11 @@ export type UpstreamTarget = { url: string; token: string; environmentId: string
  */
 export type ConnectionOrigin = { route: "lan"; address: string } | { route: "relay"; client: string };
 
-/** A pairing waiting on the person at the desktop. `signal` aborts when the phone leaves or the wait runs out. */
-export type PairingApprovalRequest = { deviceName: string; route: "lan" | "relay"; signal: AbortSignal };
+/**
+ * A pairing waiting on the person at the desktop. `code` is the session's confirmation code, which the phone shows too.
+ * `signal` aborts when the phone leaves or the wait runs out.
+ */
+export type PairingApprovalRequest = { deviceName: string; route: "lan" | "relay"; code: string; signal: AbortSignal };
 
 export interface MobileGatewayOptions {
   store: MobileAccessStore;
@@ -356,7 +360,8 @@ export class MobileGateway {
      */
     const approve = async (deviceName: string): Promise<boolean> => {
       const ask = options.approvePairing;
-      if (!ask) return false;
+      if (!ask || !channel) return false;
+      const code = confirmationCode(channel);
       const controller = new AbortController();
       approval = controller;
       // The approval wait replaces the handshake deadline.
@@ -369,7 +374,7 @@ export class MobileGateway {
         controller.signal.addEventListener("abort", () => resolve(false), { once: true }),
       );
       try {
-        const allowed = await Promise.race([ask({ deviceName, route, signal: controller.signal }), cancelled]);
+        const allowed = await Promise.race([ask({ deviceName, route, code, signal: controller.signal }), cancelled]);
         if (allowed !== true || controller.signal.aborted) return false;
         // Storing the phone gets the usual short deadline, not what is left of the approval wait.
         clearTimeout(timer);

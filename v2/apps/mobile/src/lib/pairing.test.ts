@@ -10,7 +10,14 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { ids } from "./fixtures.js";
-import { PairError, pairingCodeFromLink, pairingPrivacyNote, pairWithDesktop, previewPairingCode } from "./pairing.js";
+import {
+  PairError,
+  pairingCodeFromLink,
+  pairingPrivacyNote,
+  pairWithDesktop,
+  previewPairingCode,
+  waitingMessage,
+} from "./pairing.js";
 
 const now = 1_800_000_000_000;
 const code = encodePairingCode({
@@ -164,17 +171,18 @@ describe("pairWithDesktop", () => {
       expiresAt: now + 60_000,
       relay,
     });
-    const attempts: Array<{ url: string; timeoutMs?: number; onWaiting?: () => void }> = [];
+    type Attempt = { url: string; timeoutMs?: number; onWaiting?: (code: string) => void };
+    const attempts: Attempt[] = [];
     const onWaiting = vi.fn();
     const pending = pairWithDesktop(
       relayCode,
       "Pixel",
       {
         ...deps(async () => pairedSession()),
-        openSession: async (options: { url: string; timeoutMs?: number; onWaiting?: () => void }) => {
+        openSession: async (options: Attempt) => {
           attempts.push(options);
           if (options.url.startsWith("ws://")) throw new RemoteConnectError("network", failureMessage("network"));
-          options.onWaiting?.();
+          options.onWaiting?.("042917");
           throw new RemoteConnectError("pairing-denied", failureMessage("pairing-denied"));
         },
       } as never,
@@ -182,6 +190,8 @@ describe("pairWithDesktop", () => {
     );
     await expect(pending).rejects.toThrow("The PC didn't allow this phone. Make a new code on the PC and try again.");
     expect(onWaiting).toHaveBeenCalledTimes(1);
+    // The waiting state carries the code the PC shows next to Allow.
+    expect(onWaiting).toHaveBeenCalledWith("042917");
     // Only the relay attempt can be held for approval; the LAN attempt is as before.
     expect(attempts.map((attempt) => [attempt.timeoutMs, typeof attempt.onWaiting])).toEqual([
       [8_000, "undefined"],
@@ -203,6 +213,12 @@ describe("pairWithDesktop", () => {
     });
     await expect(pairWithDesktop(code, "Pixel", unreachable)).rejects.toThrow(/Could not reach Studio/u);
     await expect(pairWithDesktop(code, "  ", unreachable)).rejects.toBeInstanceOf(PairError);
+  });
+});
+
+describe("waitingMessage", () => {
+  it("shows the confirmation code in two groups of three, leading zeros kept", () => {
+    expect(waitingMessage("042917")).toBe("Approve this phone on your PC. Code: 042 917");
   });
 });
 

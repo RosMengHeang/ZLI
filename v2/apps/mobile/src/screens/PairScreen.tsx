@@ -10,6 +10,7 @@ import {
   pairingPrivacyNote,
   pairWithDesktop,
   previewPairingCode,
+  waitingMessage,
 } from "../lib/pairing.js";
 import type { StoredPairing } from "../lib/pairingRecord.js";
 import { createSocket, defaultDeviceName, random } from "../platform.js";
@@ -40,8 +41,8 @@ export function PairScreen({
   const [code, setCode] = useState("");
   const [deviceName, setDeviceName] = useState(defaultDeviceName);
   const [busy, setBusy] = useState(false);
-  // The desktop is holding a relay pairing until the person there allows it.
-  const [waiting, setWaiting] = useState(false);
+  // The desktop is holding a relay pairing until the person there allows it. Holds what to show, code included.
+  const [waiting, setWaiting] = useState<string>();
   const [error, setError] = useState<string>();
   const scanned = useRef(false);
 
@@ -87,7 +88,7 @@ export function PairScreen({
 
   const pair = async () => {
     setBusy(true);
-    setWaiting(false);
+    setWaiting(undefined);
     setError(undefined);
     try {
       await onPaired(
@@ -95,11 +96,11 @@ export function PairScreen({
           code,
           deviceName,
           { random, createSocket, now: Date.now },
-          { onWaiting: () => setWaiting(true) },
+          { onWaiting: (confirm) => setWaiting(waitingMessage(confirm)) },
         ),
       );
     } catch (cause) {
-      setWaiting(false);
+      setWaiting(undefined);
       setError(
         cause instanceof PairError
           ? cause.message
@@ -214,7 +215,7 @@ export function PairScreen({
         />
 
         {error ? <Notice tone="error" message={error} /> : null}
-        {busy && waiting ? <Notice tone="info" message="Approve this phone on your PC." /> : null}
+        {busy && waiting ? <Notice tone="info" message={waiting} /> : null}
 
         <Button
           label={desktopName ? `Pair with ${desktopName}` : "Pair"}

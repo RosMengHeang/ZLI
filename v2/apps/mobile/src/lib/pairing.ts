@@ -71,15 +71,21 @@ export function pairingCodeFromLink(url: string): string | undefined {
   }
 }
 
+/** What the phone shows while the PC asks the person to allow it. The PC shows the same code. */
+export function waitingMessage(code: string): string {
+  return `Approve this phone on your PC. Code: ${code.slice(0, 3)} ${code.slice(3)}`;
+}
+
 /**
  * Pairs with the desktop named in a pairing code. Rejects with PairError, whose message is shown as is. `onWaiting`
- * fires when a pairing through the relay waits for the person at the desktop to allow it.
+ * fires when a pairing through the relay waits for the person at the desktop to allow it, with the code the desktop
+ * shows next to Allow.
  */
 export async function pairWithDesktop(
   codeText: string,
   deviceName: string,
   deps: PairDeps,
-  events: { onWaiting?: () => void } = {},
+  events: { onWaiting?: (code: string) => void } = {},
 ): Promise<StoredPairing> {
   const preview = previewPairingCode(codeText, deps.now());
   if ("error" in preview) throw new PairError(preview.error);

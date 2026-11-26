@@ -4,6 +4,7 @@ import { toBase64Url, utf8Encode, webCryptoRandomBytes } from "./bytes.js";
 import {
   acceptClientHello,
   ChannelError,
+  confirmationCode,
   generateKeyPair,
   HandshakeError,
   hashSecret,
@@ -196,6 +197,20 @@ describe("handshake", () => {
     const second = pairedChannels();
     const frame = first.phone.sealJson("same");
     expect(() => second.desktop.openJson(frame)).toThrow(ChannelError);
+  });
+});
+
+describe("confirmationCode", () => {
+  it("gives both sides of one session the same six digits", () => {
+    const { phone, desktop } = pairedChannels();
+    expect(confirmationCode(phone)).toMatch(/^\d{6}$/u);
+    expect(confirmationCode(phone)).toBe(confirmationCode(desktop));
+  });
+
+  it("gives different sessions different codes", () => {
+    const codes = new Set(Array.from({ length: 20 }, () => confirmationCode(pairedChannels().phone)));
+    // Twenty draws from a million collide with odds of about 1 in 5 000.
+    expect(codes.size).toBeGreaterThanOrEqual(19);
   });
 });
 

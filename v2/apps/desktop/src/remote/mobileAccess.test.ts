@@ -472,7 +472,12 @@ describe("PairingApprovals", () => {
       },
     };
   }
-  const ask = (signal = new AbortController().signal) => ({ deviceName: "Pixel 9", route: "relay" as const, signal });
+  const ask = (signal = new AbortController().signal) => ({
+    deviceName: "Pixel 9",
+    route: "relay" as const,
+    code: "042917",
+    signal,
+  });
 
   it("shows the request while it waits and allows it when the person answers with its id", async () => {
     const { value, changes } = approvals();
@@ -481,6 +486,7 @@ describe("PairingApprovals", () => {
     expect(request).toEqual({
       id: expect.any(String),
       deviceName: "Pixel 9",
+      code: "042917",
       expiresAt: 1_000 + PAIRING_APPROVAL_WAIT_MS,
     });
     expect(changes()).toBe(1);
