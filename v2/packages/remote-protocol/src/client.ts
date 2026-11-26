@@ -165,6 +165,7 @@ export function openRemoteSession(options: {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
+        options.signal?.removeEventListener("abort", onAbort);
         reject(new RemoteConnectError(failure, failureMessage(failure)));
       }
       if (!closed) {
@@ -178,13 +179,8 @@ export function openRemoteSession(options: {
     };
     const timer = setTimeout(() => fail("timeout", 1000), options.timeoutMs ?? 10_000);
     // Only matters until the session settles; after that the caller closes the transport itself.
-    options.signal?.addEventListener(
-      "abort",
-      () => {
-        if (!settled) fail("network", 1000);
-      },
-      { once: true },
-    );
+    const onAbort = () => fail("network", 1000);
+    options.signal?.addEventListener("abort", onAbort, { once: true });
 
     const sendControl = (message: ClientControl) => {
       if (channel) socket.send(toArrayBuffer(channel.sealJson(message)));
@@ -220,6 +216,7 @@ export function openRemoteSession(options: {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
+        options.signal?.removeEventListener("abort", onAbort);
         reject(new RemoteConnectError(failure, failureMessage(failure)));
         return;
       }
@@ -261,6 +258,7 @@ export function openRemoteSession(options: {
         if (target.mode === "pair" && !paired) return fail("protocol");
         settled = true;
         clearTimeout(timer);
+        options.signal?.removeEventListener("abort", onAbort);
         resolve({ transport, ready: control.data, ...(paired ? { paired } : {}) });
         return;
       }

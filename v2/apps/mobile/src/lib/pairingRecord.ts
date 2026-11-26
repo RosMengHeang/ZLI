@@ -57,7 +57,7 @@ export function withReady(
   host: string | undefined,
   route: "lan" | "relay" = "lan",
 ): StoredPairing {
-  // A relay win says nothing about which LAN address works, so lastHost and the host list stay put.
+  // A relay win says nothing about which LAN address works, so lastHost stays as it was and only the desktop's reported addresses are merged in.
   const hosts =
     host === undefined
       ? [...new Set([...ready.hosts, ...pairing.hosts])].slice(0, MAX_HOSTS)

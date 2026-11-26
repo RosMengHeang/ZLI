@@ -18,7 +18,13 @@ import {
 
 import { hostsToTry, type StoredPairing, samePairing, withReady } from "./pairingRecord.js";
 import type { PushRegistration } from "./push.js";
-import { blockingRouteFailures, RELAY_UNREACHABLE_MESSAGE, type RouteKind, raceRoutes } from "./routes.js";
+import {
+  blockingRouteFailures,
+  RELAY_UNREACHABLE_MESSAGE,
+  RouteFailure,
+  type RouteKind,
+  raceRoutes,
+} from "./routes.js";
 
 /**
  * The gateway answers the runtime hello itself and never forwards it, so the phone holds no runtime
@@ -69,7 +75,7 @@ export type LinkOptions = {
 
 type Attempt =
   | { kind: "online"; closed: Promise<RemoteCloseInfo | undefined>; openedAt: number }
-  | { kind: "failed"; failure: RemoteFailure; relayOnly?: boolean }
+  | { kind: "failed"; failure: RemoteFailure; message?: string }
   | { kind: "blocked"; message: string }
   | { kind: "stopped" };
 
@@ -229,7 +235,7 @@ export class RemoteLink {
       } else {
         attempt += 1;
         failure = result.failure;
-        if (result.relayOnly) message = RELAY_UNREACHABLE_MESSAGE;
+        message = result.message;
       }
       const delay =
         failure === "rate-limited"
@@ -287,10 +293,17 @@ export class RemoteLink {
     } catch (error) {
       if (!this.#running) return { kind: "stopped" };
       if (!(error instanceof RemoteConnectError)) throw error;
-      if (blockingRouteFailures.has(error.failure)) return { kind: "blocked", message: error.message };
+      if (blockingRouteFailures.has(error.failure)) {
+        // Only the LAN can prove this phone was forgotten; a relay can say anything, so keep retrying.
+        if (error instanceof RouteFailure && error.route === "relay")
+          return { kind: "failed", failure: error.failure, message: error.message };
+        return { kind: "blocked", message: error.message };
+      }
       if (error.failure === "rate-limited") return { kind: "failed", failure: "rate-limited" };
       // With a relay, "same network" advice would mislead: the phone tried the internet too.
-      if (pairing.relay && error.failure === "network") return { kind: "failed", failure: "network", relayOnly: true };
+      if (pairing.relay && (error.failure === "network" || error.failure === "timeout")) {
+        return { kind: "failed", failure: error.failure, message: RELAY_UNREACHABLE_MESSAGE };
+      }
       return { kind: "failed", failure: error.failure };
     } finally {
       if (this.#stopRace === stop) this.#stopRace = undefined;
@@ -299,6 +312,7 @@ export class RemoteLink {
       won.session.transport.close();
       return { kind: "stopped" };
     }
+    // A runtime hello that fails after a win retries the whole race, not just the next host.
     const online = await this.#adopt(won.session, won.route, won.host);
     return online ?? { kind: "failed", failure: "protocol" };
   }

@@ -116,7 +116,7 @@ describe("raceRoutes", () => {
     expect(relaySession.closed()).toBe(false);
   });
 
-  it("ends at once on a blocking failure, preferring it over network", async () => {
+  it("prefers a blocking failure over network once LAN has finished", async () => {
     const result = raceRoutes({
       lanHosts: ["a"],
       port: 1,
@@ -125,7 +125,7 @@ describe("raceRoutes", () => {
         url.startsWith("wss://") ? after(10, fail("handshake"), signal) : after(5_000, fail("network"), signal),
     });
     const settled = expect(result).rejects.toMatchObject({ failure: "handshake" });
-    await vi.advanceTimersByTimeAsync(1_600);
+    await vi.advanceTimersByTimeAsync(5_100);
     await settled;
   });
 
@@ -206,5 +206,102 @@ describe("raceRoutes", () => {
     controller.abort();
     await settled;
     expect(seen.every((signal) => signal.aborted)).toBe(true);
+  });
+  it("keeps racing when only the relay says blocked, and LAN wins", async () => {
+    const lan = fakeSession();
+    const result = raceRoutes({
+      lanHosts: ["a"],
+      port: 1,
+      relay,
+      lastRoute: "relay",
+      open: (url, signal) =>
+        url.startsWith("wss://") ? after(0, fail("not-paired"), signal) : after(2_000, lan, signal),
+    });
+    await vi.advanceTimersByTimeAsync(2_100);
+    await expect(result).resolves.toMatchObject({ route: "lan", session: lan.session });
+  });
+
+  it("rejects with the relay's blocking failure, marked as relay, once LAN has failed", async () => {
+    const result = raceRoutes({
+      lanHosts: ["a"],
+      port: 1,
+      relay,
+      open: (url, signal) =>
+        url.startsWith("wss://") ? after(10, fail("not-paired"), signal) : after(3_000, fail("network"), signal),
+    });
+    const settled = expect(result).rejects.toMatchObject({ failure: "not-paired", route: "relay" });
+    await vi.advanceTimersByTimeAsync(3_100);
+    await settled;
+  });
+
+  it("marks a LAN blocking failure as lan and ends at once", async () => {
+    const result = raceRoutes({
+      lanHosts: ["a"],
+      port: 1,
+      relay,
+      open: (url, signal) =>
+        url.startsWith("wss://") ? after(5_000, fail("network"), signal) : after(10, fail("handshake"), signal),
+    });
+    const settled = expect(result).rejects.toMatchObject({ failure: "handshake", route: "lan" });
+    await vi.advanceTimersByTimeAsync(20);
+    await settled;
+  });
+
+  it("rejects with the relay's handshake failure over an earlier LAN unavailable", async () => {
+    const result = raceRoutes({
+      lanHosts: ["a"],
+      port: 1,
+      relay,
+      open: (url, signal) =>
+        url.startsWith("wss://") ? after(10, fail("handshake"), signal) : after(20, fail("unavailable"), signal),
+    });
+    const settled = expect(result).rejects.toMatchObject({ failure: "handshake" });
+    await vi.advanceTimersByTimeAsync(100);
+    await settled;
+  });
+
+  it("ranks other failures above timeout above network", async () => {
+    const result = raceRoutes({
+      lanHosts: ["a"],
+      port: 1,
+      relay,
+      open: (url, signal) =>
+        url.startsWith("wss://") ? after(10, fail("network"), signal) : after(20, fail("timeout"), signal),
+    });
+    const settled = expect(result).rejects.toMatchObject({ failure: "timeout" });
+    await vi.advanceTimersByTimeAsync(100);
+    await settled;
+  });
+
+  it("sequential never opens the relay while LAN is still working", async () => {
+    const lan = fakeSession();
+    const urls: string[] = [];
+    const result = raceRoutes({
+      lanHosts: ["a"],
+      port: 1,
+      relay,
+      sequential: true,
+      open: (url, signal) => {
+        urls.push(url);
+        return after(3_000, lan, signal);
+      },
+    });
+    await vi.advanceTimersByTimeAsync(3_100);
+    await expect(result).resolves.toMatchObject({ route: "lan" });
+    expect(urls).toEqual(["ws://a:1/remote"]);
+  });
+
+  it("sequential uses the relay after every LAN host failed", async () => {
+    const relaySession = fakeSession();
+    const result = raceRoutes({
+      lanHosts: ["a"],
+      port: 1,
+      relay,
+      sequential: true,
+      open: (url, signal) =>
+        url.startsWith("wss://") ? after(10, relaySession, signal) : after(10, fail("network"), signal),
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(result).resolves.toMatchObject({ route: "relay" });
   });
 });

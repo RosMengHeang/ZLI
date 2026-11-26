@@ -102,6 +102,36 @@ describe("pairWithDesktop", () => {
     expect(pairing.lastHost).toBeUndefined();
   });
 
+  it("pairs over a slow LAN without ever opening the relay", async () => {
+    vi.useFakeTimers();
+    const relay = { url: "wss://relay.example.com", room: toBase64Url(webCryptoRandomBytes(16)) };
+    const relayCode = encodePairingCode({
+      v: 1,
+      name: "Studio",
+      hosts: ["192.168.1.20"],
+      port: 47321,
+      key: toBase64Url(webCryptoRandomBytes(32)),
+      pairingId: toBase64Url(webCryptoRandomBytes(16)),
+      secret: toBase64Url(webCryptoRandomBytes(32)),
+      expiresAt: now + 60_000,
+      relay,
+    });
+    const urls: string[] = [];
+    const pending = pairWithDesktop(
+      relayCode,
+      "Pixel",
+      deps((url) => {
+        urls.push(url);
+        return new Promise((resolve) => setTimeout(() => resolve(pairedSession()), 3_000));
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(3_100);
+    const pairing = await pending;
+    vi.useRealTimers();
+    expect(urls).toEqual(["ws://192.168.1.20:47321/remote"]);
+    expect(pairing.lastRoute).toBe("lan");
+  });
+
   it("stops at a used code instead of trying the next address", async () => {
     const open = vi.fn(async () => {
       throw new RemoteConnectError("pairing-code", failureMessage("pairing-code"));

@@ -17,6 +17,17 @@ export const blockingRouteFailures = new Set<RemoteFailure>(["not-paired", "hand
 /** Shown when every route failed and a relay was tried, so "same network" advice would be wrong. */
 export const RELAY_UNREACHABLE_MESSAGE = "Your PC is not reachable. Check that it is on and connected to the internet.";
 
+/** The race's final failure, with the route that produced it. */
+export class RouteFailure extends RemoteConnectError {
+  constructor(
+    failure: RemoteFailure,
+    message: string,
+    readonly route?: RouteKind,
+  ) {
+    super(failure, message);
+  }
+}
+
 export const DEFAULT_LAN_HEAD_START_MS = 1_500;
 
 export type RaceOptions = {
@@ -26,6 +37,8 @@ export type RaceOptions = {
   /** Opens one encrypted session. It must close its socket when `signal` aborts. */
   open: (url: string, signal: AbortSignal) => Promise<RemoteSession>;
   lanHeadStartMs?: number;
+  /** Use the relay only after every LAN host failed. For pairing, where a code works once. */
+  sequential?: boolean;
   /** The route that worked last time. A relay win last time means the LAN is probably not there. */
   lastRoute?: RouteKind | undefined;
   /** Stops the whole race, for when the app leaves the screen mid-connect. */
@@ -43,7 +56,7 @@ export function raceRoutes(options: RaceOptions): Promise<RouteResult> {
 
   return new Promise((resolve, reject) => {
     const attempts = new Set<AbortController>();
-    const failures: RemoteConnectError[] = [];
+    const failures: { error: RemoteConnectError; route: RouteKind }[] = [];
     let settled = false;
     let lanDone = lanHosts.length === 0;
     let relayDone = relay === undefined;
@@ -57,10 +70,18 @@ export function raceRoutes(options: RaceOptions): Promise<RouteResult> {
       for (const attempt of attempts) if (attempt !== winner) attempt.abort();
       outcome();
     };
+    const rank = (failure: RemoteFailure) =>
+      blockingRouteFailures.has(failure) ? 0 : failure === "network" ? 3 : failure === "timeout" ? 2 : 1;
     const rejectBest = () => {
-      // A network failure says little; anything else tells the person more.
-      const best = failures.find((failure) => failure.failure !== "network") ?? failures[0];
-      finish(() => reject(best ?? new RemoteConnectError("network", failureMessage("network"))));
+      // Blocking evidence first, then anything but a bare network or timeout failure.
+      const best = [...failures].sort((left, right) => rank(left.error.failure) - rank(right.error.failure))[0];
+      finish(() =>
+        reject(
+          best
+            ? new RouteFailure(best.error.failure, best.error.message, best.route)
+            : new RouteFailure("network", failureMessage("network")),
+        ),
+      );
     };
     const checkAllFailed = () => {
       if (lanDone && relayDone && !settled) rejectBest();
@@ -79,8 +100,10 @@ export function raceRoutes(options: RaceOptions): Promise<RouteResult> {
         if (!(error instanceof RemoteConnectError)) {
           finish(() => reject(error));
         } else if (!settled) {
-          failures.push(error);
-          if (blockingRouteFailures.has(error.failure)) rejectBest();
+          failures.push({ error, route });
+          // A relay can close with any code, so its word that this phone is unknown only counts
+          // once the LAN has had its say.
+          if (blockingRouteFailures.has(error.failure) && (route === "lan" || lanDone)) rejectBest();
         }
         return false;
       }
@@ -122,11 +145,14 @@ export function raceRoutes(options: RaceOptions): Promise<RouteResult> {
         lanDone = true;
         // No LAN host answered, so waiting out the head start only delays the relay.
         startRelay();
+        if (failures.some((entry) => blockingRouteFailures.has(entry.error.failure))) rejectBest();
         checkAllFailed();
       })();
     }
     if (relay) {
-      if (lanHosts.length === 0 || headStart === 0) startRelay();
+      if (options.sequential) {
+        // The LAN chain starts the relay when it ends.
+      } else if (lanHosts.length === 0 || headStart === 0) startRelay();
       else headStartTimer = setTimeout(startRelay, headStart);
     }
     checkAllFailed();

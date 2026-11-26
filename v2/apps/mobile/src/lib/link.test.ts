@@ -236,6 +236,44 @@ describe("RemoteLink", () => {
     await link.settled();
   });
 
+  it("keeps the pairing and retries when only the relay says this phone is not paired", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const onPairingChange = vi.fn();
+    const link = makeLink(
+      async (url) => {
+        if (url.startsWith("wss://")) throw new RemoteConnectError("not-paired", failureMessage("not-paired"));
+        throw new RemoteConnectError("network", failureMessage("network"));
+      },
+      onPairingChange,
+      { pairing: { ...pairing, relay } },
+    );
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "offline");
+    expect(link.getSnapshot().state).toMatchObject({ failure: "not-paired", message: failureMessage("not-paired") });
+    expect(link.getSnapshot().pairing).toEqual({ ...pairing, relay });
+    expect(onPairingChange).not.toHaveBeenCalled();
+    link.pause();
+    await link.settled();
+  });
+
+  it("uses the unreachable message for a relay pairing that timed out", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const link = makeLink(
+      async () => {
+        throw new RemoteConnectError("timeout", failureMessage("timeout"));
+      },
+      vi.fn(),
+      { pairing: { ...pairing, relay } },
+    );
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "offline");
+    expect(link.getSnapshot().state).toMatchObject({
+      message: "Your PC is not reachable. Check that it is on and connected to the internet.",
+    });
+    link.pause();
+    await link.settled();
+  });
+
   it("sends commands with a fresh command id", async () => {
     const { session, desktop } = fakeSession();
     const link = makeLink(async () => session);

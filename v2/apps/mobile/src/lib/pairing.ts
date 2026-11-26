@@ -71,11 +71,12 @@ export async function pairWithDesktop(codeText: string, deviceName: string, deps
   const open = deps.openSession ?? openRemoteSession;
   let won: Awaited<ReturnType<typeof raceRoutes>>;
   try {
-    // LAN first; the relay joins after a short head start when the code carries one.
+    // Sequential: a code works once, so a losing route must never reject it under a winning one.
     won = await raceRoutes({
       lanHosts: code.hosts,
       port: code.port,
       relay: code.relay,
+      sequential: true,
       open: (url, signal) =>
         open({
           url,
