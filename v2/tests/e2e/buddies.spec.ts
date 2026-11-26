@@ -78,6 +78,9 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
     await shot("nova");
 
     // Its settings are short rows with one picker each; the focus it was given is the first.
+    // In a narrow window the details start folded, so the name tag opens them.
+    const tag = pane.getByRole("button", { name: /^Nova, (show|hide) details$/u });
+    if ((await tag.getAttribute("aria-expanded")) === "false") await tag.click();
     await pane.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(pane.locator(".bset-here-text")).toContainText("Read the diff");
     await shot("nova-settings");
