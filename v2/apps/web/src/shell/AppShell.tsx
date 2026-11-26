@@ -309,6 +309,54 @@ function WorkspaceApp() {
   const sentDrafts = useRef(new Set<string>());
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
+  // A worktree that failed to be made, with no chat in it, has nothing to show: ZLI forgets it instead of
+  // keeping a Failed row in the sidebar. Forgetting touches nothing on disk. A chat whose worktree failed
+  // keeps it, so its tile can say why and try again. The short wait lets whoever asked for the worktree read
+  // the failure first, and one that failed while the window was open is told once.
+  const seenWorking = useRef(new Set<string>());
+  const forgetting = useRef(new Set<string>());
+  useEffect(() => {
+    if (!projection) return;
+    const claimed = new Set([
+      ...projection.threads.map((thread) => thread.worktreeId),
+      ...projection.terminals.map((terminal) => terminal.worktreeId),
+      ...workbench.pending.map((launch) => launch.worktreeId),
+      ...isolatedWorktrees.current.values(),
+    ]);
+    for (const worktree of projection.worktrees) {
+      if (worktree.status !== "failed") {
+        seenWorking.current.add(worktree.worktreeId);
+        continue;
+      }
+      if (worktree.kind === "checkout" || claimed.has(worktree.worktreeId)) continue;
+      if (forgetting.current.has(worktree.worktreeId)) continue;
+      // Scheduled once; a chat that takes the worktree meanwhile keeps it.
+      forgetting.current.add(worktree.worktreeId);
+      const { worktreeId, branch, errorMessage } = worktree;
+      setTimeout(() => {
+        const now = projectionRef.current;
+        const still = now?.worktrees.find((entry) => entry.worktreeId === worktreeId)?.status === "failed";
+        const taken =
+          now?.threads.some((thread) => thread.worktreeId === worktreeId) ||
+          now?.terminals.some((terminal) => terminal.worktreeId === worktreeId);
+        if (!still || taken) {
+          forgetting.current.delete(worktreeId);
+          return;
+        }
+        void dispatch({
+          protocolVersion: 1,
+          commandId: makeCommandId(),
+          command: { type: "worktree.archive", worktreeId },
+        })
+          .then((response) => {
+            if (response?.accepted === false) return;
+            if (seenWorking.current.has(worktreeId))
+              showError(`Could not make a worktree for ${branch}. ${errorMessage ?? ""}`.trim());
+          })
+          .catch(() => forgetting.current.delete(worktreeId));
+      }, 3_000);
+    }
+  }, [projection, workbench.pending, dispatch, showError]);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const welcomeChecked = useRef(false);
   // Decided once, from the first snapshot: a fresh install gets the welcome setup.
