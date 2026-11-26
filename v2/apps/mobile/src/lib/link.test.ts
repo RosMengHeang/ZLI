@@ -192,6 +192,50 @@ describe("RemoteLink", () => {
     expect(link.getSnapshot().state.kind).toBe("paused");
   });
 
+  it("falls back to the relay when the LAN is stale, and records the route", async () => {
+    const { session } = fakeSession();
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const urls: string[] = [];
+    const onPairingChange = vi.fn();
+    const link = makeLink(
+      async (url) => {
+        urls.push(url);
+        if (!url.startsWith("wss://")) throw new RemoteConnectError("network", failureMessage("network"));
+        return session;
+      },
+      onPairingChange,
+      { pairing: { ...pairing, relay, lastHost: "10.0.0.5" } },
+    );
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "online");
+    expect(urls.at(-1)).toBe(`wss://relay.example.com/v1/phone/${relay.room}`);
+    expect(link.getSnapshot().route).toBe("relay");
+    expect(link.getSnapshot().state).toEqual({ kind: "online" });
+    expect(onPairingChange).toHaveBeenCalledWith(
+      expect.objectContaining({ relay, lastRoute: "relay", lastHost: "10.0.0.5" }),
+    );
+    link.pause();
+    await link.settled();
+  });
+
+  it("says the PC is unreachable, not 'same network', when the relay failed too", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const link = makeLink(
+      async () => {
+        throw new RemoteConnectError("network", failureMessage("network"));
+      },
+      vi.fn(),
+      { pairing: { ...pairing, relay } },
+    );
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "offline");
+    expect(link.getSnapshot().state).toMatchObject({
+      message: "Your PC is not reachable. Check that it is on and connected to the internet.",
+    });
+    link.pause();
+    await link.settled();
+  });
+
   it("sends commands with a fresh command id", async () => {
     const { session, desktop } = fakeSession();
     const link = makeLink(async () => session);

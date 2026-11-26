@@ -44,4 +44,30 @@ describe("stored pairing", () => {
       lastHost: "10.0.0.5",
     });
   });
+  it("parses an old stored pairing without relay fields", () => {
+    expect(parseStoredPairing(JSON.stringify(pairing))).toEqual(pairing);
+  });
+
+  it("keeps the relay and records a LAN win", () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const next = withReady(
+      { ...pairing, relay },
+      { type: "gateway.ready", desktopName: "Studio", environmentId, hosts: [], port: 47321 },
+      "10.0.0.5",
+      "lan",
+    );
+    expect(next).toMatchObject({ relay, lastRoute: "lan", lastHost: "10.0.0.5" });
+    expect(parseStoredPairing(serializePairing(next))).toEqual(next);
+  });
+
+  it("leaves lastHost alone after a relay win", () => {
+    const next = withReady(
+      { ...pairing, lastHost: "10.0.0.5" },
+      { type: "gateway.ready", desktopName: "Studio", environmentId, hosts: ["172.16.0.9"], port: 47321 },
+      undefined,
+      "relay",
+    );
+    expect(next).toMatchObject({ lastRoute: "relay", lastHost: "10.0.0.5" });
+    expect(next.hosts).toEqual(["172.16.0.9", "192.168.1.20", "10.0.0.5"]);
+  });
 });

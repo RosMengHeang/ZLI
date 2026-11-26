@@ -128,9 +128,15 @@ export function openRemoteSession(options: {
   random: RandomBytes;
   createSocket: CreateWebSocket;
   timeoutMs?: number;
+  /** Aborting closes the socket and rejects with a network failure, so a losing route does not linger. */
+  signal?: AbortSignal;
 }): Promise<RemoteSession> {
   const { target } = options;
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(new RemoteConnectError("network", failureMessage("network")));
+      return;
+    }
     let socket: WebSocketLike;
     try {
       socket = options.createSocket(options.url);
@@ -171,6 +177,14 @@ export function openRemoteSession(options: {
       }
     };
     const timer = setTimeout(() => fail("timeout", 1000), options.timeoutMs ?? 10_000);
+    // Only matters until the session settles; after that the caller closes the transport itself.
+    options.signal?.addEventListener(
+      "abort",
+      () => {
+        if (!settled) fail("network", 1000);
+      },
+      { once: true },
+    );
 
     const sendControl = (message: ClientControl) => {
       if (channel) socket.send(toArrayBuffer(channel.sealJson(message)));

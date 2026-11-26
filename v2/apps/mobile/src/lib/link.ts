@@ -14,11 +14,11 @@ import {
   type RemoteFailure,
   type RemoteSession,
   type RemoteTransport,
-  remoteUrl,
 } from "@zli-v2/remote-protocol";
 
 import { hostsToTry, type StoredPairing, samePairing, withReady } from "./pairingRecord.js";
 import type { PushRegistration } from "./push.js";
+import { blockingRouteFailures, RELAY_UNREACHABLE_MESSAGE, type RouteKind, raceRoutes } from "./routes.js";
 
 /**
  * The gateway answers the runtime hello itself and never forwards it, so the phone holds no runtime
@@ -34,7 +34,8 @@ const STABLE_CONNECTION_MS = 5_000;
 
 export type LinkState =
   | { kind: "connecting"; attempt: number }
-  | { kind: "online"; host: string }
+  /** `host` is the LAN address that answered; a relay connection has none. */
+  | { kind: "online"; host?: string }
   | { kind: "offline"; failure: RemoteFailure; message: string; retryAt: number }
   /** The desktop forgot this phone or could not prove its identity. Only pairing again helps. */
   | { kind: "blocked"; message: string }
@@ -47,6 +48,8 @@ export type LinkSnapshot = {
   /** Goes up with every new connection, so screens know to attach terminals again. */
   readonly generation: number;
   readonly pairing: StoredPairing;
+  /** How the current connection was made, so screens can say "away from home". */
+  readonly route: RouteKind | undefined;
 };
 
 export type LinkOptions = {
@@ -66,7 +69,7 @@ export type LinkOptions = {
 
 type Attempt =
   | { kind: "online"; closed: Promise<RemoteCloseInfo | undefined>; openedAt: number }
-  | { kind: "failed"; failure: RemoteFailure }
+  | { kind: "failed"; failure: RemoteFailure; relayOnly?: boolean }
   | { kind: "blocked"; message: string }
   | { kind: "stopped" };
 
@@ -84,6 +87,8 @@ export class RemoteLink {
   #controls: RemoteTransport | undefined;
   #away = false;
   #endConnection: (() => void) | undefined;
+  /** Aborts the route race in flight, for `pause`. */
+  #stopRace: AbortController | undefined;
   #wake: (() => void) | undefined;
   #running = false;
   #loop: Promise<void> | undefined;
@@ -91,7 +96,13 @@ export class RemoteLink {
   constructor(options: LinkOptions) {
     this.#options = options;
     this.#now = options.now ?? Date.now;
-    this.#snapshot = { state: { kind: "paused" }, projection: undefined, generation: 0, pairing: options.pairing };
+    this.#snapshot = {
+      state: { kind: "paused" },
+      projection: undefined,
+      generation: 0,
+      pairing: options.pairing,
+      route: undefined,
+    };
   }
 
   getSnapshot = (): LinkSnapshot => this.#snapshot;
@@ -122,6 +133,7 @@ export class RemoteLink {
     if (!this.#running) return;
     this.#running = false;
     this.#endConnection?.();
+    this.#stopRace?.abort();
     this.#wake?.();
     if (this.#snapshot.state.kind !== "blocked") this.#update({ state: { kind: "paused" } });
   }
@@ -202,6 +214,7 @@ export class RemoteLink {
         break;
       }
       let failure: RemoteFailure;
+      let message: string | undefined;
       if (result.kind === "online") {
         const info = await result.closed;
         if (!this.#running) break;
@@ -216,13 +229,14 @@ export class RemoteLink {
       } else {
         attempt += 1;
         failure = result.failure;
+        if (result.relayOnly) message = RELAY_UNREACHABLE_MESSAGE;
       }
       const delay =
         failure === "rate-limited"
           ? RATE_LIMIT_DELAY_MS
           : (RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length) - 1] ?? 1_000);
       this.#update({
-        state: { kind: "offline", failure, message: failureMessage(failure), retryAt: this.#now() + delay },
+        state: { kind: "offline", failure, message: message ?? failureMessage(failure), retryAt: this.#now() + delay },
       });
       await this.#sleep(delay);
     }
@@ -248,40 +262,49 @@ export class RemoteLink {
   async #connectOnce(): Promise<Attempt> {
     const pairing = this.#snapshot.pairing;
     const open = this.#options.openSession ?? openRemoteSession;
-    let lastFailure: RemoteFailure = "network";
-    for (const host of hostsToTry(pairing)) {
+    const stop = new AbortController();
+    this.#stopRace = stop;
+    let won: Awaited<ReturnType<typeof raceRoutes>>;
+    try {
+      won = await raceRoutes({
+        lanHosts: hostsToTry(pairing),
+        port: pairing.port,
+        relay: pairing.relay,
+        lastRoute: pairing.lastRoute,
+        signal: stop.signal,
+        open: (url, signal) =>
+          open({
+            url,
+            serverPublicKey: fromBase64Url(pairing.desktopKey),
+            clientStatic: keyPairFromSecret(fromBase64Url(pairing.phoneSecret)),
+            target: { mode: "resume", deviceId: pairing.deviceId, credential: credentialBytes(pairing.credential) },
+            random: this.#options.random,
+            createSocket: this.#options.createSocket,
+            timeoutMs: 8_000,
+            signal,
+          }),
+      });
+    } catch (error) {
       if (!this.#running) return { kind: "stopped" };
-      let session: RemoteSession;
-      try {
-        session = await open({
-          url: remoteUrl(host, pairing.port),
-          serverPublicKey: fromBase64Url(pairing.desktopKey),
-          clientStatic: keyPairFromSecret(fromBase64Url(pairing.phoneSecret)),
-          target: { mode: "resume", deviceId: pairing.deviceId, credential: credentialBytes(pairing.credential) },
-          random: this.#options.random,
-          createSocket: this.#options.createSocket,
-          timeoutMs: 8_000,
-        });
-      } catch (error) {
-        if (!(error instanceof RemoteConnectError)) throw error;
-        if (blockingFailures.has(error.failure)) return { kind: "blocked", message: error.message };
-        if (error.failure === "rate-limited") return { kind: "failed", failure: "rate-limited" };
-        lastFailure = error.failure;
-        continue;
-      }
-      if (!this.#running) {
-        session.transport.close();
-        return { kind: "stopped" };
-      }
-      const online = await this.#adopt(session, host);
-      if (online) return online;
-      lastFailure = "protocol";
+      if (!(error instanceof RemoteConnectError)) throw error;
+      if (blockingRouteFailures.has(error.failure)) return { kind: "blocked", message: error.message };
+      if (error.failure === "rate-limited") return { kind: "failed", failure: "rate-limited" };
+      // With a relay, "same network" advice would mislead: the phone tried the internet too.
+      if (pairing.relay && error.failure === "network") return { kind: "failed", failure: "network", relayOnly: true };
+      return { kind: "failed", failure: error.failure };
+    } finally {
+      if (this.#stopRace === stop) this.#stopRace = undefined;
     }
-    return { kind: "failed", failure: lastFailure };
+    if (!this.#running) {
+      won.session.transport.close();
+      return { kind: "stopped" };
+    }
+    const online = await this.#adopt(won.session, won.route, won.host);
+    return online ?? { kind: "failed", failure: "protocol" };
   }
 
   /** Runs the runtime handshake over a fresh session and makes it the current connection. */
-  async #adopt(session: RemoteSession, host: string): Promise<Attempt | undefined> {
+  async #adopt(session: RemoteSession, route: RouteKind, host: string | undefined): Promise<Attempt | undefined> {
     let resolveClosed!: (info: RemoteCloseInfo | undefined) => void;
     const closed = new Promise<RemoteCloseInfo | undefined>((resolve) => {
       resolveClosed = resolve;
@@ -323,9 +346,14 @@ export class RemoteLink {
     const stopTerminal = client.subscribeTerminal((message) => {
       for (const listener of this.#terminalListeners) listener(message);
     });
-    const pairing = withReady(this.#snapshot.pairing, session.ready, host);
+    const pairing = withReady(this.#snapshot.pairing, session.ready, host, route);
     const pairingChanged = !samePairing(pairing, this.#snapshot.pairing);
-    this.#update({ state: { kind: "online", host }, generation: this.#snapshot.generation + 1, pairing });
+    this.#update({
+      state: host === undefined ? { kind: "online" } : { kind: "online", host },
+      generation: this.#snapshot.generation + 1,
+      pairing,
+      route,
+    });
     if (pairingChanged) this.#options.onPairingChange?.(pairing);
     if (session.ready.push) {
       this.#controls = session.transport;

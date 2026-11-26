@@ -74,6 +74,34 @@ describe("pairWithDesktop", () => {
     expect(pairing).toMatchObject({ desktopName: "Studio", deviceName: "Pixel", lastHost: "10.0.0.5", port: 47321 });
   });
 
+  it("keeps the relay from the code and pairs through it when the LAN is stale", async () => {
+    const relay = { url: "wss://relay.example.com", room: toBase64Url(webCryptoRandomBytes(16)) };
+    const relayCode = encodePairingCode({
+      v: 1,
+      name: "Studio",
+      hosts: ["192.168.1.20"],
+      port: 47321,
+      key: toBase64Url(webCryptoRandomBytes(32)),
+      pairingId: toBase64Url(webCryptoRandomBytes(16)),
+      secret: toBase64Url(webCryptoRandomBytes(32)),
+      expiresAt: now + 60_000,
+      relay,
+    });
+    const urls: string[] = [];
+    const pairing = await pairWithDesktop(
+      relayCode,
+      "Pixel",
+      deps(async (url) => {
+        urls.push(url);
+        if (url.startsWith("ws://")) throw new RemoteConnectError("network", failureMessage("network"));
+        return pairedSession();
+      }),
+    );
+    expect(urls).toEqual(["ws://192.168.1.20:47321/remote", `wss://relay.example.com/v1/phone/${relay.room}`]);
+    expect(pairing).toMatchObject({ relay, lastRoute: "relay" });
+    expect(pairing.lastHost).toBeUndefined();
+  });
+
   it("stops at a used code instead of trying the next address", async () => {
     const open = vi.fn(async () => {
       throw new RemoteConnectError("pairing-code", failureMessage("pairing-code"));
