@@ -248,8 +248,8 @@ export function openRemoteSession(options: {
       if (!settled) fail("network", 1000);
     };
     socket.onclose = (event) => {
-      // The relay closes its side with a plain code, whatever the desktop used, so a plain close while the desktop was
-      // holding the pairing is its refusal.
+      // A relay built before close codes were passed on closes with a plain 1000 whatever the desktop used, so a plain
+      // close while the desktop was holding the pairing is its refusal.
       const failure = waiting && !paired && event.code === 1000 ? "pairing-denied" : failureForCloseCode(event.code);
       closed = true;
       if (!settled) {

@@ -229,6 +229,11 @@ export class RelayRoom {
     return this.#host === socket;
   }
 
+  /** Whether a desktop is here and still sending heartbeats. A phone that finds none is turned away before any other check. */
+  hasHost(): boolean {
+    return this.#liveHost() !== null;
+  }
+
   /*
    * A new control socket. It must claim within the dial timeout, and only a few may wait. When the
    * slots are full the oldest one goes, not the newcomer: refusing newcomers would let a stranger

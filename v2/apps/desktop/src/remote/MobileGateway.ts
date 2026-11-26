@@ -29,8 +29,8 @@ import type { PairingWindow } from "./PairingWindow.js";
 export type UpstreamTarget = { url: string; token: string; environmentId: string };
 
 /**
- * Where a phone connection came from. A relay `client` is a key the relay derives from the phone's address; it only
- * spreads the rate limit and never says who the phone is. The handshake does that.
+ * Where a phone connection came from. A relay `client` is a key the relay derives from the phone's address; it is a
+ * rate-limit key, not proof of who the phone is. The handshake does that.
  */
 export type ConnectionOrigin = { route: "lan"; address: string } | { route: "relay"; client: string };
 

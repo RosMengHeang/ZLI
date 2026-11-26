@@ -142,7 +142,8 @@ export class RoomObject extends DurableObject<Env> {
     }
     const room = this.#roomFor(roomId);
     this.#readHeartbeats(room);
-    if (role === "phone") await this.#checkRelayTotal();
+    // Only a phone the room could take asks the relay-wide counter, so an empty room costs no call to it.
+    if (role === "phone" && room.hasHost()) await this.#checkRelayTotal();
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
