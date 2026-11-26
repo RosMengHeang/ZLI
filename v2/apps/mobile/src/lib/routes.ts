@@ -31,7 +31,7 @@ export class RouteFailure extends RemoteConnectError {
 /** What the badge calls each route while the phone is online. Offline keeps the connection copy instead. */
 export function routeBadge(state: string, route: RouteKind | undefined): string | undefined {
   if (state !== "online" || route === undefined) return undefined;
-  return route === "relay" ? "Remote" : "Home Wi-Fi";
+  return route === "relay" ? "Remote" : "Same network";
 }
 
 export const DEFAULT_LAN_HEAD_START_MS = 1_500;

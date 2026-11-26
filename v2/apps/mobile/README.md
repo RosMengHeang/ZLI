@@ -15,7 +15,7 @@ anywhere on the desktop, the pairing code also carries a relay route, and the ph
 a 1.5 s head start for the local network (at once if the relay worked last time, or if every local
 address already failed). The first connection that completes the encrypted handshake wins.
 
-The badge under the header says which one is in use while the phone is online: Home Wi-Fi or
+The badge under the header says which one is in use while the phone is online: Same network or
 Remote. Offline, the app shows the usual out-of-reach message instead. Settings shows the same
 word under Connected by.
 

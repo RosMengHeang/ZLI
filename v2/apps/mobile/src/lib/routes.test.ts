@@ -339,7 +339,7 @@ describe("raceRoutes", () => {
 
 describe("routeBadge", () => {
   it("names the route a live connection uses", () => {
-    expect(routeBadge("online", "lan")).toBe("Home Wi-Fi");
+    expect(routeBadge("online", "lan")).toBe("Same network");
     expect(routeBadge("online", "relay")).toBe("Remote");
   });
 
