@@ -320,6 +320,27 @@ describe("RemoteLink", () => {
     ).rejects.toThrow("Not connected");
   });
 
+  it("keeps the pairing and retries when a relay session is closed as not paired", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const { session, desktop } = fakeSession();
+    const link = makeLink(
+      async (url) => {
+        if (!url.startsWith("wss://")) throw new RemoteConnectError("network", failureMessage("network"));
+        return session;
+      },
+      vi.fn(),
+      { pairing: { ...pairing, relay } },
+    );
+    link.start();
+    await until(() => link.getSnapshot().route === "relay");
+    desktop.close({ failure: "not-paired", code: 4003 });
+    await until(() => link.getSnapshot().state.kind === "offline");
+    expect(link.getSnapshot().state).toMatchObject({ failure: "not-paired", message: failureMessage("not-paired") });
+    expect(link.getSnapshot().pairing.credential).toBe(pairing.credential);
+    link.pause();
+    await link.settled();
+  });
+
   it("waits and says why when no address answers", async () => {
     const link = makeLink(async () => {
       throw new RemoteConnectError("timeout", failureMessage("timeout"));

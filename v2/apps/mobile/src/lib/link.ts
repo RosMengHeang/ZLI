@@ -74,7 +74,7 @@ export type LinkOptions = {
 };
 
 type Attempt =
-  | { kind: "online"; closed: Promise<RemoteCloseInfo | undefined>; openedAt: number }
+  | { kind: "online"; closed: Promise<RemoteCloseInfo | undefined>; openedAt: number; route: RouteKind }
   | { kind: "failed"; failure: RemoteFailure; message?: string }
   | { kind: "blocked"; message: string }
   | { kind: "stopped" };
@@ -224,11 +224,13 @@ export class RemoteLink {
       if (result.kind === "online") {
         const info = await result.closed;
         if (!this.#running) break;
-        if (info && blockingFailures.has(info.failure)) {
+        const relayBlocked = info !== undefined && blockingFailures.has(info.failure) && result.route === "relay";
+        if (info && blockingFailures.has(info.failure) && !relayBlocked) {
           this.#block(failureMessage(info.failure));
           break;
         }
-        const stable = this.#now() - result.openedAt >= STABLE_CONNECTION_MS;
+        // A relay can close with any code, so its "not paired" is shown but never trusted.
+        const stable = !relayBlocked && this.#now() - result.openedAt >= STABLE_CONNECTION_MS;
         attempt = stable ? 0 : attempt + 1;
         if (stable) continue;
         failure = info?.failure ?? "network";
@@ -377,6 +379,7 @@ export class RemoteLink {
 
     return {
       kind: "online",
+      route,
       openedAt: this.#now(),
       closed: closed.then((info) => {
         stopProjection();
