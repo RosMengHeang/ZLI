@@ -1,5 +1,5 @@
 import { fromBase64Url, type RandomBytes, toBase64Url } from "./bytes.js";
-import { type KeyPair, type SecureChannel, startClientHandshake } from "./crypto.js";
+import { confirmationCode, type KeyPair, type SecureChannel, startClientHandshake } from "./crypto.js";
 import {
   type ClientControl,
   isControlType,
@@ -36,6 +36,7 @@ export type RemoteFailure =
   | "handshake"
   | "not-paired"
   | "pairing-code"
+  | "pairing-denied"
   | "rate-limited"
   | "unavailable";
 
@@ -59,10 +60,15 @@ export function failureForCloseCode(code: number): RemoteFailure {
       return "not-paired";
     case RemoteCloseCode.pairingCode:
       return "pairing-code";
+    case RemoteCloseCode.pairingDenied:
+      return "pairing-denied";
     case RemoteCloseCode.rateLimited:
       return "rate-limited";
     case RemoteCloseCode.tryAgain:
       return "unavailable";
+    // The relay saying no desktop is there: the same as not reaching the desktop at all.
+    case RemoteCloseCode.desktopOffline:
+      return "network";
     default:
       return "network";
   }
@@ -75,13 +81,23 @@ const failureMessages: Record<RemoteFailure, string> = {
   handshake: "The desktop could not confirm who it is. Pair again from the desktop.",
   "not-paired": "This desktop no longer recognizes this phone. Pair again.",
   "pairing-code": "That pairing code expired or was already used. Make a new one on the desktop.",
+  "pairing-denied": "The PC didn't allow this phone. Make a new code on the PC and try again.",
   "rate-limited": "Too many attempts. Wait a minute and try again.",
   unavailable: "ZLI on the desktop is still starting. Try again in a moment.",
 };
 
+/** Shown instead of the pairing-denied message when the desktop stopped waiting for the person to answer. */
+const PAIRING_EXPIRED_MESSAGE = "The PC didn't answer in time. Make a new code on the PC and try again.";
+
 export function failureMessage(failure: RemoteFailure): string {
   return failureMessages[failure];
 }
+
+/**
+ * How long a phone waits for the person at the desktop to allow a pairing. Longer than the desktop's own wait, so the
+ * desktop's refusal arrives before the phone gives up.
+ */
+export const PAIRING_APPROVAL_TIMEOUT_MS = 130_000;
 
 export type RemoteCloseInfo = { failure: RemoteFailure; code: number };
 
@@ -128,9 +144,25 @@ export function openRemoteSession(options: {
   random: RandomBytes;
   createSocket: CreateWebSocket;
   timeoutMs?: number;
+  /**
+   * How long the socket may take to open, inside `timeoutMs`. A LAN address that is gone often never answers at all,
+   * so without this one dead address would hold the attempt for the whole timeout.
+   */
+  openTimeoutMs?: number;
+  /** Aborting closes the socket and rejects with a network failure, so a losing route does not linger. */
+  signal?: AbortSignal;
+  /**
+   * The desktop is holding this pairing until the person there allows it. `code` is the session's confirmation code,
+   * which the desktop shows next to Allow.
+   */
+  onWaiting?: (code: string) => void;
 }): Promise<RemoteSession> {
   const { target } = options;
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(new RemoteConnectError("network", failureMessage("network")));
+      return;
+    }
     let socket: WebSocketLike;
     try {
       socket = options.createSocket(options.url);
@@ -152,14 +184,21 @@ export function openRemoteSession(options: {
     let paired: RemoteSession["paired"];
     let settled = false;
     let closed = false;
+    let waiting = false;
     const messageListeners = new Set<(message: unknown) => void>();
     const closeListeners = new Set<(info: RemoteCloseInfo) => void>();
 
-    const fail = (failure: RemoteFailure, code: number = RemoteCloseCode.protocol) => {
+    const fail = (
+      failure: RemoteFailure,
+      code: number = RemoteCloseCode.protocol,
+      message = failureMessage(failure),
+    ) => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        reject(new RemoteConnectError(failure, failureMessage(failure)));
+        clearTimeout(openTimer);
+        options.signal?.removeEventListener("abort", onAbort);
+        reject(new RemoteConnectError(failure, message));
       }
       if (!closed) {
         closed = true;
@@ -170,7 +209,12 @@ export function openRemoteSession(options: {
         }
       }
     };
-    const timer = setTimeout(() => fail("timeout", 1000), options.timeoutMs ?? 10_000);
+    let timer = setTimeout(() => fail("timeout", 1000), options.timeoutMs ?? 10_000);
+    const openTimer =
+      options.openTimeoutMs === undefined ? undefined : setTimeout(() => fail("network", 1000), options.openTimeoutMs);
+    // Only matters until the session settles; after that the caller closes the transport itself.
+    const onAbort = () => fail("network", 1000);
+    options.signal?.addEventListener("abort", onAbort, { once: true });
 
     const sendControl = (message: ClientControl) => {
       if (channel) socket.send(toArrayBuffer(channel.sealJson(message)));
@@ -196,16 +240,23 @@ export function openRemoteSession(options: {
       },
     };
 
-    socket.onopen = () => socket.send(JSON.stringify(handshake.hello));
+    socket.onopen = () => {
+      clearTimeout(openTimer);
+      socket.send(JSON.stringify(handshake.hello));
+    };
     socket.onerror = () => {
       if (!settled) fail("network", 1000);
     };
     socket.onclose = (event) => {
-      const failure = failureForCloseCode(event.code);
+      // A relay built before close codes were passed on closes with a plain 1000 whatever the desktop used, so a plain
+      // close while the desktop was holding the pairing is its refusal.
+      const failure = waiting && !paired && event.code === 1000 ? "pairing-denied" : failureForCloseCode(event.code);
       closed = true;
       if (!settled) {
         settled = true;
         clearTimeout(timer);
+        clearTimeout(openTimer);
+        options.signal?.removeEventListener("abort", onAbort);
         reject(new RemoteConnectError(failure, failureMessage(failure)));
         return;
       }
@@ -243,10 +294,26 @@ export function openRemoteSession(options: {
           paired = { deviceId: control.data.deviceId, credential: control.data.credential };
           return;
         }
+        if (control.data.type === "gateway.denied") {
+          if (target.mode !== "pair" || paired || settled) return fail("protocol");
+          const expired = control.data.reason === "expired";
+          return fail("pairing-denied", 1000, expired ? PAIRING_EXPIRED_MESSAGE : failureMessage("pairing-denied"));
+        }
+        if (control.data.type === "gateway.waiting") {
+          if (target.mode !== "pair" || paired || settled) return fail("protocol");
+          // Repeats only keep the connection busy; the phone's own deadline is set once.
+          if (waiting) return;
+          waiting = true;
+          clearTimeout(timer);
+          timer = setTimeout(() => fail("timeout", 1000), PAIRING_APPROVAL_TIMEOUT_MS);
+          if (options.onWaiting && channel) options.onWaiting(confirmationCode(channel));
+          return;
+        }
         if (settled) return fail("protocol");
         if (target.mode === "pair" && !paired) return fail("protocol");
         settled = true;
         clearTimeout(timer);
+        options.signal?.removeEventListener("abort", onAbort);
         resolve({ transport, ready: control.data, ...(paired ? { paired } : {}) });
         return;
       }

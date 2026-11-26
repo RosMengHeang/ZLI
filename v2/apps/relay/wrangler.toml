@@ -1,0 +1,29 @@
+name = "zli-relay"
+main = "src/worker.ts"
+compatibility_date = "2026-11-01"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RoomObject"
+
+[[durable_objects.bindings]]
+name = "COUNTER"
+class_name = "RelayCounter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomObject"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RelayCounter"]
+
+[vars]
+# Frames the whole relay may forward per UTC day. Over it, new phone sessions are refused with 1013.
+RELAY_DAILY_FRAMES = "2000000"
+
+# 30 requests a minute per connecting address, checked before routing (see worker.ts).
+[[ratelimits]]
+name = "UPGRADES"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }

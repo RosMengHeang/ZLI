@@ -304,6 +304,7 @@ fieldset.mobile-device-confirm { margin: 0; padding: 0; border: 0; gap: var(--zl
 .mobile-steps > li::before { content: counter(mobile-step); display: inline-flex; width: 18px; height: 18px; flex: 0 0 auto; align-items: center; justify-content: center; margin-top: 1px; border-radius: 50%; background: var(--zli-raised); color: var(--zli-text); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; font-weight: 500; }
 .mobile-pairing-actions { display: flex; flex-wrap: wrap; gap: var(--zli-space-1-5); }
 .mobile-countdown { color: var(--zli-text); font-family: var(--zli-mono); font-variant-numeric: tabular-nums; }
+.mobile-confirm-code { align-self: center; color: var(--zli-text); font-family: var(--zli-mono); font-size: var(--zli-text-md); font-variant-numeric: tabular-nums; font-weight: 600; }
 .mobile-paired-count { color: var(--zli-dim); font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; }
 .mobile-security { display: flex; align-items: flex-start; gap: var(--zli-space-2); }
 .mobile-security > svg { flex: 0 0 auto; margin-top: 3px; }

@@ -2,13 +2,23 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { fromBase64Url, webCryptoRandomBytes as random, toBase64Url } from "@zli-v2/remote-protocol";
+import {
+  decodePairingCode,
+  fromBase64Url,
+  webCryptoRandomBytes as random,
+  roomIdFromSecret,
+  toBase64Url,
+} from "@zli-v2/remote-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AttemptLimiter } from "./AttemptLimiter.js";
 import { lanAddresses } from "./lanAddresses.js";
 import { MobileAccessStore, type SecretCodec } from "./MobileAccessStore.js";
+import { PAIRING_APPROVAL_WAIT_MS } from "./MobileGateway.js";
+import { PairingApprovals } from "./PairingApprovals.js";
 import { PAIRING_TTL_MS, PairingWindow } from "./PairingWindow.js";
+import type { RelayState } from "./RelayHost.js";
+import { desktopPairingCode, RelayLink, relayUrlFrom } from "./relayAccess.js";
 
 const codec: SecretCodec = {
   seal: (secret) => `sealed:${toBase64Url(secret)}`,
@@ -114,6 +124,80 @@ describe("MobileAccessStore", () => {
   });
 });
 
+describe("MobileAccessStore relay settings", () => {
+  let directory: string;
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "zli-mobile-relay-"));
+  });
+  afterEach(async () => rm(directory, { recursive: true, force: true }));
+
+  it("starts with the relay and remote terminal input off and no relay secret", async () => {
+    const store = new MobileAccessStore(join(directory, "mobile.json"), codec, random);
+    await store.load();
+    expect(store.relay).toEqual({ enabled: false, remoteTerminalInput: false });
+    expect(store.relaySecret()).toBeUndefined();
+  });
+
+  it("keeps relay settings across loads and stores the relay secret only sealed", async () => {
+    const path = join(directory, "mobile.json");
+    const store = new MobileAccessStore(path, codec, random);
+    await store.load();
+    await store.setRelayEnabled(true);
+    await store.setRemoteTerminalInput(true);
+    const secret = store.relaySecret();
+    expect(secret).toHaveLength(32);
+
+    const reloaded = new MobileAccessStore(path, codec, random);
+    await reloaded.load();
+    expect(reloaded.relay).toEqual({ enabled: true, remoteTerminalInput: true });
+    expect(reloaded.relaySecret()).toEqual(secret);
+    const file = await readFile(path, "utf8");
+    expect(file).toContain(`sealed:${toBase64Url(secret ?? new Uint8Array())}`);
+    expect(JSON.parse(file).relaySecret).toBe(`sealed:${toBase64Url(secret ?? new Uint8Array())}`);
+  });
+
+  it("keeps the same secret while the relay stays on, and deletes it when the relay is turned off", async () => {
+    const path = join(directory, "mobile.json");
+    const store = new MobileAccessStore(path, codec, random);
+    await store.load();
+    await store.setRelayEnabled(true);
+    const first = store.relaySecret();
+    await store.setRelayEnabled(true);
+    expect(store.relaySecret()).toEqual(first);
+    await store.setRemoteTerminalInput(true);
+
+    await store.setRelayEnabled(false);
+    expect(store.relaySecret()).toBeUndefined();
+    expect(store.relay).toEqual({ enabled: false, remoteTerminalInput: false });
+    expect(await readFile(path, "utf8")).not.toContain("relaySecret");
+
+    await store.setRelayEnabled(true);
+    expect(store.relaySecret()).not.toEqual(first);
+  });
+
+  it("turns the relay off when its sealed secret can no longer be opened", async () => {
+    const path = join(directory, "mobile.json");
+    const store = new MobileAccessStore(path, codec, random);
+    await store.load();
+    await store.keyPair();
+    await store.setRelayEnabled(true);
+    let opened = 0;
+    const desktopKeyOnly: SecretCodec = {
+      seal: codec.seal,
+      open: (text) => {
+        opened += 1;
+        // The desktop key opens first; the relay secret after it fails.
+        if (opened > 1) throw new Error("keychain reset");
+        return codec.open(text);
+      },
+    };
+    const reloaded = new MobileAccessStore(path, desktopKeyOnly, random);
+    await reloaded.load();
+    expect(reloaded.relay.enabled).toBe(false);
+    expect(reloaded.relaySecret()).toBeUndefined();
+  });
+});
+
 describe("PairingWindow", () => {
   it("opens one code at a time, expires it, and uses it once", () => {
     let now = 1_000;
@@ -169,5 +253,285 @@ describe("lanAddresses", () => {
       eth1: [entry("100.80.1.2")],
     } as never);
     expect(addresses).toEqual(["192.168.1.20", "100.80.1.2", "172.17.0.1"]);
+  });
+});
+
+describe("relayUrlFrom", () => {
+  it("takes a wss:// relay URL and refuses anything else", () => {
+    expect(relayUrlFrom("wss://relay.example.test")).toBe("wss://relay.example.test");
+    expect(relayUrlFrom(undefined)).toBeUndefined();
+    expect(relayUrlFrom("")).toBeUndefined();
+    expect(relayUrlFrom("ws://relay.example.test")).toBeUndefined();
+    expect(relayUrlFrom("https://relay.example.test")).toBeUndefined();
+    expect(relayUrlFrom("wss://relay.example.test/?token=x")).toBeUndefined();
+    expect(relayUrlFrom("not a url")).toBeUndefined();
+  });
+});
+
+describe("desktopPairingCode", () => {
+  const base = {
+    name: "Desk",
+    hosts: ["192.168.1.20"],
+    port: 47_321,
+    key: toBase64Url(random(32)),
+    pending: { pairingId: toBase64Url(random(16)), secret: random(32), expiresAt: Date.now() + 60_000 },
+  };
+
+  it("carries no relay route while the relay is off", () => {
+    expect(decodePairingCode(desktopPairingCode(base)).relay).toBeUndefined();
+  });
+
+  it("carries the relay URL and the room derived from the relay secret while it is on", () => {
+    const secret = random(32);
+    const code = decodePairingCode(
+      desktopPairingCode({ ...base, relay: { url: "wss://relay.example.test", room: roomIdFromSecret(secret) } }),
+    );
+    expect(code.relay).toEqual({ url: "wss://relay.example.test", room: roomIdFromSecret(secret) });
+    expect(code.hosts).toEqual(["192.168.1.20"]);
+  });
+});
+
+describe("RelayLink", () => {
+  let directory: string;
+  let store: MobileAccessStore;
+  let listening: boolean;
+  let hosts: Array<{ route: { url: string; room: string }; secret: Uint8Array; running: boolean; starts: number }>;
+  let onStates: Array<(state: RelayState) => void>;
+  let changes: number;
+
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "zli-relay-link-"));
+    store = new MobileAccessStore(join(directory, "mobile.json"), codec, random);
+    await store.load();
+    listening = true;
+    hosts = [];
+    onStates = [];
+    changes = 0;
+  });
+  afterEach(async () => rm(directory, { recursive: true, force: true }));
+
+  function link(url: string | null = "wss://relay.example.test") {
+    return new RelayLink({
+      url: url ?? undefined,
+      store,
+      gateway: {
+        get listening() {
+          return listening;
+        },
+      },
+      createHost: ({ route, secret, onState }) => {
+        const host = { route, secret, running: false, starts: 0 };
+        hosts.push(host);
+        onStates.push(onState);
+        return {
+          start: () => {
+            host.running = true;
+            host.starts += 1;
+            onState("connecting");
+          },
+          stop: () => {
+            host.running = false;
+            onState("off");
+          },
+        };
+      },
+      onChange: () => {
+        changes += 1;
+      },
+    });
+  }
+
+  it("runs the relay host only while the relay is on, the gateway listens, and a relay URL is set", async () => {
+    const relay = link();
+    relay.sync();
+    expect(hosts).toHaveLength(0);
+    expect(relay.state).toBe("off");
+
+    await store.setRelayEnabled(true);
+    listening = false;
+    relay.sync();
+    expect(hosts).toHaveLength(0);
+
+    listening = true;
+    relay.sync();
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]?.running).toBe(true);
+    expect(hosts[0]?.route).toEqual({
+      url: "wss://relay.example.test",
+      room: roomIdFromSecret(store.relaySecret() ?? new Uint8Array()),
+    });
+    expect(relay.state).toBe("connecting");
+    relay.sync();
+    expect(hosts).toHaveLength(1);
+
+    listening = false;
+    relay.sync();
+    expect(hosts[0]?.running).toBe(false);
+    expect(relay.state).toBe("off");
+
+    listening = true;
+    relay.sync();
+    expect(hosts).toHaveLength(2);
+    await store.setRelayEnabled(false);
+    relay.sync();
+    expect(hosts[1]?.running).toBe(false);
+    expect(relay.route()).toBeUndefined();
+  });
+
+  it("never runs without a relay URL, and says the relay is not available", async () => {
+    await store.setRelayEnabled(true);
+    const relay = link(null);
+    relay.sync();
+    expect(relay.available).toBe(false);
+    expect(relay.route()).toBeUndefined();
+    expect(hosts).toHaveLength(0);
+  });
+
+  it("follows the host's state and ignores a host it already stopped", async () => {
+    await store.setRelayEnabled(true);
+    const relay = link();
+    relay.sync();
+    onStates[0]?.("online");
+    expect(relay.state).toBe("online");
+    const before = changes;
+    relay.stop();
+    onStates[0]?.("offline");
+    expect(relay.state).toBe("off");
+    expect(changes).toBeGreaterThan(before);
+  });
+
+  it("dials a new room when the secret changes", async () => {
+    await store.setRelayEnabled(true);
+    const relay = link();
+    relay.sync();
+    await store.setRelayEnabled(false);
+    await store.setRelayEnabled(true);
+    relay.sync();
+    expect(hosts).toHaveLength(2);
+    expect(hosts[0]?.running).toBe(false);
+    expect(hosts[1]?.route.room).not.toBe(hosts[0]?.route.room);
+  });
+
+  it("keeps a relay host that fails to start to the relay, and clears the error once one starts", async () => {
+    await store.setRelayEnabled(true);
+    let fail = true;
+    const relay = new RelayLink({
+      url: "wss://relay.example.test",
+      store,
+      gateway: { listening: true },
+      createHost: () => {
+        if (fail) throw new Error("bad route");
+        return { start: () => undefined, stop: () => undefined };
+      },
+      onChange: () => {
+        changes += 1;
+      },
+    });
+    expect(() => relay.sync()).not.toThrow();
+    expect(relay.state).toBe("off");
+    expect(relay.errorMessage).toBe("Connect from anywhere could not start: bad route");
+    expect(changes).toBeGreaterThan(0);
+
+    fail = false;
+    relay.sync();
+    expect(relay.errorMessage).toBeUndefined();
+    relay.stop();
+    expect(relay.errorMessage).toBeUndefined();
+  });
+
+  it("retries a replaced room with the same secret", async () => {
+    await store.setRelayEnabled(true);
+    const relay = link();
+    relay.sync();
+    onStates[0]?.("replaced");
+    expect(relay.state).toBe("replaced");
+    relay.retry();
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]?.starts).toBe(2);
+    expect(hosts[0]?.running).toBe(true);
+    expect(relay.state).toBe("connecting");
+  });
+});
+
+describe("PairingApprovals", () => {
+  function approvals() {
+    let changes = 0;
+    let now = 1_000;
+    const value = new PairingApprovals({
+      random,
+      onChange: () => {
+        changes += 1;
+      },
+      now: () => now,
+    });
+    return {
+      value,
+      changes: () => changes,
+      advance: (ms: number) => {
+        now += ms;
+      },
+    };
+  }
+  const ask = (signal = new AbortController().signal) => ({
+    deviceName: "Pixel 9",
+    route: "relay" as const,
+    code: "042917",
+    signal,
+  });
+
+  it("shows the request while it waits and allows it when the person answers with its id", async () => {
+    const { value, changes } = approvals();
+    const answer = value.ask(ask());
+    const request = value.current();
+    expect(request).toEqual({
+      id: expect.any(String),
+      deviceName: "Pixel 9",
+      code: "042917",
+      expiresAt: 1_000 + PAIRING_APPROVAL_WAIT_MS,
+    });
+    expect(changes()).toBe(1);
+    expect(value.respond(request?.id, true)).toBe(true);
+    expect(await answer).toBe(true);
+    expect(value.current()).toBeUndefined();
+    expect(changes()).toBe(2);
+  });
+
+  it("ignores an answer with the wrong id, and allows only on exactly true", async () => {
+    const { value } = approvals();
+    const answer = value.ask(ask());
+    expect(value.respond("not-the-id", true)).toBe(false);
+    expect(value.respond(42, true)).toBe(false);
+    expect(value.current()).toBeDefined();
+    expect(value.respond(value.current()?.id, "yes")).toBe(true);
+    expect(await answer).toBe(false);
+  });
+
+  it("refuses a second request while one waits, so the prompt cannot be swapped", async () => {
+    const { value } = approvals();
+    const first = value.ask(ask());
+    const id = value.current()?.id;
+    expect(await value.ask({ ...ask(), deviceName: "Other" })).toBe(false);
+    expect(value.current()).toMatchObject({ id, deviceName: "Pixel 9" });
+    value.deny();
+    expect(await first).toBe(false);
+  });
+
+  it("denies the waiting request when phone access stops or the code is closed", async () => {
+    const { value } = approvals();
+    const answer = value.ask(ask());
+    value.deny();
+    expect(await answer).toBe(false);
+    expect(value.current()).toBeUndefined();
+  });
+
+  it("drops the request when the gateway gives up on it", async () => {
+    const { value, changes } = approvals();
+    const controller = new AbortController();
+    const answer = value.ask(ask(controller.signal));
+    controller.abort();
+    expect(await answer).toBe(false);
+    expect(value.current()).toBeUndefined();
+    expect(changes()).toBe(2);
+    expect(await value.ask(ask(controller.signal))).toBe(false);
   });
 });

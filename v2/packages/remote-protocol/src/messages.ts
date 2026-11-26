@@ -20,6 +20,25 @@ export const RemoteHost = z
   .max(253)
   .regex(/^[A-Za-z0-9.-]+$/u);
 
+/** Where a desktop can be reached through a relay. The URL comes from the pairing code, not from code. */
+export const RelayRoute = z.object({
+  url: z
+    .string()
+    .url()
+    .startsWith("wss://")
+    .refine((value) => {
+      // new URL throws on garbage that .url() already flagged, and zod still runs this refine.
+      try {
+        const parsed = new URL(value);
+        return parsed.search === "" && parsed.hash === "" && parsed.username === "" && parsed.password === "";
+      } catch {
+        return false;
+      }
+    }, "The relay URL can't carry a query, fragment, or credentials."),
+  room: Id16,
+});
+export type RelayRoute = z.infer<typeof RelayRoute>;
+
 export const ClientHello = z.discriminatedUnion("mode", [
   z.object({
     type: z.literal("hello"),
@@ -75,11 +94,26 @@ export const ClientControl = z.discriminatedUnion("type", [
    * alerts even though it may look open for a while longer.
    */
   z.object({ type: z.literal("gateway.away"), away: z.boolean() }),
+  /**
+   * Sent now and then over the relay while the phone is online, so the relay sees the phone is still there. The gateway
+   * reads it and answers nothing. Only sent to a desktop whose gateway.ready says `keepalive`.
+   */
+  z.object({ type: z.literal("gateway.keepalive") }),
 ]);
 export type ClientControl = z.infer<typeof ClientControl>;
 
 export const ServerControl = z.discriminatedUnion("type", [
   z.object({ type: z.literal("gateway.paired"), deviceId: Id16, credential: Key32 }),
+  /**
+   * The desktop holds a pairing that came through the relay until the person there allows it. Sent again now and then
+   * while it waits, so the relay does not close the quiet connection. Only phones that can use the relay ever see it.
+   */
+  z.object({ type: z.literal("gateway.waiting"), reason: z.literal("approval") }),
+  /**
+   * The desktop did not allow that pairing: the person refused it, or nobody answered in time. Sent sealed just before
+   * the close, because a close code that crossed the relay is not authenticated and older relays replaced it with 1000.
+   */
+  z.object({ type: z.literal("gateway.denied"), reason: z.enum(["refused", "expired"]) }),
   z.object({
     type: z.literal("gateway.ready"),
     desktopName: z.string().min(1).max(80),
@@ -89,6 +123,14 @@ export const ServerControl = z.discriminatedUnion("type", [
     port: z.number().int().min(1).max(65_535),
     /** The gateway takes gateway.push and gateway.away. Older desktops close the connection on them. */
     push: z.boolean().optional(),
+    /** The gateway takes gateway.keepalive. Older desktops close the connection on it. */
+    keepalive: z.boolean().optional(),
+    /**
+     * Where the phone reaches this desktop through the relay, so a phone paired before the relay was on (or before its
+     * room changed) learns the route. Null means the relay is off. Older desktops leave it out, and the phone keeps what
+     * it has.
+     */
+    relay: RelayRoute.nullable().optional(),
   }),
 ]);
 export type ServerControl = z.infer<typeof ServerControl>;
@@ -107,8 +149,14 @@ export const RemoteCloseCode = {
   notPaired: 4003,
   /** The pairing code is unknown, expired, or already used. */
   pairingCode: 4004,
+  /** The person at the desktop did not allow a pairing that came through the relay, or did not answer in time. */
+  pairingDenied: 4005,
   /** Too many attempts from this address. */
   rateLimited: 4029,
+  /** The relay has no desktop for this room, or the desktop did not dial back in time. */
+  desktopOffline: 4404,
+  /** The relay closes a desktop's control socket with this when another desktop claims the room. */
+  replaced: 4409,
   /** The desktop runtime is not reachable yet. */
   tryAgain: 1013,
 } as const;

@@ -1,4 +1,5 @@
 import {
+  decodePairingCode,
   encodePairingCode,
   failureMessage,
   RemoteConnectError,
@@ -9,7 +10,14 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { ids } from "./fixtures.js";
-import { PairError, pairingCodeFromLink, pairWithDesktop, previewPairingCode } from "./pairing.js";
+import {
+  PairError,
+  pairingCodeFromLink,
+  pairingPrivacyNote,
+  pairWithDesktop,
+  previewPairingCode,
+  waitingMessage,
+} from "./pairing.js";
 
 const now = 1_800_000_000_000;
 const code = encodePairingCode({
@@ -56,6 +64,24 @@ describe("previewPairingCode", () => {
   });
 });
 
+describe("pairingPrivacyNote", () => {
+  it("mentions the relay only when the code has one, and stays neutral before there is a code", () => {
+    const relayCode = encodePairingCode({
+      ...decodePairingCode(code),
+      relay: { url: "wss://relay.example.com", room: toBase64Url(webCryptoRandomBytes(16)) },
+    });
+    expect(pairingPrivacyNote(code, now)).toBe(
+      "The phone and the desktop need to be on the same network. Everything between them is encrypted with keys that stay on the two devices.",
+    );
+    expect(pairingPrivacyNote(relayCode, now)).toBe(
+      "The phone connects on the same network as the desktop, or through your relay when it is away. Everything between them is encrypted with keys that stay on the two devices, so the relay can't read it.",
+    );
+    expect(pairingPrivacyNote("", now)).toBe(
+      "Everything between the phone and the desktop is encrypted with keys that stay on the two devices.",
+    );
+  });
+});
+
 describe("pairWithDesktop", () => {
   it("tries each address, closes the pairing session, and keeps what reconnecting needs", async () => {
     const close = vi.fn();
@@ -74,6 +100,105 @@ describe("pairWithDesktop", () => {
     expect(pairing).toMatchObject({ desktopName: "Studio", deviceName: "Pixel", lastHost: "10.0.0.5", port: 47321 });
   });
 
+  it("keeps the relay from the code and pairs through it when the LAN is stale", async () => {
+    const relay = { url: "wss://relay.example.com", room: toBase64Url(webCryptoRandomBytes(16)) };
+    const relayCode = encodePairingCode({
+      v: 1,
+      name: "Studio",
+      hosts: ["192.168.1.20"],
+      port: 47321,
+      key: toBase64Url(webCryptoRandomBytes(32)),
+      pairingId: toBase64Url(webCryptoRandomBytes(16)),
+      secret: toBase64Url(webCryptoRandomBytes(32)),
+      expiresAt: now + 60_000,
+      relay,
+    });
+    const urls: string[] = [];
+    const pairing = await pairWithDesktop(
+      relayCode,
+      "Pixel",
+      deps(async (url) => {
+        urls.push(url);
+        if (url.startsWith("ws://")) throw new RemoteConnectError("network", failureMessage("network"));
+        return pairedSession();
+      }),
+    );
+    expect(urls).toEqual(["ws://192.168.1.20:47321/remote", `wss://relay.example.com/v1/phone/${relay.room}`]);
+    expect(pairing).toMatchObject({ relay, lastRoute: "relay" });
+    expect(pairing.lastHost).toBeUndefined();
+  });
+
+  it("pairs over a slow LAN without ever opening the relay", async () => {
+    vi.useFakeTimers();
+    const relay = { url: "wss://relay.example.com", room: toBase64Url(webCryptoRandomBytes(16)) };
+    const relayCode = encodePairingCode({
+      v: 1,
+      name: "Studio",
+      hosts: ["192.168.1.20"],
+      port: 47321,
+      key: toBase64Url(webCryptoRandomBytes(32)),
+      pairingId: toBase64Url(webCryptoRandomBytes(16)),
+      secret: toBase64Url(webCryptoRandomBytes(32)),
+      expiresAt: now + 60_000,
+      relay,
+    });
+    const urls: string[] = [];
+    const pending = pairWithDesktop(
+      relayCode,
+      "Pixel",
+      deps((url) => {
+        urls.push(url);
+        return new Promise((resolve) => setTimeout(() => resolve(pairedSession()), 3_000));
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(3_100);
+    const pairing = await pending;
+    vi.useRealTimers();
+    expect(urls).toEqual(["ws://192.168.1.20:47321/remote"]);
+    expect(pairing.lastRoute).toBe("lan");
+  });
+
+  it("says when the PC asks the person to allow a relay pairing, and why it failed when they did not", async () => {
+    const relay = { url: "wss://relay.example.com", room: toBase64Url(webCryptoRandomBytes(16)) };
+    const relayCode = encodePairingCode({
+      v: 1,
+      name: "Studio",
+      hosts: ["192.168.1.20"],
+      port: 47321,
+      key: toBase64Url(webCryptoRandomBytes(32)),
+      pairingId: toBase64Url(webCryptoRandomBytes(16)),
+      secret: toBase64Url(webCryptoRandomBytes(32)),
+      expiresAt: now + 60_000,
+      relay,
+    });
+    type Attempt = { url: string; timeoutMs?: number; onWaiting?: (code: string) => void };
+    const attempts: Attempt[] = [];
+    const onWaiting = vi.fn();
+    const pending = pairWithDesktop(
+      relayCode,
+      "Pixel",
+      {
+        ...deps(async () => pairedSession()),
+        openSession: async (options: Attempt) => {
+          attempts.push(options);
+          if (options.url.startsWith("ws://")) throw new RemoteConnectError("network", failureMessage("network"));
+          options.onWaiting?.("042917");
+          throw new RemoteConnectError("pairing-denied", failureMessage("pairing-denied"));
+        },
+      } as never,
+      { onWaiting },
+    );
+    await expect(pending).rejects.toThrow("The PC didn't allow this phone. Make a new code on the PC and try again.");
+    expect(onWaiting).toHaveBeenCalledTimes(1);
+    // The waiting state carries the code the PC shows next to Allow.
+    expect(onWaiting).toHaveBeenCalledWith("042917");
+    // Only the relay attempt can be held for approval; the LAN attempt is as before.
+    expect(attempts.map((attempt) => [attempt.timeoutMs, typeof attempt.onWaiting])).toEqual([
+      [8_000, "undefined"],
+      [8_000, "function"],
+    ]);
+  });
+
   it("stops at a used code instead of trying the next address", async () => {
     const open = vi.fn(async () => {
       throw new RemoteConnectError("pairing-code", failureMessage("pairing-code"));
@@ -88,6 +213,12 @@ describe("pairWithDesktop", () => {
     });
     await expect(pairWithDesktop(code, "Pixel", unreachable)).rejects.toThrow(/Could not reach Studio/u);
     await expect(pairWithDesktop(code, "  ", unreachable)).rejects.toBeInstanceOf(PairError);
+  });
+});
+
+describe("waitingMessage", () => {
+  it("shows the confirmation code in two groups of three, leading zeros kept", () => {
+    expect(waitingMessage("042917")).toBe("Approve this phone on your PC. Code: 042 917");
   });
 });
 

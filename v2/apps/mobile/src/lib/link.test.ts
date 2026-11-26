@@ -1,10 +1,14 @@
 import { EnvironmentId } from "@zli-v2/contracts";
 import {
   failureMessage,
+  generateKeyPair,
+  RemoteCloseCode,
   type RemoteCloseInfo,
   RemoteConnectError,
   type RemoteSession,
   type RemoteTransport,
+  toBase64Url,
+  type WebSocketLike,
   webCryptoRandomBytes,
 } from "@zli-v2/remote-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -109,8 +113,9 @@ function makeLink(
 const controls = (sent: unknown[]) =>
   sent.filter((message) => (message as { type: string }).type.startsWith("gateway."));
 
-async function until(check: () => boolean): Promise<void> {
-  for (let index = 0; index < 200 && !check(); index += 1) await new Promise((resolve) => setTimeout(resolve, 1));
+async function until(check: () => boolean, ms = 3_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!check() && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 1));
   expect(check()).toBe(true);
 }
 
@@ -192,6 +197,278 @@ describe("RemoteLink", () => {
     expect(link.getSnapshot().state.kind).toBe("paused");
   });
 
+  it("falls back to the relay when the LAN is stale, and records the route", async () => {
+    const { session } = fakeSession();
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const urls: string[] = [];
+    const onPairingChange = vi.fn();
+    const link = makeLink(
+      async (url) => {
+        urls.push(url);
+        if (!url.startsWith("wss://")) throw new RemoteConnectError("network", failureMessage("network"));
+        return session;
+      },
+      onPairingChange,
+      { pairing: { ...pairing, relay, lastHost: "10.0.0.5" } },
+    );
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "online");
+    expect(urls.at(-1)).toBe(`wss://relay.example.com/v1/phone/${relay.room}`);
+    expect(link.getSnapshot().route).toBe("relay");
+    expect(link.getSnapshot().state).toEqual({ kind: "online" });
+    expect(onPairingChange).toHaveBeenCalledWith(expect.objectContaining({ relay, lastRoute: "relay" }));
+    // The address that failed is no longer tried first; the desktop's own list leads.
+    expect(link.getSnapshot().pairing.lastHost).toBeUndefined();
+    expect(link.getSnapshot().pairing.hosts[0]).toBe("192.168.1.20");
+    link.pause();
+    await link.settled();
+  });
+
+  it("reaches the working LAN host within about 3 s when the first one is a dead address", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const { session } = fakeSession();
+    const link = new RemoteLink({
+      pairing: { ...pairing, relay, lastHost: "10.0.0.5" },
+      random: webCryptoRandomBytes,
+      createSocket: () => {
+        throw new Error("not used");
+      },
+      newId: () => crypto.randomUUID(),
+      // Stands in for the client: a dead address never opens, so the attempt ends at the open deadline.
+      openSession: async (options) => {
+        if (options.url.includes("10.0.0.5")) {
+          await delay(options.openTimeoutMs ?? options.timeoutMs ?? 10_000);
+          throw new RemoteConnectError("network", failureMessage("network"));
+        }
+        // The relay is a round trip through the internet, so it is slower than a LAN host.
+        if (options.url.startsWith("wss://")) await delay(2_500);
+        return session;
+      },
+    });
+    const started = Date.now();
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "online", 4_000);
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(link.getSnapshot().route).toBe("lan");
+    expect(link.getSnapshot().state).toEqual({ kind: "online", host: "192.168.1.20" });
+    link.pause();
+    await link.settled();
+  });
+
+  it("moves from the relay to the LAN when a background probe finds the desktop", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const relayed = fakeSession();
+    const local = fakeSession();
+    let lanUp = false;
+    const urls: string[] = [];
+    const link = makeLink(
+      async (url) => {
+        urls.push(url);
+        if (url.startsWith("wss://")) return relayed.session;
+        if (!lanUp) throw new RemoteConnectError("network", failureMessage("network"));
+        return local.session;
+      },
+      vi.fn(),
+      { pairing: { ...pairing, relay }, lanProbeMs: 30 },
+    );
+    const relayClosed = new Promise<void>((resolve) => relayed.session.transport.onClose(() => resolve()));
+    link.start();
+    await until(() => link.getSnapshot().route === "relay");
+    const generation = link.getSnapshot().generation;
+    lanUp = true;
+    await until(() => link.getSnapshot().route === "lan", 2_000);
+    expect(link.getSnapshot().state).toEqual({ kind: "online", host: "192.168.1.20" });
+    expect(link.getSnapshot().generation).toBe(generation + 1);
+    expect(link.getSnapshot().pairing).toMatchObject({ lastRoute: "lan", lastHost: "192.168.1.20" });
+    await relayClosed;
+    // The switch is not a drop: the link stays on the LAN session and does not race again.
+    const attempts = urls.length;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(link.getSnapshot().route).toBe("lan");
+    expect(urls.length).toBe(attempts);
+    link.pause();
+    await link.settled();
+  });
+
+  it("keeps the relay session when the background probe finds nothing", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const relayed = fakeSession();
+    let probes = 0;
+    const link = makeLink(
+      async (url) => {
+        if (url.startsWith("wss://")) return relayed.session;
+        probes += 1;
+        throw new RemoteConnectError("network", failureMessage("network"));
+      },
+      vi.fn(),
+      { pairing: { ...pairing, relay }, lanProbeMs: 20 },
+    );
+    link.start();
+    await until(() => link.getSnapshot().route === "relay");
+    const first = probes;
+    await until(() => probes >= first + 4, 2_000);
+    expect(link.getSnapshot()).toMatchObject({ route: "relay", state: { kind: "online" } });
+    link.pause();
+    await link.settled();
+    const stopped = probes;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(probes).toBe(stopped);
+  });
+
+  describe("keepalives over the relay", () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const keepalives = (sent: unknown[]) =>
+      sent.filter((message) => (message as { type: string }).type === "gateway.keepalive").length;
+    const offLan = async (url: string, relayed: RemoteSession) => {
+      if (url.startsWith("wss://")) return relayed;
+      throw new RemoteConnectError("network", failureMessage("network"));
+    };
+
+    it("sends one every keepaliveMs while online over the relay, and stops when the connection ends", async () => {
+      const { session, desktop } = fakeSession({ push: true, keepalive: true });
+      const link = makeLink((url) => offLan(url, session), vi.fn(), {
+        pairing: { ...pairing, relay },
+        keepaliveMs: 20,
+        lanProbeMs: 60_000,
+      });
+      link.start();
+      await until(() => keepalives(desktop.sent) >= 3);
+      link.pause();
+      await link.settled();
+      const sent = keepalives(desktop.sent);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(keepalives(desktop.sent)).toBe(sent);
+    });
+
+    it("sends none to a desktop that did not say it takes them, since older desktops close on unknown controls", async () => {
+      const { session, desktop } = fakeSession({ push: true });
+      const link = makeLink((url) => offLan(url, session), vi.fn(), {
+        pairing: { ...pairing, relay },
+        keepaliveMs: 10,
+        lanProbeMs: 60_000,
+      });
+      link.start();
+      await until(() => link.getSnapshot().route === "relay");
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(keepalives(desktop.sent)).toBe(0);
+      link.pause();
+      await link.settled();
+    });
+
+    it("sends none on the LAN, where nothing cuts a quiet connection", async () => {
+      const { session, desktop } = fakeSession({ push: true, keepalive: true });
+      const link = makeLink(async () => session, vi.fn(), { keepaliveMs: 10 });
+      link.start();
+      await until(() => link.getSnapshot().route === "lan");
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(keepalives(desktop.sent)).toBe(0);
+      link.pause();
+      await link.settled();
+    });
+  });
+
+  it("says the PC is unreachable, not 'same network', when the relay failed too", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const link = makeLink(
+      async () => {
+        throw new RemoteConnectError("network", failureMessage("network"));
+      },
+      vi.fn(),
+      { pairing: { ...pairing, relay } },
+    );
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "offline");
+    expect(link.getSnapshot().state).toMatchObject({
+      message: "Your PC is not reachable. Check that it is on and connected to the internet.",
+    });
+    link.pause();
+    await link.settled();
+  });
+
+  it("says the PC is unreachable when the relay closes with desktop offline", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    // The real client, over a socket that opens and is then closed the way the relay closes it.
+    const createSocket = () => {
+      const socket = {
+        binaryType: "arraybuffer",
+        readyState: 0,
+        send() {},
+        close() {},
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+      } as unknown as WebSocketLike;
+      setTimeout(() => {
+        socket.onopen?.({});
+        socket.onclose?.({ code: RemoteCloseCode.desktopOffline });
+      }, 0);
+      return socket;
+    };
+    // Real keys, since the real client runs the handshake math before it sends the hello.
+    const desktop = generateKeyPair(webCryptoRandomBytes);
+    const phone = generateKeyPair(webCryptoRandomBytes);
+    const link = new RemoteLink({
+      pairing: {
+        ...pairing,
+        relay,
+        lastRoute: "relay",
+        desktopKey: toBase64Url(desktop.publicKey),
+        phoneSecret: toBase64Url(phone.secretKey),
+      },
+      random: webCryptoRandomBytes,
+      createSocket,
+      newId: () => crypto.randomUUID(),
+      onPairingChange: vi.fn(),
+    });
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "offline");
+    expect(link.getSnapshot().state).toMatchObject({
+      message: "Your PC is not reachable. Check that it is on and connected to the internet.",
+    });
+    link.pause();
+    await link.settled();
+  });
+
+  it("keeps the pairing and retries when only the relay says this phone is not paired", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const onPairingChange = vi.fn();
+    const link = makeLink(
+      async (url) => {
+        if (url.startsWith("wss://")) throw new RemoteConnectError("not-paired", failureMessage("not-paired"));
+        throw new RemoteConnectError("network", failureMessage("network"));
+      },
+      onPairingChange,
+      { pairing: { ...pairing, relay } },
+    );
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "offline");
+    expect(link.getSnapshot().state).toMatchObject({ failure: "not-paired", message: failureMessage("not-paired") });
+    expect(link.getSnapshot().pairing).toEqual({ ...pairing, relay });
+    expect(onPairingChange).not.toHaveBeenCalled();
+    link.pause();
+    await link.settled();
+  });
+
+  it("uses the unreachable message for a relay pairing that timed out", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const link = makeLink(
+      async () => {
+        throw new RemoteConnectError("timeout", failureMessage("timeout"));
+      },
+      vi.fn(),
+      { pairing: { ...pairing, relay } },
+    );
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "offline");
+    expect(link.getSnapshot().state).toMatchObject({
+      message: "Your PC is not reachable. Check that it is on and connected to the internet.",
+    });
+    link.pause();
+    await link.settled();
+  });
+
   it("sends commands with a fresh command id", async () => {
     const { session, desktop } = fakeSession();
     const link = makeLink(async () => session);
@@ -236,6 +513,27 @@ describe("RemoteLink", () => {
     await expect(
       link.command({ type: "thread.stop", threadId: "1b4e28ba-2fa1-4d2b-883f-0016d3cca427" }),
     ).rejects.toThrow("Not connected");
+  });
+
+  it("keeps the pairing and retries when a relay session is closed as not paired", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const { session, desktop } = fakeSession();
+    const link = makeLink(
+      async (url) => {
+        if (!url.startsWith("wss://")) throw new RemoteConnectError("network", failureMessage("network"));
+        return session;
+      },
+      vi.fn(),
+      { pairing: { ...pairing, relay } },
+    );
+    link.start();
+    await until(() => link.getSnapshot().route === "relay");
+    desktop.close({ failure: "not-paired", code: 4003 });
+    await until(() => link.getSnapshot().state.kind === "offline");
+    expect(link.getSnapshot().state).toMatchObject({ failure: "not-paired", message: failureMessage("not-paired") });
+    expect(link.getSnapshot().pairing.credential).toBe(pairing.credential);
+    link.pause();
+    await link.settled();
   });
 
   it("waits and says why when no address answers", async () => {

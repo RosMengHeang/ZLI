@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { fromBase64Url, toBase64Url, utf8Decode, utf8Encode } from "./bytes.js";
-import { Id16, Key32, REMOTE_PROTOCOL_VERSION, RemoteHost } from "./messages.js";
+import { Id16, Key32, REMOTE_PROTOCOL_VERSION, RelayRoute, RemoteHost } from "./messages.js";
 
 /** Every pairing code starts with this, so a scanner can skip unrelated QR codes. */
 export const PAIRING_CODE_PREFIX = "zli-remote:";
@@ -20,6 +20,8 @@ export const PairingCode = z.object({
   /** One-time secret, valid until `expiresAt` and for a single successful pairing. */
   secret: Key32,
   expiresAt: z.number().int().positive(),
+  /** Optional so old codes still decode: how to reach this desktop away from the LAN. */
+  relay: RelayRoute.optional(),
 });
 export type PairingCode = z.infer<typeof PairingCode>;
 

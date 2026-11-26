@@ -57,5 +57,9 @@ export function useMobileAccess() {
     startPairing: () => run(() => api?.startPairing()),
     cancelPairing: () => run(() => api?.cancelPairing()),
     revoke: (deviceId: string) => run(() => api?.revoke(deviceId)),
+    setRelayEnabled: (enabled: boolean) => run(() => api?.setRelayEnabled(enabled)),
+    setRemoteTerminalInput: (enabled: boolean) => run(() => api?.setRemoteTerminalInput(enabled)),
+    retryRelay: () => run(() => api?.retryRelay()),
+    respondToPairing: (id: string, allow: boolean) => run(() => api?.respondToPairing(id, allow)),
   };
 }

@@ -316,6 +316,8 @@ describe("preload API", () => {
       devices: [
         { deviceId: "d1", name: "Pixel 9", pairedAt: "2026-01-02T03:04:05.000Z", connected: true, push: false },
       ],
+      relay: { available: true, enabled: true, state: "online", remoteTerminalInput: false },
+      pairingRequest: { id: "req-1", deviceName: "Pixel 9", code: "042917", expiresAt: "2026-01-02T03:06:05.000Z" },
     };
     const api = createPreloadApi({
       invoke: async (channel, payload) => {
@@ -332,11 +334,25 @@ describe("preload API", () => {
     await api.mobileAccess.setEnabled("yes" as never);
     await api.mobileAccess.startPairing();
     await api.mobileAccess.revoke("d1");
+    await api.mobileAccess.setRelayEnabled("yes" as never);
+    await api.mobileAccess.setRelayEnabled(true);
+    await api.mobileAccess.setRemoteTerminalInput(1 as never);
+    await api.mobileAccess.retryRelay();
+    await api.mobileAccess.respondToPairing("req-1", true);
+    await api.mobileAccess.respondToPairing("req-1", "yes" as never);
+    await api.mobileAccess.respondToPairing(7 as never, true);
     expect(calls).toEqual([
       { channel: "zli:remote:get-status", payload: undefined },
       { channel: "zli:remote:set-enabled", payload: { enabled: false } },
       { channel: "zli:remote:start-pairing", payload: undefined },
       { channel: "zli:remote:revoke", payload: { deviceId: "d1" } },
+      { channel: "zli:remote:set-relay-enabled", payload: { enabled: false } },
+      { channel: "zli:remote:set-relay-enabled", payload: { enabled: true } },
+      { channel: "zli:remote:set-remote-terminal-input", payload: { enabled: false } },
+      { channel: "zli:remote:retry-relay", payload: undefined },
+      { channel: "zli:remote:respond-to-pairing", payload: { id: "req-1", allow: true } },
+      { channel: "zli:remote:respond-to-pairing", payload: { id: "req-1", allow: false } },
+      { channel: "zli:remote:respond-to-pairing", payload: { id: "7", allow: true } },
     ]);
 
     const received: unknown[] = [];

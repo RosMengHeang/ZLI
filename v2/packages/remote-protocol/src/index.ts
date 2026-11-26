@@ -4,3 +4,4 @@ export * from "./crypto.js";
 export * from "./messages.js";
 export * from "./pairingCode.js";
 export * from "./policy.js";
+export * from "./relay.js";

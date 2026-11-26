@@ -1,12 +1,32 @@
 # ZLI Remote
 
-The phone app for ZLI. It pairs with the ZLI desktop app over the local network and lets you
+The phone app for ZLI. It pairs with the ZLI desktop app and lets you
 follow agents, answer their approvals and questions, send them messages, start new ones, and use a
 shell in a worktree.
 
 The phone never talks to the runtime directly. It connects to the desktop's Phone access gateway,
 which is off until you turn it on, over a channel encrypted with keys that stay on the two devices.
 The gateway forwards only an allowlist of commands; see `packages/remote-protocol/src/policy.ts`.
+
+## How the phone reaches the desktop
+
+The phone tries the desktop's addresses on the local network first. If you turned on Connect from
+anywhere on the desktop, the pairing code also carries a relay route, and the phone tries it after
+a 1.5 s head start for the local network (at once if the relay worked last time, or if every local
+address already failed). The first connection that completes the encrypted handshake wins.
+
+The badge under the header says which one is in use while the phone is online: Same network or
+Remote. Offline, the app shows the usual out-of-reach message instead. Settings shows the same
+word under Connected by.
+
+The relay is a Cloudflare Worker that passes bytes between the two sides; see `apps/relay`. The
+phone and the desktop encrypt and authenticate every frame with keys that never reach it, so it
+cannot read, change, or invent traffic, and it cannot pair a device. It does see the room id, when
+each side connects, how large the frames are, and both sides' network addresses. A "not paired"
+answer that comes only through the relay is shown but never makes the phone forget its pairing.
+
+The relay URL is not configured in this app. It comes from the pairing code, which the desktop
+builds from its own `ZLI_RELAY_URL`, so the mobile build needs no relay setting.
 
 ## Run it
 
@@ -59,9 +79,17 @@ bash apps/mobile/preview/ios.sh capture /tmp/preview
 3. In ZLI Remote, scan the code, or copy it on the desktop and paste it into the app.
 4. Name the phone and choose Pair. The phone shows up under Paired phones on the desktop.
 
-The phone and the desktop need to be on the same network, and the desktop's firewall has to allow
-the gateway's port (47321 unless it was taken). To remove a phone, revoke it on the desktop or
-choose Forget in the app's settings.
+To pair on the local network, the phone and the desktop need to be on the same network, and the
+desktop's firewall has to allow the gateway's port (47321 unless it was taken). Pairing through the
+relay needs a click on Allow in the desktop app within 120 s, and only works when Connect from
+anywhere was on when the code was made. To remove a phone, revoke it on the desktop or choose
+Forget in the app's settings.
+
+Connect from anywhere is off by default, as is Allow terminal input from anywhere. Without the
+second one, a phone that is away can read terminals but cannot open one or type into it. Both need
+`ZLI_RELAY_URL` set in the desktop's environment; see `apps/relay/README.md`. Turning Connect from
+anywhere off and on again makes a new room, so phones paired before need to pair again to use the
+relay. The local network keeps working for them.
 
 ## Notifications
 
@@ -120,7 +148,11 @@ phone's own X25519 key, and the device credential the desktop issued.
 
 ## Limits
 
-- Local network only. There is no relay, so the phone cannot reach the desktop from elsewhere.
+- Away from home the phone needs the relay, which the desktop owner has to run and turn on. Without
+  it the phone only reaches the desktop on the same network. If the relay has no desktop, the app
+  says the PC is unreachable.
+- A phone sees the relay's close codes, not the desktop's. A desktop that is off shows up as 4404,
+  and a relay that is busy or restarting as 1013.
 - Without push set up (see Push notifications), the phone posts its own notifications and live
   status, so they only change while it is connected. Push carries the alerts, not the live status.
 - On Android the foreground service keeps the connection open in the background while an agent is

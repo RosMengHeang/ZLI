@@ -99,7 +99,33 @@ function helloProof(es: Uint8Array, ss: Uint8Array, psk: Uint8Array, transcript:
   return hmac(sha256, key, transcript);
 }
 
-type SessionSecrets = { clientKey: Uint8Array; serverKey: Uint8Array; serverProof: Uint8Array };
+type SessionSecrets = {
+  clientKey: Uint8Array;
+  serverKey: Uint8Array;
+  serverProof: Uint8Array;
+  confirmation: Uint8Array;
+};
+
+/** What each channel's confirmation code comes from. Kept off the class so it never travels with the channel. */
+const confirmations = new WeakMap<SecureChannel, Uint8Array>();
+
+/**
+ * Six digits both ends derive from the session's keys and transcript. The desktop shows them next to Allow and the
+ * phone shows them while it waits, so the person can check that the phone asking is theirs. Someone else who used the
+ * same pairing code gets a session of their own, so their phone would show other digits.
+ */
+export function confirmationCode(channel: SecureChannel): string {
+  const bytes = confirmations.get(channel);
+  if (!bytes) throw new Error("This channel did not come from a handshake.");
+  const value = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0) % 1_000_000;
+  return value.toString().padStart(6, "0");
+}
+
+function channelFor(sendKey: Uint8Array, receiveKey: Uint8Array, confirmation: Uint8Array): SecureChannel {
+  const channel = new SecureChannel(sendKey, receiveKey);
+  confirmations.set(channel, confirmation);
+  return channel;
+}
 
 function sessionSecrets(
   es: Uint8Array,
@@ -122,6 +148,7 @@ function sessionSecrets(
     clientKey: okm.slice(0, 32),
     serverKey: okm.slice(32, 64),
     serverProof: hmac(sha256, confirmKey, concatBytes(utf8Encode("server"), finalTranscript)),
+    confirmation: hmac(sha256, confirmKey, concatBytes(utf8Encode("person"), finalTranscript)),
   };
 }
 
@@ -171,7 +198,7 @@ export function startClientHandshake(options: {
       if (!equalBytes(secrets.serverProof, key32(welcome.proof))) {
         throw new HandshakeError("The desktop could not prove its key.");
       }
-      return new SecureChannel(secrets.clientKey, secrets.serverKey);
+      return channelFor(secrets.clientKey, secrets.serverKey, secrets.confirmation);
     },
   };
 }
@@ -208,7 +235,7 @@ export function acceptClientHello(options: {
       serverEphemeral: toBase64Url(ephemeral.publicKey),
       proof: toBase64Url(secrets.serverProof),
     },
-    channel: new SecureChannel(secrets.serverKey, secrets.clientKey),
+    channel: channelFor(secrets.serverKey, secrets.clientKey, secrets.confirmation),
     clientStatic,
   };
 }

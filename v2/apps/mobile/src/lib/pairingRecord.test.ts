@@ -44,4 +44,56 @@ describe("stored pairing", () => {
       lastHost: "10.0.0.5",
     });
   });
+  it("parses an old stored pairing without relay fields", () => {
+    expect(parseStoredPairing(JSON.stringify(pairing))).toEqual(pairing);
+  });
+
+  it("keeps the relay and records a LAN win", () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const next = withReady(
+      { ...pairing, relay },
+      { type: "gateway.ready", desktopName: "Studio", environmentId, hosts: [], port: 47321 },
+      "10.0.0.5",
+      "lan",
+    );
+    expect(next).toMatchObject({ relay, lastRoute: "lan", lastHost: "10.0.0.5" });
+    expect(parseStoredPairing(serializePairing(next))).toEqual(next);
+  });
+
+  it("puts the desktop's own addresses first after a relay win, and drops the stale lastHost", () => {
+    const next = withReady(
+      { ...pairing, lastHost: "10.0.0.5" },
+      { type: "gateway.ready", desktopName: "Studio", environmentId, hosts: ["172.16.0.9"], port: 47321 },
+      undefined,
+      "relay",
+    );
+    expect(next.lastRoute).toBe("relay");
+    expect(next).not.toHaveProperty("lastHost");
+    expect(next.hosts).toEqual(["172.16.0.9", "192.168.1.20", "10.0.0.5"]);
+    expect(hostsToTry(next)[0]).toBe("172.16.0.9");
+  });
+
+  describe("the relay route the desktop reports", () => {
+    const old = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const fresh = { url: "wss://relay.example.com", room: `${"S".repeat(21)}A` };
+    const ready = { type: "gateway.ready" as const, desktopName: "Studio", environmentId, hosts: [], port: 47321 };
+
+    it("sets it on a phone paired before the relay was on", () => {
+      expect(withReady(pairing, { ...ready, relay: fresh }, "10.0.0.5").relay).toEqual(fresh);
+    });
+
+    it("replaces a rotated route", () => {
+      expect(withReady({ ...pairing, relay: old }, { ...ready, relay: fresh }, "10.0.0.5").relay).toEqual(fresh);
+    });
+
+    it("clears it when a desktop that knows about the relay says it is off", () => {
+      const next = withReady({ ...pairing, relay: old }, { ...ready, relay: null }, "10.0.0.5");
+      expect(next).not.toHaveProperty("relay");
+      expect(parseStoredPairing(serializePairing(next))).toEqual(next);
+    });
+
+    it("keeps it when an older desktop says nothing about the relay", () => {
+      expect(withReady({ ...pairing, relay: old }, ready, "10.0.0.5").relay).toEqual(old);
+    });
+  });
 });

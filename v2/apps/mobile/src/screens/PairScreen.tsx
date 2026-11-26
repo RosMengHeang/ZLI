@@ -4,7 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { PairError, pairingCodeFromLink, pairWithDesktop, previewPairingCode } from "../lib/pairing.js";
+import {
+  PairError,
+  pairingCodeFromLink,
+  pairingPrivacyNote,
+  pairWithDesktop,
+  previewPairingCode,
+  waitingMessage,
+} from "../lib/pairing.js";
 import type { StoredPairing } from "../lib/pairingRecord.js";
 import { createSocket, defaultDeviceName, random } from "../platform.js";
 import { radius, space, type, usePalette } from "../theme.js";
@@ -34,6 +41,8 @@ export function PairScreen({
   const [code, setCode] = useState("");
   const [deviceName, setDeviceName] = useState(defaultDeviceName);
   const [busy, setBusy] = useState(false);
+  // The desktop is holding a relay pairing until the person there allows it. Holds what to show, code included.
+  const [waiting, setWaiting] = useState<string>();
   const [error, setError] = useState<string>();
   const scanned = useRef(false);
 
@@ -79,10 +88,19 @@ export function PairScreen({
 
   const pair = async () => {
     setBusy(true);
+    setWaiting(undefined);
     setError(undefined);
     try {
-      await onPaired(await pairWithDesktop(code, deviceName, { random, createSocket, now: Date.now }));
+      await onPaired(
+        await pairWithDesktop(
+          code,
+          deviceName,
+          { random, createSocket, now: Date.now },
+          { onWaiting: (confirm) => setWaiting(waitingMessage(confirm)) },
+        ),
+      );
     } catch (cause) {
+      setWaiting(undefined);
       setError(
         cause instanceof PairError
           ? cause.message
@@ -197,6 +215,7 @@ export function PairScreen({
         />
 
         {error ? <Notice tone="error" message={error} /> : null}
+        {busy && waiting ? <Notice tone="info" message={waiting} /> : null}
 
         <Button
           label={desktopName ? `Pair with ${desktopName}` : "Pair"}
@@ -212,8 +231,7 @@ export function PairScreen({
         <View style={local.privacy}>
           <Icon name="shieldCheck" size={16} color={palette.muted} />
           <Text style={[local.footnote, local.privacyText, { color: palette.muted }]}>
-            The phone and the desktop need to be on the same network. Everything between them is encrypted with keys
-            that stay on the two devices.
+            {pairingPrivacyNote(code, Date.now())}
           </Text>
         </View>
       </ScrollView>

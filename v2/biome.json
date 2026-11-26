@@ -9,7 +9,8 @@
       "!**/node_modules",
       "!**/release",
       "!**/coverage",
-      "!**/test-results"
+      "!**/test-results",
+      "!**/.wrangler"
     ]
   },
   "formatter": {

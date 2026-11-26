@@ -3,6 +3,7 @@
   "references": [
     { "path": "apps/desktop" },
     { "path": "apps/mobile" },
+    { "path": "apps/relay" },
     { "path": "apps/server" },
     { "path": "apps/web" },
     { "path": "packages/client-runtime" },
