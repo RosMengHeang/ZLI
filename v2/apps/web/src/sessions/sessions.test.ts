@@ -208,6 +208,9 @@ describe("helpers", () => {
     const messages = [{ messageId: "m1", threadId, role: "user" as const, text: "Add a login page\nwith tests" }];
     expect(sessionTitle({ thread, provider: "cursor-agent" }, messages as never, undefined)).toBe("Add a login page");
     expect(sessionTitle({ provider: "droid" }, [], undefined)).toBe("Droid");
+    // Once ZLI has made a title, it replaces the first message.
+    const titled = { ...thread, chatTitle: "Login page" } as typeof thread;
+    expect(sessionTitle({ thread: titled, provider: "cursor-agent" }, messages as never, undefined)).toBe("Login page");
   });
 
   it("formats compact relative times", () => {

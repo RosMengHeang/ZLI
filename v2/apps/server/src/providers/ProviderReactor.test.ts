@@ -239,6 +239,64 @@ describe("ProviderReactor", () => {
     service.dispose();
   });
 
+  it("keeps an ask_person card after the turn ends and sends the answer to the agent as its next message", async () => {
+    const database = new Database({ path: ":memory:" });
+    databases.push(database);
+    const engine = new Engine({ database, environment });
+    const adapter = new FakeAdapter();
+    const service = new ProviderService(new ProviderRegistry([adapter]));
+    const reactor = new ProviderReactor(engine, service);
+    let n = 0;
+    const dispatch = (command: Record<string, unknown>) => {
+      n += 1;
+      return engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(`10000000-0000-4000-8000-0000000008${String(n).padStart(2, "0")}`),
+        command,
+      } as Parameters<typeof engine.dispatchPromise>[0]);
+    };
+    await dispatch({ type: "project.register", path: "/workspace/ask" });
+    const projectId = ProjectId.parse((await engine.projection()).projects[0]?.projectId);
+    await dispatch({
+      type: "worktree.create",
+      worktreeId,
+      projectId,
+      path: "/workspace/ask-tree",
+      workspaceRoot: "/workspace",
+      branch: "feature/ask",
+    });
+    await dispatch({ type: "thread.start", threadId, worktreeId, provider: "codex", cwd: "/workspace/ask-tree" });
+    await reactor.waitForIdle();
+    await dispatch({ type: "thread.send", threadId, text: "Fix the bug" });
+    await reactor.waitForIdle();
+    adapter.emit({ type: "turn.started", threadId, turnId: "provider-turn" });
+    await reactor.waitForIdle();
+    const requestId = "zli-ask-1";
+    await dispatch({
+      type: "thread.request",
+      request: {
+        requestId,
+        threadId,
+        kind: "user-input",
+        payload: {
+          questions: [{ id: "answer", question: "Apply antislop now or after?", options: [], isOther: true }],
+        },
+      },
+    });
+    adapter.emit({ type: "turn.completed", threadId, turnId: "provider-turn", status: "completed" });
+    await reactor.waitForIdle();
+    // The turn is over, but the card is ZLI's own and waits for the person.
+    expect((await engine.projection()).requests?.map((request) => request.requestId)).toEqual([requestId]);
+
+    await dispatch({ type: "thread.user-input", threadId, requestId, answers: { answer: "During the work" } });
+    await reactor.waitForIdle();
+    expect((await engine.projection()).requests ?? []).toEqual([]);
+    expect(adapter.turnInputs.at(-1)?.text).toBe("Apply antislop now or after?\nDuring the work");
+    reactor.stop();
+    await service.stopAll();
+    service.dispose();
+  });
+
   it("lets a buddy use its own tools without asking, and asks the person for anything else", async () => {
     const run = async (
       permissionMode: "full-access" | "supervised" | undefined,

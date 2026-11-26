@@ -108,6 +108,59 @@ describe("buddy actions", () => {
     expect(result.note).toContain("Playbook kept");
   });
 
+  it("lets any agent outside a buddy job ask on a question card in its own chat", async () => {
+    const sent: Record<string, unknown>[] = [];
+    const chat = {
+      ...state,
+      tasks: [],
+      threads: [
+        { threadId: "old", worktreeId: "w1", status: "stopped", updatedAt: "2026-11-15T10:00:00.000Z" },
+        { threadId: "chat", worktreeId: "w1", status: "working", updatedAt: "2026-11-15T09:30:00.000Z" },
+        { threadId: "elsewhere", worktreeId: "w2", status: "working", updatedAt: "2026-11-15T11:00:00.000Z" },
+      ],
+    } as unknown as RuntimeProjection;
+    const actions = createBuddyActions({
+      projection: () => chat,
+      caller: () => ({ worktreeId: "w1", project: state.projects[0] as RuntimeProjection["projects"][number] }),
+      run: async (command) => {
+        sent.push(command);
+        return {};
+      },
+      newId: () => "q1",
+    });
+    const result = await actions.buddyask({ question: "Apply antislop now or after?", options: ["During", "After"] });
+    expect(sent).toEqual([
+      {
+        type: "thread.request",
+        request: {
+          requestId: "zli-ask-q1",
+          threadId: "chat",
+          kind: "user-input",
+          payload: {
+            questions: [
+              {
+                id: "answer",
+                question: "Apply antislop now or after?",
+                options: [{ label: "During" }, { label: "After" }],
+                isOther: true,
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    expect(result).toMatchObject({ asked: true });
+
+    const idle = { ...chat, threads: [] } as unknown as RuntimeProjection;
+    const none = createBuddyActions({
+      projection: () => idle,
+      caller: () => ({ worktreeId: "w1", project: state.projects[0] as RuntimeProjection["projects"][number] }),
+      run: async () => ({}),
+      newId: () => "q2",
+    });
+    await expect(none.buddyask({ question: "Which one?" })).rejects.toThrow("No chat of yours is running here");
+  });
+
   it("offers what a job learns to the person instead of keeping it outright", async () => {
     const { actions, sent } = host();
     await actions.buddyremember({ note: "Run pnpm test:unit before pushing." });

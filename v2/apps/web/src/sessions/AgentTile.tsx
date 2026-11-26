@@ -130,7 +130,9 @@ export function AgentTile({
   onReviewSetup(): void;
   onShowSetupOutput(): void;
   /** Starts the tile's empty chat again with another agent and model. */
-  onSwitchAgent?: ((provider: string, model: string | undefined) => Promise<string | undefined>) | undefined;
+  onSwitchAgent?:
+    | ((provider: string, model: string | undefined, accountId?: string) => Promise<string | undefined>)
+    | undefined;
   /** Shows the worktree's pull request in the side panel. */
   onOpenPullRequest?: (() => void) | undefined;
   /** Moves a chat that has not started to another folder, worktree, or branch. */

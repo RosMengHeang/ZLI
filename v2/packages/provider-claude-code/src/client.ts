@@ -45,6 +45,8 @@ export type ClaudeProviderEvent =
   | { type: "reasoning.completed"; providerTurnId: string; reasoningId: string; text?: string }
   | { type: "usage.updated"; providerTurnId: string; usage: ProviderUsage }
   | { type: "approval.requested"; requestId: string; payload: Record<string, unknown> }
+  /** Claude asked the person something with AskUserQuestion. payload.questions holds each question and its choices. */
+  | { type: "user-input.requested"; requestId: string; payload: Record<string, unknown> }
   | { type: "protocol.error"; message: string }
   /** The CLI reported a conversation id different from the one it started with. */
   | { type: "session.identified"; sessionId: string }
@@ -163,6 +165,11 @@ export class ClaudeCodeClient {
   private initFailure: Error | undefined;
   private initGate: { resolve: () => void; reject: (error: Error) => void } | undefined;
   private readonly pendingApprovals = new Map<string, { toolName: string; input: Record<string, unknown> }>();
+  /** AskUserQuestion calls waiting on the person, with each question's text by the id the card answers with. */
+  private readonly pendingQuestions = new Map<
+    string,
+    { input: Record<string, unknown>; questions: ReadonlyMap<string, string> }
+  >();
   /** Tools the person allowed for the rest of this session. Claude Code does not remember them for us. */
   private readonly sessionAllowedTools = new Set<string>();
   private approveTool?: (name: string) => boolean;
@@ -307,6 +314,20 @@ export class ClaudeCodeClient {
         ? allowToolRequest(requestId, pending.input)
         : denyToolRequest(requestId, "The user declined this tool call."),
     );
+  }
+
+  /** Answers an AskUserQuestion call. Answers are by question id; Claude reads them by the question's text. */
+  async respondToQuestions(requestId: string, answers: Readonly<Record<string, string>>): Promise<void> {
+    this.assertOpen();
+    const pending = this.pendingQuestions.get(requestId);
+    if (!pending) throw new ClaudeProviderError("request_failed", `Claude Code question not found: ${requestId}`);
+    this.pendingQuestions.delete(requestId);
+    const byText: Record<string, string> = {};
+    for (const [id, question] of pending.questions) {
+      const answer = answers[id]?.trim();
+      if (answer) byText[question] = answer;
+    }
+    this.write(allowToolRequest(requestId, { ...pending.input, answers: byText }));
   }
 
   async close(): Promise<void> {
@@ -479,6 +500,7 @@ export class ClaudeCodeClient {
     active.thinking.clear();
     this.active = undefined;
     this.pendingApprovals.clear();
+    this.pendingQuestions.clear();
     if (errorMessage) {
       this.completed.push({ providerTurnId: active.id, text: errorMessage, status });
       this.emit({
@@ -570,6 +592,10 @@ export class ClaudeCodeClient {
   }): void {
     const { requestId, subtype } = message;
     try {
+      if (subtype === "can_use_tool" && message.toolName === "AskUserQuestion") {
+        this.askQuestions(requestId, message.input ?? {});
+        return;
+      }
       if (subtype === "can_use_tool" && this.permissionMode !== "full-access") {
         const input = message.input ?? {};
         const toolName = message.toolName ?? "Tool";
@@ -590,11 +616,8 @@ export class ClaudeCodeClient {
         return;
       }
       if (subtype === "can_use_tool") {
-        this.write(denyToolRequest(requestId));
-        this.emit({
-          type: "protocol.error",
-          message: "Claude Code requested tool approval, which this adapter does not support.",
-        });
+        // Full access: the prompt tool is on for questions, and anything else Claude still asks about runs.
+        this.write(allowToolRequest(requestId, message.input ?? {}));
         return;
       }
       this.write(unsupportedControlResponse(requestId));
@@ -604,6 +627,42 @@ export class ClaudeCodeClient {
         message: error instanceof Error ? error.message : "Claude Code control response failed.",
       });
     }
+  }
+
+  /** Shows Claude's questions as a question card. A call with no readable question is sent back unanswered. */
+  private askQuestions(requestId: string, input: Record<string, unknown>): void {
+    const asked = Array.isArray(input.questions) ? input.questions : [];
+    const questions = new Map<string, string>();
+    const cards: Array<Record<string, unknown>> = [];
+    asked.forEach((entry, index) => {
+      if (!entry || typeof entry !== "object") return;
+      const item = entry as Record<string, unknown>;
+      const text = typeof item.question === "string" ? item.question.trim() : "";
+      if (!text) return;
+      const id = `q${index + 1}`;
+      questions.set(id, text);
+      const options = (Array.isArray(item.options) ? item.options : []).flatMap((option) => {
+        const record = option && typeof option === "object" ? (option as Record<string, unknown>) : undefined;
+        const label = typeof record?.label === "string" ? record.label : undefined;
+        if (!label) return [];
+        const description = typeof record?.description === "string" ? record.description : undefined;
+        return [{ label, ...(description ? { description } : {}) }];
+      });
+      cards.push({
+        id,
+        question: text,
+        ...(typeof item.header === "string" && item.header.trim() ? { header: item.header.trim() } : {}),
+        options,
+        // The person can always type an answer of their own, as Claude Code's own picker allows.
+        isOther: true,
+      });
+    });
+    if (cards.length === 0) {
+      this.write(allowToolRequest(requestId, { ...input, answers: {} }));
+      return;
+    }
+    this.pendingQuestions.set(requestId, { input, questions });
+    this.emit({ type: "user-input.requested", requestId, payload: { questions: cards } });
   }
 
   private onPeerClose(error?: Error): void {

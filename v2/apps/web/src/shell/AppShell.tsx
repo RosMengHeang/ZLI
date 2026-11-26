@@ -1970,6 +1970,7 @@ function WorkspaceApp() {
     session: AgentSession,
     provider: string,
     model: string | undefined,
+    pickedAccount?: string,
   ): Promise<string | undefined> => {
     const current = projectionRef.current;
     const worktree = findWorktree(session.worktreeId);
@@ -1983,7 +1984,7 @@ function WorkspaceApp() {
       if (!(await send({ type: "thread.stop", threadId: thread.threadId })))
         return "The current chat could not be stopped.";
     }
-    const accountId = launchAccountId(accounts, provider, undefined);
+    const accountId = launchAccountId(accounts, provider, pickedAccount);
     const failure = await startSessionAgent(dispatch, current, {
       provider,
       mode: "chat",
@@ -3226,7 +3227,7 @@ function WorkspaceApp() {
                               onShowSetupOutput={() => showSetupOutput(session.worktreeId)}
                               onSwitchAgent={
                                 newChatTarget(session)
-                                  ? (provider, model) => switchChatAgent(session, provider, model)
+                                  ? (provider, model, accountId) => switchChatAgent(session, provider, model, accountId)
                                   : undefined
                               }
                               onDraftChange={(change) => changeDraft(session.sessionId, change)}

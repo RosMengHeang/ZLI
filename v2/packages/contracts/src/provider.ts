@@ -146,6 +146,10 @@ export const ThreadProjection = z.object({
    */
   unattended: z.literal(true).optional(),
   model: z.string().min(1).max(200).optional(),
+  /** A short title ZLI made once from the chat's first message. A title the person typed still wins. */
+  chatTitle: z.string().min(1).max(80).optional(),
+  /** The level the last message was sent at, so the chat opens on it again. */
+  reasoningEffort: ReasoningEffort.optional(),
   /** The name the person gave this agent. */
   name: AgentName.optional(),
   startedBy: StartedBy.optional(),

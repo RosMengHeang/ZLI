@@ -12,7 +12,7 @@ import type {
 import { toolActivity } from "./toolActivity.js";
 
 type ClaudeClient = Pick<ClaudeCodeClient, "sendTurn" | "interruptTurn" | "transcript" | "subscribe" | "close"> &
-  Partial<Pick<ClaudeCodeClient, "respondToApproval" | "sessionId">>;
+  Partial<Pick<ClaudeCodeClient, "respondToApproval" | "respondToQuestions" | "sessionId">>;
 type ClientStart = Pick<
   ProviderSessionStart,
   | "cwd"
@@ -31,9 +31,12 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
   readonly capabilities: ProviderCapabilities = {
     exactResume: false,
     structuredApproval: true,
-    structuredUserInput: false,
+    // AskUserQuestion shows as a question card.
+    structuredUserInput: true,
     conversationRollback: false,
     modelSwitch: "in-session",
+    // Claude Code fixes its mode when it starts, so a change restarts it on the same conversation (see sendTurn).
+    permissionSwitch: "in-session",
     // Claude Code runs /compact when it arrives as a message and reports a compact_boundary. Text after it
     // ("/compact keep the API decisions") steers the summary.
     compaction: "native",
@@ -42,14 +45,14 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
 
   private readonly sessions = new Map<
     string,
-    { session: ProviderSession; client: ClaudeClient; unsubscribe: () => void }
+    { session: ProviderSession; client: ClaudeClient; unsubscribe: () => void; start: ClientStart }
   >();
   private readonly listeners = new Set<(event: ProviderEvent) => void>();
 
   constructor(private readonly options: { createClient: (input: ClientStart) => Promise<ClaudeClient> }) {}
 
   async startSession(input: ProviderSessionStart): Promise<ProviderSession> {
-    const client = await this.options.createClient({
+    const start: ClientStart = {
       cwd: input.cwd,
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       ...(input.unattended ? { unattended: true } : {}),
@@ -59,7 +62,8 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
       ...(input.trustedProjectPath ? { trustedProjectPath: input.trustedProjectPath } : {}),
       ...(input.title ? { title: input.title } : {}),
-    });
+    };
+    const client = await this.options.createClient(start);
     const session: ProviderSession = {
       threadId: input.threadId,
       provider: this.provider,
@@ -68,12 +72,15 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       ...(client.sessionId ? { providerSessionId: client.sessionId } : {}),
     };
     const unsubscribe = client.subscribe((event) => this.onClaudeEvent(input.threadId, input.cwd, event));
-    this.sessions.set(input.threadId, { session, client, unsubscribe });
+    this.sessions.set(input.threadId, { session, client, unsubscribe, start });
     return session;
   }
 
   async sendTurn(input: ProviderTurnInput): Promise<{ turnId: string }> {
-    const context = this.context(input.threadId);
+    let context = this.context(input.threadId);
+    if (input.permissionMode && input.permissionMode !== (context.start.permissionMode ?? "full-access")) {
+      context = await this.restartInMode(input.threadId, input.permissionMode);
+    }
     const result = await context.client.sendTurn({
       text: input.text,
       ...(input.model ? { model: input.model } : {}),
@@ -103,8 +110,11 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
     requestId: string;
     answers: Record<string, string>;
   }): Promise<void> {
-    this.context(input.threadId);
-    throw new ClaudeProviderError("unsupported", "Claude Code adapter does not handle structured user input.");
+    const context = this.context(input.threadId);
+    if (!context.client.respondToQuestions) {
+      throw new ClaudeProviderError("unsupported", "Claude Code adapter does not handle structured user input.");
+    }
+    await context.client.respondToQuestions(input.requestId, input.answers);
   }
 
   async stopSession(input: { threadId: ThreadId }): Promise<void> {
@@ -155,6 +165,7 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
     session: ProviderSession;
     client: ClaudeClient;
     unsubscribe: () => void;
+    start: ClientStart;
   } {
     const context = this.sessions.get(threadId);
     if (!context) throw new Error(`Claude Code session does not exist: ${threadId}`);
@@ -212,6 +223,9 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       case "approval.requested":
         this.emit({ type: "approval.requested", threadId, requestId: event.requestId, payload: event.payload });
         return;
+      case "user-input.requested":
+        this.emit({ type: "user-input.requested", threadId, requestId: event.requestId, payload: event.payload });
+        return;
       case "session.identified": {
         const context = this.sessions.get(threadId);
         if (context) context.session = { ...context.session, providerSessionId: event.sessionId };
@@ -228,6 +242,40 @@ export class ClaudeCodeProviderAdapter implements ProviderAdapter {
       default:
         return;
     }
+  }
+
+  /**
+   * Claude Code reads its permission mode from the command line, so the process starts again in the new mode and
+   * resumes the same conversation. Between turns only: the reactor sends a change with a new message.
+   */
+  private async restartInMode(
+    threadId: ThreadId,
+    permissionMode: NonNullable<ClientStart["permissionMode"]>,
+  ): Promise<{ session: ProviderSession; client: ClaudeClient; unsubscribe: () => void; start: ClientStart }> {
+    const context = this.context(threadId);
+    const resumeSessionId = context.session.providerSessionId ?? context.client.sessionId;
+    if (!resumeSessionId) {
+      throw new ClaudeProviderError(
+        "unsupported",
+        "Claude Code cannot change permissions in this chat yet. Start a new chat to use another mode.",
+      );
+    }
+    const start: ClientStart = { ...context.start, permissionMode, resumeSessionId };
+    context.unsubscribe();
+    await context.client.close();
+    let client: ClaudeClient;
+    try {
+      client = await this.options.createClient(start);
+    } catch (error) {
+      this.sessions.delete(threadId);
+      const reason = error instanceof Error ? error.message : "Claude Code did not start again.";
+      this.emit({ type: "session.closed", threadId, reason });
+      throw error;
+    }
+    const unsubscribe = client.subscribe((event) => this.onClaudeEvent(threadId, start.cwd, event));
+    const next = { session: context.session, client, unsubscribe, start };
+    this.sessions.set(threadId, next);
+    return next;
   }
 
   private dropSession(threadId: ThreadId): void {
