@@ -145,6 +145,7 @@ export function Composer({
   agentName,
   agentPlan,
   agentAccount,
+  onPickerOpen,
   otherAgents = NO_AGENTS,
   onAgentChange,
   carriesOver = false,
@@ -208,6 +209,8 @@ export function Composer({
    */
   /** The chat's own login, once its agent has saved accounts. */
   agentAccount?: { id: string; label: string; tag: string } | undefined;
+  /** The agent and model menu opened. */
+  onPickerOpen?: (() => void) | undefined;
   otherAgents?: readonly AgentChoice[] | undefined;
   onAgentChange?: ((provider: string, model: string | undefined, accountId?: string) => void) | undefined;
   /** The conversation has begun: another agent or model picks it up from the next message. */
@@ -998,6 +1001,7 @@ export function Composer({
             agentName={agentName ?? displayName}
             agentPlan={agentPlan}
             agentAccount={agentAccount}
+            onOpen={onPickerOpen}
             models={models}
             model={model}
             others={others}

@@ -75,6 +75,7 @@ describe("AcpProviderAdapter", () => {
       structuredUserInput: false,
       conversationRollback: false,
       modelSwitch: "in-session",
+      permissionSwitch: "in-session",
     });
     await expect(
       adapter.startSession({ threadId, cwd: "/work/tree", permissionMode: "supervised", model: "openai/gpt-5" }),

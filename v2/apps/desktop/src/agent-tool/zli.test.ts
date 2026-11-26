@@ -144,8 +144,8 @@ describe("zli MCP server", () => {
       "goal_done",
       "team_plan",
     ]);
-    // Connected services' tools are not about other agents, so turning agent tools off leaves them.
-    expect(await listNames("off")).toEqual(["find_tools", "use_tool"]);
+    // Connected services' tools are not about other agents, and asking the person changes nothing, so turning agent tools off leaves them.
+    expect(await listNames("off")).toEqual(["find_tools", "use_tool", "ask_person"]);
   });
 
   it("passes a connected service's tool result through use_tool as the service gave it", async () => {

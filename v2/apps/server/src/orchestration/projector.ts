@@ -209,6 +209,14 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
         ),
         lastSequence: envelope.sequence,
       };
+    case "thread.titled":
+      return {
+        ...projection,
+        threads: projection.threads.map((thread) =>
+          thread.threadId === event.threadId ? { ...thread, chatTitle: event.title } : thread,
+        ),
+        lastSequence: envelope.sequence,
+      };
     case "thread.start.requested":
       return {
         ...projection,
@@ -324,7 +332,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
     case "thread.user-input.requested":
       return { ...projection, lastSequence: envelope.sequence };
     case "thread.send.requested": {
-      const { permissionMode } = event;
+      const { permissionMode, reasoningEffort } = event;
       return {
         ...projection,
         threads: projection.threads.map((thread) => {
@@ -334,6 +342,7 @@ function applyProjectionEvent(projection: RuntimeProjection, envelope: RuntimeEv
             ...thread,
             ...(thread.status === "idle" ? { status: "working" as const, updatedAt: envelope.occurredAt } : {}),
             ...(permissionMode ? { permissionMode } : {}),
+            ...(reasoningEffort ? { reasoningEffort } : {}),
           };
         }),
         lastSequence: envelope.sequence,
