@@ -152,15 +152,18 @@ function ValuePicker<T extends string>({
   value,
   options,
   onChange,
+  repick,
 }: {
   label: string;
   value: T;
   options: readonly PickerOption<T>[];
   onChange(value: T): void;
+  /** Picking this again reopens its editor. */
+  repick?: T;
 }) {
   const current = options.find((option) => option.value === value);
   return (
-    <Picker label={label} value={value} options={options} onChange={onChange} className="bset-picker">
+    <Picker label={label} value={value} options={options} onChange={onChange} repick={repick} className="bset-picker">
       <span className="picker-trigger-label">{current?.label ?? value}</span>
     </Picker>
   );
@@ -455,6 +458,7 @@ export function SettingsTab({
           <ValuePicker<Voice>
             label="Personality"
             value={voice}
+            repick="custom"
             options={
               voice === "custom"
                 ? VOICES.map((entry) =>
@@ -472,6 +476,7 @@ export function SettingsTab({
           <ValuePicker<string>
             label="Weekly budget"
             value={budgetValue}
+            repick="own"
             options={[
               ...BUDGETS.map((amount) => ({
                 value: String(amount),

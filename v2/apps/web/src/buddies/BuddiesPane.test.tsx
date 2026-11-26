@@ -577,6 +577,21 @@ describe("BuddyList", () => {
     });
   });
 
+  it("reopens a voice in the person's own words when it is picked again", async () => {
+    await render(
+      projection({ buddies: [{ ...buddy("b2", "Builder", 0), personality: "patient and a bit nerdy" }] }),
+      "b2",
+    );
+    await act(async () => buttonNamed("Settings").click());
+    await act(async () => buttonNamed("Personality: patient and a bit nerdy").click());
+    const own = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) =>
+      entry.textContent?.startsWith("patient and a bit nerdy"),
+    );
+    await act(async () => own?.click());
+    const voice = document.querySelector<HTMLInputElement>('[aria-label="Personality in your words"]');
+    expect(voice?.value).toBe("patient and a bit nerdy");
+  });
+
   it("moves a buddy one place down when dropped on the row below it", async () => {
     const { commands } = await render(
       projection({
