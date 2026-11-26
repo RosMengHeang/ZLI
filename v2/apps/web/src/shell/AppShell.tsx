@@ -66,7 +66,7 @@ import { type ManagerRequest, onPromptManagerRequest } from "../prompts/prompts.
 import { PullRequestPane } from "../review/PullRequestPane.js";
 import { PullRequestsPage } from "../review/PullRequestsPage.js";
 import { copyFilesFrom } from "../review/pullRequestClient.js";
-import { usePullRequestEntries, usePullRequestPolling } from "../review/pullRequestStore.js";
+import { usePullRequestEntries, usePullRequestPolling, usePullRequestTriggers } from "../review/pullRequestStore.js";
 import { ReviewNotesPill } from "../review/ReviewNotesPill.js";
 import type { ReviewFocus } from "../review/ReviewPane.js";
 import type { SentNotice } from "../review/SendToAgentButton.js";
@@ -141,6 +141,7 @@ import { nextSetupApproval, setupDeferKey } from "../setup/setup.js";
 import { chatAfterDelete } from "../sidebar/nextChat.js";
 import { isBuddySession, type ProjectAgentActions, Sidebar, type WorktreeAction } from "../sidebar/Sidebar.js";
 import { SidebarResizer, useSidebarWidth } from "../sidebar/SidebarResizer.js";
+import { usePanelTerminals } from "../terminal/panelTerminals.js";
 import { TerminalDrawer } from "../terminal/TerminalDrawer.js";
 import { SYSTEM_THEME, themeChoices } from "../theme/customThemes.js";
 import { ThemeEditor } from "../theme/ThemeEditor.js";
@@ -172,7 +173,6 @@ import { HelpDialog } from "./HelpDialog.js";
 import { useShortcuts } from "./keybindings.js";
 import { launcherItems as buildLauncherItems } from "./launcherItems.js";
 import { type ChatFolder, NoProjectChat } from "./NoProjectChat.js";
-import { usePanelTerminals } from "../terminal/panelTerminals.js";
 import { PanelStart, PanelTabs } from "./PanelTabs.js";
 import {
   DisconnectedState,
@@ -351,6 +351,8 @@ function WorkspaceApp() {
   }, [projection?.worktrees, projection?.projects]);
   // Keeps the sidebar's pull request and CI badges current; checks still running are revisited sooner.
   usePullRequestPolling(dispatch, readyWorktreeIds);
+  // An agent that opens a pull request or pushes shows it at once, not on the next poll.
+  usePullRequestTriggers(dispatch);
   // A chat whose pull request merged or closed is done; it moves to Archived, once, unless that is turned off.
   const pullRequests = usePullRequestEntries();
   useEffect(() => {

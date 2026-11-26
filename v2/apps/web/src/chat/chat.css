@@ -1087,9 +1087,14 @@ button.thought-row:hover .thought-label { color: var(--zli-muted); }
 .pr-chip-open:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: 1px; }
 .pr-chip-open > svg { color: var(--zli-dim); }
 .pr-chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--zli-dim); }
-.pr-chip.is-passed .pr-chip-dot { background: var(--zli-text); }
+.pr-chip.is-passed .pr-chip-dot { background: var(--zli-green); }
 .pr-chip.is-failed .pr-chip-dot { background: var(--zli-red); }
-.pr-chip.is-pending .pr-chip-dot { animation: pr-chip-pending 1.4s ease-in-out infinite; }
+.pr-chip.is-pending .pr-chip-dot { background: var(--zli-amber); animation: pr-chip-pending 1.4s ease-in-out infinite; }
+/* Checks passed out of all of them, in the checks' color: amber running, red failed, green passed. */
+.pr-chip-checks { font-weight: 500; }
+.pr-chip.is-passed .pr-chip-checks { color: var(--zli-green); }
+.pr-chip.is-failed .pr-chip-checks { color: var(--zli-red); }
+.pr-chip.is-pending .pr-chip-checks { color: var(--zli-amber); }
 @keyframes pr-chip-pending { 50% { opacity: .35; } }
 .chat-ended-below:empty { display: none; }
 @media (prefers-reduced-motion: reduce) { .chat-slot { transition: none; } .chat-slot-item, .pr-chip.is-pending .pr-chip-dot { animation: none; } }

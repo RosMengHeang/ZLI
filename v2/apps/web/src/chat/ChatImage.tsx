@@ -2,7 +2,7 @@ import { previewMimeType, ThreadAttachmentData } from "@zli-v2/contracts";
 import { createContext, type KeyboardEvent, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { readFileData } from "../files/fileClient.js";
+import { readFileData, readImageData } from "../files/fileClient.js";
 import { baseName } from "../files/filePaths.js";
 import { formatFileSize } from "../files/ImagePreview.js";
 import { makeCommandId } from "../runtime/commandId.js";
@@ -33,8 +33,13 @@ export type ImageSource =
   | { url: string; name: string }
   | { attachment: string; threadId: string; name: string };
 
+/** A Windows drive path or a POSIX path from the root, as agents print them for files outside the worktree. */
+export function isAbsolutePath(path: string): boolean {
+  return /^[a-z]:[\\/]/iu.test(path) || path.startsWith("/") || path.startsWith("\\\\");
+}
+
 function sourceName(source: ImageSource): string {
-  return "name" in source ? source.name : baseName(source.path);
+  return "name" in source ? source.name : baseName(source.path.replaceAll("\\", "/"));
 }
 
 function useImage(source: ImageSource): ImageState {
@@ -60,7 +65,9 @@ function useImage(source: ImageSource): ImageState {
     const read =
       attachment && threadId
         ? readAttachment(dispatch, threadId, attachment)
-        : readFileData(dispatch, worktreeId ?? "", path ?? "");
+        : path && isAbsolutePath(path)
+          ? readImageData(dispatch, worktreeId ?? "", path)
+          : readFileData(dispatch, worktreeId ?? "", path ?? "");
     read.then(
       (data) => {
         if (!cancelled) {

@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { useRuntime } from "../runtime/RuntimeProvider.js";
 import { relativeTime } from "../sessions/sessions.js";
+import { checksView } from "../shell/overview.js";
 import { ProjectMark } from "../sidebar/ProjectMark.js";
 import { Icon } from "../ui/Icon.js";
 import { MenuButton, type MenuItem } from "../ui/Menu.js";
@@ -170,6 +171,7 @@ export function PullRequestsPage({
     const { worktree, pullRequest } = row;
     const project = projection.projects.find((entry) => entry.projectId === worktree.projectId);
     const state = standing(pullRequest);
+    const checks = pullRequest.state === "OPEN" ? checksView(pullRequest) : undefined;
     const active = selected?.worktree.worktreeId === worktree.worktreeId;
     return (
       <li key={worktree.worktreeId}>
@@ -196,6 +198,15 @@ export function PullRequestsPage({
                 </span>
               ) : null}
               <span className={`pr-list-state is-${state.tone}`}>{state.label}</span>
+              {checks ? (
+                <span className={`pr-checks-count is-${checks.tone}`} title={`Checks ${checks.headline}`}>
+                  <Icon
+                    name={checks.tone === "failed" ? "alert" : checks.tone === "pending" ? "loader" : "check"}
+                    size={11}
+                  />
+                  {checks.count}
+                </span>
+              ) : null}
             </span>
           </span>
         </button>
