@@ -37,6 +37,15 @@ describe("pairing codes", () => {
     expect(() => decodePairingCode(missing)).toThrow(PairingCodeError);
   });
 
+  it("round-trips a relay route and still decodes a code without one", () => {
+    const withRelay: PairingCode = {
+      ...code,
+      relay: { url: "wss://relay.example.com", room: toBase64Url(randomBytes(16)) },
+    };
+    expect(decodePairingCode(encodePairingCode(withRelay))).toEqual(withRelay);
+    expect(decodePairingCode(encodePairingCode(code)).relay).toBeUndefined();
+  });
+
   it("refuses to encode a code that would not decode", () => {
     expect(() => encodePairingCode({ ...code, hosts: ["bad host!"] })).toThrow();
   });
