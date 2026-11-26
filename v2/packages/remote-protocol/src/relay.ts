@@ -26,7 +26,7 @@ export function relayUrl(route: RelayRoute, role: "phone" | "host", session?: st
 export const RelayHostMessage = z.discriminatedUnion("type", [
   /** Host to relay: take ownership of the room with its secret. */
   z.object({ type: z.literal("claim"), secret: Key32 }),
-  /** Relay to host: a phone connected. `client` is an opaque per-client key (a hash of its IP). */
+  /** Relay to host: a phone connected. `client` is a rate-limit key: an unsalted hash of its IP, not an anonymous id. */
   z.object({ type: z.literal("open"), session: Id16, client: z.string().min(1).max(64) }),
   /** Host to relay: keep the connection alive. */
   z.object({ type: z.literal("ping") }),

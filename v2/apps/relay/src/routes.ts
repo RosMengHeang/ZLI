@@ -24,7 +24,12 @@ export function isWebSocketUpgrade(request: Request): boolean {
   return request.method === "GET" && request.headers.get("Upgrade")?.toLowerCase() === "websocket";
 }
 
-/** An opaque per-client key for rate limits on the desktop: a short hash, never the address itself. */
+/*
+ * A per-client key for the desktop's rate limits. It is an unsalted hash of the address, so it is not anonymous: there
+ * are few enough IPv4 addresses to hash them all and match the key back. It only keeps the desktop's limits apart per
+ * client. The relay belongs to the desktop's owner, so the key tells the desktop nothing its owner could not read in
+ * the relay's own logs.
+ */
 export async function clientKey(request: Request): Promise<string> {
   const address = request.headers.get("CF-Connecting-IP") ?? "unknown";
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(address)));
