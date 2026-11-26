@@ -1046,8 +1046,13 @@ function sendRequested(
 function assertContinues(projection: RuntimeProjection, threadId: string, worktreeId: string): void {
   const earlier = projection.threads.find((thread) => thread.threadId === threadId);
   if (!earlier) throw new DomainError("thread_missing", `Thread does not exist: ${threadId}`);
-  if (earlier.worktreeId !== worktreeId)
-    throw new DomainError("unsupported_command", "A chat can only carry on a conversation from the same worktree.");
+  if (earlier.worktreeId === worktreeId) return;
+  // A chat can move to another branch, in another folder of the same project, and keep its conversation.
+  const projectOf = (id: string) => projection.worktrees.find((worktree) => worktree.worktreeId === id)?.projectId;
+  // The earlier folder may be removed already; its messages are still the chat's.
+  const from = projectOf(earlier.worktreeId);
+  if (from !== undefined && from !== projectOf(worktreeId))
+    throw new DomainError("unsupported_command", "A chat can only carry on a conversation from the same project.");
 }
 
 function assertJoins(projection: RuntimeProjection, projectId: string, threadId: string): void {

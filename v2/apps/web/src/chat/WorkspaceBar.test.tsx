@@ -140,7 +140,8 @@ describe("WorkspaceBar", () => {
       ["main", false],
       ["fix/auth", false],
       ["feature/login", false],
-      ["release", true],
+      // Checked out elsewhere: picking it goes to that folder, so it stays pickable.
+      ["release", false],
       ["docs/site", false],
     ]);
     await act(async () => options()[1]?.option.click());
@@ -148,9 +149,14 @@ describe("WorkspaceBar", () => {
       container.querySelector<HTMLButtonElement>('button[aria-label^="Move this chat to another branch"]')?.click(),
     );
     await act(async () => options()[2]?.option.click());
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('button[aria-label^="Move this chat to another branch"]')?.click(),
+    );
+    await act(async () => options()[3]?.option.click());
     expect(moves).toEqual([
       { kind: "worktree", worktreeId },
       { kind: "branch", projectId: projectA, branch: "feature/login" },
+      { kind: "branch", projectId: projectA, branch: "release", path: "/elsewhere/release" },
     ]);
   });
 

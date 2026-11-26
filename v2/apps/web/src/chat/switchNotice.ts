@@ -20,7 +20,20 @@ export function switchNotice(
   from: ThreadProjection,
   to: ThreadProjection,
   providers: RuntimeProjection["providers"],
+  /** Where each thread works, so a chat that moved to another branch says so instead of naming a model. */
+  worktrees?: RuntimeProjection["worktrees"],
 ): ThreadMessageProjection {
+  if (from.worktreeId !== to.worktreeId) {
+    const branchOf = (worktreeId: string) => worktrees?.find((entry) => entry.worktreeId === worktreeId)?.branch;
+    const before = branchOf(from.worktreeId);
+    const after = branchOf(to.worktreeId);
+    const text = after
+      ? before
+        ? `Moved from ${before} to ${after}`
+        : `Moved to ${after}`
+      : "Moved to another folder";
+    return { messageId: `${PREFIX}${to.threadId}`, threadId: to.threadId, role: "system", text };
+  }
   const fromName = from.name ?? providerDisplayName(from.provider, providers);
   const toName = to.name ?? providerDisplayName(to.provider, providers);
   const model = modelName(to, providers) ?? to.model;

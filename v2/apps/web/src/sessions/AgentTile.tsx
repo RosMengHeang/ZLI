@@ -63,6 +63,7 @@ export function AgentTile({
   onShowSetupOutput,
   onSwitchAgent,
   onMoveChat,
+  onSwitchBranch,
   onOpenPullRequest,
   onDraftChange,
   onDraftMove,
@@ -112,6 +113,8 @@ export function AgentTile({
   onOpenPullRequest?: (() => void) | undefined;
   /** Moves a chat that has not started to another folder, worktree, or branch. */
   onMoveChat?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
+  /** Moves a chat that already started to another branch, keeping its conversation. */
+  onSwitchBranch?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
   /** A draft chat's settings changed before its first message. */
   onDraftChange?: ((change: DraftChange) => void) | undefined;
   onDraftMove?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
@@ -593,6 +596,7 @@ export function AgentTile({
                 onRestart={() => void start("chat")}
                 onSwitchAgent={onSwitchAgent}
                 onMoveChat={onMoveChat}
+                onSwitchBranch={onSwitchBranch}
                 onAddFolder={onAddFolder}
                 onOpenConnectors={onOpenConnectors}
                 onStartRuns={onStartRuns}

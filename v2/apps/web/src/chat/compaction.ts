@@ -5,6 +5,7 @@ import type {
   ThreadUsageRecord,
 } from "@zli-v2/contracts";
 
+import { movedText } from "../sessions/handoff.js";
 import type { ContextUsage } from "../usage/usage.js";
 
 /**
@@ -208,6 +209,8 @@ export function summaryContext(input: {
   summary: string;
   after: readonly ThreadMessageProjection[];
   branch: string;
+  /** The branch the chat was on before the person moved it to this folder. */
+  movedFrom?: string | undefined;
   nameOf(message: ThreadMessageProjection): string;
 }): string {
   const said = input.after
@@ -222,7 +225,7 @@ export function summaryContext(input: {
     room -= part.length;
   }
   return [
-    `This chat was compacted to save context. You wrote the summary below in an earlier session, in the same folder, on branch ${input.branch}. Carry on from it. Files may have changed since, so check them before you rely on it. Then answer the person's new message, which follows.`,
+    `This chat was compacted to save context. You wrote the summary below in an earlier session. You now work ${movedText(input.branch, input.movedFrom)} Carry on from it. Files may have changed since, so check them before you rely on it. Then answer the person's new message, which follows.`,
     `<summary>\n${input.summary}\n</summary>`,
     ...(later.length > 0 ? [`<since-the-summary>\n${later.join("\n\n")}\n</since-the-summary>`] : []),
     "The person's new message:",

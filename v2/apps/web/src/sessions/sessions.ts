@@ -130,7 +130,11 @@ export function deriveSessions(
     if (thread) {
       entry.thread = thread;
       // A chat can move to another agent before its first message, so the tile follows the chat on screen.
-      if (entry.lastKind === "chat") entry.provider = thread.provider;
+      if (entry.lastKind === "chat") {
+        entry.provider = thread.provider;
+        // A chat can also move to another branch, so the tile works where the chat on screen works.
+        entry.worktreeId = thread.worktreeId;
+      }
     }
   }
   return [...sessions.values()]
