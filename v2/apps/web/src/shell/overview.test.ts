@@ -97,9 +97,18 @@ describe("checksView", () => {
       ]),
     );
     expect(failing?.tone).toBe("failed");
-    expect(failing?.headline).toBe("1 failed");
+    expect(failing?.count).toBe("1/3");
+    expect(failing?.headline).toBe("1/3 passed, 1 failed");
     expect(failing?.checks.map((check) => check.name)).toEqual(["test", "build", "lint"]);
-    expect(checksView(pr([{ name: "build", state: "pending" }]))?.headline).toBe("1 running");
+    const running = checksView(
+      pr([
+        { name: "build", state: "pending" },
+        { name: "test", state: "pending" },
+      ]),
+    );
+    expect(running?.tone).toBe("pending");
+    expect(running?.count).toBe("0/2");
+    expect(running?.headline).toBe("0/2 passed, 2 running");
   });
 
   it("is absent without a pull request or checks", () => {

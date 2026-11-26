@@ -1,4 +1,9 @@
-import type { RpcResponse, RuntimeProjection, WorktreeProjection } from "@zli-v2/contracts";
+import {
+  type RpcResponse,
+  type RuntimeProjection,
+  threadOccupiesWorktree,
+  type WorktreeProjection,
+} from "@zli-v2/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { providerDisplayName } from "../agent/providers.js";
@@ -36,6 +41,24 @@ import {
 } from "./sessions.js";
 
 import "./tile.css";
+
+/**
+ * Chats other than this one with a live agent in the same folder. They all see one checkout, so a branch switch
+ * in one moves every one of them.
+ */
+export function otherChatsInFolder(
+  projection: Pick<RuntimeProjection, "threads">,
+  worktreeId: string,
+  sessionId: string,
+): number {
+  const others = new Set<string>();
+  for (const thread of projection.threads) {
+    if (thread.worktreeId !== worktreeId || thread.joins || !threadOccupiesWorktree(thread.status)) continue;
+    const chat = thread.sessionId ?? thread.threadId;
+    if (chat !== sessionId) others.add(chat);
+  }
+  return others.size;
+}
 
 function chatDetail(chat: SessionChat): string {
   const age = relativeTime(chat.updatedAt);
@@ -193,6 +216,13 @@ export function AgentTile({
   const [headerMenu, setHeaderMenu] = useState<MenuRequest>();
   const agentName = sessionAgentName(session);
   const branch = worktree?.branch ?? "worktree";
+  const sharedChats = worktree ? otherChatsInFolder(projection, worktree.worktreeId, session.sessionId) : 0;
+  // A chat with nothing sent yet can move alone to its own worktree on the branch it picks.
+  const moveFresh = session.pending?.draft ? onDraftMove : onMoveChat;
+  const onMoveToBranch =
+    moveFresh && worktree
+      ? (name: string) => moveFresh({ kind: "branch", projectId: worktree.projectId, branch: name })
+      : undefined;
   const terminal = session.terminal;
   const thread = session.thread;
   const mode = session.mode;
@@ -431,6 +461,8 @@ export function AgentTile({
                       session,
                       project: projection.projects.find((entry) => entry.projectId === worktree.projectId),
                       accountName: accountLabel,
+                      sharedChats,
+                      onMoveToBranch,
                     }
                   : undefined
               }

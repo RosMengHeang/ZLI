@@ -390,6 +390,11 @@ span.review-file-check { cursor: default; }
 /* The state stays a quiet word; only a failure, which asks for action, is coloured. The icon carries the rest. */
 .pr-list-state { margin-left: auto; flex: 0 0 auto; }
 .pr-list-state.is-failed { color: var(--zli-red); }
+/* Checks passed out of all of them: amber running, red failed, green passed. */
+.pr-checks-count { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 3px; font-size: var(--zli-text-xs); font-variant-numeric: tabular-nums; font-weight: 500; }
+.pr-checks-count.is-passed { color: var(--zli-green); }
+.pr-checks-count.is-failed { color: var(--zli-red); }
+.pr-checks-count.is-pending { color: var(--zli-amber); }
 .pr-list-empty { margin: var(--zli-space-3) 10px; color: var(--zli-dim); font-size: var(--zli-text-sm); line-height: var(--zli-leading-normal); }
 .pr-page-detail { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
 .pr-page-detail > .pr-pane { width: 100%; max-width: 880px; min-height: 0; flex: 1; margin: 0 auto; }

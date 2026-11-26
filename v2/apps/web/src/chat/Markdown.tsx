@@ -2,7 +2,7 @@ import { Fragment, type ReactNode, useContext } from "react";
 
 import type { FileLinks } from "../files/FileIndex.js";
 import { Icon } from "../ui/Icon.js";
-import { ChatImage, isImagePath } from "./ChatImage.js";
+import { ChatImage, isAbsolutePath, isImagePath } from "./ChatImage.js";
 import { CodeBlock } from "./CodeBlock.js";
 import { CitationChip, CitationContext, sourceKey, useOpenWebLink } from "./Sources.js";
 
@@ -418,7 +418,9 @@ function mentionedImages(blocks: readonly Block[], links: FileLinks | undefined)
           const path = imagePath(href, links);
           if (path) embedded.add(path);
         } else if (match[1]) {
-          const path = links.resolve(match[1].slice(1, -1))?.path;
+          const code = match[1].slice(1, -1);
+          // A screenshot an agent saved outside the worktree, such as in the temp folder, is named by full path.
+          const path = links.resolve(code)?.path ?? (isAbsolutePath(code) ? code : undefined);
           if (path && isImagePath(path)) found.push(path);
         }
       }

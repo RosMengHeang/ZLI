@@ -20,6 +20,7 @@ import {
   RunningBody,
   useOverviewData,
 } from "../shell/OverviewCards.js";
+import { checksView } from "../shell/overview.js";
 import { Button, IconButton } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { SearchList, type SearchListItem } from "../ui/SearchList.js";
@@ -114,6 +115,13 @@ export function EnvironmentButton({
         session?: AgentSession | undefined;
         project?: ProjectProjection | undefined;
         accountName?: string | undefined;
+        /** Other chats working in this same folder. A branch switch here moves them too. */
+        sharedChats?: number | undefined;
+        /**
+         * Moves this chat alone to its own worktree on the branch, for a chat that has not started. With other
+         * chats in the folder, picking a branch does this instead of checking the branch out under them.
+         */
+        onMoveToBranch?: ((branch: string) => Promise<string | undefined>) | undefined;
       }
     | undefined;
   /** Opens a local address from the Running group, in the browser panel. */
@@ -141,6 +149,9 @@ export function EnvironmentButton({
     return () => window.clearTimeout(timer);
   }, [branchError]);
   const [notice, setNotice] = useState<string>();
+  /** A branch the person picked while other chats share the folder, waiting for them to confirm. */
+  const [confirmBranch, setConfirmBranch] = useState<string>();
+  const sharedChats = card?.sharedChats ?? 0;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const commitRef = useRef<{ since: string | undefined; push: boolean; timer: number }>(undefined);
@@ -409,9 +420,7 @@ export function EnvironmentButton({
       <Icon name="chevronDown" size={13} />
     </button>
   );
-  const checks = pullRequest?.checks ?? [];
-  const failing = checks.filter((check) => check.state === "failed").length;
-  const running = checks.filter((check) => check.state === "pending").length;
+  const checks = checksView(pullRequest);
   const pullRequestState = pullRequest
     ? pullRequest.isDraft
       ? "Draft"
@@ -437,10 +446,10 @@ export function EnvironmentButton({
         <span className="is-mono">#{pullRequest.number}</span>{" "}
         <span className={`env-pr-state is-${pullRequestState.toLowerCase()}`}>{pullRequestState}</span>
       </span>
-      {checks.length > 0 ? (
-        <span className={`env-row-end env-checks${failing ? " is-failed" : running ? " is-pending" : " is-passed"}`}>
-          <Icon name={failing ? "alert" : running ? "loader" : "check"} size={12} />
-          {failing ? `${failing} failing` : running ? `${running} running` : "Checks pass"}
+      {checks ? (
+        <span className={`env-row-end env-checks is-${checks.tone}`} title={`Checks ${checks.headline}`}>
+          <Icon name={checks.tone === "failed" ? "alert" : checks.tone === "pending" ? "loader" : "check"} size={12} />
+          {checks.count}
         </span>
       ) : null}
       <Icon name="externalLink" size={12} />
@@ -515,10 +524,25 @@ export function EnvironmentButton({
 
   // ---------- The card's rows ----------
 
-  const switchTo = async (name: string) => {
+  /**
+   * Checks the branch out in this folder. Other chats in the folder would move with it, so a chat that has not
+   * started gets its own worktree on the branch instead, and a running one asks first.
+   */
+  const switchTo = async (name: string, confirmed = false) => {
     setError(undefined);
     setBranchError(undefined);
     setNotice(undefined);
+    if (sharedChats > 0 && card?.onMoveToBranch) {
+      setConfirmBranch(undefined);
+      const failure = await card.onMoveToBranch(name);
+      if (failure) setBranchError(failure);
+      return;
+    }
+    if (sharedChats > 0 && !confirmed) {
+      setConfirmBranch(name);
+      return;
+    }
+    setConfirmBranch(undefined);
     try {
       branchState.apply(await switchBranch(dispatch, worktreeId, name));
       void refreshPullRequest(dispatch, worktreeId, true);
@@ -706,6 +730,25 @@ export function EnvironmentButton({
   ) : (
     <div className="env-card-group">
       {cardBranchRow}
+      {confirmBranch ? (
+        <div className="env-line env-branch-confirm" role="alert">
+          <Icon name="alert" size={13} />
+          <span>
+            {sharedChats === 1 ? "1 other chat works" : `${sharedChats} other chats work`} in this folder. Switching to{" "}
+            <span className="is-mono">{confirmBranch}</span> moves {sharedChats === 1 ? "it" : "them"} too. To keep{" "}
+            {sharedChats === 1 ? "it" : "them"} where {sharedChats === 1 ? "it is" : "they are"}, start a new chat in a
+            worktree on that branch.
+          </span>
+          <span className="env-branch-confirm-actions">
+            <Button size="xs" variant="ghost" onClick={() => setConfirmBranch(undefined)}>
+              Cancel
+            </Button>
+            <Button size="xs" variant="secondary" onClick={() => void switchTo(confirmBranch, true)}>
+              Switch anyway
+            </Button>
+          </span>
+        </div>
+      ) : null}
       {branchError ? (
         <p className="inline-error env-line env-branch-error" role="alert">
           <Icon name="alert" size={13} />

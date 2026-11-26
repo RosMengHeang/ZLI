@@ -11,6 +11,7 @@ import {
   PullRequestCommentsResult,
   PullRequestCreateResult,
   PullRequestInfo,
+  PullRequestLookupResult,
   type PullRequestMergeMethod,
   PullRequestMergeResult,
   type PullRequestProblem,
@@ -21,7 +22,6 @@ import {
   type PullRequestReviewEvent,
   type PullRequestReviewSummary,
   type PullRequestReviewThread,
-  PullRequestLookupResult,
   PullRequestStatusResult,
   PullRequestUpdateResult,
   type RuntimeProjection,
@@ -809,8 +809,23 @@ export class PullRequestService {
     return view.code === 0 ? parsePullRequest(view.stdout) : undefined;
   }
 
-  private async ghProblem(cwd: string): Promise<PullRequestProblem | undefined> {
-    if (Date.now() < this.ghReadyUntil) return undefined;
+  /**
+   * One check of gh at a time: at start-up every worktree asks at once, and `gh auth status` goes over the
+   * network, so each running its own made the whole list wait.
+   */
+  private ghProblem(cwd: string): Promise<PullRequestProblem | undefined> {
+    if (Date.now() < this.ghReadyUntil) return Promise.resolve(undefined);
+    if (!this.ghChecking) {
+      this.ghChecking = this.checkGh(cwd).finally(() => {
+        this.ghChecking = undefined;
+      });
+    }
+    return this.ghChecking;
+  }
+
+  private ghChecking: Promise<PullRequestProblem | undefined> | undefined;
+
+  private async checkGh(cwd: string): Promise<PullRequestProblem | undefined> {
     let version: ProcessResult;
     try {
       version = await this.runner("gh", ["--version"], { cwd, timeoutMs: GH_TIMEOUT_MS });

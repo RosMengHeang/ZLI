@@ -67,6 +67,19 @@ export const FileCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("files.read"), worktreeId: WorktreeId, path: WorktreeFilePath }),
   /** The bytes of an image or PDF, for previews. */
   z.object({ type: z.literal("files.readData"), worktreeId: WorktreeId, path: WorktreeFilePath }),
+  /**
+   * An image an agent saved by absolute path, such as a screenshot in the temp folder, for showing in its
+   * reply. Only image files inside the worktree or the system temp folder are read.
+   */
+  z.object({
+    type: z.literal("files.readImage"),
+    worktreeId: WorktreeId,
+    path: z
+      .string()
+      .min(1)
+      .max(4_000)
+      .refine((value) => !value.includes("\0"), "Path must not contain NUL."),
+  }),
   /** The file's uncommitted changes against HEAD, as a unified diff. */
   z.object({ type: z.literal("files.diff"), worktreeId: WorktreeId, path: WorktreeFilePath }),
   z.object({
@@ -95,6 +108,7 @@ export const FILE_COMMAND_TYPES = [
   "files.list",
   "files.read",
   "files.readData",
+  "files.readImage",
   "files.diff",
   "files.write",
   "files.search",

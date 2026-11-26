@@ -73,6 +73,10 @@
 .ov-check.is-pending { color: var(--zli-amber); animation: ov-spin 1.2s linear infinite; }
 @keyframes ov-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .ov-check.is-pending { animation: none; } }
+/* Checks passed out of all of them, beside the pull request and atop the Checks card. */
+.ov-checks-count { gap: 4px; font-weight: 500; }
+.ov-checks-spin { animation: ov-spin 1.2s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .ov-checks-spin { animation: none; } }
 .ov-more { align-self: flex-start; margin: 2px -6px 0; padding: 4px 6px; border: 0; border-radius: var(--zli-radius-md); background: transparent; color: var(--zli-dim); cursor: default; font: inherit; font-size: var(--zli-text-xs); }
 .ov-more:hover { background: var(--zli-hover); color: var(--zli-text); }
 .ov-more:focus-visible { outline: 2px solid var(--zli-focus); outline-offset: -2px; }

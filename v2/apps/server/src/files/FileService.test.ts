@@ -249,6 +249,39 @@ describe("FileService.readData", () => {
   });
 });
 
+describe("FileService.readImage", () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+  async function folder(prefix: string): Promise<string> {
+    const directory = await mkdtemp(join(tmpdir(), prefix));
+    directories.push(directory);
+    return directory;
+  }
+
+  it("reads an image an agent saved by absolute path in the temp folder", async () => {
+    const root = await repository();
+    const temp = await folder("zli-temp-");
+    const shot = join(temp, "shots", "3-terminal-style.png");
+    await mkdir(join(temp, "shots"));
+    await writeFile(shot, png);
+    const result = await new FileService().readImage(root, shot, temp);
+    expect(result).toMatchObject({ path: shot, size: png.length, mimeType: "image/png" });
+  });
+
+  it("refuses images outside the worktree and temp folder, and files that are not images", async () => {
+    const root = await repository();
+    const temp = await folder("zli-temp-");
+    const elsewhere = await folder("zli-elsewhere-");
+    await writeFile(join(elsewhere, "private.png"), png);
+    await writeFile(join(temp, "notes.txt"), "secret");
+    const service = new FileService();
+    await expect(service.readImage(root, join(elsewhere, "private.png"), temp)).rejects.toThrow(
+      "ZLI shows images from the worktree or the temp folder only.",
+    );
+    await expect(service.readImage(root, join(temp, "notes.txt"), temp)).rejects.toThrow("ZLI shows image files only");
+    await expect(service.readImage(root, "src/logo.png", temp)).rejects.toThrow("Not an absolute path");
+  });
+});
+
 describe("FileService.write", () => {
   it("saves with the read version and returns the new version", async () => {
     const root = await repository();
