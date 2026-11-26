@@ -130,6 +130,7 @@ export function ChatView({
   onRestart,
   onSwitchAgent,
   onMoveChat,
+  onSwitchBranch,
   onAddFolder,
   onOpenConnectors,
   onStartRuns,
@@ -156,6 +157,8 @@ export function ChatView({
     | undefined;
   /** Moves the chat to another folder, worktree, or branch before its first message. */
   onMoveChat?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
+  /** Moves a chat that already started to another branch, keeping its conversation. */
+  onSwitchBranch?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
   /**
    * Adds a folder as a project (the given one, or else one picked in the folder picker), for the project menu
    * before the first message.
@@ -333,13 +336,25 @@ export function ChatView({
       if (!own && written.length === 0 && done.length === 0) continue;
       // A thread that ended on its compaction summary already has its divider; a switch notice would repeat it.
       if (before && !beforeCompacted)
-        items.push({ kind: "message", message: switchNotice(before, entry, projection.providers) });
+        items.push({
+          kind: "message",
+          message: switchNotice(before, entry, projection.providers, projection.worktrees),
+        });
       items.push(...buildTimeline(foldCompactions(written).messages, done, previousTimeline.current));
       before = entry;
       beforeCompacted = endsWithCompaction(written) && latestSummary(written) !== undefined;
     }
     return items;
-  }, [chain, threadId, messages, activities, earlierMessages, earlierActivities, projection.providers]);
+  }, [
+    chain,
+    threadId,
+    messages,
+    activities,
+    earlierMessages,
+    earlierActivities,
+    projection.providers,
+    projection.worktrees,
+  ]);
   useEffect(() => {
     previousTimeline.current = ownTimeline;
   }, [ownTimeline]);
@@ -576,10 +591,17 @@ export function ChatView({
       earlierMessages.length > 0 && queued.length === 0 && !messages.some((message) => message.role === "user");
     // After a compaction the fresh session reads the summary instead of the full conversation.
     const compacted = firstHere ? latestSummary(earlierMessages) : undefined;
+    // A chat the person moved to another branch works in another folder now, and its agent is told so.
+    const before = chain.at(-2);
+    const movedFrom =
+      before && before.worktreeId !== thread.worktreeId
+        ? (projection.worktrees.find((entry) => entry.worktreeId === before.worktreeId)?.branch ?? "another branch")
+        : undefined;
     const takeover = compacted
       ? summaryContext({
           ...compacted,
           branch: worktree?.branch ?? "the current branch",
+          movedFrom,
           nameOf: (message) => {
             const writer = chain.find((entry) => entry.threadId === message.threadId);
             return writer ? (writer.name ?? providerDisplayName(writer.provider, projection.providers)) : "Agent";
@@ -588,6 +610,7 @@ export function ChatView({
       : firstHere
         ? takeoverContext({
             branch: worktree?.branch ?? "the current branch",
+            movedFrom,
             messages: earlierMessages,
             nameOf: (message) => {
               const writer = chain.find((entry) => entry.threadId === message.threadId);
@@ -2090,7 +2113,8 @@ export function ChatView({
                       worktree={worktree}
                       worktrees={projection.worktrees}
                       git={gitProject}
-                      onMove={fresh ? onMoveChat : undefined}
+                      onMove={fresh ? onMoveChat : switchable ? onSwitchBranch : undefined}
+                      started={!fresh}
                       onAddFolder={fresh ? onAddFolder : undefined}
                     />
                   ) : undefined

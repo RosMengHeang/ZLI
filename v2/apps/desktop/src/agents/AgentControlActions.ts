@@ -16,6 +16,7 @@ import {
   agentNameTaken,
   agentTerminalInput,
   catalogEntryServer,
+  GitBranchesResult,
   isHttpServer,
   isListedTerminalStatus,
   isListedThreadStatus,
@@ -598,6 +599,33 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     };
   };
 
+  /**
+   * Whether a branch an agent named for a new worktree is new or already exists. A branch that is checked
+   * out in a folder already (the caller's own, the person's, or another worktree) cannot get a second one,
+   * so that is refused here with the folder named, before any worktree is made.
+   */
+  const branchPlace = async (from: WorktreeProjection, branch: string): Promise<"new" | "existing"> => {
+    let branches: GitBranchesResult;
+    try {
+      branches = GitBranchesResult.parse(await run({ type: "review.git.branches", worktreeId: from.worktreeId }));
+    } catch {
+      // Without the list, git itself still refuses a taken branch, and the error reaches the agent.
+      return "new";
+    }
+    if (branches.current === branch)
+      throw new BrowserControlError(
+        `You are already on ${branch}, in ${from.path}. start_agent is for work in parallel. To give another agent this branch, pass worktree "same" so it shares your folder, or name a new branch.`,
+        409,
+      );
+    const elsewhere = branches.details?.[branch]?.worktreePath;
+    if (elsewhere)
+      throw new BrowserControlError(
+        `${branch} is already checked out in ${elsewhere}, and Git allows a branch in only one folder at a time. Name a new branch instead, or ask the person to open a chat in that folder.`,
+        409,
+      );
+    return branches.local.includes(branch) || branches.remote.includes(branch) ? "existing" : "new";
+  };
+
   /** Starts an agent and waits until it can take its first message. */
   const launch = async (input: Omit<AgentControlStartInput, "prompt">) => {
     const state = projection();
@@ -632,6 +660,7 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     else {
       const branch = safeBranchName(input.branch ?? `${input.provider}-${newId().slice(0, 6)}`);
       if (!branch) throw new BrowserControlError("Choose a branch name with letters or digits.");
+      const existing = input.branch === undefined ? "new" : await branchPlace(callerWorktree, branch);
       const worktreeId = newId();
       const workspaceRoot = `${project.path.replace(/[\\/]+$/u, "")}-worktrees`;
       await run({
@@ -641,7 +670,8 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
         path: `${workspaceRoot}/${branch.replace(/[\\/]/gu, "-")}`,
         workspaceRoot,
         branch,
-        baseRef: callerWorktree.branch,
+        // A branch that already exists is checked out as it is; `-b` would refuse it.
+        ...(existing === "existing" ? { checkoutExistingBranch: true } : { baseRef: callerWorktree.branch }),
       });
       target = await waitFor((next) => {
         const created = next.worktrees.find((candidate) => candidate.worktreeId === worktreeId);

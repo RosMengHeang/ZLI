@@ -19,9 +19,11 @@ import {
 import {
   type CSSProperties,
   lazy,
+  type SetStateAction,
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -79,6 +81,7 @@ import { CompareRunsDialog, type KeepParts } from "../sessions/CompareRunsDialog
 import { archiveChatOnce, useArchivedChats } from "../sessions/chatArchive.js";
 import { firstMessageStep, TERMINAL_FIRST_MESSAGE_DELAY_MS, terminalFirstMessage } from "../sessions/firstMessage.js";
 import type { HandoffRequest } from "../sessions/HandoffDialog.js";
+import { branchTarget, chatBranchName, folderBusy } from "../sessions/branchMove.js";
 import { canHandOff, inlineFirstMessage, recentContextMessage } from "../sessions/handoff.js";
 import {
   type ChatPlace,
@@ -232,7 +235,16 @@ function WorkspaceApp() {
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string>();
   /** A project the person just added from this window. It has no worktree yet, so no worktree can stand for it. */
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
-  const [sidePane, setSidePane] = useState<SidePane>();
+  const [sidePane, setSidePaneState] = useState<SidePane>();
+  /**
+   * A pane was opened since the last render. A click that moves to another chat and opens a pane at once,
+   * like a tile's pull request button, means that pane for the chat it moves to.
+   */
+  const paneOpened = useRef(false);
+  const setSidePane = useCallback((next: SetStateAction<SidePane | undefined>) => {
+    paneOpened.current = true;
+    setSidePaneState(next);
+  }, []);
   const [reviewFocus, setReviewFocus] = useState<ReviewFocus>();
   /** What the main area shows instead of the chats: the buddies' home ("team") or one buddy's chat. */
   const [buddyView, setBuddyView] = useState<string>();
@@ -309,6 +321,54 @@ function WorkspaceApp() {
   const sentDrafts = useRef(new Set<string>());
   const projectionRef = useRef(projection);
   projectionRef.current = projection;
+  // A worktree that failed to be made, with no chat in it, has nothing to show: ZLI forgets it instead of
+  // keeping a Failed row in the sidebar. Forgetting touches nothing on disk. A chat whose worktree failed
+  // keeps it, so its tile can say why and try again. The short wait lets whoever asked for the worktree read
+  // the failure first, and one that failed while the window was open is told once.
+  const seenWorking = useRef(new Set<string>());
+  const forgetting = useRef(new Set<string>());
+  useEffect(() => {
+    if (!projection) return;
+    const claimed = new Set([
+      ...projection.threads.map((thread) => thread.worktreeId),
+      ...projection.terminals.map((terminal) => terminal.worktreeId),
+      ...workbench.pending.map((launch) => launch.worktreeId),
+      ...isolatedWorktrees.current.values(),
+    ]);
+    for (const worktree of projection.worktrees) {
+      if (worktree.status !== "failed") {
+        seenWorking.current.add(worktree.worktreeId);
+        continue;
+      }
+      if (worktree.kind === "checkout" || claimed.has(worktree.worktreeId)) continue;
+      if (forgetting.current.has(worktree.worktreeId)) continue;
+      // Scheduled once; a chat that takes the worktree meanwhile keeps it.
+      forgetting.current.add(worktree.worktreeId);
+      const { worktreeId, branch, errorMessage } = worktree;
+      setTimeout(() => {
+        const now = projectionRef.current;
+        const still = now?.worktrees.find((entry) => entry.worktreeId === worktreeId)?.status === "failed";
+        const taken =
+          now?.threads.some((thread) => thread.worktreeId === worktreeId) ||
+          now?.terminals.some((terminal) => terminal.worktreeId === worktreeId);
+        if (!still || taken) {
+          forgetting.current.delete(worktreeId);
+          return;
+        }
+        void dispatch({
+          protocolVersion: 1,
+          commandId: makeCommandId(),
+          command: { type: "worktree.archive", worktreeId },
+        })
+          .then((response) => {
+            if (response?.accepted === false) return;
+            if (seenWorking.current.has(worktreeId))
+              showError(`Could not make a worktree for ${branch}. ${errorMessage ?? ""}`.trim());
+          })
+          .catch(() => forgetting.current.delete(worktreeId));
+      }, 3_000);
+    }
+  }, [projection, workbench.pending, dispatch, showError]);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const welcomeChecked = useRef(false);
   // Decided once, from the first snapshot: a fresh install gets the welcome setup.
@@ -582,7 +642,7 @@ function WorkspaceApp() {
       setSidePane("browser");
       focusWorktree(worktreeId);
     });
-  }, [bridge, focusWorktree]);
+  }, [bridge, focusWorktree, setSidePane]);
   const mobileAvailable = Boolean(bridge?.mobile);
   const mobilePopOutAvailable = Boolean(bridge?.mobile?.popOut);
   useEffect(() => {
@@ -593,7 +653,7 @@ function WorkspaceApp() {
       setMobileReveal({ deviceId, key });
       setSidePane("mobile");
     });
-  }, [bridge]);
+  }, [bridge, setSidePane]);
 
   const contextDevServers = useMemo(
     () => worktreeDevServers(projection?.devServers, contextWorktree?.worktreeId),
@@ -610,7 +670,7 @@ function WorkspaceApp() {
       setBrowserOpen({ url, worktreeId, key: Date.now() });
       setSidePane("browser");
     },
-    [contextWorktree?.worktreeId],
+    [contextWorktree?.worktreeId, setSidePane],
   );
 
   const openFile = useCallback(
@@ -620,7 +680,7 @@ function WorkspaceApp() {
       focusWorktree(worktreeId);
       setFilesFocus({ kind: "open", path, line, column, nonce: Date.now() });
     },
-    [focusWorktree],
+    [focusWorktree, setSidePane],
   );
   const contextWorktreeRef = useRef(contextWorktree);
   contextWorktreeRef.current = contextWorktree;
@@ -633,7 +693,7 @@ function WorkspaceApp() {
     setPaletteOpen(false);
     setSidePane("files");
     setFilesFocus({ kind: "search", nonce: Date.now() });
-  }, []);
+  }, [setSidePane]);
 
   const openNewAgentDialog = useCallback(
     (project?: ProjectProjection) => {
@@ -663,6 +723,39 @@ function WorkspaceApp() {
     lastPane.current = sidePane;
     setPanelTabs((tabs) => (tabs.includes(sidePane) ? tabs : [...tabs, sidePane]));
   }, [sidePane]);
+  // Each chat keeps its own right panel: its tabs, the one showing, and the one used last. A chat that opened
+  // nothing shows no panel, so a pull request opened beside one chat never sits empty beside another.
+  const chatPanels = useRef(new Map<string, { tabs: SidePane[]; pane: SidePane | undefined; last?: SidePane }>());
+  const panelOwner = useRef(workbench.activeSessionId ?? "");
+  const shownPanel = useRef<{ tabs: SidePane[]; pane: SidePane | undefined }>({ tabs: [], pane: undefined });
+  useLayoutEffect(() => {
+    const owner = workbench.activeSessionId ?? "";
+    if (owner === panelOwner.current) return;
+    chatPanels.current.set(panelOwner.current, {
+      ...shownPanel.current,
+      ...(lastPane.current ? { last: lastPane.current } : {}),
+    });
+    panelOwner.current = owner;
+    const saved = chatPanels.current.get(owner);
+    lastPane.current = saved?.last;
+    if (paneOpened.current && sidePane) {
+      // Opened by the same click that moved here: it belongs to this chat, next to what it had open.
+      setPanelTabs(
+        sidePane === "start" || saved?.tabs.includes(sidePane)
+          ? (saved?.tabs ?? [])
+          : [...(saved?.tabs ?? []), sidePane],
+      );
+      return;
+    }
+    setPanelTabs(saved?.tabs ?? []);
+    setSidePaneState(saved?.pane);
+  }, [workbench.activeSessionId, sidePane]);
+  // What the chat in focus has open, saved when focus moves on. Runs after the swap above, so the click that
+  // opened a pane counts once.
+  useEffect(() => {
+    shownPanel.current = { tabs: panelTabs, pane: sidePane };
+    paneOpened.current = false;
+  });
   /** Opens the right panel on the tool in use last, or on the list of panels when none is open yet. */
   const togglePanels = () =>
     setSidePane((current) => {
@@ -700,14 +793,20 @@ function WorkspaceApp() {
     setPullView("all");
     setBuddyView(undefined);
     setSidePane(undefined);
-  }, []);
-  const openBuddies = useCallback((next?: string) => {
-    setPullView(undefined);
-    // Opening Buddies starts on Primary's chat; the team board is one click away in the list.
-    setBuddyView(next ?? PRIMARY_VIEW);
-    // A buddy's chat has its own details column, so the workspace panel steps aside.
-    setSidePane(undefined);
-  }, []);
+  }, [setSidePane]);
+  const openBuddies = useCallback(
+    (next?: string) => {
+      setPullView(undefined);
+      // Opening Buddies starts on Primary's chat; the team board is one click away in the list.
+      setBuddyView(next ?? PRIMARY_VIEW);
+      // A buddy's chat has its own details column, so the workspace panel steps aside.
+      setSidePane(undefined);
+    },
+    [
+      // A buddy's chat has its own details column, so the workspace panel steps aside.
+      setSidePane,
+    ],
+  );
   // "primary" stands for whoever is Primary now, so it still opens once the starter team has just been made.
   const primaryId = projection ? primaryBuddy(projection)?.buddyId : undefined;
   const shownBuddy = buddyView === PRIMARY_VIEW ? (primaryId ?? "team") : buddyView;
@@ -2274,7 +2373,7 @@ function WorkspaceApp() {
     if (place.kind === "worktree") placement = { kind: "existing", worktreeId: place.worktreeId };
     else if (place.kind === "project") placement = { kind: "checkout" };
     else {
-      const result = await createWorktree(dispatch, project, place.branch, "", true);
+      const result = await openBranchFolder(project, place);
       if ("error" in result) return result.error;
       placement = { kind: "existing", worktreeId: result.worktreeId };
     }
@@ -2345,12 +2444,103 @@ function WorkspaceApp() {
       const result =
         place.kind === "project"
           ? await ensureCheckout(dispatch, current, project)
-          : await createWorktree(dispatch, project, place.branch, "", true);
+          : await openBranchFolder(project, place);
       if ("error" in result) return result.error;
       worktreeId = result.worktreeId;
     }
     updateDraft(sessionId, (launch) => ({ ...launch, worktreeId }));
     setSelectedWorktreeId(worktreeId);
+    return undefined;
+  };
+
+  /**
+   * The folder for a branch the person picked: the one that has it already, or a new worktree that checks it
+   * out. Git keeps a branch in one folder at a time, so a second one is never asked for.
+   */
+  const openBranchFolder = async (
+    project: ProjectProjection,
+    place: ChatPlace,
+  ): Promise<{ worktreeId: string } | { error: string }> => {
+    const current = projectionRef.current;
+    if (!current) return { error: "The runtime is not connected." };
+    const target = branchTarget(current, project, place);
+    if (target.kind === "error") return { error: target.message };
+    if (target.kind === "use") return { worktreeId: target.worktree.worktreeId };
+    if (target.kind === "project") return ensureCheckout(dispatch, current, project);
+    return createWorktree(dispatch, project, target.branch, "", true);
+  };
+
+  /** Resolves once a folder is ready to work in, or says why it will not be. */
+  const readyWorktree = async (worktreeId: string): Promise<{ worktree: WorktreeProjection } | { error: string }> => {
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+      const made = projectionRef.current?.worktrees.find((candidate) => candidate.worktreeId === worktreeId);
+      // A checkout imported a moment ago still has the placeholder branch until git is read.
+      if (made?.status === "ready" && made.branch !== "HEAD") return { worktree: made };
+      if (made && ["failed", "cancelling", "cancelled"].includes(made.status))
+        return { error: made.errorMessage ?? "The folder for that branch could not be made." };
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    return { error: "The folder for that branch is still being set up. Pick the branch again to keep waiting." };
+  };
+
+  /**
+   * Moves a chat that already started to another branch and keeps its conversation, the way switching agents
+   * does: the agent here stops, and the same agent opens a chat in the branch's folder that carries on this
+   * one. When another agent works in that folder, the chat gets its own worktree on a new branch made from it,
+   * so the two never change the same files. Uncommitted changes stay in the folder the chat leaves.
+   */
+  const switchChatBranch = async (session: AgentSession, place: ChatPlace): Promise<string | undefined> => {
+    const current = projectionRef.current;
+    const thread = session.thread;
+    const from = findWorktree(session.worktreeId);
+    if (!current || !thread || !from) return "The folder for this chat is gone.";
+    if (!isSelectableProvider(session.provider)) return "This agent is not supported.";
+    const project = current.projects.find((candidate) => candidate.projectId === from.projectId);
+    if (!project) return "That project is gone.";
+    const opened = await openBranchFolder(project, place);
+    if ("error" in opened) return opened.error;
+    if (opened.worktreeId === from.worktreeId) return undefined;
+    let ready = await readyWorktree(opened.worktreeId);
+    if ("error" in ready) return ready.error;
+    const latest = projectionRef.current ?? current;
+    if (folderBusy(latest, ready.worktree.worktreeId)) {
+      if (ready.worktree.branch === "HEAD") return "That folder is not on a branch, so the chat cannot branch from it.";
+      const copy = await createWorktree(
+        dispatch,
+        project,
+        chatBranchName(ready.worktree.branch, latest),
+        ready.worktree.branch,
+      );
+      if ("error" in copy) return copy.error;
+      ready = await readyWorktree(copy.worktreeId);
+      if ("error" in ready) return ready.error;
+    }
+    const target = ready.worktree;
+    const said = canHandOff({ thread }, latest.messages);
+    const continues = said ? thread.threadId : thread.continues;
+    if (thread.status !== "stopped" && thread.status !== "failed") {
+      if (!(await send({ type: "thread.stop", threadId: thread.threadId })))
+        return "The chat here could not be stopped.";
+    }
+    const accountId = thread.accountId ?? launchAccountId(accounts, session.provider, undefined);
+    const failure = await startSessionAgent(dispatch, projectionRef.current ?? latest, {
+      provider: session.provider,
+      mode: "chat",
+      permissionMode: thread.permissionMode ?? "full-access",
+      ...(thread.model ? { model: thread.model } : {}),
+      ...(accountId ? { accountId } : {}),
+      ...(continues ? { continues } : {}),
+      sessionId: session.sessionId,
+      worktreeId: target.worktreeId,
+      cwd: target.path,
+    });
+    if (failure) return failure;
+    updateWorkbench((state) => {
+      const { [session.sessionId]: _shown, ...chats } = state.chats;
+      return { ...state, chats };
+    });
+    setSelectedWorktreeId(target.worktreeId);
     return undefined;
   };
 
@@ -3239,6 +3429,11 @@ function WorkspaceApp() {
                                 !sentDrafts.current.has(session.sessionId) &&
                                 !sessionHasMessages(session, projection.messages)
                                   ? (place) => moveChat(session, place)
+                                  : undefined
+                              }
+                              onSwitchBranch={
+                                newChatTarget(session) && session.thread
+                                  ? (place) => switchChatBranch(session, place)
                                   : undefined
                               }
                               onNewChat={newChatTarget(session) ? () => newChatOnBranch(session, true) : undefined}

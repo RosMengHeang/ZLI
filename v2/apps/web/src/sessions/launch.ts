@@ -24,7 +24,13 @@ export type Placement =
 export type ChatPlace =
   | { kind: "project"; projectId: string }
   | { kind: "worktree"; worktreeId: string }
-  | { kind: "branch"; projectId: string; branch: string };
+  | {
+      kind: "branch";
+      projectId: string;
+      branch: string;
+      /** The folder that has this branch checked out already, when Git says one does. */
+      path?: string;
+    };
 
 export type LaunchOptions = {
   provider: ListedProviderKind;
@@ -115,6 +121,23 @@ export async function createWorktree(
   });
   if (response?.accepted === false) return { error: response.error.message };
   return { worktreeId };
+}
+
+/**
+ * A folder of the project's that already has `branch` checked out. Git keeps a branch in one folder at a time,
+ * so moving a chat to that branch goes to this folder instead of asking for a second one.
+ */
+export function worktreeOnBranch(
+  projection: Pick<RuntimeProjection, "worktrees">,
+  projectId: string,
+  branch: string,
+): WorktreeProjection | undefined {
+  return projection.worktrees.find(
+    (worktree) =>
+      worktree.projectId === projectId &&
+      worktree.branch === branch &&
+      !["failed", "cancelling", "cancelled"].includes(worktree.status),
+  );
 }
 
 export async function ensureCheckout(

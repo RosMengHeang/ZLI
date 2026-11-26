@@ -155,6 +155,12 @@ button.step-row:hover .step-file { background: var(--zli-active); }
 .turn-file-kind.is-added { color: var(--zli-green-ink); }
 .turn-file-kind.is-deleted { color: var(--zli-red-ink); }
 .turn-changes-more { padding: var(--zli-space-1) var(--zli-space-1-5); color: var(--zli-dim); font-size: var(--zli-text-xs); }
+/* Reads as one more row of the list: same height, indent, and chevron as a file, so it does not compete with the header's Restore. */
+.turn-changes-toggle { display: flex; width: calc(100% - 2 * var(--zli-space-1-5)); align-items: center; gap: var(--zli-space-2); height: 28px; margin: calc(-1 * var(--zli-space-1)) var(--zli-space-1-5) var(--zli-space-1-5); padding: 0 var(--zli-space-1-5); border: 0; border-radius: var(--zli-radius-sm); background: transparent; color: var(--zli-dim); font-size: var(--zli-text-xs); text-align: left; transition: background-color var(--zli-duration-fast) var(--zli-ease), color var(--zli-duration-fast) var(--zli-ease); }
+.turn-changes-toggle:hover { background: var(--zli-hover); color: var(--zli-text); }
+.turn-changes-toggle:focus-visible { outline-offset: -2px; }
+.turn-changes-toggle[aria-expanded="true"] .turn-file-chevron { transform: rotate(-90deg); }
+@media (pointer: coarse) { .turn-changes-toggle { height: 44px; } }
 .turn-changes-error { margin: 0 var(--zli-space-3) var(--zli-space-2); }
 .turn-diff { max-height: 360px; margin: 2px 0 var(--zli-space-1-5); overflow: auto; border-radius: var(--zli-radius-sm); background: var(--zli-surface); color: var(--zli-muted); font-family: var(--zli-mono); font-size: var(--zli-text-xs); line-height: 1.6; }
 .turn-diff-lines { width: max-content; min-width: 100%; padding: var(--zli-space-1) 0; }

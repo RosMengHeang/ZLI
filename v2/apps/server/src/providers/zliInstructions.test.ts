@@ -25,6 +25,13 @@ describe("zliInstructions", () => {
     expect(zliInstructions({ browserTool: false })).toContain("`src/app.ts:42`");
   });
 
+  it("tells agents to switch branches in place, and not in a folder other agents share", () => {
+    const text = zliInstructions({ browserTool: false });
+    expect(text).toContain("git switch");
+    expect(text).toContain("Never start another agent for it");
+    expect(text).toContain("sameWorktree");
+  });
+
   it("writes one file per variant and returns its path", async () => {
     const dir = await tempDir();
     const path = await writeZliInstructions(dir, { browserTool: true });

@@ -16,6 +16,9 @@ type DiffState =
   | { kind: "ready"; diff: CheckpointDiffResult }
   | { kind: "error"; message: string };
 
+/** Files a turn's card lists before the rest fold away, so a big turn does not push the reply off screen. */
+export const FOLDED_FILES = 4;
+
 const kindLabel: Partial<Record<TurnCheckpointFile["kind"], string>> = {
   added: "new",
   deleted: "deleted",
@@ -50,6 +53,7 @@ export const TurnChanges = memo(function TurnChanges({
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string>();
   const [viewing, setViewing] = useState<string>();
+  const [showAll, setShowAll] = useState(false);
 
   const toggle = (path: string) => {
     if (openPath === path) {
@@ -83,7 +87,10 @@ export const TurnChanges = memo(function TurnChanges({
     }
   };
 
+  // Files the runtime left out of the list, which the card can only count.
   const hidden = checkpoint.fileCount - checkpoint.files.length;
+  const folded = !showAll && checkpoint.files.length > FOLDED_FILES;
+  const files = folded ? checkpoint.files.slice(0, FOLDED_FILES) : checkpoint.files;
   return (
     <section className="turn-changes" aria-label="Changes in this turn">
       <header className="turn-changes-header">
@@ -104,8 +111,8 @@ export const TurnChanges = memo(function TurnChanges({
           Restore
         </Button>
       </header>
-      <ul className="turn-changes-list">
-        {checkpoint.files.map((file) => {
+      <ul className="turn-changes-list" id={`turn-files-${checkpoint.checkpointId}`}>
+        {files.map((file) => {
           const open = openPath === file.path;
           const normalized = file.path.replaceAll("\\", "/");
           const slash = normalized.lastIndexOf("/");
@@ -165,8 +172,20 @@ export const TurnChanges = memo(function TurnChanges({
             </li>
           );
         })}
-        {hidden > 0 ? <li className="turn-changes-more">and {hidden} more</li> : null}
+        {hidden > 0 && !folded ? <li className="turn-changes-more">and {hidden} more</li> : null}
       </ul>
+      {checkpoint.files.length > FOLDED_FILES ? (
+        <button
+          type="button"
+          className="turn-changes-toggle"
+          aria-expanded={!folded}
+          aria-controls={`turn-files-${checkpoint.checkpointId}`}
+          onClick={() => setShowAll(folded)}
+        >
+          <Icon name="chevronRight" size={11} className="turn-file-chevron" />
+          {folded ? `Show all ${checkpoint.fileCount} files` : "Show fewer"}
+        </button>
+      ) : null}
       {error ? (
         <p className="inline-error turn-changes-error" role="alert">
           {error}

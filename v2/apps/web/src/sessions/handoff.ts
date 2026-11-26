@@ -124,6 +124,8 @@ export const TAKEOVER_CHAR_BUDGET = 40_000;
  */
 export function takeoverContext(input: {
   branch: string;
+  /** The branch the chat was on before the person moved it to this folder. */
+  movedFrom?: string | undefined;
   /** Earlier messages of the chat, oldest first, and which agent wrote each reply. */
   messages: readonly ThreadMessageProjection[];
   nameOf(message: ThreadMessageProjection): string;
@@ -138,10 +140,17 @@ export function takeoverContext(input: {
   ];
   const who = agents.length > 0 ? agents.join(" and ") : "another agent";
   return [
-    `You are taking over this chat from ${who}, in the same folder, on branch ${input.branch}. The conversation so far is below, oldest first. Files may have changed since, so check them before you rely on it. Then answer the person's new message, which follows.`,
+    `You are taking over this chat from ${who}, ${movedText(input.branch, input.movedFrom)} The conversation so far is below, oldest first. Files may have changed since, so check them before you rely on it. Then answer the person's new message, which follows.`,
     `<earlier-conversation>\n${pinned}${transcript.text}\n</earlier-conversation>`,
     "The person's new message:",
   ].join("\n\n");
+}
+
+/** Where a carried-on chat now works: the same folder, or a folder the person moved it to. */
+export function movedText(branch: string, movedFrom: string | undefined): string {
+  return movedFrom === undefined
+    ? `in the same folder, on branch ${branch}.`
+    : `on branch ${branch}. The person moved the chat here from ${movedFrom}, which is in another folder: changes made there, committed or not, are not in this folder unless the branch already has them.`;
 }
 
 /**

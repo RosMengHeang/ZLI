@@ -86,6 +86,7 @@ export function AgentTile({
   onShowSetupOutput,
   onSwitchAgent,
   onMoveChat,
+  onSwitchBranch,
   onOpenPullRequest,
   onDraftChange,
   onDraftMove,
@@ -137,6 +138,8 @@ export function AgentTile({
   onOpenPullRequest?: (() => void) | undefined;
   /** Moves a chat that has not started to another folder, worktree, or branch. */
   onMoveChat?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
+  /** Moves a chat that already started to another branch, keeping its conversation. */
+  onSwitchBranch?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
   /** A draft chat's settings changed before its first message. */
   onDraftChange?: ((change: DraftChange) => void) | undefined;
   onDraftMove?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
@@ -507,6 +510,26 @@ export function AgentTile({
                   Dismiss
                 </Button>
               </EmptyState>
+            ) : worktree?.status === "failed" || worktree?.status === "cancelled" ? (
+              // The worktree will not become ready on its own, so a spinner here would wait forever.
+              <EmptyState
+                icon="alert"
+                tone="danger"
+                title={worktree.status === "failed" ? `Could not open ${branch}` : `${branch} was cancelled`}
+                detail={
+                  worktree.errorMessage ??
+                  (worktree.status === "failed"
+                    ? `Git could not make a worktree for ${branch}, so ${displayName} did not start.`
+                    : `${displayName} did not start.`)
+                }
+              >
+                <Button icon="reload" onClick={onRetryPending}>
+                  Try again
+                </Button>
+                <Button variant="ghost" onClick={onDismissPending}>
+                  Dismiss
+                </Button>
+              </EmptyState>
             ) : setup ? (
               <EmptyState
                 media={<span className="spinner" aria-hidden="true" />}
@@ -607,6 +630,7 @@ export function AgentTile({
                 onRestart={() => void start("chat")}
                 onSwitchAgent={onSwitchAgent}
                 onMoveChat={onMoveChat}
+                onSwitchBranch={onSwitchBranch}
                 onAddFolder={onAddFolder}
                 onOpenConnectors={onOpenConnectors}
                 onStartRuns={onStartRuns}

@@ -37,7 +37,8 @@ const folderName = (path: string) => path.split(/[\\/]/u).filter(Boolean).at(-1)
  * branch. Before the first message each part opens a menu that moves the chat to another project, worktree,
  * or branch. The project menu also lists the folders the person's agents worked in before, as the first
  * chat's folder menu does, so the projects added so far are never the only choice. Once the agent has
- * started, its folder is fixed and the tab only says where it works.
+ * started, the chat stays in its project, but the branch menu still moves it to another branch and the
+ * conversation comes along.
  */
 export function WorkspaceBar({
   project,
@@ -49,6 +50,7 @@ export function WorkspaceBar({
   onAddFolder,
   isolate = false,
   onIsolateChange,
+  started = false,
 }: {
   project: ProjectProjection | undefined;
   projects: readonly ProjectProjection[];
@@ -65,6 +67,8 @@ export function WorkspaceBar({
   /** The chat gets its own worktree when its first message is sent. Nothing is made before then. */
   isolate?: boolean;
   onIsolateChange?: ((isolate: boolean) => void) | undefined;
+  /** The chat has messages: only its branch can change, and the move keeps the conversation. */
+  started?: boolean;
 }) {
   const [open, setOpen] = useState<"folder" | "branch">();
   const [moving, setMoving] = useState(false);
@@ -144,7 +148,7 @@ export function WorkspaceBar({
         menuLabel="Move this chat to another project"
         menuClassName="folder-menu"
         open={open === "folder"}
-        enabled={!!onMove && (projects.length > 1 || !!onAddFolder) && !moving}
+        enabled={!!onMove && !started && (projects.length > 1 || !!onAddFolder) && !moving}
         onOpen={(next) => setOpen(next ? "folder" : undefined)}
         groups={folderGroups}
         search="Search projects"
@@ -155,6 +159,7 @@ export function WorkspaceBar({
           worktree={worktree}
           worktrees={worktrees}
           local={local}
+          started={started}
           open={open === "branch"}
           enabled={!!onMove && !moving}
           onOpen={(next) => setOpen(next ? "branch" : undefined)}
@@ -206,6 +211,7 @@ function BranchButton({
   worktree,
   worktrees,
   local,
+  started,
   open,
   enabled,
   onOpen,
@@ -214,6 +220,7 @@ function BranchButton({
   worktree: WorktreeProjection;
   worktrees: readonly WorktreeProjection[];
   local: boolean;
+  started: boolean;
   open: boolean;
   enabled: boolean;
   onOpen(open: boolean): void;
@@ -248,15 +255,20 @@ function BranchButton({
       return {
         key: `branch:${name}`,
         label: name,
+        // Git keeps a branch in one folder, so picking one that is checked out goes to that folder.
         detail: elsewhere
-          ? `In use by ${folderName(elsewhere)}`
+          ? `Checked out in ${folderName(elsewhere)}`
           : remoteOnly
             ? "On origin · opens in a new worktree"
             : "Opens in a new worktree",
-        icon: <Icon name={elsewhere ? "lock" : remoteOnly ? "globe" : "branch"} size={14} />,
+        icon: <Icon name={elsewhere ? "folderTree" : remoteOnly ? "globe" : "branch"} size={14} />,
         mono: true,
-        ...(elsewhere ? { disabled: true } : {}),
-        place: { kind: "branch", projectId: worktree.projectId, branch: name },
+        place: {
+          kind: "branch",
+          projectId: worktree.projectId,
+          branch: name,
+          ...(elsewhere ? { path: elsewhere } : {}),
+        },
       };
     });
   const groups: Group[] = [
@@ -273,7 +285,11 @@ function BranchButton({
       branchIcon
       label={worktree.branch}
       title={worktree.path}
-      menuLabel="Move this chat to another branch or worktree"
+      menuLabel={
+        started
+          ? "Move this chat to another branch, with its conversation"
+          : "Move this chat to another branch or worktree"
+      }
       open={open}
       enabled={enabled}
       onOpen={onOpen}
