@@ -35,6 +35,20 @@ describe("relayUrl", () => {
   });
 });
 
+describe("relayUrl hardening", () => {
+  const room = roomIdFromSecret(randomBytes(32));
+
+  it("throws on a malformed session or route", () => {
+    const route = { url: "wss://h", room };
+    expect(() => relayUrl(route, "host", "../x")).toThrow();
+    expect(() => relayUrl({ url: "ws://h", room }, "phone")).toThrow();
+  });
+
+  it("keeps a path prefix", () => {
+    expect(relayUrl({ url: "wss://h/base/", room }, "phone")).toBe(`wss://h/base/v1/phone/${room}`);
+  });
+});
+
 describe("RelayRoute", () => {
   const room = roomIdFromSecret(randomBytes(32));
 
@@ -42,6 +56,13 @@ describe("RelayRoute", () => {
     expect(RelayRoute.safeParse({ url: "wss://relay.example.com", room }).success).toBe(true);
     expect(RelayRoute.safeParse({ url: "ws://relay.example.com", room }).success).toBe(false);
     expect(RelayRoute.safeParse({ url: "http://relay.example.com", room }).success).toBe(false);
+  });
+
+  it("rejects a query, fragment, or credentials", () => {
+    for (const url of ["wss://h/?x", "wss://h/#y", "wss://u:p@h"]) {
+      expect(RelayRoute.safeParse({ url, room }).success).toBe(false);
+    }
+    expect(RelayRoute.safeParse({ url: "wss://h/base", room }).success).toBe(true);
   });
 });
 

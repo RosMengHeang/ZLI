@@ -12,7 +12,14 @@ import { Id16, Key32 } from "./messages.js";
 
 /** Where a desktop can be reached through a relay. The URL comes from the pairing code, not from code. */
 export const RelayRoute = z.object({
-  url: z.string().url().startsWith("wss://"),
+  url: z
+    .string()
+    .url()
+    .startsWith("wss://")
+    .refine((value) => {
+      const parsed = new URL(value);
+      return parsed.search === "" && parsed.hash === "" && parsed.username === "" && parsed.password === "";
+    }, "The relay URL can't carry a query, fragment, or credentials."),
   room: Id16,
 });
 export type RelayRoute = z.infer<typeof RelayRoute>;
@@ -23,9 +30,10 @@ export function roomIdFromSecret(secret: Uint8Array): string {
 }
 
 export function relayUrl(route: RelayRoute, role: "phone" | "host", session?: string): string {
-  const base = route.url.replace(/\/+$/u, "");
-  const path = `${base}/v1/${role}/${route.room}`;
-  return session === undefined ? path : `${path}/${session}`;
+  const { url, room } = RelayRoute.parse(route);
+  const path = `${url.replace(/\/+$/u, "")}/v1/${role}/${room}`;
+  // The session lands in the path, so it must be a plain id and never something like "../x".
+  return session === undefined ? path : `${path}/${Id16.parse(session)}`;
 }
 
 /** Control messages between the desktop and the relay. Everything else on the wire is opaque. */

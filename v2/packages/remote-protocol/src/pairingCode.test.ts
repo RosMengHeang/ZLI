@@ -46,6 +46,13 @@ describe("pairing codes", () => {
     expect(decodePairingCode(encodePairingCode(code)).relay).toBeUndefined();
   });
 
+  it("rejects a pairing code with a ws:// relay", () => {
+    const bad = { ...code, relay: { url: "ws://relay.example.com", room: toBase64Url(randomBytes(16)) } };
+    expect(() => encodePairingCode(bad)).toThrow();
+    const text = `zli-remote:${toBase64Url(utf8Encode(JSON.stringify(bad)))}`;
+    expect(() => decodePairingCode(text)).toThrow(PairingCodeError);
+  });
+
   it("refuses to encode a code that would not decode", () => {
     expect(() => encodePairingCode({ ...code, hosts: ["bad host!"] })).toThrow();
   });
