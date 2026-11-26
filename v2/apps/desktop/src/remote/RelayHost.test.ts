@@ -88,11 +88,12 @@ describe("RelayHost", () => {
     vi.useRealTimers();
   });
 
-  it("dials the host url with the phone socket options and claims the room on open", () => {
+  it("dials the host url with the phone socket options, capped at 4 KiB, and claims the room on open", () => {
     host.start();
     expect(states).toEqual(["connecting"]);
     expect(control().url).toBe(`wss://relay.example.test/v1/host/${route.room}`);
-    expect(control().options).toBe(PHONE_SOCKET_OPTIONS);
+    // The control socket only carries small JSON, so ws refuses anything bigger before it is buffered.
+    expect(control().options).toEqual({ ...PHONE_SOCKET_OPTIONS, maxPayload: 4096 });
     control().open();
     expect(JSON.parse(control().sent[0] as string)).toEqual({ type: "claim", secret: toBase64Url(secret) });
     expect(states.at(-1)).toBe("online");

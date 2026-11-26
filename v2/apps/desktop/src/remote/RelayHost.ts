@@ -9,8 +9,11 @@ export interface RelayHostOptions {
   readonly route: RelayRoute;
   readonly secret: Uint8Array;
   readonly gateway: Pick<MobileGateway, "accept">;
-  /** Always called with PHONE_SOCKET_OPTIONS, so the frame cap and no-compression rules hold on every relay socket. */
-  readonly createSocket: (url: string, options: typeof PHONE_SOCKET_OPTIONS) => WebSocket;
+  /**
+   * Called with PHONE_SOCKET_OPTIONS for session sockets and CONTROL_SOCKET_OPTIONS for the control socket, so a frame
+   * cap and no compression hold on every relay socket.
+   */
+  readonly createSocket: (url: string, options: RelaySocketOptions) => WebSocket;
   readonly onState: (state: RelayState) => void;
   readonly now?: () => number;
   readonly random?: () => number;
@@ -18,12 +21,16 @@ export interface RelayHostOptions {
   readonly pingMs?: number;
 }
 
+export type RelaySocketOptions = { readonly maxPayload: number; readonly perMessageDeflate: false };
+
 const PING_MS = 20_000;
 const BACKOFF_FIRST_MS = 1_000;
 const BACKOFF_MAX_MS = 60_000;
 const MAX_SESSIONS = 8;
 /** The control channel only carries small JSON, so anything bigger is not the relay speaking. */
 const MAX_CONTROL_BYTES = 4096;
+/** ws refuses a bigger control frame before buffering it, so the size check below is only a second line. */
+export const CONTROL_SOCKET_OPTIONS: RelaySocketOptions = { ...PHONE_SOCKET_OPTIONS, maxPayload: MAX_CONTROL_BYTES };
 const CLOSE_TOO_BIG = 1009;
 const CLOSE_REJECTED = 1008;
 /** The relay closes the older desktop with this when a second one claims the room. */
@@ -92,7 +99,7 @@ export class RelayHost {
     const { route, secret, createSocket } = this.#options;
     let socket: WebSocket;
     try {
-      socket = createSocket(relayUrl(route, "host"), PHONE_SOCKET_OPTIONS);
+      socket = createSocket(relayUrl(route, "host"), CONTROL_SOCKET_OPTIONS);
     } catch {
       // Nothing escapes a timer callback, so a failed dial is treated like a dropped link.
       this.#setState("offline");
