@@ -181,7 +181,11 @@ describe("ProviderReactor", () => {
     const engine = new Engine({ database, environment });
     let turns = 0;
     const adapter = new (class extends FakeAdapter {
-      override readonly capabilities = { structuredApproval: true, structuredUserInput: true, steering: "native" as const };
+      override readonly capabilities = {
+        structuredApproval: true,
+        structuredUserInput: true,
+        steering: "native" as const,
+      };
       readonly steers: { turnId: string; text: string }[] = [];
       interrupted = 0;
       refuseSteer = false;
