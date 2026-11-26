@@ -17,8 +17,13 @@ export const RelayRoute = z.object({
     .url()
     .startsWith("wss://")
     .refine((value) => {
-      const parsed = new URL(value);
-      return parsed.search === "" && parsed.hash === "" && parsed.username === "" && parsed.password === "";
+      // new URL throws on garbage that .url() already flagged, and zod still runs this refine.
+      try {
+        const parsed = new URL(value);
+        return parsed.search === "" && parsed.hash === "" && parsed.username === "" && parsed.password === "";
+      } catch {
+        return false;
+      }
     }, "The relay URL can't carry a query, fragment, or credentials."),
   room: Id16,
 });

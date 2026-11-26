@@ -64,6 +64,12 @@ describe("RelayRoute", () => {
     }
     expect(RelayRoute.safeParse({ url: "wss://h/base", room }).success).toBe(true);
   });
+
+  it("fails cleanly on garbage URLs without throwing", () => {
+    for (const url of ["wss://[", "wss://"]) {
+      expect(RelayRoute.safeParse({ url, room }).success).toBe(false);
+    }
+  });
 });
 
 describe("RelayHostMessage", () => {
