@@ -263,7 +263,7 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
     name: "start_agent",
     title: "Start agent",
     action: "agentstart",
-    description: `${ROOM} Start another coding agent on a task so it runs in parallel with you. By default it gets its own worktree on a new branch that starts from your branch's last commit, so your uncommitted changes are not in it. In a folder without Git it works in the same folder. The new agent is your sub-agent: its task says you started it and how to reply to you. Follow its progress with read_agent.`,
+    description: `${ROOM} Start another coding agent on a task so it runs in parallel with you. By default it gets its own worktree on a new branch that starts from your branch's last commit, so your uncommitted changes are not in it. In a folder without Git it works in the same folder. The new agent is your sub-agent: its task says you started it and how to reply to you. Follow its progress with read_agent. Not for switching your own branch: when the person asks you to switch branches, do it yourself in your worktree.`,
     properties: {
       provider: { type: "string", enum: [...ListedProviderKind.options], description: "Which agent to start." },
       prompt: { type: "string", description: "The task, written as the first message the agent gets." },
@@ -277,7 +277,11 @@ export const AGENT_MCP_TOOLS: readonly McpTool[] = [
         enum: ["new", "same"],
         description: "new (default) makes a worktree on its own branch. same shares your worktree and files.",
       },
-      branch: { type: "string", description: "Branch name for a new worktree. Default: <provider>-<random>." },
+      branch: {
+        type: "string",
+        description:
+          "Branch for the new worktree: a new name, or a branch that exists and is not checked out in any folder. Default: <provider>-<random>.",
+      },
       model: {
         type: "string",
         description:

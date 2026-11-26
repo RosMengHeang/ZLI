@@ -104,6 +104,13 @@ function harness(
             signIns: options.signIns ?? [],
           },
         } as RpcResponse;
+      // Reading branches changes nothing, so it stays out of the commands the tests check.
+      if (command.type === "review.git.branches")
+        return {
+          commandId: request.commandId,
+          accepted: true,
+          result: options.results?.["review.git.branches"] ?? { local: [], remote: [] },
+        } as RpcResponse;
       sent.push(command);
       if (command.type === "terminal.read")
         return {
@@ -253,6 +260,64 @@ describe("agent control", () => {
       permissionMode: "full-access",
     });
     expect(sent[2]).toMatchObject({ type: "thread.send", text: "Write the API docs" });
+  });
+
+  it("checks out a branch that exists instead of making it again from the caller's branch", async () => {
+    const { dispatch, sent, update } = harness({
+      results: { "review.git.branches": { current: "ui", local: ["ui", "main", "release"], remote: ["hotfix"] } },
+      onCommand: (command, current) => {
+        if (command.type === "worktree.create")
+          update({
+            ...current,
+            worktrees: [
+              ...current.worktrees,
+              {
+                worktreeId: command.worktreeId as string,
+                projectId: PROJECT,
+                path: command.path as string,
+                branch: command.branch as string,
+                status: "ready",
+              },
+            ],
+          } as RuntimeProjection);
+        if (command.type === "thread.start")
+          update({
+            ...current,
+            threads: [
+              ...current.threads,
+              thread(command.threadId as string, command.worktreeId as string, "idle", "2026-01-02T00:00:00.000Z"),
+            ],
+          } as RuntimeProjection);
+      },
+    });
+    await dispatch("agentstart", { cwd: "/work/app-worktrees/ui", provider: "codex", prompt: "x", branch: "release" });
+    expect(sent[0]).toMatchObject({ type: "worktree.create", branch: "release", checkoutExistingBranch: true });
+    expect(sent[0]).not.toHaveProperty("baseRef");
+    await dispatch("agentstart", { cwd: "/work/app-worktrees/ui", provider: "codex", prompt: "x", branch: "hotfix" });
+    expect(sent.filter((command) => command.type === "worktree.create").at(-1)).toMatchObject({
+      branch: "hotfix",
+      checkoutExistingBranch: true,
+    });
+  });
+
+  it("refuses a branch that is already checked out, naming the folder, and makes no worktree", async () => {
+    const { dispatch, sent } = harness({
+      results: {
+        "review.git.branches": {
+          current: "ui",
+          local: ["ui", "main"],
+          remote: [],
+          details: { main: { worktreePath: "/work/app" } },
+        },
+      },
+    });
+    await expect(
+      dispatch("agentstart", { cwd: "/work/app-worktrees/ui", provider: "codex", prompt: "x", branch: "main" }),
+    ).rejects.toThrow("main is already checked out in /work/app");
+    await expect(
+      dispatch("agentstart", { cwd: "/work/app-worktrees/ui", provider: "codex", prompt: "x", branch: "ui" }),
+    ).rejects.toThrow("You are already on ui");
+    expect(sent.some((command) => command.type === "worktree.create")).toBe(false);
   });
 
   it("never starts an agent with more access than the agents in the caller's worktree", async () => {
