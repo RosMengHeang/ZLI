@@ -451,7 +451,7 @@ describe("TerminalDrawer", () => {
     expect(dispatched.some((request) => request.command.type === "terminal.stop")).toBe(true);
   });
 
-  it("keeps a worktree's shells together across chats and opens new ones with the next free name", async () => {
+  it("shows only the chat's own shells and numbers new ones within that chat", async () => {
     const sessionId = "00000000-0000-4000-8000-000000000201";
     const otherSession = "00000000-0000-4000-8000-000000000202";
     const { bridge, dispatched } = makeBridge();
@@ -472,16 +472,38 @@ describe("TerminalDrawer", () => {
     );
     expect([...container.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
       "Terminal 1",
-      "Terminal 4",
     ]);
-    // Shells were already open, so opening the drawer started none.
+    // The chat already had a shell, so opening the drawer started none.
     expect(dispatched.filter((request) => request.command.type === "terminal.create")).toHaveLength(0);
     await act(async () => button(container, "New terminal")?.click());
     expect(dispatched.at(-1)?.command).toMatchObject({
       type: "terminal.create",
       worktreeId,
       sessionId,
-      title: "Terminal 5",
+      title: "Terminal 2",
+    });
+  });
+
+  it("starts a fresh shell for a new chat instead of showing another chat's", async () => {
+    const { bridge, dispatched } = makeBridge();
+    await render(
+      bridge,
+      [
+        {
+          terminalId: firstId,
+          worktreeId,
+          title: "Terminal 1",
+          status: "running",
+          lastSequence: 0,
+          sessionId: "00000000-0000-4000-8000-000000000202",
+        },
+      ] as TerminalProjection[],
+      "00000000-0000-4000-8000-000000000201",
+    );
+    expect(dispatched.at(-1)?.command).toMatchObject({
+      type: "terminal.create",
+      sessionId: "00000000-0000-4000-8000-000000000201",
+      title: "Terminal 1",
     });
   });
 
