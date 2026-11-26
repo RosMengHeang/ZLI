@@ -16,10 +16,10 @@ import {
   type WebSocketLike,
 } from "@zli-v2/remote-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type RawData, WebSocketServer, WebSocket as WsSocket } from "ws";
+import { type ClientOptions, type RawData, WebSocketServer, WebSocket as WsSocket } from "ws";
 
 import { MobileAccessStore, type SecretCodec } from "./MobileAccessStore.js";
-import { MobileGateway } from "./MobileGateway.js";
+import { MobileGateway, PHONE_SOCKET_OPTIONS } from "./MobileGateway.js";
 import { PairingWindow } from "./PairingWindow.js";
 
 const environmentId = "00000000-0000-4000-8000-000000000001";
@@ -80,7 +80,8 @@ async function fakeRuntime() {
  * /bare gives a plain socket pair with nothing piped.
  */
 async function fakeRelay(onDesktop: (socket: WsSocket, client: string) => void) {
-  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  // Offers compression, so only the desktop's own socket options keep it off.
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0, perMessageDeflate: true });
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : 0;
@@ -111,7 +112,7 @@ async function fakeRelay(onDesktop: (socket: WsSocket, client: string) => void) 
       else queued.push([data, isBinary]);
     });
     const far = new Promise<WsSocket>((resolve) => waiting.set(id, resolve));
-    const desktop = new WsSocket(`ws://127.0.0.1:${port}/desktop?id=${id}`);
+    const desktop = new WsSocket(`ws://127.0.0.1:${port}/desktop?id=${id}`, PHONE_SOCKET_OPTIONS);
     const opened = new Promise<void>((resolve) => desktop.once("open", () => resolve()));
     void Promise.all([far, opened]).then(([other]) => {
       waiting.delete(id);
@@ -126,10 +127,10 @@ async function fakeRelay(onDesktop: (socket: WsSocket, client: string) => void) 
   return {
     phoneUrl: (client: string) => `ws://127.0.0.1:${port}/phone?client=${encodeURIComponent(client)}`,
     /** An open desktop-side socket and the relay's end of it. */
-    bare: async () => {
+    bare: async (options: ClientOptions = PHONE_SOCKET_OPTIONS) => {
       const id = String(next++);
       const far = new Promise<WsSocket>((resolve) => waiting.set(id, resolve));
-      const desktop = new WsSocket(`ws://127.0.0.1:${port}/bare?id=${id}`);
+      const desktop = new WsSocket(`ws://127.0.0.1:${port}/bare?id=${id}`, options);
       await new Promise<void>((resolve) => desktop.once("open", () => resolve()));
       return { desktop, far: await far };
     },
@@ -599,7 +600,39 @@ describe("MobileGateway", () => {
       const session = await resume(phone, deviceId, credential, relay.phoneUrl("phone-a"));
       const code = closed(session);
       session.transport.send({ type: "hello", protocolVersion: 1, token: "x".repeat(8 * 1024 * 1024), environmentId });
+      // The socket's own frame cap answers first, with 1009, as the LAN server does.
+      expect(await code).toBe(1009);
+    });
+
+    it("cuts off an oversized frame on a socket dialed with the phone socket options", async () => {
+      const { desktop, far } = await relay.bare();
+      const code = closeCode(far);
+      gateway.accept(desktop, { route: "relay", client: "abc123" });
+      far.send(new Uint8Array(PHONE_SOCKET_OPTIONS.maxPayload + 1));
+      // 1009 comes from the socket's own cap, before the gateway ever holds the whole frame.
+      expect(await code).toBe(1009);
+    });
+
+    it("refuses a relay socket that negotiated compression", async () => {
+      const { desktop, far } = await relay.bare({});
+      expect(desktop.extensions).toContain("permessage-deflate");
+      const code = closeCode(far);
+      gateway.accept(desktop, { route: "relay", client: "abc123" });
       expect(await code).toBe(RemoteCloseCode.protocol);
+    });
+
+    it("lets stop() cut off a refused relay socket that is still closing", async () => {
+      const held = await Promise.all([1, 2, 3, 4].map(() => relay.bare()));
+      held.forEach(({ desktop }, index) => {
+        gateway.accept(desktop, { route: "relay", client: `held-${index}` });
+      });
+      const refused = await relay.bare();
+      // The relay end never answers the close, so the socket would sit closing until ws gives up on it.
+      refused.far.pause();
+      gateway.accept(refused.desktop, { route: "relay", client: "refused" });
+      expect(refused.desktop.readyState).toBe(WsSocket.CLOSING);
+      await gateway.stop();
+      await until(() => refused.desktop.readyState === WsSocket.CLOSED);
     });
 
     it("refuses relay sockets while phone access is off", async () => {

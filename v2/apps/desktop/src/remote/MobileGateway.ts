@@ -57,6 +57,8 @@ const HEARTBEAT_MS = 30_000;
 const MAX_PHONE_FRAME_BYTES = 8 * 1024 * 1024;
 /** Handshake and pairing messages are small, so only a paired, open connection gets the large frame limit. */
 const MAX_HANDSHAKE_FRAME_BYTES = 64 * 1024;
+/** Frame settings for every phone socket: the LAN server listens with them, and relay sockets must be dialed with them. */
+export const PHONE_SOCKET_OPTIONS = { maxPayload: MAX_PHONE_FRAME_BYTES, perMessageDeflate: false } as const;
 const MAX_BUFFERED_BYTES = 32 * 1024 * 1024;
 const MAX_UNAUTHENTICATED = 16;
 /** Relay connections share this smaller part of MAX_UNAUTHENTICATED, so strangers online cannot crowd out the LAN. */
@@ -166,12 +168,21 @@ export class MobileGateway {
     for (const close of [...(this.#byDevice.get(deviceId) ?? [])]) close(RemoteCloseCode.notPaired);
   }
 
-  /** Takes a phone connection that did not come through the LAN server, such as one the relay handed over. */
+  /**
+   * Takes a phone connection that did not come through the LAN server, such as one the relay handed over. Create the
+   * socket with PHONE_SOCKET_OPTIONS: the gateway can only check a frame once it has arrived whole, so the frame cap has
+   * to be set on the socket itself.
+   */
   accept(socket: WebSocket, origin: ConnectionOrigin): void {
     // The gateway owns the socket from here. A refused one can still fail late, and an unheard error would throw.
     socket.on("error", () => undefined);
     if (!this.#server) {
       socket.close(RemoteCloseCode.tryAgain);
+      return;
+    }
+    // A compressed frame can inflate far past what the frame cap saw on the wire.
+    if (socket.extensions.includes("permessage-deflate")) {
+      socket.close(RemoteCloseCode.protocol);
       return;
     }
     this.#accept(socket, origin);
@@ -194,6 +205,11 @@ export class MobileGateway {
     socket.on("pong", () => {
       (socket as WebSocket & { zliAlive?: boolean }).zliAlive = true;
     });
+    if (relay) {
+      // Tracked until the socket is gone, refused or not, so stop() can cut it off instead of waiting on the close.
+      this.#relaySockets.add(socket);
+      socket.once("close", () => this.#relaySockets.delete(socket));
+    }
     if (!this.#limiter.allow(limitKey)) {
       options.log?.("phone connection refused: too many attempts", peer);
       socket.close(RemoteCloseCode.rateLimited);
@@ -206,7 +222,6 @@ export class MobileGateway {
       socket.close(RemoteCloseCode.tryAgain);
       return;
     }
-    if (relay) this.#relaySockets.add(socket);
 
     let phase: Phase = "hello";
     let channel: SecureChannel | undefined;
@@ -511,8 +526,7 @@ function listen(host: string, port: number): Promise<WebSocketServer> {
       host,
       port,
       path: REMOTE_PATH,
-      maxPayload: MAX_PHONE_FRAME_BYTES,
-      perMessageDeflate: false,
+      ...PHONE_SOCKET_OPTIONS,
       clientTracking: true,
     });
     server.once("listening", () => {
