@@ -43,6 +43,7 @@ describe("createProviderRegistry", () => {
       structuredUserInput: false,
       conversationRollback: false,
       modelSwitch: "in-session",
+      permissionSwitch: "in-session",
     };
     // Native compaction where Orca drives the agent's own command; Gemini keeps ZLI's summary way.
     expect(registry.get("gemini")?.capabilities).toEqual(acp);
@@ -66,9 +67,10 @@ describe("createProviderRegistry", () => {
     expect(registry.get("claude-code")?.capabilities).toEqual({
       exactResume: false,
       structuredApproval: true,
-      structuredUserInput: false,
+      structuredUserInput: true,
       conversationRollback: false,
       modelSwitch: "in-session",
+      permissionSwitch: "in-session",
       compaction: "native",
       compactionInstructions: true,
     });

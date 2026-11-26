@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import type { Dirent } from "node:fs";
 import { lstat, mkdir, open, readdir, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import {
@@ -143,6 +144,39 @@ export class FileService {
     const mimeType = previewMimeType(path);
     if (!mimeType) throw new FileServiceError(`ZLI previews images and PDFs only: ${path}`);
     const target = await resolveExisting(root, path);
+    const info = await stat(target);
+    if (info.isDirectory()) throw new FileServiceError(`That path is a folder: ${path}`);
+    if (info.size > MAX_PREVIEW_FILE_BYTES) {
+      throw new FileServiceError(`${path} is too large to preview. ZLI previews files up to 10 MB.`);
+    }
+    const bytes = await readFile(target);
+    return { path, size: bytes.length, version: sha256(bytes), mimeType, dataBase64: bytes.toString("base64") };
+  }
+
+  /**
+   * Reads an image an agent named by absolute path. Only images in the worktree or the system temp folder are
+   * read, so a reply cannot pull arbitrary files off the disk.
+   */
+  async readImage(root: string, path: string, tempRoot: string = tmpdir()): Promise<FileDataResult> {
+    const mimeType = previewMimeType(path);
+    if (!mimeType?.startsWith("image/")) throw new FileServiceError(`ZLI shows image files only: ${path}`);
+    if (!isAbsolute(path)) throw new FileServiceError(`Not an absolute path: ${path}`);
+    let target: string;
+    try {
+      target = await realpath(path);
+    } catch (error) {
+      if (errorCode(error) === "ENOENT" || errorCode(error) === "ENOTDIR") {
+        throw new FileServiceError(`File not found: ${path}`);
+      }
+      throw error;
+    }
+    const allowed = [await realRoot(root), await realpath(tempRoot).catch(() => tempRoot)];
+    if (!allowed.some((base) => isInside(base, target))) {
+      throw new FileServiceError("ZLI shows images from the worktree or the temp folder only.");
+    }
+    // The real file must be an image too, not a link named .png that points at something else.
+    if (!previewMimeType(target)?.startsWith("image/"))
+      throw new FileServiceError(`ZLI shows image files only: ${path}`);
     const info = await stat(target);
     if (info.isDirectory()) throw new FileServiceError(`That path is a folder: ${path}`);
     if (info.size > MAX_PREVIEW_FILE_BYTES) {

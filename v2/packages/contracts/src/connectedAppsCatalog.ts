@@ -85,5 +85,20 @@ export function isAppDraft(requestId: string): boolean {
   return requestId.startsWith(APP_DRAFT_PREFIX);
 }
 
+/**
+ * A question any agent asked with ZLI's ask_person tool. The agent ends its turn after asking, so the card stays
+ * open after the turn like an app card, and the person's answer goes to the agent as its next message.
+ */
+export const ASK_CARD_PREFIX = "zli-ask-";
+
+export function isAskCard(requestId: string): boolean {
+  return requestId.startsWith(ASK_CARD_PREFIX);
+}
+
+/** ZLI's own cards, which wait for the person after the agent's turn has ended. */
+export function isZliCard(requestId: string): boolean {
+  return isAppDraft(requestId) || isAskCard(requestId);
+}
+
 /** The parts of an email the person can change on its card before it goes out. */
 export type AppDraftEmail = { to: string; cc: string; bcc: string; subject: string; body: string };

@@ -743,6 +743,26 @@ describe("AcpClient agent requests", () => {
     expect(agent.responseTo(202)?.result).toEqual({ outcome: { outcome: "cancelled" } });
   });
 
+  it("takes a new permission mode with a turn and keeps it for the turns after", async () => {
+    const { client, agent, events } = await harness();
+    await client.sendTurn({ text: "go", permissionMode: "supervised" });
+    agent.send(permission(500));
+    expect(agent.responseTo(500)).toBeUndefined();
+    expect(events.filter((event) => event.type === "approval.requested")).toHaveLength(1);
+    agent.finishPrompt();
+    await tick();
+
+    await client.sendTurn({ text: "again" });
+    agent.send(permission(501));
+    expect(agent.responseTo(501)).toBeUndefined();
+    agent.finishPrompt();
+    await tick();
+
+    await client.sendTurn({ text: "go ahead", permissionMode: "full-access" });
+    agent.send(permission(502));
+    expect(agent.responseTo(502)?.result).toEqual({ outcome: { outcome: "selected", optionId: "always" } });
+  });
+
   it("allows reading tools and rejects everything else in read-only mode without asking", async () => {
     const { client, agent, events } = await harness(new FakeAgent(), { permissionMode: "read-only" });
     await client.sendTurn({ text: "go" });

@@ -24,6 +24,7 @@ import {
   useState,
 } from "react";
 
+import { useAccounts } from "../accounts/accounts.js";
 import { agentUsable, chatAgentStatus } from "../agent/agentStatus.js";
 import { isSelectableProvider, listedDiscoveries, providerDisplayName } from "../agent/providers.js";
 import { type FileLinks, useFileIndexContext, useFileLinks } from "../files/FileIndex.js";
@@ -55,6 +56,7 @@ import { Icon } from "../ui/Icon.js";
 import { Menu, type MenuItem, type MenuRequest } from "../ui/Menu.js";
 import { ProviderMark } from "../ui/ProviderMark.js";
 import { latestContext } from "../usage/usage.js";
+import { discoverProviders } from "../welcome/welcomeClient.js";
 import { AgentUnavailableNotice } from "./AgentUnavailableNotice.js";
 import { accountChoices, accountPlan, otherAgents } from "./agentModels.js";
 import { splitAttachedContext } from "./attachedContext.js";
@@ -150,7 +152,9 @@ export function ChatView({
    * Starts this chat over with another agent, before anything was sent. Absent where the tile cannot
    * start agents, such as a scratch chat.
    */
-  onSwitchAgent?: ((provider: string, model: string | undefined) => Promise<string | undefined>) | undefined;
+  onSwitchAgent?:
+    | ((provider: string, model: string | undefined, accountId?: string) => Promise<string | undefined>)
+    | undefined;
   /** Moves the chat to another folder, worktree, or branch before its first message. */
   onMoveChat?: ((place: ChatPlace) => Promise<string | undefined>) | undefined;
   /** Moves a chat that already started to another branch, keeping its conversation. */
@@ -207,8 +211,6 @@ export function ChatView({
   // A level the new model does not take falls back to the default instead of failing the turn.
   // A new chat starts on Low, the quickest level, when the model offers it; picking another level holds for the chat.
   const startingReasoning = reasoning.levels.find((level) => level.toLowerCase() === "low");
-  const reasoningEffort =
-    (chosenReasoning && reasoning.levels.includes(chosenReasoning) ? chosenReasoning : undefined) ?? startingReasoning;
   // Fast holds for the chat while the picked model offers it; a model without it simply runs at standard speed.
   const [fastOn, setFastOn] = useState(false);
   const fastValue = fastFor(models, model);
@@ -242,6 +244,13 @@ export function ChatView({
     ),
     shallowArrayEqual,
   );
+  // The view starts again when the chat starts, so a level picked before the first message comes back from that
+  // message: still queued at first, then from the thread once it is sent.
+  const sentReasoning =
+    queued.findLast((message) => message.reasoningEffort)?.reasoningEffort ?? thread.reasoningEffort;
+  const reasoningEffort =
+    [chosenReasoning, sentReasoning].find((level) => level !== undefined && reasoning.levels.includes(level)) ??
+    startingReasoning;
   const usage = useRuntimeSelector(
     useCallback((value: RuntimeProjection | undefined) => entriesForThread(value?.usage, threadId), [threadId]),
     shallowArrayEqual,
@@ -720,19 +729,20 @@ export function ChatView({
   const switchable = onSwitchAgent !== undefined && !working && queued.length === 0;
   const modelLocked = thread.capabilities.modelSwitch === "unsupported" && messages.length > 0;
   const readings = useKnownPlanLimits();
-  // An agent the plan readings say is signed out is left out as well. Accounts are not offered here:
-  // a switch carries the conversation to the agent's default login.
+  const { accounts } = useAccounts();
+  // Every saved login is offered, this agent's other ones too, so an account added in Settings shows up here at
+  // once. A login the plan readings say is signed out is left out.
   const others = useMemo(
     () =>
       switchable
-        ? accountChoices(otherAgents(projection.providers, thread.provider), {
-            accounts: [],
+        ? accountChoices(otherAgents(projection.providers, ""), {
+            accounts,
             readings,
             providers: projection.providers,
-            current: { provider: thread.provider, accountId: undefined },
+            current: { provider: thread.provider, accountId: thread.accountId },
           })
         : [],
-    [switchable, projection.providers, thread.provider, readings],
+    [switchable, projection.providers, thread.provider, thread.accountId, accounts, readings],
   );
   const agentName = providerDisplayName(thread.provider, projection.providers);
   const accountStatus = chatAgentStatus(discovery, thread.accountId);
@@ -740,9 +750,19 @@ export function ChatView({
   const unavailable = agentUsable(accountStatus) ? undefined : (
     <AgentUnavailableNotice name={agentName} provider={thread.provider} status={accountStatus} />
   );
-  const switchAgent = (provider: string, next: string | undefined) => {
+  // The chat keeps the agent list it opened with. Opening the menu reads it again, so a model or agent added
+  // since shows up without a new chat. At most once every few seconds, since each read asks every agent CLI.
+  const agentsReadAt = useRef(0);
+  const refreshAgents = () => {
+    const now = Date.now();
+    if (now - agentsReadAt.current < AGENT_REFRESH_MS) return;
+    agentsReadAt.current = now;
+    void discoverProviders(dispatch);
+  };
+
+  const switchAgent = (provider: string, next: string | undefined, accountId?: string) => {
     setError(undefined);
-    void onSwitchAgent?.(provider, next).then((failure) => {
+    void onSwitchAgent?.(provider, next, accountId).then((failure) => {
       if (failure) setError(failure);
     });
   };
@@ -2109,8 +2129,11 @@ export function ChatView({
                 carriesOver={switchable && !fresh}
                 agentName={agentName}
                 agentPlan={discovery?.status === "found" ? accountPlan(discovery.login) : undefined}
+                onPickerOpen={refreshAgents}
                 otherAgents={others}
-                onAgentChange={switchable ? (next, nextModel) => switchAgent(next, nextModel) : undefined}
+                onAgentChange={
+                  switchable ? (next, nextModel, accountId) => switchAgent(next, nextModel, accountId) : undefined
+                }
                 reasoningLevels={reasoning.levels}
                 defaultReasoning={startingReasoning ?? reasoning.defaultLevel}
                 reasoningEffort={reasoningEffort}
@@ -2446,6 +2469,7 @@ function displayTitle(messages: readonly ThreadMessageProjection[]): string {
 
 /** Rows a long chat draws at first, and how many more each step up adds. */
 const ROW_WINDOW = 60;
+const AGENT_REFRESH_MS = 10_000;
 
 /**
  * Sits above the drawn rows of a long chat. Coming near it while scrolling up draws older rows; the button

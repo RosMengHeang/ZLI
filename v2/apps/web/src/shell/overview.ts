@@ -97,7 +97,9 @@ export function mcpUsage(activities: readonly ThreadActivityProjection[]): McpUs
 }
 
 export type ChecksView = {
-  /** "15/15 passed", "2 failed", "3 running". */
+  /** Checks passed out of all of them, such as "0/4" while they run, "3/4" with one failed, "4/4" when done. */
+  count: string;
+  /** "4/4 passed", "3/4 passed, 1 failed", "1/4 passed, 3 running". */
   headline: string;
   tone: "passed" | "failed" | "pending";
   /** Failing first, then running, then the rest, so the ones that matter sit on top. */
@@ -113,9 +115,13 @@ export function checksView(pullRequest: PullRequestInfo | undefined): ChecksView
   const passed = pullRequest.checks.filter((check) => check.state === "passed").length;
   const pending = pullRequest.checks.filter((check) => check.state === "pending").length;
   const checks = [...pullRequest.checks].sort((left, right) => CHECK_ORDER[left.state] - CHECK_ORDER[right.state]);
-  if (summary.state === "failed") return { headline: `${summary.failed} failed`, tone: "failed", checks };
-  if (summary.state === "pending") return { headline: `${pending} running`, tone: "pending", checks };
-  return { headline: `${passed}/${summary.total} passed`, tone: "passed", checks };
+  const count = `${passed}/${summary.total}`;
+  if (summary.state === "failed") {
+    return { count, headline: `${count} passed, ${summary.failed} failed`, tone: "failed", checks };
+  }
+  if (summary.state === "pending")
+    return { count, headline: `${count} passed, ${pending} running`, tone: "pending", checks };
+  return { count, headline: `${count} passed`, tone: "passed", checks };
 }
 
 export type PullRequestTone = "open" | "draft" | "merged" | "closed";

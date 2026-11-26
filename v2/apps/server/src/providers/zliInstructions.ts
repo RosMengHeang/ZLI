@@ -16,6 +16,7 @@ export function zliInstructions(options: { browserTool: boolean }): string {
     "- Refer to files by their path relative to the worktree, with a line number when it helps, such as `src/app.ts:42`. ZLI turns these into links that open the file.",
     "- To show an image, use Markdown image syntax with the image's path in the worktree.",
     "- ZLI shows each tool call as it runs, so don't narrate them. Keep progress notes short and lead your final reply with the result.",
+    "- When only the person can settle something, such as a choice between approaches or whether a project rule applies, look into it first, then ask with the AskUserQuestion tool and offer options. ZLI shows it as a question card and waits for the answer. Don't end a reply with the question in plain text.",
   ];
   if (options.browserTool) {
     lines.push(

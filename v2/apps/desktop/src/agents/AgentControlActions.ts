@@ -902,8 +902,9 @@ export function createAgentControlActions(host: AgentControlHost): BrowserContro
     const parsed = AgentControlAction.safeParse(action);
     if (!parsed.success) throw new BrowserControlError(`Unknown agent action: ${action}`, 404);
     const settings = await currentSettings();
-    // Service tools are not about other agents, so the agent access setting leaves them alone.
-    if (parsed.data !== "agentaccess" && !SERVICE_TOOL_ACTIONS.includes(parsed.data)) {
+    // Service tools are not about other agents, and asking the person changes nothing, so the agent access
+    // setting leaves them alone.
+    if (parsed.data !== "agentaccess" && parsed.data !== "buddyask" && !SERVICE_TOOL_ACTIONS.includes(parsed.data)) {
       if (settings.access === "off")
         throw new BrowserControlError(`Agent tools are turned off in ${SETTINGS_PLACE}.`, 403);
       if (settings.access === "read" && !READ_AGENT_CONTROL_ACTIONS.includes(parsed.data))

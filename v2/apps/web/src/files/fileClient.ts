@@ -42,6 +42,11 @@ export function readFileData(dispatch: Dispatch, worktreeId: string, path: strin
   return request(dispatch, { type: "files.readData", worktreeId: WorktreeId.parse(worktreeId), path }, FileDataResult);
 }
 
+/** An image named by absolute path, such as a screenshot an agent saved to the temp folder. */
+export function readImageData(dispatch: Dispatch, worktreeId: string, path: string): Promise<FileDataResult> {
+  return request(dispatch, { type: "files.readImage", worktreeId: WorktreeId.parse(worktreeId), path }, FileDataResult);
+}
+
 export function readFileDiff(dispatch: Dispatch, worktreeId: string, path: string): Promise<FileDiffResult> {
   return request(dispatch, { type: "files.diff", worktreeId: WorktreeId.parse(worktreeId), path }, FileDiffResult);
 }

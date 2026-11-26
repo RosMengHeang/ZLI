@@ -310,15 +310,22 @@ export function ReviewCard({
 
 /* ---------- The branch's pull request ---------- */
 
-type ChecksSummary = { state: "passed" | "failed" | "pending" | "none"; failed: number; total: number };
+type ChecksSummary = {
+  state: "passed" | "failed" | "pending" | "none";
+  failed: number;
+  passed: number;
+  total: number;
+};
 
 export function checksSummary(pullRequest: PullRequestInfo): ChecksSummary {
   const checks = (pullRequest.checks ?? []).filter((check) => check.state !== "skipped");
   const failed = checks.filter((check) => check.state === "failed").length;
-  if (checks.length === 0) return { state: "none", failed: 0, total: 0 };
-  if (failed > 0) return { state: "failed", failed, total: checks.length };
-  if (checks.some((check) => check.state === "pending")) return { state: "pending", failed: 0, total: checks.length };
-  return { state: "passed", failed: 0, total: checks.length };
+  const passed = checks.filter((check) => check.state === "passed").length;
+  const total = checks.length;
+  if (total === 0) return { state: "none", failed: 0, passed: 0, total: 0 };
+  if (failed > 0) return { state: "failed", failed, passed, total };
+  if (checks.some((check) => check.state === "pending")) return { state: "pending", failed: 0, passed, total };
+  return { state: "passed", failed: 0, passed, total };
 }
 
 /**
@@ -344,11 +351,11 @@ export function PullRequestStrip({
   const state = merged
     ? "Merged"
     : checks.state === "failed"
-      ? `${checks.failed} of ${checks.total} checks failed`
+      ? `${checks.passed}/${checks.total} checks passed, ${checks.failed} failed`
       : checks.state === "pending"
-        ? "Checks running"
+        ? `${checks.passed}/${checks.total} checks passed, the rest running`
         : checks.state === "passed"
-          ? "Checks passed"
+          ? `${checks.passed}/${checks.total} checks passed`
           : pullRequest.isDraft
             ? "Draft"
             : "Open";
@@ -367,6 +374,11 @@ export function PullRequestStrip({
         <Icon name={merged ? "merge" : "pullRequest"} size={12} />
         <span className="pr-chip-number">#{pullRequest.number}</span>
         <span className="pr-chip-dot" aria-hidden="true" />
+        {!merged && checks.state !== "none" ? (
+          <span className="pr-chip-checks" aria-hidden="true">
+            {checks.passed}/{checks.total}
+          </span>
+        ) : null}
       </button>
       {!merged && checks.state === "failed" && onAsk ? (
         <IconButton

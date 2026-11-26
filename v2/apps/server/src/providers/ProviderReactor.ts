@@ -4,6 +4,8 @@ import {
   APP_DRAFT_PREFIX,
   CommandId,
   isAppDraft,
+  isAskCard,
+  isZliCard,
   type ListedProviderKind,
   MAX_REASONING_TEXT,
   ProviderKind,
@@ -209,8 +211,8 @@ export class ProviderReactor {
       if (!LIVE_STATUSES.has(thread.status)) {
         // Older runs could end a chat without closing its requests, which left the chat stuck.
         for (const request of projection.requests ?? []) {
-          // An app card is ZLI's own and runs without the agent, so it outlives the session.
-          if (request.threadId === thread.threadId && !isAppDraft(request.requestId))
+          // ZLI's own cards run without the agent, so they outlive the session.
+          if (request.threadId === thread.threadId && !isZliCard(request.requestId))
             await this.dropRequest(thread.threadId, request.requestId);
         }
         continue;
@@ -1135,11 +1137,38 @@ export class ProviderReactor {
   }
 
   private async respondUserInput(threadId: string, requestId: string, answers: Record<string, string>): Promise<void> {
+    if (isAskCard(requestId)) {
+      await this.answerAskCard(threadId, requestId, answers);
+      return;
+    }
     try {
       await this.service.respondToUserInput({ threadId: ThreadId.parse(threadId), requestId, answers });
       await this.resolveRequest(threadId, requestId);
     } catch (error) {
       if (await this.requestOpen(requestId)) await this.fail(threadId, error, "User input response failed.");
+    }
+  }
+
+  /**
+   * The person answered a question an agent asked with ask_person. The agent ended its turn after asking, so the
+   * answer goes to it as its next message, queued like one the person typed: it waits if the agent is busy and
+   * resumes a stopped chat.
+   */
+  private async answerAskCard(threadId: string, requestId: string, answers: Record<string, string>): Promise<void> {
+    const projection = await this.engine.projection();
+    const open = (projection.requests ?? []).find((request) => request.requestId === requestId);
+    if (!open) return;
+    await this.dropRequest(threadId, requestId);
+    const text = askAnswerText(open.payload, answers);
+    if (!text) return;
+    try {
+      await this.engine.dispatchPromise({
+        protocolVersion: 1,
+        commandId: CommandId.parse(randomUUID()),
+        command: { type: "thread.queue", queueId: randomUUID(), threadId: ThreadId.parse(threadId), text },
+      });
+    } catch (error) {
+      await this.fail(threadId, error, "The answer could not be sent to the agent.");
     }
   }
 
@@ -1187,7 +1216,7 @@ export class ProviderReactor {
       if (!resolved) return;
       const projection = await this.engine.projection();
       const stillWaiting = (projection.requests ?? []).some(
-        (request) => request.threadId === threadId && !isAppDraft(request.requestId),
+        (request) => request.threadId === threadId && !isZliCard(request.requestId),
       );
       await this.status(threadId, stillWaiting ? "waiting" : "working");
     });
@@ -1357,9 +1386,24 @@ export function requestServer(payload: Record<string, unknown>): string | undefi
 }
 
 /** An approval or question the agent is waiting on the person for. ZLI's own app cards do not count. */
+/** The answer to an ask_person card as a message: each question, then what the person picked or wrote. */
+export function askAnswerText(payload: Record<string, unknown>, answers: Record<string, string>): string | undefined {
+  const questions = Array.isArray(payload.questions) ? payload.questions : [];
+  const lines: string[] = [];
+  for (const entry of questions) {
+    if (!entry || typeof entry !== "object") continue;
+    const { id, question } = entry as { id?: unknown; question?: unknown };
+    if (typeof id !== "string") continue;
+    const answer = answers[id]?.trim();
+    if (!answer) continue;
+    lines.push(typeof question === "string" && question.trim() ? `${question.trim()}\n${answer}` : answer);
+  }
+  return lines.length > 0 ? lines.join("\n\n") : undefined;
+}
+
 function hasOpenRequest(
   projection: { requests?: ReadonlyArray<{ threadId: string; requestId: string }> | undefined },
   threadId: string,
 ): boolean {
-  return (projection.requests ?? []).some((request) => request.threadId === threadId && !isAppDraft(request.requestId));
+  return (projection.requests ?? []).some((request) => request.threadId === threadId && !isZliCard(request.requestId));
 }

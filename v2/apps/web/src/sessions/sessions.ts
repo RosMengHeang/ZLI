@@ -360,9 +360,11 @@ export function sessionTitle(
   const custom = session.thread ? customChatTitle(session.thread.sessionId ?? session.thread.threadId) : undefined;
   if (custom) return custom;
   // A chat that moved to another agent keeps the name its first message gave it.
-  const chain = session.thread
-    ? new Set(conversationThreads(session.thread, session.threads).map((t) => t.threadId))
-    : undefined;
+  const threads = session.thread ? conversationThreads(session.thread, session.threads) : undefined;
+  // ZLI titles a chat once from its first message, on the thread the conversation started on.
+  const made = threads?.find((thread) => thread.chatTitle)?.chatTitle;
+  if (made) return made;
+  const chain = threads ? new Set(threads.map((t) => t.threadId)) : undefined;
   const first = chain
     ? messages?.find((message) => chain.has(message.threadId) && message.role === "user" && message.text.trim())
     : undefined;
