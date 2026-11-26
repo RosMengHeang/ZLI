@@ -60,6 +60,7 @@ export class RelayLink {
   #host: RunningHost | undefined;
   #room: string | undefined;
   #state: RelayState = "off";
+  #error: string | undefined;
 
   constructor(options: RelayLinkOptions) {
     this.#options = options;
@@ -71,6 +72,11 @@ export class RelayLink {
 
   get state(): RelayState {
     return this.#state;
+  }
+
+  /** Why the relay host could not start. It never touches phone access on the LAN. */
+  get errorMessage(): string | undefined {
+    return this.#error;
   }
 
   /** Where phones find this desktop through the relay, while the relay is on. */
@@ -87,18 +93,25 @@ export class RelayLink {
     this.stop();
     const secret = this.#options.store.relaySecret();
     if (!route || !secret) return;
-    const host: RunningHost = this.#options.createHost({
-      route,
-      secret,
-      onState: (state) => {
-        // A host that was stopped still reports "off" on its way out.
-        if (this.#host !== host) return;
-        this.#setState(state);
-      },
-    });
-    this.#host = host;
-    this.#room = route.room;
-    host.start();
+    try {
+      const host: RunningHost = this.#options.createHost({
+        route,
+        secret,
+        onState: (state) => {
+          // A host that was stopped still reports "off" on its way out.
+          if (this.#host !== host) return;
+          this.#setState(state);
+        },
+      });
+      this.#host = host;
+      this.#room = route.room;
+      host.start();
+    } catch (error) {
+      this.stop();
+      const reason = error instanceof Error ? error.message : String(error);
+      this.#error = `Connect from anywhere could not start: ${reason}`.slice(0, 500);
+      this.#options.onChange();
+    }
   }
 
   /** Dials the relay again with the same room, for example to take the room back from another PC. */
@@ -110,6 +123,10 @@ export class RelayLink {
   }
 
   stop(): void {
+    if (this.#error !== undefined) {
+      this.#error = undefined;
+      this.#options.onChange();
+    }
     const host = this.#host;
     this.#host = undefined;
     this.#room = undefined;

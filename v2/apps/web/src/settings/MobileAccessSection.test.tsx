@@ -261,13 +261,17 @@ describe("MobileAccessSection", () => {
       expect(relaySwitch.checked).toBe(false);
       expect(relaySwitch.disabled).toBe(false);
       expect(container.textContent).toContain(
-        "Your phone reaches this PC through ZLI's relay when it isn't on the same Wi-Fi. Traffic stays end-to-end encrypted; the relay only sees when you connect.",
+        "Your phone reaches this PC through ZLI's relay when it isn't on the same Wi-Fi. The relay can't read your traffic, but it sees when each side connects and from which network address.",
       );
+      expect(container.textContent).not.toContain("phones paired before");
       expect(hasSwitch(container, "Allow terminal input from anywhere")).toBe(false);
 
       await act(async () => relaySwitch.click());
       expect(bridge.api.setRelayEnabled).toHaveBeenCalledWith(true);
       expect(container.textContent).toContain("Connecting…");
+      expect(container.textContent).toContain(
+        "Turning it off stops phones paired before from using the relay until you pair them again.",
+      );
       expect(toggle(container, "Allow terminal input from anywhere").checked).toBe(false);
 
       await act(async () => bridge.push({ ...listening, relay: { enabled: true, state: "online" } }));
@@ -294,10 +298,24 @@ describe("MobileAccessSection", () => {
     it("explains when another PC holds the pairing and dials again on request", async () => {
       const bridge = fakeBridge({ ...listening, relay: { enabled: true, state: "replaced" } });
       const container = await render();
-      expect(container.textContent).toContain("Another PC is using this pairing.");
+      expect(container.textContent).toContain(
+        "Another PC is using this pairing. Taking it back disconnects that PC from the relay.",
+      );
       await act(async () => button(container, "Take it back").click());
       expect(bridge.api.retryRelay).toHaveBeenCalled();
       expect(container.textContent).toContain("Connecting…");
+    });
+
+    it("shows why the relay could not start next to its switch", async () => {
+      fakeBridge({
+        ...listening,
+        relay: { enabled: true, state: "off", errorMessage: "Connect from anywhere could not start: bad route" },
+      });
+      const container = await render();
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+        "Connect from anywhere could not start: bad route",
+      );
+      expect(container.textContent).toContain("10.0.0.2:47321");
     });
 
     it("shows the switch turned off when this build has no relay set up", async () => {

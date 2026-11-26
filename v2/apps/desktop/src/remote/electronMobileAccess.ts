@@ -107,6 +107,7 @@ export async function registerMobileAccess(options: {
         enabled: store.relay.enabled,
         state: relay.state,
         remoteTerminalInput: store.relay.remoteTerminalInput,
+        ...(relay.errorMessage ? { errorMessage: relay.errorMessage } : {}),
       },
     });
   };
@@ -167,13 +168,14 @@ export async function registerMobileAccess(options: {
       port = await gateway.start({ port: store.port ?? DEFAULT_MOBILE_PORT });
       await store.setPort(port);
       state = "listening";
-      relay.sync();
     } catch (error) {
       state = "failed";
       port = undefined;
       errorMessage = `Phone access could not start: ${error instanceof Error ? error.message : String(error)}`;
       options.log?.("error", "phone gateway failed to start", { error: String(error) });
     }
+    // Outside the try: a relay that fails reports its own error and leaves the gateway as it is.
+    relay.sync();
     publish();
   };
 

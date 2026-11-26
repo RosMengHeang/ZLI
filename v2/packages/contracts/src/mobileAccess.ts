@@ -32,6 +32,8 @@ export const RelayAccessStatus = z.object({
   enabled: z.boolean(),
   state: RelayState,
   remoteTerminalInput: z.boolean(),
+  /** Why the relay could not start. Phone access on the LAN keeps working. */
+  errorMessage: z.string().min(1).max(500).optional(),
 });
 export type RelayAccessStatus = z.infer<typeof RelayAccessStatus>;
 

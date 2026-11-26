@@ -410,6 +410,33 @@ describe("RelayLink", () => {
     expect(hosts[1]?.route.room).not.toBe(hosts[0]?.route.room);
   });
 
+  it("keeps a relay host that fails to start to the relay, and clears the error once one starts", async () => {
+    await store.setRelayEnabled(true);
+    let fail = true;
+    const relay = new RelayLink({
+      url: "wss://relay.example.test",
+      store,
+      gateway: { listening: true },
+      createHost: () => {
+        if (fail) throw new Error("bad route");
+        return { start: () => undefined, stop: () => undefined };
+      },
+      onChange: () => {
+        changes += 1;
+      },
+    });
+    expect(() => relay.sync()).not.toThrow();
+    expect(relay.state).toBe("off");
+    expect(relay.errorMessage).toBe("Connect from anywhere could not start: bad route");
+    expect(changes).toBeGreaterThan(0);
+
+    fail = false;
+    relay.sync();
+    expect(relay.errorMessage).toBeUndefined();
+    relay.stop();
+    expect(relay.errorMessage).toBeUndefined();
+  });
+
   it("retries a replaced room with the same secret", async () => {
     await store.setRelayEnabled(true);
     const relay = link();

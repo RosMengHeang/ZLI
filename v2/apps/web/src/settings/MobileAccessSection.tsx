@@ -41,7 +41,8 @@ function useNow(active: boolean): number {
 }
 
 const RELAY_NOTE =
-  "Your phone reaches this PC through ZLI's relay when it isn't on the same Wi-Fi. Traffic stays end-to-end encrypted; the relay only sees when you connect.";
+  "Your phone reaches this PC through ZLI's relay when it isn't on the same Wi-Fi. The relay can't read your traffic, but it sees when each side connects and from which network address.";
+const RELAY_OFF_WARNING = "Turning it off stops phones paired before from using the relay until you pair them again.";
 
 /** The one line under Connect from anywhere. Undefined while there is nothing to say. */
 function relayLine(status: MobileAccessStatus): { text: string; problem?: boolean } | undefined {
@@ -204,19 +205,33 @@ export function MobileAccessSection() {
         ) : null}
         <Switch
           label="Connect from anywhere"
-          hint={relay.available ? RELAY_NOTE : "This build has no relay set up."}
+          hint={
+            !relay.available
+              ? "This build has no relay set up."
+              : relay.enabled
+                ? `${RELAY_NOTE} ${RELAY_OFF_WARNING}`
+                : RELAY_NOTE
+          }
           checked={relay.enabled}
           // Still turns off if a build without a relay finds it on, so the old room can be dropped.
           disabled={access.busy || (!relay.available && !relay.enabled)}
           onChange={(enabled) => void access.setRelayEnabled(enabled)}
         />
+        {relay.errorMessage ? (
+          <p className="setting-placeholder is-problem" role="alert">
+            {relay.errorMessage}
+          </p>
+        ) : null}
         {relayStatus ? (
           <p className={`setting-placeholder${relayStatus.problem ? " is-problem" : ""}`} role="status">
             {relayStatus.text}
           </p>
         ) : null}
         {relay.enabled && listening && relay.state === "replaced" ? (
-          <SettingsRow label="Relay" description="Another PC is using this pairing.">
+          <SettingsRow
+            label="Relay"
+            description="Another PC is using this pairing. Taking it back disconnects that PC from the relay."
+          >
             <Button size="sm" disabled={access.busy} onClick={() => void access.retryRelay()}>
               Take it back
             </Button>
