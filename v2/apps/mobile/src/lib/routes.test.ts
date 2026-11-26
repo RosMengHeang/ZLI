@@ -7,7 +7,7 @@ import {
 } from "@zli-v2/remote-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { raceRoutes } from "./routes.js";
+import { raceRoutes, routeBadge } from "./routes.js";
 
 const relay: RelayRoute = { url: "wss://relay.example.com", room: "R".repeat(21) + "A" };
 const relayUrlText = `wss://relay.example.com/v1/phone/${relay.room}`;
@@ -334,5 +334,20 @@ describe("raceRoutes", () => {
     const settled = expect(result).rejects.toMatchObject({ failure: "handshake", route: "lan" });
     await vi.advanceTimersByTimeAsync(600);
     await settled;
+  });
+});
+
+describe("routeBadge", () => {
+  it("names the route a live connection uses", () => {
+    expect(routeBadge("online", "lan")).toBe("Home Wi-Fi");
+    expect(routeBadge("online", "relay")).toBe("Remote");
+  });
+
+  it("shows nothing unless the phone is online, so the offline copy stays as it is", () => {
+    for (const kind of ["connecting", "offline", "blocked", "paused"] as const) {
+      expect(routeBadge(kind, "relay")).toBeUndefined();
+      expect(routeBadge(kind, "lan")).toBeUndefined();
+    }
+    expect(routeBadge("online", undefined)).toBeUndefined();
   });
 });

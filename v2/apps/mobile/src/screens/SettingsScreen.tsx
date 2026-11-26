@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { demoMode } from "../demo.js";
 import { useConnectionLabel, useLink, useLinkSnapshot } from "../LinkContext.js";
 import { unpairFromDesktop } from "../lib/pairing.js";
+import { routeBadge } from "../lib/routes.js";
 import { useNavigation } from "../navigation.js";
 import { type NotificationAccess, openSystemSettings, useNotificationAccess } from "../notifications.js";
 import { createSocket, random } from "../platform.js";
@@ -24,6 +25,7 @@ export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) 
   const { pairing } = snapshot;
   const address = `${pairing.lastHost ?? pairing.hosts[0] ?? ""}:${pairing.port}`;
   const online = snapshot.state.kind === "online";
+  const route = routeBadge(snapshot.state.kind, snapshot.route);
 
   const forget = async () => {
     setForgetting(true);
@@ -80,6 +82,7 @@ export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) 
             trailing={<StatusText label={connection} tone={online ? "green" : "neutral"} />}
             accessibilityLabel={`${pairing.desktopName}, ${connection}`}
           />
+          {route ? <Value label="Connected by" value={route} /> : null}
           <Value label="Address" value={address} monospace />
           <Value label="Paired on" value={new Date(pairing.pairedAt).toLocaleDateString()} />
         </Section>
@@ -94,7 +97,7 @@ export function SettingsScreen({ onForget }: { onForget: () => Promise<void> }) 
 
         <Section
           title="Notifications"
-          footer={`Alerts come straight from ${pairing.desktopName} over your network, so they only arrive while ZLI Remote is connected.`}
+          footer={`Alerts come straight from ${pairing.desktopName}, so they only arrive while ZLI Remote is connected.`}
         >
           <Row
             leading={<Icon name="bell" size={20} color={palette.text} />}

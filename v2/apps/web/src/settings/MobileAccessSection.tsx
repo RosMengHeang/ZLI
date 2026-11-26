@@ -69,15 +69,15 @@ const ALLOW_DELAY_MS = 1_000;
 
 type PairingOutcome = { kind: "paired"; name: string } | { kind: "ended" } | { kind: "not-allowed" };
 
-/**
- * Remembers how the last pairing code ended: a phone paired with it, it expired or was used, or a phone used it through
- * the relay and was not allowed.
- */
 function stopTimer(timer: { current: ReturnType<typeof setTimeout> | undefined }) {
   clearTimeout(timer.current);
   timer.current = undefined;
 }
 
+/**
+ * Remembers how the last pairing code ended: a phone paired with it, it expired or was used, or a phone used it through
+ * the relay and was not allowed.
+ */
 function usePairingOutcome(status: MobileAccessStatus | undefined) {
   const [outcome, setOutcome] = useState<PairingOutcome>();
   const opened = useRef<{ devices: readonly PairedPhone[]; asked: boolean; allowed: boolean } | undefined>(undefined);

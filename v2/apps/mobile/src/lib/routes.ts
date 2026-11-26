@@ -28,6 +28,12 @@ export class RouteFailure extends RemoteConnectError {
   }
 }
 
+/** What the badge calls each route while the phone is online. Offline keeps the connection copy instead. */
+export function routeBadge(state: string, route: RouteKind | undefined): string | undefined {
+  if (state !== "online" || route === undefined) return undefined;
+  return route === "relay" ? "Remote" : "Home Wi-Fi";
+}
+
 export const DEFAULT_LAN_HEAD_START_MS = 1_500;
 
 export type RaceOptions = {
@@ -70,7 +76,8 @@ export function raceRoutes(options: RaceOptions): Promise<RouteResult> {
       for (const attempt of attempts) if (attempt !== winner) attempt.abort();
       outcome();
     };
-    // A LAN blocking failure is authenticated by the route itself; a relay's is only a hint.
+    // No close code is authenticated, on the LAN or the relay. A LAN failure ranks higher because it
+    // comes straight from the desktop, not through a third party that could say anything.
     const rank = ({ error, route }: { error: RemoteConnectError; route: RouteKind }) =>
       blockingRouteFailures.has(error.failure)
         ? route === "lan"

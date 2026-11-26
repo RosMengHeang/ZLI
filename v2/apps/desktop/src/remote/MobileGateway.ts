@@ -640,7 +640,7 @@ function rawText(data: RawData): string {
 function cleanName(name: string): string {
   const cleaned = name
     .replace(/\p{Cc}/gu, "")
-    .replace(/[؜‎‏‪-‮⁦-⁩]/gu, "")
+    .replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, "")
     .replace(/\s+/gu, " ")
     .trim()
     .slice(0, 60);

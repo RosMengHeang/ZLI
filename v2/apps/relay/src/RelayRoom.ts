@@ -84,8 +84,10 @@ export interface BudgetStore {
 }
 
 /*
- * Saving every frame would cost a storage write per frame. A restart forgets at most 7 frames of
- * count, so the worst case is 7 extra frames per eviction, a rounding error against the daily cap.
+ * Saving every frame would cost a storage write per frame. An eviction forgets the frames counted
+ * since the last save, at most 7, so each one lets 7 extra frames through. Only frames from an
+ * authenticated session are counted, and evictions follow idle time or a deploy, so a paired phone
+ * gains at most 7 frames per idle gap. Against a daily cap of 150 000 that is a rounding error.
  */
 const BUDGET_SAVE_EVERY = 8;
 
@@ -317,6 +319,8 @@ export class RelayRoom {
     }
     entry.seenAt = this.#clock.now();
     if (from === "host") {
+      // This lifts the pre-handshake caps one message before the phone has authenticated: the
+      // desktop's first frame is the start of the handshake, not proof that the phone passed it.
       entry.hostSpoke = true;
       entry.phone.send(data);
     } else if (entry.host) {
@@ -442,7 +446,7 @@ export class RelayRoom {
   }
 
   #phoneRefusal(session: string): string | null {
-    if (this.#sessions.has(session)) return "The desktop is offline.";
+    if (this.#sessions.has(session)) return "That session is already open.";
     if (this.#overBudget()) return "The daily message budget is used up.";
     let pending = 0;
     for (const entry of this.#sessions.values()) if (!entry.host) pending += 1;
