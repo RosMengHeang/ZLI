@@ -85,9 +85,10 @@ export interface BudgetStore {
 
 /*
  * Saving every frame would cost a storage write per frame. An eviction forgets the frames counted
- * since the last save, at most 7, so each one lets 7 extra frames through. Only frames from an
- * authenticated session are counted, and evictions follow idle time or a deploy, so a paired phone
- * gains at most 7 frames per idle gap. Against a daily cap of 150 000 that is a rounding error.
+ * since the last save, at most 7, so each one lets 7 extra frames through. Counting starts once the
+ * desktop has answered a session, which is before the phone has authenticated. Evictions follow idle
+ * time or a deploy, so a client gains at most 7 frames per idle gap. Against a daily cap of 150 000
+ * that is a rounding error.
  */
 const BUDGET_SAVE_EVERY = 8;
 

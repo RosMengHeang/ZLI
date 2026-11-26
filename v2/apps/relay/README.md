@@ -35,7 +35,7 @@ Defaults are in `src/RelayRoom.ts` (`DEFAULT_LIMITS`) and `wrangler.toml`.
   the session is closed. These frames are not counted against the daily budget.
 - 150 000 forwarded frames per room per UTC day. After that, new sessions are refused with 1013
   until the next UTC day, and the desktop is told once. The local network is not affected.
-- 30 WebSocket upgrades per minute per connecting address (an IPv6 address counts by its /64).
+- 30 requests per minute per connecting address (an IPv6 address counts by its /64).
   Requests over that get a 429. Any request counts, so probing costs the same as connecting.
 - 8 MiB for one frame, 10 s to dial, 60 s idle before a session is closed.
 

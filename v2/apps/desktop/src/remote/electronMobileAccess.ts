@@ -147,7 +147,7 @@ export async function registerMobileAccess(options: {
     log: (message, detail) => options.log?.("info", message, detail),
   });
 
-  // The relay URL ships with the build. Without one, Connect from anywhere stays unavailable.
+  // The relay URL is read from ZLI_RELAY_URL when the desktop starts. Without one, Connect from anywhere stays unavailable.
   const relay = new RelayLink({
     url: relayUrlFrom(process.env.ZLI_RELAY_URL),
     store,
