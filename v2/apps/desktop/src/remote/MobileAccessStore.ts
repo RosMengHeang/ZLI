@@ -39,18 +39,31 @@ const StoredSettings = z.object({
   port: z.number().int().min(1).max(65_535).optional(),
   desktopKey: z.string().min(1).max(4_000).optional(),
   devices: z.array(StoredDevice).max(100).default([]),
+  relay: z
+    .object({ enabled: z.boolean().default(false), remoteTerminalInput: z.boolean().default(false) })
+    .default({ enabled: false, remoteTerminalInput: false }),
+  /** Sealed like the desktop key. The relay room id is derived from it, so a new secret means a new room. */
+  relaySecret: z.string().min(1).max(4_000).optional(),
 });
 type StoredSettings = z.infer<typeof StoredSettings>;
+export type RelaySettings = StoredSettings["relay"];
 
 const MAX_DEVICES = 20;
+const RELAY_SECRET_BYTES = 32;
+const RELAY_OFF: RelaySettings = { enabled: false, remoteTerminalInput: false };
+
+function emptySettings(): StoredSettings {
+  return { enabled: false, devices: [], relay: { ...RELAY_OFF } };
+}
 
 /**
  * Phone access settings: whether it is on, the port, the desktop's key pair, and paired phones.
  * The file holds a secret key, so it is written readable by the owner only.
  */
 export class MobileAccessStore {
-  #settings: StoredSettings = { enabled: false, devices: [] };
+  #settings: StoredSettings = emptySettings();
   #keyPair: KeyPair | undefined;
+  #relaySecret: Uint8Array | undefined;
   #writing: Promise<void> = Promise.resolve();
 
   constructor(
@@ -64,9 +77,10 @@ export class MobileAccessStore {
       this.#settings = StoredSettings.parse(JSON.parse(await readFile(this.path, "utf8")));
     } catch {
       // A missing or unreadable file means phone access is off with nothing paired.
-      this.#settings = { enabled: false, devices: [] };
+      this.#settings = emptySettings();
     }
     this.#keyPair = undefined;
+    this.#relaySecret = undefined;
     if (this.#settings.desktopKey) {
       try {
         this.#keyPair = keyPairFromSecret(this.codec.open(this.#settings.desktopKey));
@@ -74,6 +88,16 @@ export class MobileAccessStore {
         // Phones paired with the lost key can never finish a handshake again, so they go too.
         this.#settings = { ...this.#settings, desktopKey: undefined, devices: [] };
       }
+    }
+    if (this.#settings.relaySecret) {
+      try {
+        this.#relaySecret = this.codec.open(this.#settings.relaySecret);
+      } catch {
+        // The room id came from the lost secret, so phones could not find it again anyway.
+        this.#settings = { ...this.#settings, relay: { ...RELAY_OFF }, relaySecret: undefined };
+      }
+    } else if (this.#settings.relay.enabled) {
+      this.#settings = { ...this.#settings, relay: { ...RELAY_OFF } };
     }
   }
 
@@ -83,6 +107,41 @@ export class MobileAccessStore {
 
   get port(): number | undefined {
     return this.#settings.port;
+  }
+
+  get relay(): RelaySettings {
+    return { ...this.#settings.relay };
+  }
+
+  /** The secret the relay room is derived from. Only there while the relay is on. */
+  relaySecret(): Uint8Array | undefined {
+    return this.#relaySecret ? new Uint8Array(this.#relaySecret) : undefined;
+  }
+
+  /**
+   * Turning the relay on makes a new secret, so a new room. Turning it off deletes the secret, so the old room id and
+   * any pairing code that carried it stop working.
+   */
+  async setRelayEnabled(enabled: boolean): Promise<void> {
+    if (!enabled) {
+      this.#relaySecret = undefined;
+      const { relaySecret: _old, ...rest } = this.#settings;
+      await this.#save({ ...rest, relay: { ...RELAY_OFF } });
+      return;
+    }
+    if (this.#settings.relay.enabled && this.#relaySecret) return;
+    const secret = this.random(RELAY_SECRET_BYTES);
+    this.#relaySecret = secret;
+    await this.#save({
+      ...this.#settings,
+      relay: { ...this.#settings.relay, enabled: true },
+      relaySecret: this.codec.seal(secret),
+    });
+  }
+
+  async setRemoteTerminalInput(enabled: boolean): Promise<void> {
+    if (this.#settings.relay.remoteTerminalInput === enabled) return;
+    await this.#save({ ...this.#settings, relay: { ...this.#settings.relay, remoteTerminalInput: enabled } });
   }
 
   devices(): StoredDevice[] {

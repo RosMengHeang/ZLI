@@ -27,6 +27,9 @@ const projectId = "40000000-0000-4000-8000-000000000001";
 const worktreeId = "50000000-0000-4000-8000-000000000001";
 const threadId = "60000000-0000-4000-8000-000000000001";
 const commandId = "10000000-0000-4000-8000-000000000001";
+const otherCommandId = "10000000-0000-4000-8000-000000000002";
+const thirdCommandId = "10000000-0000-4000-8000-000000000003";
+const terminalId = "70000000-0000-4000-8000-000000000001";
 
 const plainCodec: SecretCodec = {
   seal: (secret) => toBase64Url(secret),
@@ -527,6 +530,41 @@ describe("MobileGateway", () => {
       });
       expect(await refused).toMatchObject({ response: { accepted: false, error: { code: "unauthorized" } } });
       session.transport.close();
+    });
+
+    it("refuses terminal input over the relay until the desktop allows it, and keeps it on the LAN", async () => {
+      const { phone, deviceId, credential } = await pairedPhone();
+      const write = (id: string) => ({
+        type: "command",
+        request: { protocolVersion: 1, commandId: id, command: { type: "terminal.write", terminalId, data: "ls\r" } },
+      });
+      const remote = await resume(phone, deviceId, credential, relay.phoneUrl("phone-a"));
+      const refused = nextMessage(remote, (message) => message.type === "response");
+      remote.transport.send(write(commandId));
+      expect(await refused).toMatchObject({
+        response: {
+          commandId,
+          accepted: false,
+          error: {
+            code: "unauthorized",
+            message: "Terminal input from outside your network is turned off on the desktop.",
+          },
+        },
+      });
+
+      const local = await resume(phone, deviceId, credential);
+      const forwarded = nextMessage(local, (message) => message.type === "response");
+      local.transport.send(write(otherCommandId));
+      expect(await forwarded).toMatchObject({ response: { commandId: otherCommandId, accepted: true } });
+      local.transport.close();
+
+      // Read on each message, so turning it on applies to the session already open.
+      await store.setRelayEnabled(true);
+      await store.setRemoteTerminalInput(true);
+      const allowed = nextMessage(remote, (message) => message.type === "response");
+      remote.transport.send(write(thirdCommandId));
+      expect(await allowed).toMatchObject({ response: { commandId: thirdCommandId, accepted: true } });
+      remote.transport.close();
     });
 
     it("refuses a wrong credential over the relay", async () => {

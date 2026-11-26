@@ -40,6 +40,27 @@ function useNow(active: boolean): number {
   return now;
 }
 
+const RELAY_NOTE =
+  "Your phone reaches this PC through ZLI's relay when it isn't on the same Wi-Fi. Traffic stays end-to-end encrypted; the relay only sees when you connect.";
+
+/** The one line under Connect from anywhere. Undefined while there is nothing to say. */
+function relayLine(status: MobileAccessStatus): { text: string; problem?: boolean } | undefined {
+  if (!status.relay.enabled) return undefined;
+  if (status.state !== "listening") return { text: "Starts when Allow phones on this network is on." };
+  switch (status.relay.state) {
+    case "connecting":
+      return { text: "Connecting…" };
+    case "online":
+      return { text: "Online" };
+    case "offline":
+      return { text: "Offline, retrying", problem: true };
+    case "budget-exhausted":
+      return { text: "Daily relay limit reached, retrying tomorrow", problem: true };
+    default:
+      return undefined;
+  }
+}
+
 type PairingOutcome = { kind: "paired"; name: string } | { kind: "ended" };
 
 /** Remembers how the last pairing code ended: a phone paired with it, or it expired or was used. */
@@ -83,8 +104,10 @@ export function MobileAccessSection() {
 
   const header = (
     <SettingsPageHeader title="Phone access">
-      Follow agents, answer their requests, and start new work from the ZLI Remote app. The phone has to be on the same
-      network as this computer.
+      Follow agents, answer their requests, and start new work from the ZLI Remote app.{" "}
+      {status?.relay.enabled
+        ? "The phone connects on the same network as this computer, or through ZLI's relay when it is away."
+        : "The phone has to be on the same network as this computer."}
     </SettingsPageHeader>
   );
 
@@ -129,6 +152,8 @@ export function MobileAccessSection() {
   const addresses = value.port ? value.hosts.map((host) => `${host}:${value.port}`) : [];
   const devices = [...value.devices].reverse();
   const connected = value.devices.filter((device) => device.connected).length;
+  const relay = value.relay;
+  const relayStatus = relayLine(value);
 
   return (
     <>
@@ -176,6 +201,35 @@ export function MobileAccessSection() {
               <span className="settings-value">No network connection</span>
             )}
           </SettingsRow>
+        ) : null}
+        <Switch
+          label="Connect from anywhere"
+          hint={relay.available ? RELAY_NOTE : "This build has no relay set up."}
+          checked={relay.enabled}
+          // Still turns off if a build without a relay finds it on, so the old room can be dropped.
+          disabled={access.busy || (!relay.available && !relay.enabled)}
+          onChange={(enabled) => void access.setRelayEnabled(enabled)}
+        />
+        {relayStatus ? (
+          <p className={`setting-placeholder${relayStatus.problem ? " is-problem" : ""}`} role="status">
+            {relayStatus.text}
+          </p>
+        ) : null}
+        {relay.enabled && listening && relay.state === "replaced" ? (
+          <SettingsRow label="Relay" description="Another PC is using this pairing.">
+            <Button size="sm" disabled={access.busy} onClick={() => void access.retryRelay()}>
+              Take it back
+            </Button>
+          </SettingsRow>
+        ) : null}
+        {relay.enabled ? (
+          <Switch
+            label="Allow terminal input from anywhere"
+            hint="When off, a phone away from this network can read terminals but cannot open one or type into it."
+            checked={relay.remoteTerminalInput}
+            disabled={access.busy}
+            onChange={(enabled) => void access.setRemoteTerminalInput(enabled)}
+          />
         ) : null}
         {value.errorMessage ? (
           <p className="setting-placeholder is-problem" role="alert">

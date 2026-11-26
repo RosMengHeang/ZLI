@@ -489,6 +489,15 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
       /** Forgets a paired phone and closes its connections. */
       revoke: async (deviceId: string) =>
         MobileAccessStatus.parse(await ipc.invoke("zli:remote:revoke", { deviceId: String(deviceId).slice(0, 100) })),
+      /** Connect from anywhere. Turning it off ends the relay room, so phones need a new code to use the relay again. */
+      setRelayEnabled: async (enabled: boolean) =>
+        MobileAccessStatus.parse(await ipc.invoke("zli:remote:set-relay-enabled", { enabled: enabled === true })),
+      setRemoteTerminalInput: async (enabled: boolean) =>
+        MobileAccessStatus.parse(
+          await ipc.invoke("zli:remote:set-remote-terminal-input", { enabled: enabled === true }),
+        ),
+      /** Dials the relay again, for example after another PC took the room. */
+      retryRelay: async () => MobileAccessStatus.parse(await ipc.invoke("zli:remote:retry-relay")),
       onStatus: (listener: (status: MobileAccessStatus) => void) =>
         ipc.on("zli:remote:status", (_event, value) => {
           const parsed = MobileAccessStatus.safeParse(value);

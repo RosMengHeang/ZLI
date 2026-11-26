@@ -19,6 +19,22 @@ export const MobilePairing = z.object({
 });
 export type MobilePairing = z.infer<typeof MobilePairing>;
 
+/**
+ * The desktop's link to ZLI's relay. `replaced` means another PC claimed the same room; the desktop waits for the
+ * person before it tries again, so two PCs do not take the room from each other forever.
+ */
+export const RelayState = z.enum(["off", "connecting", "online", "offline", "budget-exhausted", "replaced"]);
+export type RelayState = z.infer<typeof RelayState>;
+
+/** Connect from anywhere. `available` is false when this build has no relay set up. */
+export const RelayAccessStatus = z.object({
+  available: z.boolean(),
+  enabled: z.boolean(),
+  state: RelayState,
+  remoteTerminalInput: z.boolean(),
+});
+export type RelayAccessStatus = z.infer<typeof RelayAccessStatus>;
+
 /** What Settings shows for phone access. Off by default; nothing listens on the network until it is on. */
 export const MobileAccessStatus = z.object({
   enabled: z.boolean(),
@@ -28,5 +44,6 @@ export const MobileAccessStatus = z.object({
   port: z.number().int().min(0).max(65_535).optional(),
   pairing: MobilePairing.optional(),
   devices: z.array(PairedPhone).max(100),
+  relay: RelayAccessStatus.default({ available: false, enabled: false, state: "off", remoteTerminalInput: false }),
 });
 export type MobileAccessStatus = z.infer<typeof MobileAccessStatus>;

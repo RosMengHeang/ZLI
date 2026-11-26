@@ -316,6 +316,7 @@ describe("preload API", () => {
       devices: [
         { deviceId: "d1", name: "Pixel 9", pairedAt: "2026-01-02T03:04:05.000Z", connected: true, push: false },
       ],
+      relay: { available: true, enabled: true, state: "online", remoteTerminalInput: false },
     };
     const api = createPreloadApi({
       invoke: async (channel, payload) => {
@@ -332,11 +333,19 @@ describe("preload API", () => {
     await api.mobileAccess.setEnabled("yes" as never);
     await api.mobileAccess.startPairing();
     await api.mobileAccess.revoke("d1");
+    await api.mobileAccess.setRelayEnabled("yes" as never);
+    await api.mobileAccess.setRelayEnabled(true);
+    await api.mobileAccess.setRemoteTerminalInput(1 as never);
+    await api.mobileAccess.retryRelay();
     expect(calls).toEqual([
       { channel: "zli:remote:get-status", payload: undefined },
       { channel: "zli:remote:set-enabled", payload: { enabled: false } },
       { channel: "zli:remote:start-pairing", payload: undefined },
       { channel: "zli:remote:revoke", payload: { deviceId: "d1" } },
+      { channel: "zli:remote:set-relay-enabled", payload: { enabled: false } },
+      { channel: "zli:remote:set-relay-enabled", payload: { enabled: true } },
+      { channel: "zli:remote:set-remote-terminal-input", payload: { enabled: false } },
+      { channel: "zli:remote:retry-relay", payload: undefined },
     ]);
 
     const received: unknown[] = [];

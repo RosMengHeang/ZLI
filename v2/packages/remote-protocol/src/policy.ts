@@ -52,12 +52,24 @@ export type PhonePolicyProjection = Pick<RuntimeProjection, "projects" | "worktr
 
 type PolicyProjection = PhonePolicyProjection | undefined;
 
+/** How the phone reached the desktop, and whether the person allows terminal input from outside the network. */
+export interface PhonePolicyOptions {
+  route?: "lan" | "relay";
+  remoteTerminalInput?: boolean;
+}
+
+const REMOTE_TERMINAL_OFF = "Terminal input from outside your network is turned off on the desktop.";
+
 /**
  * Decides what the gateway does with one decrypted message from a phone. `forward` passes it to the
  * runtime, `reject` answers the command with an error, and `invalid` closes the connection, because a
  * well-behaved phone app never sends a message that does not parse.
  */
-export function checkPhoneMessage(input: unknown, projection: PolicyProjection): PhoneMessageDecision {
+export function checkPhoneMessage(
+  input: unknown,
+  projection: PolicyProjection,
+  options: PhonePolicyOptions = {},
+): PhoneMessageDecision {
   const parsed = ClientWireMessage.safeParse(input);
   if (!parsed.success) return { kind: "invalid", reason: "The message does not match the runtime protocol." };
   const message = parsed.data;
@@ -70,12 +82,19 @@ export function checkPhoneMessage(input: unknown, projection: PolicyProjection):
     case "terminal.attach":
       return { kind: "forward", message };
     case "command": {
-      const reason = commandRejection(message.request, projection);
+      const reason = routeRejection(message.request, options) ?? commandRejection(message.request, projection);
       return reason === undefined
         ? { kind: "forward", message }
         : { kind: "reject", commandId: message.request.commandId, reason };
     }
   }
+}
+
+/** A phone on the relay could be anywhere, so it types into terminals only when the desktop allows it. */
+function routeRejection(request: RpcRequest, options: PhonePolicyOptions): string | undefined {
+  if (options.route !== "relay" || options.remoteTerminalInput === true) return undefined;
+  const type = request.command.type;
+  return type === "terminal.create" || type === "terminal.write" ? REMOTE_TERMINAL_OFF : undefined;
 }
 
 function commandRejection(request: RpcRequest, projection: PolicyProjection): string | undefined {

@@ -2,14 +2,17 @@ import { randomBytes } from "node:crypto";
 import { hostname, networkInterfaces } from "node:os";
 
 import { MobileAccessStatus, type RuntimeProjection } from "@zli-v2/contracts";
-import { encodePairingCode, fromBase64Url, toBase64Url } from "@zli-v2/remote-protocol";
+import { fromBase64Url, toBase64Url } from "@zli-v2/remote-protocol";
 import { type BrowserWindow, ipcMain, safeStorage } from "electron";
+import { WebSocket } from "ws";
 
 import { lanAddresses } from "./lanAddresses.js";
 import { MobileAccessStore, type SecretCodec } from "./MobileAccessStore.js";
 import { DEFAULT_MOBILE_PORT, MobileGateway, type UpstreamTarget } from "./MobileGateway.js";
 import { PairingWindow } from "./PairingWindow.js";
 import { PhonePush, type PushFetch } from "./PhonePush.js";
+import { RelayHost } from "./RelayHost.js";
+import { desktopPairingCode, RelayLink, relayUrlFrom } from "./relayAccess.js";
 
 const random = (length: number) => new Uint8Array(randomBytes(length));
 
@@ -71,16 +74,15 @@ export async function registerMobileAccess(options: {
     const pending = pairing.current();
     let pairingStatus: MobileAccessStatus["pairing"];
     if (pending && state === "listening" && port && hosts.length > 0) {
+      const route = relay.route();
       pairingStatus = {
-        code: encodePairingCode({
-          v: 1,
+        code: desktopPairingCode({
           name: desktopName(),
           hosts,
           port,
           key: toBase64Url((await store.keyPair()).publicKey),
-          pairingId: pending.pairingId,
-          secret: toBase64Url(pending.secret),
-          expiresAt: pending.expiresAt,
+          pending,
+          ...(route ? { relay: route } : {}),
         }),
         expiresAt: new Date(pending.expiresAt).toISOString(),
       };
@@ -100,6 +102,12 @@ export async function registerMobileAccess(options: {
         connected: connected.has(device.deviceId),
         push: device.push !== undefined,
       })),
+      relay: {
+        available: relay.available,
+        enabled: store.relay.enabled,
+        state: relay.state,
+        remoteTerminalInput: store.relay.remoteTerminalInput,
+      },
     });
   };
 
@@ -123,6 +131,22 @@ export async function registerMobileAccess(options: {
     log: (message, detail) => options.log?.("info", message, detail),
   });
 
+  // The relay URL ships with the build. Without one, Connect from anywhere stays unavailable.
+  const relay = new RelayLink({
+    url: relayUrlFrom(process.env.ZLI_RELAY_URL),
+    store,
+    gateway,
+    createHost: ({ route, secret, onState }) =>
+      new RelayHost({
+        route,
+        secret,
+        gateway,
+        createSocket: (url, socketOptions) => new WebSocket(url, socketOptions),
+        onState,
+      }),
+    onChange: publish,
+  });
+
   const push = new PhonePush({
     store,
     attentive: () => gateway.attentiveDeviceIds(),
@@ -143,6 +167,7 @@ export async function registerMobileAccess(options: {
       port = await gateway.start({ port: store.port ?? DEFAULT_MOBILE_PORT });
       await store.setPort(port);
       state = "listening";
+      relay.sync();
     } catch (error) {
       state = "failed";
       port = undefined;
@@ -155,6 +180,7 @@ export async function registerMobileAccess(options: {
   const stop = async () => {
     pairing.close();
     if (expiryTimer) clearTimeout(expiryTimer);
+    relay.stop();
     await gateway.stop();
     state = "off";
     port = undefined;
@@ -170,6 +196,23 @@ export async function registerMobileAccess(options: {
     await store.setEnabled(enabled);
     if (enabled) await start();
     else await stop();
+    return status();
+  });
+  ipcMain.handle("zli:remote:set-relay-enabled", async (_event, input: unknown) => {
+    const enabled = (input as { enabled?: unknown } | null)?.enabled === true;
+    if (enabled && !relay.available) throw new Error("This build has no relay set up.");
+    await store.setRelayEnabled(enabled);
+    relay.sync();
+    return status();
+  });
+  ipcMain.handle("zli:remote:set-remote-terminal-input", async (_event, input: unknown) => {
+    const enabled = (input as { enabled?: unknown } | null)?.enabled === true;
+    if (enabled && !store.relay.enabled) throw new Error("Turn on Connect from anywhere first.");
+    await store.setRemoteTerminalInput(enabled);
+    return status();
+  });
+  ipcMain.handle("zli:remote:retry-relay", () => {
+    relay.retry();
     return status();
   });
   ipcMain.handle("zli:remote:start-pairing", async () => {

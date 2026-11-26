@@ -449,7 +449,11 @@ export class MobileGateway {
         sendSealed(upstreamHello);
         return;
       }
-      const decision = checkPhoneMessage(message, options.projection());
+      // Read on every message, so changing the setting applies to sessions already open.
+      const decision = checkPhoneMessage(message, options.projection(), {
+        route,
+        remoteTerminalInput: options.store.relay.remoteTerminalInput,
+      });
       if (decision.kind === "invalid") return close(RemoteCloseCode.protocol);
       if (decision.kind === "reject") {
         options.log?.("phone command refused", { deviceId, reason: decision.reason });

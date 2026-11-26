@@ -54,9 +54,23 @@ describe("mobile access helpers", () => {
   });
 });
 
-function fakeBridge(initial: MobileAccessStatus) {
+const relayOff: MobileAccessStatus["relay"] = {
+  available: true,
+  enabled: false,
+  state: "off",
+  remoteTerminalInput: false,
+};
+
+/** Fixtures leave out the relay unless a test is about it. */
+type StatusFixture = Omit<MobileAccessStatus, "relay"> & { relay?: Partial<MobileAccessStatus["relay"]> };
+
+function withRelay(status: StatusFixture): MobileAccessStatus {
+  return { ...status, relay: { ...relayOff, ...status.relay } };
+}
+
+function fakeBridge(initial: StatusFixture) {
   let listener: ((status: MobileAccessStatus) => void) | undefined;
-  let current = initial;
+  let current = withRelay(initial);
   const api = {
     getStatus: vi.fn(async () => current),
     setEnabled: vi.fn(async (enabled: boolean) => {
@@ -75,6 +89,26 @@ function fakeBridge(initial: MobileAccessStatus) {
       current = rest;
       return current;
     }),
+    setRelayEnabled: vi.fn(async (enabled: boolean) => {
+      current = {
+        ...current,
+        relay: {
+          ...current.relay,
+          enabled,
+          state: enabled ? "connecting" : "off",
+          remoteTerminalInput: enabled && current.relay.remoteTerminalInput,
+        },
+      };
+      return current;
+    }),
+    setRemoteTerminalInput: vi.fn(async (enabled: boolean) => {
+      current = { ...current, relay: { ...current.relay, remoteTerminalInput: enabled } };
+      return current;
+    }),
+    retryRelay: vi.fn(async () => {
+      current = { ...current, relay: { ...current.relay, state: "connecting" } };
+      return current;
+    }),
     revoke: vi.fn(async (deviceId: string) => {
       current = { ...current, devices: current.devices.filter((device) => device.deviceId !== deviceId) };
       return current;
@@ -89,9 +123,9 @@ function fakeBridge(initial: MobileAccessStatus) {
   (window as { zli?: unknown }).zli = { mobileAccess: api };
   return {
     api,
-    push(status: MobileAccessStatus) {
-      current = status;
-      listener?.(status);
+    push(status: StatusFixture) {
+      current = withRelay(status);
+      listener?.(current);
     },
   };
 }
@@ -102,6 +136,19 @@ async function render() {
   const root = createRoot(container);
   await act(async () => root.render(<MobileAccessSection />));
   return container;
+}
+
+function toggle(root: ParentNode, label: string): HTMLInputElement {
+  const found = [...root.querySelectorAll<HTMLLabelElement>("label.switch-row")].find(
+    (row) => row.querySelector(".switch-label")?.textContent === label,
+  );
+  const input = found?.querySelector<HTMLInputElement>('input[role="switch"]');
+  if (!input) throw new Error(`No switch ${label}`);
+  return input;
+}
+
+function hasSwitch(root: ParentNode, label: string): boolean {
+  return [...root.querySelectorAll(".switch-label")].some((node) => node.textContent === label);
 }
 
 function button(root: ParentNode, label: string): HTMLButtonElement {
@@ -196,5 +243,69 @@ describe("MobileAccessSection", () => {
     expect(container.textContent).toContain("Main process is busy.");
     await act(async () => button(container, "Try again").click());
     expect(container.textContent).toContain("Allow phones on this network");
+  });
+
+  describe("connect from anywhere", () => {
+    const listening: StatusFixture = {
+      enabled: true,
+      state: "listening",
+      hosts: ["10.0.0.2"],
+      port: 47321,
+      devices: [],
+    };
+
+    it("is off by default and turns on through the bridge, then shows the relay status", async () => {
+      const bridge = fakeBridge(listening);
+      const container = await render();
+      const relaySwitch = toggle(container, "Connect from anywhere");
+      expect(relaySwitch.checked).toBe(false);
+      expect(relaySwitch.disabled).toBe(false);
+      expect(container.textContent).toContain(
+        "Your phone reaches this PC through ZLI's relay when it isn't on the same Wi-Fi. Traffic stays end-to-end encrypted; the relay only sees when you connect.",
+      );
+      expect(hasSwitch(container, "Allow terminal input from anywhere")).toBe(false);
+
+      await act(async () => relaySwitch.click());
+      expect(bridge.api.setRelayEnabled).toHaveBeenCalledWith(true);
+      expect(container.textContent).toContain("Connecting…");
+      expect(toggle(container, "Allow terminal input from anywhere").checked).toBe(false);
+
+      await act(async () => bridge.push({ ...listening, relay: { enabled: true, state: "online" } }));
+      expect(container.textContent).toContain("Online");
+      await act(async () => bridge.push({ ...listening, relay: { enabled: true, state: "offline" } }));
+      expect(container.textContent).toContain("Offline, retrying");
+      await act(async () => bridge.push({ ...listening, relay: { enabled: true, state: "budget-exhausted" } }));
+      expect(container.textContent).toContain("Daily relay limit reached, retrying tomorrow");
+    });
+
+    it("turns terminal input from anywhere on through the bridge, and hides it once the relay is off", async () => {
+      const bridge = fakeBridge({ ...listening, relay: { enabled: true, state: "online" } });
+      const container = await render();
+      await act(async () => toggle(container, "Allow terminal input from anywhere").click());
+      expect(bridge.api.setRemoteTerminalInput).toHaveBeenCalledWith(true);
+      expect(toggle(container, "Allow terminal input from anywhere").checked).toBe(true);
+
+      await act(async () => toggle(container, "Connect from anywhere").click());
+      expect(bridge.api.setRelayEnabled).toHaveBeenCalledWith(false);
+      expect(hasSwitch(container, "Allow terminal input from anywhere")).toBe(false);
+      expect(container.textContent).not.toContain("Online");
+    });
+
+    it("explains when another PC holds the pairing and dials again on request", async () => {
+      const bridge = fakeBridge({ ...listening, relay: { enabled: true, state: "replaced" } });
+      const container = await render();
+      expect(container.textContent).toContain("Another PC is using this pairing.");
+      await act(async () => button(container, "Take it back").click());
+      expect(bridge.api.retryRelay).toHaveBeenCalled();
+      expect(container.textContent).toContain("Connecting…");
+    });
+
+    it("shows the switch turned off when this build has no relay set up", async () => {
+      fakeBridge({ ...listening, relay: { available: false } });
+      const container = await render();
+      const relaySwitch = toggle(container, "Connect from anywhere");
+      expect(relaySwitch.disabled).toBe(true);
+      expect(container.textContent).toContain("This build has no relay set up.");
+    });
   });
 });
