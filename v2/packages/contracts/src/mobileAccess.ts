@@ -30,7 +30,7 @@ export const MobilePairingRequest = z.object({
 export type MobilePairingRequest = z.infer<typeof MobilePairingRequest>;
 
 /**
- * The desktop's link to ZLI's relay. `replaced` means another PC claimed the same room; the desktop waits for the
+ * The desktop's link to the relay. `replaced` means another PC claimed the same room; the desktop waits for the
  * person before it tries again, so two PCs do not take the room from each other forever.
  */
 export const RelayState = z.enum(["off", "connecting", "online", "offline", "budget-exhausted", "replaced"]);

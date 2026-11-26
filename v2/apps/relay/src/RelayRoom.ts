@@ -71,6 +71,37 @@ export const systemClock: RoomClock = {
   clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
+/**
+ * The relay-wide daily cap, shared by every room. `over` must answer at once, so it reports what the room last heard;
+ * `counted` is told of every frame the room counts against its own budget.
+ */
+export interface RelayBudget {
+  over(): boolean;
+  counted(): void;
+}
+
+export const RELAY_LIMIT_REASON = "Relay daily limit reached.";
+
+/** The relay-wide cap when RELAY_DAILY_FRAMES is unset or not a positive number. */
+export const DEFAULT_DAILY_FRAMES = 2_000_000;
+
+export function dailyFramesFrom(raw: string | undefined): number {
+  const value = Number(raw);
+  return raw !== undefined && Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_DAILY_FRAMES;
+}
+
+/** Frames forwarded across the whole relay on one UTC day. */
+export interface DailyCount {
+  day: string;
+  count: number;
+}
+
+/** Adds `frames` to the count for `day`, starting again from zero on a new day. */
+export function addFrames(current: DailyCount | undefined, day: string, frames: number): DailyCount {
+  const base = current?.day === day ? current.count : 0;
+  return { day, count: base + Math.max(0, Math.floor(frames)) };
+}
+
 /** Forwarded frames on one UTC day. Kept outside the room so a restart does not reset it. */
 export interface BudgetState {
   day: string;
@@ -165,6 +196,7 @@ export class RelayRoom {
   readonly #limits: RoomLimits;
   readonly #clock: RoomClock;
   readonly #store: BudgetStore | undefined;
+  readonly #relayBudget: RelayBudget | undefined;
   #host: PipeSocket | null = null;
   #hostSeenAt = 0;
   /** Control sockets that have not claimed, with when they connected. */
@@ -183,11 +215,13 @@ export class RelayRoom {
     limits: RoomLimits = DEFAULT_LIMITS,
     clock: RoomClock = systemClock,
     store?: BudgetStore,
+    relayBudget?: RelayBudget,
   ) {
     this.#roomId = roomId;
     this.#limits = limits;
     this.#clock = clock;
     this.#store = store;
+    this.#relayBudget = relayBudget;
     this.#budget = store?.load() ?? { day: utcDay(clock.now()), count: 0, told: false };
   }
 
@@ -252,6 +286,15 @@ export class RelayRoom {
     this.#closeControl(socket, CLOSE_POLICY, "Unexpected control message.");
   }
 
+  /*
+   * When the runtime last answered this socket's ping for the room. Pings never reach the room, so the Durable Object
+   * reads that time and hands it over before the room checks the host. Only moves the clock forward.
+   */
+  heartbeat(socket: PipeSocket, at: number): void {
+    if (this.#closed.has(socket) || !this.isHost(socket)) return;
+    this.#hostSeenAt = Math.max(this.#hostSeenAt, at);
+  }
+
   hostControlClosed(socket: PipeSocket): void {
     this.#unclaimed.delete(socket);
     if (this.#host === socket) this.#host = null;
@@ -262,6 +305,10 @@ export class RelayRoom {
     const refusal = this.#phoneRefusal(session);
     if (!host) {
       socket.close(CLOSE_DESKTOP_OFFLINE, "The desktop is offline.");
+      return "rejected";
+    }
+    if (this.#relayBudget?.over()) {
+      socket.close(CLOSE_TRY_AGAIN, RELAY_LIMIT_REASON);
       return "rejected";
     }
     if (refusal) {
@@ -497,6 +544,7 @@ export class RelayRoom {
   }
 
   #countFrame(): void {
+    this.#relayBudget?.counted();
     const budget = this.#today();
     budget.count += 1;
     if (budget.count >= this.#limits.messagesPerDay) this.#tellBudget();
@@ -549,7 +597,7 @@ function parseControl(text: string): RelayHostMessage | null {
   }
 }
 
-function utcDay(time: number): string {
+export function utcDay(time: number): string {
   return new Date(time).toISOString().slice(0, 10);
 }
 

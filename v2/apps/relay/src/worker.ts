@@ -1,6 +1,7 @@
 import { CLIENT_HEADER, type Env, ROLE_HEADER, ROOM_HEADER, SESSION_HEADER } from "./RoomObject.js";
 import { clientKey, isWebSocketUpgrade, parseRoute, withinRateLimit } from "./routes.js";
 
+export { RelayCounter } from "./RelayCounter.js";
 export { RoomObject } from "./RoomObject.js";
 
 /*

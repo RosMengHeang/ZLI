@@ -30,6 +30,8 @@ export const RelayHostMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("open"), session: Id16, client: z.string().min(1).max(64) }),
   /** Host to relay: keep the connection alive. */
   z.object({ type: z.literal("ping") }),
+  /** Relay to host: the runtime's own answer to a ping, sent without waking the room. */
+  z.object({ type: z.literal("pong") }),
   /** Relay to host: the daily message budget is used up. */
   z.object({ type: z.literal("budget") }),
 ]);

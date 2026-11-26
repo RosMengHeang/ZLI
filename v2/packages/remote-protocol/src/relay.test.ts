@@ -80,6 +80,7 @@ describe("RelayHostMessage", () => {
     expect(RelayHostMessage.safeParse({ type: "claim", secret }).success).toBe(true);
     expect(RelayHostMessage.safeParse({ type: "open", session, client: "abc123" }).success).toBe(true);
     expect(RelayHostMessage.safeParse({ type: "ping" }).success).toBe(true);
+    expect(RelayHostMessage.safeParse({ type: "pong" }).success).toBe(true);
     expect(RelayHostMessage.safeParse({ type: "budget" }).success).toBe(true);
   });
 

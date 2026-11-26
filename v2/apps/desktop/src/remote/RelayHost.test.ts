@@ -378,6 +378,19 @@ describe("RelayHost", () => {
     expect(nextDial()).toBe(1000);
   });
 
+  it("takes the relay's pong reply to its app ping as an answer, and stays connected on it", () => {
+    host.start();
+    control().open();
+    control().autoPong = false;
+    for (let index = 0; index < 4; index += 1) {
+      vi.advanceTimersByTime(20_000);
+      control().receive({ type: "pong" });
+    }
+    expect(control().readyState).toBe(1);
+    expect(control().closeCode).toBeUndefined();
+    expect(states.at(-1)).toBe("online");
+  });
+
   it("treats a throwing createSocket as a failed dial, not an escaped error", () => {
     let fail = false;
     const flaky = new RelayHost({

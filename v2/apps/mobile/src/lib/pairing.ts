@@ -50,7 +50,7 @@ export function pairingPrivacyNote(text: string, now: number): string {
     return "Everything between the phone and the desktop is encrypted with keys that stay on the two devices.";
   }
   return relay
-    ? "The phone connects on the same network as the desktop, or through ZLI's relay when it is away. Everything between them is encrypted with keys that stay on the two devices, so the relay can't read it."
+    ? "The phone connects on the same network as the desktop, or through your relay when it is away. Everything between them is encrypted with keys that stay on the two devices, so the relay can't read it."
     : "The phone and the desktop need to be on the same network. Everything between them is encrypted with keys that stay on the two devices.";
 }
 

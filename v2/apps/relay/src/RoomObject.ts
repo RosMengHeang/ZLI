@@ -1,12 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
 
+import type { RelayCounter } from "./RelayCounter.js";
 import {
   type BudgetState,
   type BudgetStore,
+  dailyFramesFrom,
   type HandshakeState,
   limitsFrom,
   newSessionId,
   type PipeSocket,
+  type RelayBudget,
   RelayRoom,
   type RestoredSocket,
   type RoomClock,
@@ -16,6 +19,10 @@ import { isWebSocketUpgrade, type UpgradeLimiter } from "./routes.js";
 
 export interface Env {
   ROOMS: DurableObjectNamespace<RoomObject>;
+  /** The one relay-wide frame counter. */
+  COUNTER: DurableObjectNamespace<RelayCounter>;
+  /** Frames the whole relay may forward per UTC day. Defaults to 2 000 000. */
+  RELAY_DAILY_FRAMES?: string;
   /** Upgrades per connecting address. Absent in local runs. */
   UPGRADES?: UpgradeLimiter;
   /** JSON overrides for RoomLimits. Only the Worker tests set it, to shorten timers. */
@@ -29,6 +36,11 @@ export const SESSION_HEADER = "X-Relay-Session";
 export const CLIENT_HEADER = "X-Relay-Client";
 
 const BUDGET_KEY = "budget";
+/** Frames a room counts before it reports them to the relay-wide counter. */
+const REPORT_EVERY = 64;
+/** The runtime answers this itself, without waking the object, so idle desktops cost nothing between sweeps. */
+const PING = JSON.stringify({ type: "ping" });
+const PONG = JSON.stringify({ type: "pong" });
 
 type Role = "control" | "phone" | "host";
 
@@ -110,6 +122,16 @@ export class RoomObject extends DurableObject<Env> {
   #room: RelayRoom | null = null;
   readonly #pipes = new WeakMap<WebSocket, SocketPipe>();
   readonly #limits: RoomLimits = limitsFrom(this.env.RELAY_TEST_LIMITS);
+  readonly #dailyFrames = dailyFramesFrom(this.env.RELAY_DAILY_FRAMES);
+  /** What the relay-wide counter said last. Read again before each phone is let in. */
+  #relayOver = false;
+  /** Frames counted here and not yet reported. An eviction loses at most REPORT_EVERY - 1 of them. */
+  #unreported = 0;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
+  }
 
   override async fetch(request: Request): Promise<Response> {
     const role = request.headers.get(ROLE_HEADER);
@@ -119,6 +141,8 @@ export class RoomObject extends DurableObject<Env> {
       return new Response("Not found", { status: 404 });
     }
     const room = this.#roomFor(roomId);
+    this.#readHeartbeats(room);
+    if (role === "phone") await this.#checkRelayTotal();
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
@@ -182,6 +206,8 @@ export class RoomObject extends DurableObject<Env> {
   override async alarm(): Promise<void> {
     const room = this.#room ?? this.#wakeRoom();
     if (!room) return;
+    this.#readHeartbeats(room);
+    this.#report();
     room.sweep();
     // A sweep can drop a host that stopped sending heartbeats; a later wake must not restore it.
     this.#saveClaims(room);
@@ -227,7 +253,7 @@ export class RoomObject extends DurableObject<Env> {
 
   #roomFor(roomId: string): RelayRoom {
     if (this.#room) return this.#room;
-    const room = new RelayRoom(roomId, this.#limits, this.#alarmClock(), this.#budgetStore());
+    const room = new RelayRoom(roomId, this.#limits, this.#alarmClock(), this.#budgetStore(), this.#relayBudget());
     const restored: RestoredSocket[] = [];
     for (const ws of this.ctx.getWebSockets()) {
       const tagged = this.#tagged(ws);
@@ -260,6 +286,50 @@ export class RoomObject extends DurableObject<Env> {
     this.#room = room;
     room.restore(restored);
     return room;
+  }
+
+  /** Hands the room the last time the runtime answered each control socket's ping. */
+  #readHeartbeats(room: RelayRoom): void {
+    for (const ws of this.ctx.getWebSockets("control")) {
+      const at = this.ctx.getWebSocketAutoResponseTimestamp(ws);
+      if (at) room.heartbeat(this.#pipe(ws), at.getTime());
+    }
+  }
+
+  #counter(): DurableObjectStub<RelayCounter> {
+    return this.env.COUNTER.get(this.env.COUNTER.idFromName("relay"));
+  }
+
+  #relayBudget(): RelayBudget {
+    return {
+      over: () => this.#relayOver,
+      counted: () => {
+        this.#unreported += 1;
+        if (this.#unreported >= REPORT_EVERY) this.#report();
+      },
+    };
+  }
+
+  /** Sends the unreported frames to the counter without waiting on it. */
+  #report(): void {
+    const frames = this.#unreported;
+    if (frames === 0) return;
+    this.#unreported = 0;
+    this.#counter()
+      .add(frames)
+      .then((total) => {
+        this.#relayOver = total >= this.#dailyFrames;
+      })
+      .catch(() => {
+        this.#unreported += frames;
+      });
+  }
+
+  /** A counter that cannot be reached leaves the last answer in place, so an outage there does not close the relay. */
+  async #checkRelayTotal(): Promise<void> {
+    try {
+      this.#relayOver = (await this.#counter().total()) >= this.#dailyFrames;
+    } catch {}
   }
 
   /** The room keeps a single timer, so it maps onto the one alarm a Durable Object has. */

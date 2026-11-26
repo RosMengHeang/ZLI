@@ -49,6 +49,8 @@ export class RelayHost {
   /** Cancels the timers of the current control socket. Each socket owns its own, so a stale one cannot touch them. */
   #releaseControl: (() => void) | undefined;
   readonly #sessionDeadlines = new Map<WebSocket, ReturnType<typeof setTimeout>>();
+  /** Resets the current control socket's missed-pong count. */
+  #onPong: (() => void) | undefined;
 
   constructor(options: RelayHostOptions) {
     this.#options = options;
@@ -113,6 +115,10 @@ export class RelayHost {
     socket.on("pong", () => {
       missedPongs = 0;
     });
+    // The relay answers the app ping too, and that answer comes from further along the path than a protocol pong.
+    this.#onPong = () => {
+      missedPongs = 0;
+    };
     socket.on("open", () => {
       if (this.#control !== socket) return;
       clearTimeout(connectDeadline);
@@ -169,6 +175,7 @@ export class RelayHost {
     }
     if (message.type === "open") this.#openSession(message.session, message.client);
     else if (message.type === "budget") this.#onBudget(socket);
+    else if (message.type === "pong") this.#onPong?.();
   }
 
   #openSession(session: string, client: string): void {

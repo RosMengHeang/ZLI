@@ -2,9 +2,12 @@ import { RemoteCloseCode, roomIdFromSecret, toBase64Url } from "@zli-v2/remote-p
 import { describe, expect, it } from "vitest";
 
 import {
+  addFrames,
   type BudgetState,
   type BudgetStore,
+  DEFAULT_DAILY_FRAMES,
   DEFAULT_LIMITS,
+  dailyFramesFrom,
   limitsFrom,
   type PipeSocket,
   RelayRoom,
@@ -649,6 +652,49 @@ describe("RelayRoom limits", () => {
     expect(room.isHost(host)).toBe(false);
   });
 
+  it("keeps the host online on heartbeats the runtime answered without waking the room", () => {
+    const { room, host, clock } = claimedRoom();
+    // The Durable Object reads when the runtime last answered a ping and hands it over before each check.
+    for (let index = 0; index < 4; index += 1) {
+      clock.time += DEFAULT_LIMITS.idleTimeoutMs;
+      room.heartbeat(host, clock.time - 1_000);
+      clock.advance(0);
+    }
+    expect(host.closed).toBeNull();
+    expect(room.phoneConnected(new FakeSocket(), "client-a")).toBe("queued");
+    // A stale answer does not move the clock back, and a socket that does not hold the room is ignored.
+    room.heartbeat(host, 0);
+    room.heartbeat(new FakeSocket(), clock.time + 10 * DEFAULT_LIMITS.idleTimeoutMs);
+    clock.advance(DEFAULT_LIMITS.idleTimeoutMs * 2);
+    clock.advance(0);
+    expect(host.closed?.code).toBe(1013);
+  });
+
+  it("refuses new phones with 1013 once the relay-wide daily cap is reached, and counts forwarded frames", () => {
+    const clock = new FakeClock();
+    let over = false;
+    let counted = 0;
+    const room = new RelayRoom(roomId, DEFAULT_LIMITS, clock, undefined, {
+      over: () => over,
+      counted: () => {
+        counted += 1;
+      },
+    });
+    const host = new FakeSocket();
+    room.claimHost(host, secret);
+    const { phone, sessionHost, session } = join(room, host);
+    room.onFrame("host", session, "hello", sessionHost);
+    room.onFrame("phone", session, "hi", phone);
+    expect(counted).toBe(2);
+    over = true;
+    const late = new FakeSocket();
+    expect(room.phoneConnected(late, "client-b")).toBe("rejected");
+    expect(late.closed).toEqual({ code: 1013, reason: "Relay daily limit reached." });
+    // A session already open carries on.
+    room.onFrame("phone", session, "still here", phone);
+    expect(phone.closed).toBeNull();
+  });
+
   it("rejects phones as soon as the heartbeat deadline passes, before any sweep runs", () => {
     const { room, host, clock } = claimedRoom();
     // Move time without firing timers, as a late alarm would.
@@ -893,5 +939,19 @@ describe("limitsFrom", () => {
     expect(limitsFrom(raw)).toEqual({ ...DEFAULT_LIMITS, dialTimeoutMs: 500 });
     expect(limitsFrom("{not json")).toEqual(DEFAULT_LIMITS);
     expect(limitsFrom("[1]")).toEqual(DEFAULT_LIMITS);
+  });
+});
+
+describe("relay-wide daily cap", () => {
+  it("reads the cap from RELAY_DAILY_FRAMES, with 2 000 000 when it is unset or not a positive number", () => {
+    expect(DEFAULT_DAILY_FRAMES).toBe(2_000_000);
+    expect(dailyFramesFrom("500")).toBe(500);
+    for (const raw of [undefined, "", "0", "-3", "lots"]) expect(dailyFramesFrom(raw)).toBe(DEFAULT_DAILY_FRAMES);
+  });
+
+  it("adds batches within a UTC day and starts again on the next", () => {
+    const first = addFrames(undefined, "2026-11-27", 64);
+    expect(addFrames(first, "2026-11-27", 10)).toEqual({ day: "2026-11-27", count: 74 });
+    expect(addFrames(first, "2026-11-28", 5)).toEqual({ day: "2026-11-28", count: 5 });
   });
 });

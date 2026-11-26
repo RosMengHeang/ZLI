@@ -365,7 +365,7 @@ describe("MobileAccessSection", () => {
       expect(relaySwitch.checked).toBe(false);
       expect(relaySwitch.disabled).toBe(false);
       expect(container.textContent).toContain(
-        "Your phone reaches this PC through ZLI's relay when it isn't on the same Wi-Fi. The relay can't read your traffic, but it sees when each side connects and from which network address.",
+        "Your phone reaches this PC through your relay when it isn't on the same Wi-Fi. The relay can't read your traffic, but it sees when each side connects and from which network address.",
       );
       expect(container.textContent).not.toContain("stops paired phones");
       expect(hasSwitch(container, "Allow terminal input from anywhere")).toBe(false);

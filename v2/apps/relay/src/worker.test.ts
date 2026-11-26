@@ -1,5 +1,5 @@
 import { request as httpRequest } from "node:http";
-import { URL as NodeURL, fileURLToPath } from "node:url";
+import { fileURLToPath, URL as NodeURL } from "node:url";
 
 import { roomIdFromSecret, toBase64Url } from "@zli-v2/remote-protocol";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -15,6 +15,9 @@ type Worker = Awaited<ReturnType<typeof unstable_startWorker>>;
 let worker: Worker;
 // Kept as a string: Node's URL type and the Workers URL type in this tsconfig do not mix.
 let base: string;
+
+const PING = JSON.stringify({ type: "ping" });
+const PONG = JSON.stringify({ type: "pong" });
 
 // Short timers so the timer-driven closes can be checked in real time.
 const DIAL_MS = 1_000;
@@ -64,7 +67,13 @@ function connect(path: string, at: string = base) {
   ws.binaryType = "arraybuffer";
   const messages: Array<string | ArrayBuffer> = [];
   const waiters: Array<() => void> = [];
+  // The runtime answers a host's ping itself; those replies are counted apart so they never pass for room messages.
+  const pongs = { count: 0 };
   ws.addEventListener("message", (event) => {
+    if (event.data === PONG) {
+      pongs.count += 1;
+      return;
+    }
     messages.push(event.data);
     for (const wake of waiters.splice(0)) wake();
   });
@@ -72,14 +81,22 @@ function connect(path: string, at: string = base) {
     ws.addEventListener("open", () => resolve(), { once: true });
     ws.addEventListener("error", () => reject(new Error(`could not open ${path}`)), { once: true });
   });
+  let reason = "";
   const closed = new Promise<number>((resolve) => {
-    ws.addEventListener("close", (event) => resolve(event.code), { once: true });
+    ws.addEventListener(
+      "close",
+      (event) => {
+        reason = event.reason;
+        resolve(event.code);
+      },
+      { once: true },
+    );
   });
   const next = async (count = 1): Promise<Array<string | ArrayBuffer>> => {
     while (messages.length < count) await new Promise<void>((resolve) => waiters.push(resolve));
     return messages.slice(0, count);
   };
-  return { ws, opened, closed, next, messages };
+  return { ws, opened, closed, next, messages, pongs, closeReason: () => reason };
 }
 
 function within<T>(promise: Promise<T>, ms = 5_000): Promise<T> {
@@ -278,6 +295,20 @@ describe("relay worker", () => {
     control.ws.close(1000);
   });
 
+  it("answers a host's pings without the room, and keeps the room online on them alone", async () => {
+    const control = await claimedControl();
+    const end = Date.now() + IDLE_MS * 3;
+    while (Date.now() < end) {
+      control.ws.send(PING);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    expect(control.pongs.count).toBeGreaterThanOrEqual(10);
+    // Past twice the idle limit with only pings, the room still has its desktop.
+    const phone = await dialPhone(control.room, control);
+    await within(phone.opened);
+    control.ws.close(1000);
+  }, 20_000);
+
   it("takes the room offline when the desktop stops sending heartbeats", async () => {
     const control = await claimedControl();
     expect(await within(control.closed)).toBe(1013);
@@ -295,6 +326,58 @@ async function claimedControl(at: string = base) {
   control.ws.send(JSON.stringify({ type: "claim", secret: toBase64Url(secretBytes) }));
   return { ...control, room };
 }
+
+/** A separate worker with a tiny relay-wide daily cap. */
+describe("relay worker with a daily cap", () => {
+  let capped: Worker;
+  let cappedBase: string;
+  const CAP = 50;
+
+  beforeAll(async () => {
+    capped = await unstable_startWorker({
+      config: fileURLToPath(new URL("../wrangler.toml", import.meta.url).href),
+      bindings: { RELAY_DAILY_FRAMES: { type: "plain_text", value: String(CAP) } },
+      dev: { server: { hostname: "127.0.0.1", port: 0 }, inspector: false, persist: false },
+    });
+    await capped.ready;
+    cappedBase = (await capped.url).href;
+  }, 120_000);
+
+  afterAll(async () => {
+    await capped?.dispose();
+  });
+
+  it("refuses new sessions with 1013 once the relay has forwarded its day's frames", async () => {
+    const control = await claimedControl(cappedBase);
+    const phone = await dialPhone(control.room, control, cappedBase);
+    const open = JSON.parse(String((await control.next(1))[0])) as { session: string };
+    await within(phone.opened);
+    phone.ws.send("hello desktop");
+    const sessionHost = connect(`/v1/host/${control.room}/${open.session}`, cappedBase);
+    await within(sessionHost.next(1));
+    for (let index = 0; index < CAP + 30; index += 1) sessionHost.ws.send(`frame ${index}`);
+    await within(phone.next(CAP + 30));
+
+    // Rooms report their counts in batches, so the next phone may take a moment to see the total.
+    let refused: ReturnType<typeof connect> | undefined;
+    for (let attempt = 0; attempt < 10 && !refused; attempt += 1) {
+      const late = connect(`/v1/phone/${control.room}`, cappedBase);
+      late.opened.catch(() => undefined);
+      const outcome = await within(
+        Promise.race([late.closed.then(() => "closed" as const), control.next(2).then(() => "open" as const)]),
+      );
+      if (outcome === "closed" && late.closeReason() === "Relay daily limit reached.") refused = late;
+      else {
+        late.ws.close(1000);
+        control.messages.splice(1);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    expect(refused).toBeDefined();
+    expect(await within(refused?.closed ?? Promise.resolve(0))).toBe(1013);
+    control.ws.close(1000);
+  }, 30_000);
+});
 
 /*
  * A separate worker with long timers, so the room can sit idle long enough for workerd to

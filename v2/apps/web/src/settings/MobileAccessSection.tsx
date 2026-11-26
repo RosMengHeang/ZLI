@@ -41,7 +41,7 @@ function useNow(active: boolean): number {
 }
 
 const RELAY_NOTE =
-  "Your phone reaches this PC through ZLI's relay when it isn't on the same Wi-Fi. The relay can't read your traffic, but it sees when each side connects and from which network address.";
+  "Your phone reaches this PC through your relay when it isn't on the same Wi-Fi. The relay can't read your traffic, but it sees when each side connects and from which network address.";
 const RELAY_OFF_WARNING =
   "Turning it off stops paired phones from using the relay. Turned back on, it gets a new address, which each phone picks up the next time it connects on the same network.";
 
@@ -153,7 +153,7 @@ export function MobileAccessSection() {
     <SettingsPageHeader title="Phone access">
       Follow agents, answer their requests, and start new work from the ZLI Remote app.{" "}
       {status?.relay.enabled
-        ? "The phone connects on the same network as this computer, or through ZLI's relay when it is away."
+        ? "The phone connects on the same network as this computer, or through your relay when it is away."
         : "The phone has to be on the same network as this computer."}
     </SettingsPageHeader>
   );
@@ -316,7 +316,7 @@ export function MobileAccessSection() {
               }
               description={
                 <>
-                  It used your pairing code through ZLI's relay. Allow only if your phone shows this code. Expires in{" "}
+                  It used your pairing code through your relay. Allow only if your phone shows this code. Expires in{" "}
                   <span className="mobile-countdown">{countdown(request.expiresAt, now)}</span>.
                 </>
               }
