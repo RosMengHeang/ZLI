@@ -1,16 +1,11 @@
 import {
-  BUDDY_PERSONALITY_PRESETS,
   type BuddyProjection,
   type BuddyRules,
   firstSentence,
-  MAX_PERSONALITY,
-  MAX_SAMPLE_REPLY,
-  overBudget,
   type RuntimeProjection,
   rulesOf,
-  spentThisWeek,
 } from "@zli-v2/contracts";
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { BrowserPane } from "../browser/BrowserPane.js";
 import { useRuntime } from "../runtime/RuntimeProvider.js";
@@ -18,9 +13,7 @@ import { BuddyAvatar } from "../teammates/BuddyAvatar.js";
 import { lookOf } from "../teammates/pixelBuddies.js";
 import { IconButton } from "../ui/Button.js";
 import { Dialog } from "../ui/Dialog.js";
-import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
-import { money } from "./team.js";
 import type { Run } from "./useRun.js";
 
 const GROUPS: readonly { key: keyof BuddyRules; label: string; add: string }[] = [
@@ -31,17 +24,13 @@ const GROUPS: readonly { key: keyof BuddyRules; label: string; add: string }[] =
 
 /**
  * What the buddy does on its own, asks first, and never does. It reads them at the start of every job and
- * chat, and asks first through Needs you, so the person answers there.
+ * chat, and asks first through Needs you, so the person answers there. The Settings tab folds it away.
  */
 export function RulesEditor({ buddy, run }: { buddy: BuddyProjection; run: Run }) {
   const rules = rulesOf(buddy);
   const save = (next: BuddyRules) => run({ type: "buddy.update", buddyId: buddy.buddyId, changes: { rules: next } });
   return (
-    <section className="buddies-section" aria-label="Rules">
-      <h3 className="buddies-heading">Rules</h3>
-      <p className="buddies-hint">
-        {buddy.name} reads these at the start of every job and chat. What it should ask about comes to you in Needs you.
-      </p>
+    <div className="rule-groups">
       {GROUPS.map((group) => (
         <RuleGroup
           key={group.key}
@@ -52,8 +41,19 @@ export function RulesEditor({ buddy, run }: { buddy: BuddyProjection; run: Run }
           onChange={(items) => void save({ ...rules, [group.key]: items })}
         />
       ))}
-    </section>
+    </div>
   );
+}
+
+/** One line on the rules, for the folded row: how many it does alone, asks about, and never does. */
+export function rulesSummary(buddy: BuddyProjection): string {
+  const rules = rulesOf(buddy);
+  const parts = [
+    rules.alone.length > 0 ? `${rules.alone.length} on its own` : "",
+    rules.ask.length > 0 ? `${rules.ask.length} to ask first` : "",
+    rules.never.length > 0 ? `${rules.never.length} never` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : "The defaults";
 }
 
 function RuleGroup({
@@ -110,142 +110,6 @@ function RuleGroup({
         />
       ) : null}
     </div>
-  );
-}
-
-/** The most the buddy's jobs may cost in a week. Past it, its new jobs wait until the limit goes up. */
-export function BudgetField({
-  buddy,
-  projection,
-  run,
-}: {
-  buddy: BuddyProjection;
-  projection: RuntimeProjection;
-  run: Run;
-}) {
-  const now = new Date();
-  const spent = spentThisWeek(projection, buddy.buddyId, now);
-  const [draft, setDraft] = useState(buddy.budgetUsd ? String(buddy.budgetUsd) : "");
-  const save = () => {
-    const value = draft.trim() === "" ? 0 : Number(draft);
-    if (!Number.isFinite(value) || value < 0) {
-      setDraft(buddy.budgetUsd ? String(buddy.budgetUsd) : "");
-      return;
-    }
-    if (value !== (buddy.budgetUsd ?? 0))
-      void run({ type: "buddy.update", buddyId: buddy.buddyId, changes: { budgetUsd: Math.round(value * 100) / 100 } });
-  };
-  const over = overBudget(projection, buddy, now);
-  return (
-    <section className="buddies-section" aria-label="Weekly budget">
-      <h3 className="buddies-heading">Weekly budget</h3>
-      <p className="buddies-hint">
-        {spent > 0 ? `${money(spent)} spent` : "Nothing spent"} in the last 7 days.{" "}
-        {buddy.budgetUsd ? `Past ${money(buddy.budgetUsd)}, new jobs wait.` : "Leave it empty for no limit."}
-      </p>
-      <label className="budget-field">
-        <span aria-hidden="true">$</span>
-        <input
-          className="input"
-          aria-label="Weekly budget in dollars"
-          inputMode="decimal"
-          placeholder="No limit"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value.replace(/[^0-9.]/gu, ""))}
-          onBlur={save}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") event.currentTarget.blur();
-          }}
-        />
-        <span className="budget-unit">a week</span>
-      </label>
-      {over ? (
-        <p className="budget-over" role="status">
-          Limit reached: {buddy.name}'s new jobs wait until you raise it or older jobs leave the 7 days.
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-type Voice = "default" | (typeof BUDDY_PERSONALITY_PRESETS)[number] | "custom";
-
-const VOICES: readonly { value: Voice; label: string; description: string }[] = [
-  { value: "default", label: "Default", description: "Warm and quick, a little playful" },
-  { value: "warm", label: "Warm", description: "Kind, gentle when something breaks" },
-  { value: "dry", label: "Dry", description: "Understated, deadpan" },
-  { value: "cheerful", label: "Cheerful", description: "Upbeat, enjoys a win" },
-  { value: "blunt", label: "Blunt", description: "Verdict first, no padding" },
-  { value: "calm", label: "Calm", description: "Steady, unhurried" },
-  { value: "custom", label: "In your words", description: "Describe it yourself" },
-];
-
-function voiceOf(personality: string | undefined): Voice {
-  if (!personality) return "default";
-  const preset = BUDDY_PERSONALITY_PRESETS.find((entry) => entry === personality.toLowerCase());
-  return preset ?? "custom";
-}
-
-/** How the buddy sounds in chat, kept the same whichever model answers. */
-export function PersonalityField({ buddy, run }: { buddy: BuddyProjection; run: Run }) {
-  const [voice, setVoice] = useState<Voice>(voiceOf(buddy.personality));
-  const [custom, setCustom] = useState(voiceOf(buddy.personality) === "custom" ? (buddy.personality ?? "") : "");
-  const [sample, setSample] = useState(buddy.sampleReply ?? "");
-  const update = (changes: { personality?: string; sampleReply?: string }) =>
-    void run({ type: "buddy.update", buddyId: buddy.buddyId, changes });
-  const pick = (next: Voice) => {
-    setVoice(next);
-    if (next === "custom") {
-      if (custom.trim() && custom.trim() !== buddy.personality) update({ personality: custom.trim() });
-      return;
-    }
-    const personality = next === "default" ? "" : next;
-    if (personality !== (buddy.personality ?? "")) update({ personality });
-  };
-  const saveCustom = () => {
-    const personality = custom.trim();
-    if (personality !== (buddy.personality ?? "")) update({ personality });
-  };
-  const saveSample = () => {
-    const sampleReply = sample.trim();
-    if (sampleReply !== (buddy.sampleReply ?? "")) update({ sampleReply });
-  };
-  const blurOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") event.currentTarget.blur();
-  };
-  return (
-    <section className="buddies-section" aria-label="Personality">
-      <h3 className="buddies-heading">Personality</h3>
-      <p className="buddies-hint">
-        How {buddy.name} sounds when it talks to you, on any model. Standing instructions still win.
-      </p>
-      <Select<Voice> label="Personality" value={voice} options={VOICES} onChange={pick} />
-      {voice === "custom" ? (
-        <input
-          className="input"
-          aria-label="Personality in your words"
-          placeholder="Such as: patient, explains the why, a bit nerdy"
-          maxLength={MAX_PERSONALITY}
-          value={custom}
-          onChange={(event) => setCustom(event.target.value)}
-          onBlur={saveCustom}
-          onKeyDown={blurOnEnter}
-        />
-      ) : null}
-      <label className="buddies-hint" htmlFor={`sample-${buddy.buddyId}`}>
-        Sample reply (optional): one line the way {buddy.name} would say it
-      </label>
-      <input
-        id={`sample-${buddy.buddyId}`}
-        className="input"
-        placeholder="Such as: Fixed. It was the cache, again."
-        maxLength={MAX_SAMPLE_REPLY}
-        value={sample}
-        onChange={(event) => setSample(event.target.value)}
-        onBlur={saveSample}
-        onKeyDown={blurOnEnter}
-      />
-    </section>
   );
 }
 

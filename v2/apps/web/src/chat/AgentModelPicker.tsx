@@ -21,6 +21,17 @@ const MAX_HEIGHT = 400;
 
 const listHeight = (rows: number, row: number) => rows * row + Math.max(0, rows - 1) * ROW_GAP;
 
+/** Auto's place among the agents: ZLI picks the agent and model itself. */
+const AUTO = "auto";
+
+/** Auto as the first choice in the picker: ZLI picks the agent and model, at one of these levels. */
+export type AutoChoice = {
+  levels: readonly { value: string; label: string; description: string }[];
+  /** The level picked; undefined while a set agent and model are picked instead. */
+  value: string | undefined;
+  onPick(level: string): void;
+};
+
 /**
  * The agents sit in a row of marks along the top, the picked one's models in a plain list under them. Hover or
  * arrow along the marks to see another agent's models; pick a model to switch. With no other agent to offer,
@@ -38,6 +49,10 @@ export function AgentModelPicker({
   tooltip,
   onModelChange,
   onAgentChange,
+  auto,
+  prefer = "above",
+  className,
+  field = false,
 }: {
   provider: string | undefined;
   agentName: string;
@@ -53,6 +68,13 @@ export function AgentModelPicker({
   tooltip: string;
   onModelChange(model: string | undefined): void;
   onAgentChange(provider: string, model: string | undefined, accountId?: string): void;
+  /** Offers Auto before the agents, for a buddy whose model ZLI may pick. */
+  auto?: AutoChoice | undefined;
+  /** Which side of the trigger the menu opens on when it fits there. */
+  prefer?: "above" | "below";
+  className?: string | undefined;
+  /** Looks like a form field, full width, instead of a toolbar button. */
+  field?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -62,25 +84,45 @@ export function AgentModelPicker({
   const agentsId = useId();
   const modelsId = useId();
   const placement = useAnchoredPlacement(open, triggerRef, menuRef, {
-    prefer: "above",
+    prefer,
     align: "start",
     gap: 6,
     edge: 8,
   });
-  const own: Row = {
-    provider: (provider ?? "") as Row["provider"],
-    name: agentName,
-    models,
-    plan: agentPlan,
-    ...(agentAccount ? { accountId: agentAccount.id, account: agentAccount.label, tag: agentAccount.tag } : {}),
-  };
+  const autoRow: Row | undefined = auto
+    ? { provider: AUTO as Row["provider"], name: "Auto", models: undefined, plan: undefined }
+    : undefined;
+  const autoOn = auto?.value !== undefined && autoRow !== undefined;
+  const own: Row =
+    autoOn && autoRow
+      ? autoRow
+      : {
+          provider: (provider ?? "") as Row["provider"],
+          name: agentName,
+          models,
+          plan: agentPlan,
+          ...(agentAccount ? { accountId: agentAccount.id, account: agentAccount.label, tag: agentAccount.tag } : {}),
+        };
+  const isAuto = (agent: Row) => agent.provider === (AUTO as Row["provider"]);
+  /** The rows under an agent's mark: Auto's levels, or the agent's models. */
+  const optionsFor = (agent: Row, current: string | undefined) =>
+    isAuto(agent)
+      ? (auto?.levels ?? []).map((level) => ({
+          value: level.value,
+          label: level.label,
+          icon: null,
+          description: level.description,
+        }))
+      : modelOptions(agent.models, current, agent.provider || undefined);
   const ownKey = choiceKey(own);
   const [shown, setShown] = useState(ownKey);
   const { pinnedAgents, pinnedModels } = useAppSettings();
   // Only agents that can run right now: one that is not installed or signed in is left out, not greyed.
   // Pinned agents come first, in the order they were pinned, then the chat's own agent, then the rest.
-  const runnable = [own, ...others.filter((agent) => !agent.unavailable)];
+  const runnable = [...(autoRow && !autoOn ? [autoRow] : []), own, ...others.filter((agent) => !agent.unavailable)];
   const pinRank = (agent: Row) => {
+    // Auto always comes first.
+    if (isAuto(agent)) return -1;
     const at = pinnedAgents.indexOf(choiceKey(agent));
     return at === -1 ? Number.MAX_SAFE_INTEGER : at;
   };
@@ -95,27 +137,26 @@ export function AgentModelPicker({
   const active = agents.find((agent) => choiceKey(agent) === shown) ?? own;
   const isOwn = choiceKey(active) === ownKey;
   const modelPin = (value: string) => `${active.provider}:${value || DEFAULT_MODEL}`;
-  const allChoices = modelOptions(active.models, isOwn ? model : undefined, active.provider || undefined);
+  const allChoices = optionsFor(active, isOwn ? model : undefined);
   // Pinned models first, in pin order; the rest keep the agent's own order.
   const pinnedChoices = pinnedModels.flatMap((pin) => allChoices.filter((option) => modelPin(option.value) === pin));
   const choices = [...pinnedChoices, ...allChoices.filter((option) => !pinnedChoices.includes(option))];
   const agentPinned = pinnedAgents.includes(choiceKey(active));
   const [overflow, setOverflow] = useState({ left: false, right: false });
-  const selectedValue = isOwn ? (model ?? DEFAULT_MODEL) : undefined;
-  const ownChoices = modelOptions(models, model, provider);
+  const ownValue = autoOn ? auto?.value : (model ?? DEFAULT_MODEL);
+  const selectedValue = isOwn ? ownValue : undefined;
+  const ownChoices = optionsFor(own, model);
   // Sized for the agent with the most models, so moving between agents never resizes the menu.
   const tallest = Math.max(
     ...agents.map((agent) =>
-      listHeight(
-        modelOptions(agent.models, choiceKey(agent) === ownKey ? model : undefined, agent.provider || undefined).length,
-        MODEL_ROW,
-      ),
+      listHeight(optionsFor(agent, choiceKey(agent) === ownKey ? model : undefined).length, MODEL_ROW),
     ),
   );
   const splitHeight = TABS + LIST_PADDING + tallest + 2;
-  const modelLabel = ownChoices.find((option) => option.value === (model ?? DEFAULT_MODEL))?.label ?? model ?? "";
+  const modelLabel = ownChoices.find((option) => option.value === ownValue)?.label ?? model ?? "";
   // The default's label reads "Default · Sonnet" when the agent says which model that is.
-  const shownModel = model ? modelLabel : modelLabel.startsWith("Default · ") ? modelLabel.slice(10) : undefined;
+  const shownModel =
+    model || autoOn ? modelLabel : modelLabel.startsWith("Default · ") ? modelLabel.slice(10) : undefined;
 
   const close = (returnFocus: boolean) => {
     setOpen(false);
@@ -191,6 +232,10 @@ export function AgentModelPicker({
 
   const pick = (agent: Row, value: string) => {
     close(true);
+    if (isAuto(agent)) {
+      if (value !== auto?.value) auto?.onPick(value);
+      return;
+    }
     const next = value || undefined;
     if (choiceKey(agent) === ownKey) {
       if (next !== model) onModelChange(next);
@@ -266,7 +311,7 @@ export function AgentModelPicker({
       <button
         ref={triggerRef}
         type="button"
-        className={`select-ghost picker-trigger composer-model${model ? "" : " is-default"}${locked ? " is-disabled" : ""}`}
+        className={`${field ? "select picker-field" : "select-ghost"} picker-trigger composer-model${model || autoOn ? "" : " is-default"}${locked ? " is-disabled" : ""}${className ? ` ${className}` : ""}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`Model: ${modelLabel}`}
@@ -287,10 +332,14 @@ export function AgentModelPicker({
           setOpen(true);
         }}
       >
-        <ModelMark id={model} label={modelLabel} agent={provider} size={14} />
+        {autoOn ? (
+          <Icon name="sparkle" size={14} />
+        ) : (
+          <ModelMark id={model} label={modelLabel} agent={provider} size={14} />
+        )}
         {/* "Agent · Model" in one label; the model part is left out while the agent picks its own. */}
         <span className="picker-trigger-label">
-          <span className="composer-model-agent">{agentName}</span>
+          <span className="composer-model-agent">{own.name}</span>
           {shownModel ? (
             <>
               <span className="composer-model-dot" aria-hidden="true">
@@ -366,6 +415,7 @@ export function AgentModelPicker({
                           onClick={() => focusIn(modelsRef.current, "first")}
                           onContextMenu={(event) => {
                             event.preventDefault();
+                            if (isAuto(agent)) return;
                             const box = event.currentTarget.getBoundingClientRect();
                             const fromKeyboard = event.clientX === 0 && event.clientY === 0;
                             const isPinned = pinnedAgents.includes(key);
@@ -388,7 +438,11 @@ export function AgentModelPicker({
                               <Icon name="pin" size={8} />
                             </span>
                           ) : null}
-                          <ProviderMark provider={agent.provider} size={16} />
+                          {isAuto(agent) ? (
+                            <Icon name="sparkle" size={16} />
+                          ) : (
+                            <ProviderMark provider={agent.provider} size={16} />
+                          )}
                           {agent.tag ? (
                             <span className="agent-model-tag" aria-hidden="true">
                               {agent.tag}
@@ -415,9 +469,11 @@ export function AgentModelPicker({
               {twoColumns ? (
                 <div className="agent-model-head">
                   <span className="agent-model-head-name">
-                    {[active.name, active.account, active.plan].filter(Boolean).join(" · ")}
+                    {isAuto(active)
+                      ? "ZLI picks for each job"
+                      : [active.name, active.account, active.plan].filter(Boolean).join(" · ")}
                   </span>
-                  {
+                  {isAuto(active) ? null : (
                     <button
                       type="button"
                       tabIndex={-1}
@@ -429,7 +485,7 @@ export function AgentModelPicker({
                     >
                       <Icon name="pin" size={12} />
                     </button>
-                  }
+                  )}
                 </div>
               ) : null}
               <div className="agent-model-column">
@@ -455,6 +511,7 @@ export function AgentModelPicker({
                         aria-selected={selected}
                         className={`picker-option${pinned ? " is-pinned" : ""}${lastPinned ? " is-last-pinned" : ""}`}
                         data-label={option.label}
+                        data-tooltip={"description" in option ? option.description : undefined}
                         onPointerMove={hoverFocus}
                         onClick={() => pick(active, option.value)}
                       >
@@ -463,21 +520,23 @@ export function AgentModelPicker({
                         </span>
                         <span className="picker-option-label">{option.label}</span>
                         {/* Not a button inside a button: a span that takes the click before the row does. */}
-                        {/* biome-ignore lint/a11y/noStaticElementInteractions: a pointer shortcut; the row stays the option. */}
-                        <span
-                          className={`agent-model-pin is-row${pinned ? " is-on" : ""}`}
-                          role="presentation"
-                          data-tooltip={pinned ? "Unpin model" : "Pin model to the top"}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            updateAppSettings((current) => ({
-                              ...current,
-                              pinnedModels: togglePin(current.pinnedModels, pinKey),
-                            }));
-                          }}
-                        >
-                          <Icon name="pin" size={12} />
-                        </span>
+                        {isAuto(active) ? null : (
+                          // biome-ignore lint/a11y/noStaticElementInteractions: a pointer shortcut; the row stays the option.
+                          <span
+                            className={`agent-model-pin is-row${pinned ? " is-on" : ""}`}
+                            role="presentation"
+                            data-tooltip={pinned ? "Unpin model" : "Pin model to the top"}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              updateAppSettings((current) => ({
+                                ...current,
+                                pinnedModels: togglePin(current.pinnedModels, pinKey),
+                              }));
+                            }}
+                          >
+                            <Icon name="pin" size={12} />
+                          </span>
+                        )}
                         {selected ? (
                           <span className="agent-model-check" aria-hidden="true">
                             <Icon name="check" size={13} />

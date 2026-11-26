@@ -23,6 +23,8 @@ export type BuddyTemplate = {
   sampleReply: string;
   /** What the template is for, in the picker. */
   blurb: string;
+  /** Its chip on the new buddy form, naming what the buddy focuses on. The Primary has none. */
+  focus?: string;
 };
 
 export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
@@ -39,6 +41,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   },
   {
     title: "Builder",
+    focus: "Building",
     color: "sky",
     look: "blob",
     permissionMode: "supervised",
@@ -50,6 +53,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   },
   {
     title: "Tester",
+    focus: "Testing",
     color: "jade",
     look: "critter",
     permissionMode: "supervised",
@@ -61,6 +65,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   },
   {
     title: "Reviewer",
+    focus: "Reviews",
     color: "indigo",
     look: "ghost",
     permissionMode: "read-only",
@@ -72,6 +77,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   },
   {
     title: "Docs",
+    focus: "Docs",
     color: "butter",
     look: "sprout",
     permissionMode: "supervised",
@@ -83,6 +89,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   },
   {
     title: "Release",
+    focus: "Releases",
     color: "orchid",
     look: "jelly",
     permissionMode: "supervised",
@@ -94,6 +101,7 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
   },
   {
     title: "Bug triage",
+    focus: "Bug triage",
     color: "tomato",
     look: "bot",
     permissionMode: "read-only",
@@ -111,6 +119,23 @@ export const BUDDY_TEMPLATES: readonly BuddyTemplate[] = [
  */
 export const FULL_ACCESS_WARNING =
   "With full access, a web page, issue, or file this buddy reads can make it run commands on your computer without asking you. Pick it only when you trust everything the buddy will read.";
+
+/** The optional focus chips on the new buddy form. Picking one fills in its instructions; none means it takes any job. */
+export const FOCUS_PRESETS: readonly (BuddyTemplate & { focus: string })[] = BUDDY_TEMPLATES.filter(
+  (entry): entry is BuddyTemplate & { focus: string } => entry.focus !== undefined,
+);
+
+/** A new buddy's first words: what should it focus on. Answers show under it in the chat. */
+export function focusQuestion(name: string): string {
+  return `Hi, I'm ${name}. What do you want me to work on? Pick one below, or tell me in your own words.`;
+}
+
+/** What the buddy says once a focus answer is picked: what it will do, and where to change it. */
+export function focusSaved(entry: BuddyTemplate | undefined): string {
+  return entry
+    ? `Got it: ${entry.blurb.charAt(0).toLowerCase()}${entry.blurb.slice(1)}. You can change this any time under Here for.`
+    : "Got it. I'll take any job. Tell me if you want me to focus on something.";
+}
 
 export function template(title: string): BuddyTemplate | undefined {
   return BUDDY_TEMPLATES.find((entry) => entry.title === title);

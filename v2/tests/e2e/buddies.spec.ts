@@ -56,16 +56,42 @@ test("starts a team, gives Builder a job, and gets a result card that Tester che
     });
     await shot("tester");
 
-    // The + makes a new buddy from a popup: a name, what it does, a color.
+    // The + makes a new buddy from a popup: a name, a model, how much it may do, a body.
     await sidebar.getByRole("button", { name: "Add a buddy" }).click();
     const dialog = page.getByRole("dialog", { name: "New buddy" });
+    // A name is required.
+    await dialog.getByRole("button", { name: "Create" }).click();
+    await expect(dialog.getByRole("alert")).toHaveText("Give it a name.");
+    await shot("new-buddy-empty");
     await dialog.locator(".new-buddy input").fill("Nova");
     await dialog.getByRole("button", { name: "rose" }).click();
     await shot("new-buddy");
     await dialog.getByRole("button", { name: "Create" }).click();
     await expect(sidebar.locator(".buddy-list-person")).toContainText(["Nova"]);
     await expect(pane.locator(".buddy-view-name")).toHaveText("Nova");
+
+    // Its first words ask what it is for; a tap on an answer keeps it as its focus.
+    await expect(pane.locator(".buddy-chat-say").last()).toContainText("What do you want me to work on?");
+    await shot("nova-asks");
+    await pane.locator(".buddy-focus-answers").getByRole("button", { name: "Reviews" }).click();
+    await expect(pane.locator(".buddy-chat-say").last()).toContainText("Got it");
     await shot("nova");
+
+    // Its settings are short rows with one picker each; the focus it was given is the first.
+    await pane.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(pane.locator(".bset-here-text")).toContainText("Read the diff");
+    await shot("nova-settings");
+    await pane.getByRole("button", { name: "Model: Balanced" }).click();
+    await shot("nova-settings-model");
+    await page.keyboard.press("Escape");
+    await pane.getByRole("button", { name: /^Rules/u }).click();
+    const rules = page.getByRole("dialog", { name: "Rules" });
+    await expect(rules.locator(".rule-group").first()).toBeVisible();
+    await shot("nova-rules");
+    await rules.getByRole("button", { name: "Done" }).click();
+    await pane.getByRole("button", { name: "Library", exact: true }).click();
+    await shot("nova-library");
+    await shot("nova-settings-rules");
   } finally {
     await closeDesktop(fixture);
   }

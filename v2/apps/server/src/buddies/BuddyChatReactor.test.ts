@@ -109,6 +109,13 @@ async function setup(options: Partial<BuddyChatReactorOptions> = {}) {
 }
 
 describe("parseChatReply", () => {
+  it("reads the buddy's new focus, and ignores the brief's placeholder", () => {
+    const reply = parseChatReply("Got it, docs it is.\n[[focus]]Keeps the docs in sync with the code.[[/focus]]");
+    expect(reply.text).toBe("Got it, docs it is.");
+    expect(reply.focus).toBe("Keeps the docs in sync with the code.");
+    expect(parseChatReply("[[focus]]<what you are for>[[/focus]]").focus).toBeUndefined();
+  });
+
   it("reads jobs and notes out of a reply and leaves the words", () => {
     const reply = parseChatReply(
       'Sure, I\'ll fix it.\n\n[[job project="shop-web"]]\nFix the cart total when a coupon is applied twice.\n[[/job]]\n[[remember]]Prefers small PRs.[[/remember]]',

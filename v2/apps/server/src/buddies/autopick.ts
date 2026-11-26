@@ -116,6 +116,14 @@ export function candidatesFor(
   return out;
 }
 
+/** How Auto trades cost against quality for this buddy: its own level, else the team's. */
+export function qualityFor(
+  buddy: Pick<BuddyProjection, "engine">,
+  settings: { quality: BuddyQuality } | undefined,
+): BuddyQuality {
+  return (buddy.engine.mode === "auto" ? buddy.engine.quality : undefined) ?? settings?.quality ?? "balanced";
+}
+
 export type TrackRecord = { jobs: number; score: number; costUsd: number };
 
 /** How well each provider and model did on each kind of job, from finished jobs. Local only. */

@@ -16,7 +16,7 @@ import {
 } from "@zli-v2/contracts";
 
 import type { CommandReceipt, Engine } from "../orchestration/Engine.js";
-import { candidatesFor, pickEngine, trackRecords } from "./autopick.js";
+import { candidatesFor, pickEngine, qualityFor, trackRecords } from "./autopick.js";
 import { chatBrief, noteMentions, parseChatReply, placeNamed, senderName } from "./chat.js";
 import type { BuddyHomes } from "./homes.js";
 import { stableId } from "./stableId.js";
@@ -234,7 +234,7 @@ export class BuddyChatReactor {
       profile: CHAT_PROFILE,
       candidates: candidatesFor(await this.options.providers().catch(() => []), buddy, undefined),
       records: trackRecords(state.tasks ?? []),
-      quality: state.buddySettings?.quality ?? "balanced",
+      quality: qualityFor(buddy, state.buddySettings),
       now: (this.options.now?.() ?? new Date()).toISOString(),
     });
     if (!pick) {
@@ -453,7 +453,8 @@ export class BuddyChatReactor {
         parsed.remember.length > 0 ||
         parsed.about.length > 0 ||
         parsed.forget.length > 0 ||
-        parsed.goals.length > 0)
+        parsed.goals.length > 0 ||
+        parsed.focus !== undefined)
     )
       started.push("A teammate asked, so I only answered. Ask me yourself if you want me to start work on it.");
     // A cut-off answer may hold half of what it meant to ask for, so it starts nothing.
@@ -549,6 +550,17 @@ export class BuddyChatReactor {
         `buddy-chat-note:${answer.messageId}:${index}`,
       );
       if (receipt.status === "rejected") started.push(receipt.error?.message ?? "I did not keep that note.");
+    }
+    if (!wordsOnly && parsed.focus) {
+      const receipt = await this.dispatch(
+        {
+          type: "buddy.update",
+          buddyId: buddy.buddyId,
+          changes: { instructions: parsed.focus },
+        } as RuntimeCommand,
+        `buddy-chat-focus:${answer.messageId}`,
+      );
+      if (receipt.status === "rejected") started.push(receipt.error?.message ?? "I did not save my focus.");
     }
     if (!wordsOnly) {
       for (const [index, note] of parsed.about.entries()) {

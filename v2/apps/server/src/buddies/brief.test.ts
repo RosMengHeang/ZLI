@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { Database } from "../db/Database.js";
 import { Engine } from "../orchestration/Engine.js";
-import { jobBrief, leadBrief } from "./brief.js";
+import { jobBrief, leadBrief, teamLine } from "./brief.js";
 import { chatBrief, MAX_HISTORY } from "./chat.js";
 import { stableId } from "./TaskReactor.js";
 
@@ -155,5 +155,26 @@ describe("chatBrief personality", () => {
       guess: undefined,
     });
     expect(custom).toContain("a personality of your own: patient and a bit nerdy.");
+  });
+});
+
+describe("teamLine", () => {
+  const mate = (changes: Partial<BuddyProjection>) =>
+    ({ buddyId: "b9", name: "Nova", permissionMode: "supervised", ...changes }) as BuddyProjection;
+
+  it("says a buddy with no focus takes any job", () => {
+    expect(teamLine(mate({}), [])).toBe("- Nova: takes any job");
+  });
+
+  it("gives the first sentence of its instructions, read-only, and the jobs it finished", () => {
+    const done = (kind: string, status = "shipped") =>
+      ({ buddyId: "b9", status, profile: { kind } }) as unknown as TaskProjection;
+    const line = teamLine(
+      mate({ title: "Reviews", permissionMode: "read-only", instructions: "Read diffs closely. Be kind." }),
+      [done("review"), done("review"), done("docs"), done("bugfix", "failed")],
+    );
+    expect(line).toBe(
+      "- Nova (Reviews): Read diffs closely. Read only, so it cannot change files. Finished: 2 review, 1 docs.",
+    );
   });
 });

@@ -1,7 +1,7 @@
 import type { ProviderDiscovery, TaskProjection } from "@zli-v2/contracts";
 import { describe, expect, it } from "vitest";
 
-import { candidatesFor, modelTier, pickEngine, profileJob, trackRecords } from "./autopick.js";
+import { candidatesFor, modelTier, pickEngine, profileJob, qualityFor, trackRecords } from "./autopick.js";
 
 const providers: ProviderDiscovery[] = [
   {
@@ -160,5 +160,14 @@ describe("pickEngine", () => {
       now,
     });
     expect(review?.permissionMode).toBe("read-only");
+  });
+});
+
+describe("qualityFor", () => {
+  it("uses the buddy's own Auto level, else the team's", () => {
+    expect(qualityFor({ engine: { mode: "auto", quality: "best" } }, { quality: "save" })).toBe("best");
+    expect(qualityFor({ engine: { mode: "auto" } }, { quality: "save" })).toBe("save");
+    expect(qualityFor({ engine: { mode: "auto" } }, undefined)).toBe("balanced");
+    expect(qualityFor({ engine: { mode: "prefer", provider: "codex" } }, { quality: "best" })).toBe("best");
   });
 });

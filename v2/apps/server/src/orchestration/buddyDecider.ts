@@ -99,6 +99,7 @@ export function decideBuddy(projection: RuntimeProjection, command: BuddyCommand
           ...(command.to ? { to: command.to } : {}),
           ...(command.unanswered ? { unanswered: true } : {}),
           ...(command.progress ? { progress: true } : {}),
+          ...(command.asks ? { asks: command.asks } : {}),
         },
       ];
     }

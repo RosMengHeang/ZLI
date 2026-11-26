@@ -2,12 +2,9 @@ import {
   type BuddyProjection,
   type BuddyQuality,
   buddiesInOrder,
-  type HandoffAction,
   isOpenTask,
-  type MemoryNote,
   needsYou,
   openQuestion,
-  type PermissionMode,
   type ProviderKind,
   type RoutineProjection,
   type RuntimeProjection,
@@ -28,25 +25,16 @@ import { Dialog } from "../ui/Dialog.js";
 import { Select } from "../ui/Field.js";
 import { Icon } from "../ui/Icon.js";
 import { Segmented } from "../ui/Segmented.js";
-import { BuddyScreen, BudgetField, PersonalityField, RulesEditor } from "./BuddyAutonomy.js";
+import { BuddyScreen } from "./BuddyAutonomy.js";
 import { BuddyChat } from "./BuddyChat.js";
 import { BuddyList } from "./BuddyList.js";
 import { BuddyLookEditor } from "./BuddyLookEditor.js";
+import { QUALITY_LEVELS } from "./BuddyModelPicker.js";
+import { LibraryTab, SettingsTab } from "./BuddyTabs.js";
 import { GoalComposer, GoalList, isPlanTurn, isWebTask } from "./Goals.js";
 import { TEAM_CHAT_ID, TeamChat } from "./TeamChat.js";
 import { NewTeam, TeamView, teamFromPageId, teamPageId } from "./TeamView.js";
-import {
-  buddyStats,
-  duration,
-  exportBuddy,
-  FULL_ACCESS_WARNING,
-  freeName,
-  money,
-  parseBuddyFile,
-  SCHEDULES,
-  starterTeam,
-  triggerLabel,
-} from "./team.js";
+import { buddyStats, duration, freeName, money, parseBuddyFile, SCHEDULES, starterTeam, triggerLabel } from "./team.js";
 import { type Run, useRun } from "./useRun.js";
 import "./buddies.css";
 
@@ -287,11 +275,11 @@ function Welcome({ run, projection }: { run: Run; projection: RuntimeProjection 
 
 /* ---------- The team ---------- */
 
-const QUALITY: readonly { value: BuddyQuality; label: string; tooltip: string }[] = [
-  { value: "save", label: "Save money", tooltip: "Lighter models unless a job needs more" },
-  { value: "balanced", label: "Balanced", tooltip: "The model each job needs" },
-  { value: "best", label: "Best quality", tooltip: "Stronger models, even for small jobs" },
-];
+const QUALITY: readonly { value: BuddyQuality; label: string; tooltip: string }[] = QUALITY_LEVELS.map((level) => ({
+  value: level.value,
+  label: level.label,
+  tooltip: level.description,
+}));
 
 /** Finished jobs, as the board's last lane names them. */
 const DONE_STATUSES = new Set<TaskProjection["status"]>([
@@ -505,7 +493,8 @@ export function TeamSettingsDialog({
           />
           <p className="buddies-hint">
             Auto reads each job, then picks the agent, model and effort that fit it, steering away from logins near
-            their limits. It learns from how each job went.
+            their limits. It learns from how each job went. New buddies start at this level; each buddy can pick its own
+            in its settings.
           </p>
         </section>
         <section className="buddies-section" aria-label="About you">
@@ -1130,13 +1119,6 @@ export function JobCard({
 
 /* ---------- Profile ---------- */
 
-const ACTIONS: readonly { value: HandoffAction; label: string }[] = [
-  { value: "check", label: "checks it" },
-  { value: "tests", label: "writes tests for it" },
-  { value: "docs", label: "updates the docs" },
-  { value: "fix", label: "fixes what's left" },
-];
-
 /** What is coming up and how its jobs went. */
 function ActivityTab({ buddy, projection, run }: { buddy: BuddyProjection; projection: RuntimeProjection; run: Run }) {
   const stats = useMemo(() => buddyStats(buddy.buddyId, projection.tasks ?? []), [buddy.buddyId, projection.tasks]);
@@ -1193,459 +1175,6 @@ function ActivityTab({ buddy, projection, run }: { buddy: BuddyProjection; proje
           </ul>
         ) : null}
       </section>
-    </div>
-  );
-}
-
-/** What it has learned: lessons waiting for a yes, and the notes it keeps. */
-/** Where its notes came from, most trusted first. */
-const NOTE_GROUPS: readonly { label: string; hint: string; sources: readonly MemoryNote["source"][] }[] = [
-  { label: "From you", hint: "What you told it, in chat or here.", sources: ["you", "told"] },
-  { label: "Learned on jobs", hint: "Facts its jobs found worth keeping.", sources: ["lesson"] },
-  { label: "From look-backs", hint: "Lessons from reviews and the changes you asked for.", sources: ["lookback"] },
-];
-
-function LibraryTab({ buddy, projection, run }: { buddy: BuddyProjection; projection: RuntimeProjection; run: Run }) {
-  const [editing, setEditing] = useState<{ noteId: string; text: string }>();
-  return (
-    <div className="buddy-profile">
-      {buddy.pendingMemory.length > 0 ? (
-        <section className="buddies-section" aria-label="New lessons">
-          <h3 className="buddies-heading">New lessons</h3>
-          <p className="buddies-hint">From its recent jobs. Keep the ones that help.</p>
-          {buddy.pendingMemory.map((note) =>
-            editing?.noteId === note.noteId ? (
-              <form
-                key={note.noteId}
-                className="job-card-reply"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void run({
-                    type: "buddy.memory.accept",
-                    buddyId: buddy.buddyId,
-                    noteId: note.noteId,
-                    text: editing.text,
-                  }).then(() => setEditing(undefined));
-                }}
-              >
-                <input
-                  className="input input-sm"
-                  aria-label="Lesson"
-                  value={editing.text}
-                  maxLength={400}
-                  onChange={(event) => setEditing({ noteId: note.noteId, text: event.target.value })}
-                />
-                <Button size="sm" variant="primary" type="submit">
-                  Keep
-                </Button>
-              </form>
-            ) : (
-              <div key={note.noteId} className="buddy-card buddy-lesson">
-                <span>{note.text}</span>
-                <span className="buddy-lesson-actions">
-                  <Button
-                    size="xs"
-                    variant="primary"
-                    onClick={() =>
-                      void run({ type: "buddy.memory.accept", buddyId: buddy.buddyId, noteId: note.noteId })
-                    }
-                  >
-                    Keep
-                  </Button>
-                  <Button size="xs" onClick={() => setEditing({ noteId: note.noteId, text: note.text })}>
-                    Edit
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={() =>
-                      void run({ type: "buddy.memory.remove", buddyId: buddy.buddyId, noteId: note.noteId })
-                    }
-                  >
-                    Skip
-                  </Button>
-                </span>
-              </div>
-            ),
-          )}
-        </section>
-      ) : null}
-      <LearnedSummary buddy={buddy} />
-      <Playbooks buddy={buddy} projection={projection} run={run} />
-      <section className="buddies-section" aria-label="What it knows">
-        <h3 className="buddies-heading">What it knows</h3>
-        {buddy.memory.length === 0 ? (
-          <p className="buddies-hint">
-            Nothing yet. It keeps what you tell it, what its jobs learn, and lessons from each day's work.
-          </p>
-        ) : (
-          NOTE_GROUPS.map((group) => {
-            const notes = buddy.memory.filter((note) => group.sources.includes(note.source)).reverse();
-            if (notes.length === 0) return null;
-            return (
-              <div key={group.label} className="buddy-learned-group">
-                <h4 className="buddy-learned-label" title={group.hint}>
-                  {group.label} <span>{notes.length}</span>
-                </h4>
-                <ul className="buddy-card buddy-memory">
-                  {notes.map((note) => (
-                    <li key={note.noteId}>
-                      <span className="buddy-learned-text">
-                        {note.text}
-                        <span className="buddy-learned-meta">
-                          {note.projectId ? `${projectName(projection, note.projectId)} · ` : ""}
-                          {relativeTime(note.at)}
-                        </span>
-                      </span>
-                      <IconButton
-                        label="Forget"
-                        icon="x"
-                        size="xs"
-                        onClick={() =>
-                          void run({ type: "buddy.memory.remove", buddyId: buddy.buddyId, noteId: note.noteId })
-                        }
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })
-        )}
-        <AddNote buddy={buddy} run={run} />
-      </section>
-    </div>
-  );
-}
-
-function projectName(projection: RuntimeProjection, projectId: string): string {
-  return projection.projects.find((entry) => entry.projectId === projectId)?.name ?? "a project";
-}
-
-/** One line on how much it has learned, and from where. */
-function LearnedSummary({ buddy }: { buddy: BuddyProjection }) {
-  const learned = buddy.memory.filter((note) => note.source === "lesson" || note.source === "lookback").length;
-  const playbooks = (buddy.playbooks ?? []).length;
-  if (buddy.memory.length === 0 && playbooks === 0) return null;
-  return (
-    <p className="buddy-learned-summary">
-      Knows <strong>{buddy.memory.length}</strong> {buddy.memory.length === 1 ? "thing" : "things"}
-      {learned > 0 ? `, ${learned} learned on its own,` : ""} and has <strong>{playbooks}</strong>{" "}
-      {playbooks === 1 ? "playbook" : "playbooks"}. It reads them before every chat and job.
-    </p>
-  );
-}
-
-/** Steps that worked before, by project: what its next job like that starts from. */
-function Playbooks({ buddy, projection, run }: { buddy: BuddyProjection; projection: RuntimeProjection; run: Run }) {
-  const playbooks = [...(buddy.playbooks ?? [])].sort((left, right) => right.at.localeCompare(left.at));
-  return (
-    <section className="buddies-section" aria-label="Playbooks">
-      <h3 className="buddies-heading">Playbooks</h3>
-      {playbooks.length === 0 ? (
-        <p className="buddies-hint">
-          None yet. When a job works out steps worth repeating, it writes them here for the next job like it.
-        </p>
-      ) : (
-        <ul className="buddy-playbooks">
-          {playbooks.map((playbook) => (
-            <li key={playbook.playbookId} className="buddy-card buddy-playbook">
-              <details>
-                <summary>
-                  <span className="buddy-playbook-title">{playbook.title}</span>
-                  <span className="buddy-learned-meta">
-                    {projectName(projection, playbook.projectId)} · {playbook.steps.length}{" "}
-                    {playbook.steps.length === 1 ? "step" : "steps"} · {relativeTime(playbook.at)}
-                  </span>
-                </summary>
-                <ol>
-                  {playbook.steps.map((step, index) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: steps are fixed text in a fixed order.
-                    <li key={index}>{step}</li>
-                  ))}
-                </ol>
-              </details>
-              <IconButton
-                label={`Delete ${playbook.title}`}
-                icon="x"
-                size="xs"
-                onClick={() =>
-                  void run({ type: "buddy.playbook.remove", buddyId: buddy.buddyId, playbookId: playbook.playbookId })
-                }
-              />
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-/** How it works: its engine, how far it may go, who it hands work to. */
-function SettingsTab({
-  buddy,
-  projection,
-  run,
-  onRemoved,
-}: {
-  buddy: BuddyProjection;
-  projection: RuntimeProjection;
-  run: Run;
-  onRemoved(): void;
-}) {
-  const others = buddiesInOrder(projection).filter((entry) => entry.buddyId !== buddy.buddyId);
-  const [instructions, setInstructions] = useState(buddy.instructions ?? "");
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const providers = listedDiscoveries(projection.providers ?? []).filter((entry) => entry.status === "found");
-  const engineValue = buddy.engine.mode === "auto" ? "auto" : `${buddy.engine.mode}:${buddy.engine.provider}`;
-  const engineOptions = [
-    { value: "auto", label: "Auto", description: "ZLI picks the agent and model for each job" },
-    ...providers.flatMap((entry) => [
-      { value: `prefer:${entry.provider}`, label: `Prefer ${entry.displayName}`, description: "ZLI picks the model" },
-      {
-        value: `locked:${entry.provider}`,
-        label: `Always ${entry.displayName}`,
-        description: "Its default model, every job",
-      },
-    ]),
-  ];
-  const update = (changes: Record<string, unknown>) => run({ type: "buddy.update", buddyId: buddy.buddyId, changes });
-  const save = () => {
-    if (instructions !== (buddy.instructions ?? "")) void update({ instructions });
-  };
-  const download = () => {
-    const file = exportBuddy(buddy, projection.routines ?? []);
-    const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: "application/json" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${buddy.name.toLowerCase().replace(/\s+/gu, "-")}.buddy.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-  return (
-    <div className="buddy-profile">
-      <section className="buddies-section" aria-label="Agent and model">
-        <h3 className="buddies-heading">Agent and model</h3>
-        <p className="buddies-hint">
-          Auto reads each job and picks the agent, model and effort for it, and gets better at it as jobs finish. Leave
-          it on Auto unless this buddy should always use one agent.
-        </p>
-        <Select
-          label="Agent and model"
-          value={engineValue}
-          options={engineOptions}
-          onChange={(value) => {
-            const [mode, provider] = value.split(":");
-            void update({ engine: mode === "auto" ? { mode: "auto" } : { mode, provider } });
-          }}
-        />
-      </section>
-
-      <section className="buddies-section" aria-label="Most it may do">
-        <h3 className="buddies-heading">Most it may do</h3>
-        <p className="buddies-hint">
-          Read only looks and reports. Ask first stops for your yes before risky commands. Full access works without
-          stopping.
-        </p>
-        <Select<PermissionMode>
-          label="Most it may do"
-          value={buddy.permissionMode}
-          options={[
-            { value: "read-only", label: "Read only", description: "Plans and reviews; changes no files" },
-            { value: "supervised", label: "Ask first", description: "Asks before risky commands" },
-            { value: "full-access", label: "Full access", description: "Works without asking" },
-          ]}
-          onChange={(permissionMode) => void update({ permissionMode })}
-        />
-        {buddy.permissionMode === "full-access" ? (
-          <p className="buddies-hint is-warning" role="note">
-            {FULL_ACCESS_WARNING}
-          </p>
-        ) : null}
-      </section>
-
-      <PersonalityField buddy={buddy} run={run} />
-
-      <RulesEditor buddy={buddy} run={run} />
-
-      <BudgetField buddy={buddy} projection={projection} run={run} />
-
-      <section className="buddies-section" aria-label="Passes work on">
-        <h3 className="buddies-heading">Passes work on</h3>
-        <p className="buddies-hint">
-          When {buddy.name} finishes a job, the buddy you pick here takes it next. A check sends it back if something is
-          wrong, up to two rounds, before it reaches you.
-        </p>
-        {buddy.handoffs.map((rule) => {
-          const to = others.find((entry) => entry.buddyId === rule.to);
-          return (
-            <div key={rule.ruleId} className="buddy-card buddy-rule">
-              <span>
-                When {buddy.name} finishes, {to?.name ?? "a removed buddy"}{" "}
-                {ACTIONS.find((entry) => entry.value === rule.action)?.label ?? rule.action}
-                {rule.action === "check" ? `, up to ${rule.maxRounds} rounds` : ""}.
-              </span>
-              <IconButton
-                label="Remove rule"
-                icon="x"
-                size="xs"
-                onClick={() => void run({ type: "buddy.handoff.remove", buddyId: buddy.buddyId, ruleId: rule.ruleId })}
-              />
-            </div>
-          );
-        })}
-        {others.length > 0 ? <AddRule buddy={buddy} others={others} run={run} /> : null}
-      </section>
-
-      <section className="buddies-section" aria-label="Standing instructions">
-        <h3 className="buddies-heading">
-          Standing instructions
-          <span className="buddy-spacer" />
-          <IconButton label="Open full size" icon="maximize" size="xs" onClick={() => setExpanded(true)} />
-        </h3>
-        <p className="buddies-hint">{buddy.name} reads these at the start of every job.</p>
-        <textarea
-          className="input buddy-instructions"
-          aria-label="Standing instructions"
-          placeholder="What it should always do, such as: run pnpm test before finishing"
-          rows={10}
-          maxLength={4_000}
-          value={instructions}
-          onChange={(event) => setInstructions(event.target.value)}
-          onBlur={save}
-        />
-        {expanded ? (
-          <Dialog
-            label="Standing instructions"
-            title={`${buddy.name}'s standing instructions`}
-            subtitle="Read at the start of every job."
-            size="lg"
-            onClose={() => {
-              save();
-              setExpanded(false);
-            }}
-          >
-            <div className="dialog-body">
-              <textarea
-                className="input buddy-instructions is-full"
-                aria-label="Standing instructions"
-                rows={22}
-                maxLength={4_000}
-                value={instructions}
-                onChange={(event) => setInstructions(event.target.value)}
-              />
-            </div>
-            <div className="dialog-footer">
-              <span className="buddies-hint">{instructions.length} / 4000</span>
-              <span className="buddy-spacer" />
-              <Button
-                variant="primary"
-                onClick={() => {
-                  save();
-                  setExpanded(false);
-                }}
-              >
-                Done
-              </Button>
-            </div>
-          </Dialog>
-        ) : null}
-      </section>
-
-      <div className="job-card-actions">
-        {buddy.role !== "primary" ? (
-          <Button
-            size="sm"
-            tooltip="The Primary plans bigger asks and hands the parts to the others"
-            onClick={() => void run({ type: "buddy.setPrimary", buddyId: buddy.buddyId })}
-          >
-            Make Primary
-          </Button>
-        ) : null}
-        <Button size="sm" icon="download" tooltip="Save it as a file you can import elsewhere" onClick={download}>
-          Export
-        </Button>
-        {confirmRemove ? (
-          <>
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={() =>
-                void run({ type: "buddy.archive", buddyId: buddy.buddyId }).then((ok) => ok && onRemoved())
-              }
-            >
-              Remove {buddy.name}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(false)}>
-              Keep
-            </Button>
-          </>
-        ) : (
-          <Button size="sm" variant="ghost" icon="trash" onClick={() => setConfirmRemove(true)}>
-            Remove
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function AddNote({ buddy, run }: { buddy: BuddyProjection; run: Run }) {
-  const [text, setText] = useState("");
-  return (
-    <form
-      className="job-card-reply"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!text.trim()) return;
-        void run({
-          type: "buddy.memory.add",
-          buddyId: buddy.buddyId,
-          note: { noteId: makeCommandId(), text: text.trim(), source: "you" },
-        }).then((ok) => ok && setText(""));
-      }}
-    >
-      <input
-        className="input input-sm"
-        aria-label="Teach it something"
-        placeholder="Teach it something, such as how to run the tests"
-        value={text}
-        maxLength={400}
-        onChange={(event) => setText(event.target.value)}
-      />
-      <Button size="sm" type="submit" disabled={!text.trim()}>
-        Add
-      </Button>
-    </form>
-  );
-}
-
-function AddRule({ buddy, others, run }: { buddy: BuddyProjection; others: BuddyProjection[]; run: Run }) {
-  const [to, setTo] = useState(others[0]?.buddyId ?? "");
-  const [action, setAction] = useState<HandoffAction>("check");
-  return (
-    <div className="buddy-rule-form">
-      <span>When it finishes,</span>
-      <Select
-        label="Buddy"
-        value={to}
-        options={others.map((entry) => ({ value: entry.buddyId, label: entry.name }))}
-        onChange={setTo}
-      />
-      <Select<HandoffAction> label="Does" value={action} options={ACTIONS} onChange={setAction} />
-      <Button
-        size="sm"
-        onClick={() =>
-          void run({
-            type: "buddy.handoff.set",
-            buddyId: buddy.buddyId,
-            rule: { ruleId: makeCommandId(), when: "finished", to, action, maxRounds: 2, enabled: true },
-          })
-        }
-      >
-        Add rule
-      </Button>
     </div>
   );
 }

@@ -125,9 +125,12 @@ export const BuddyName = z
   .max(24, "Keep the name to 24 characters.")
   .regex(/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u, "Use letters, numbers, spaces, - or _.");
 
+export const BuddyQuality = z.enum(["save", "balanced", "best"]);
+export type BuddyQuality = z.infer<typeof BuddyQuality>;
+
 export const BuddyEngine = z.discriminatedUnion("mode", [
-  /** ZLI picks the agent, model and effort for each job. */
-  z.object({ mode: z.literal("auto") }),
+  /** ZLI picks the agent, model and effort for each job. Missing quality: the team's level. */
+  z.object({ mode: z.literal("auto"), quality: BuddyQuality.optional() }),
   /** ZLI picks the model and effort, on this agent. */
   z.object({ mode: z.literal("prefer"), provider: ProviderKind }),
   /** Always this agent and model. */
@@ -301,6 +304,8 @@ export const BuddyMessage = z.object({
   progress: z.literal(true).optional(),
   /** Set when it belongs to the team chat: the id of the person's message there that it came from or answers. */
   team: Id.optional(),
+  /** On a "buddy" message: it asks what the buddy should focus on, so the chat offers focus answers under it. */
+  asks: z.literal("focus").optional(),
 });
 export type BuddyMessage = z.infer<typeof BuddyMessage>;
 
@@ -674,9 +679,6 @@ export function teamDefaults(settings: BuddySettings | undefined): TeamDefaults 
   return { ...DEFAULT_TEAM_DEFAULTS, ...settings?.team };
 }
 
-export const BuddyQuality = z.enum(["save", "balanced", "best"]);
-export type BuddyQuality = z.infer<typeof BuddyQuality>;
-
 /** A lasting fact about the person, from their own words, that every buddy reads. */
 export const AboutNote = z.object({
   noteId: Id,
@@ -827,6 +829,8 @@ export const BuddyCommand = z.discriminatedUnion("type", [
     progress: z.literal(true).optional(),
     /** The team chat message this answers, so the reply shows there. */
     team: Id.optional(),
+    /** It asks what the buddy should focus on. */
+    asks: z.literal("focus").optional(),
   }),
   z.object({ type: z.literal("buddy.chat.thread"), buddyId: Id, threadId: Id }),
   z.object({ type: z.literal("buddies.pause") }),
@@ -997,6 +1001,7 @@ export const BuddyEvent = z.discriminatedUnion("type", [
     unanswered: z.literal(true).optional(),
     progress: z.literal(true).optional(),
     team: Id.optional(),
+    asks: z.literal("focus").optional(),
   }),
   z.object({ type: z.literal("buddy.chat.thread.set"), buddyId: Id, threadId: Id }),
   z.object({ type: z.literal("buddies.paused") }),
@@ -1299,6 +1304,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
     unanswered?: boolean,
     progress?: boolean,
     team?: string,
+    asks?: "focus",
   ) => {
     if (buddyMessages.some((message) => message.messageId === messageId)) return;
     const next = [
@@ -1314,6 +1320,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
         ...(unanswered ? { unanswered: true as const } : {}),
         ...(progress ? { progress: true as const } : {}),
         ...(team ? { team } : {}),
+        ...(asks ? { asks } : {}),
       },
     ];
     const own = next.filter((message) => message.buddyId === buddyId);
@@ -1659,6 +1666,7 @@ export function applyBuddyEvent(state: BuddyState, event: BuddyEvent, at: string
         event.unanswered,
         event.progress,
         event.team,
+        event.asks,
       );
       // The sidebar line is what the buddy itself said, not a teammate's answer or a note it passed on.
       if (!event.from && !event.to)
