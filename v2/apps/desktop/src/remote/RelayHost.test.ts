@@ -18,6 +18,7 @@ class FakeSocket extends EventEmitter {
   closeCode: number | undefined;
   pings = 0;
   autoPong = true;
+  deferClose = false;
   constructor(
     readonly url: string,
     readonly options: unknown,
@@ -30,7 +31,7 @@ class FakeSocket extends EventEmitter {
   close(code?: number) {
     this.closeCode = code;
     this.readyState = 3;
-    this.emit("close", code ?? 1005);
+    if (!this.deferClose) this.emit("close", code ?? 1005);
   }
   ping() {
     this.pings += 1;
@@ -38,7 +39,7 @@ class FakeSocket extends EventEmitter {
   }
   terminate() {
     this.readyState = 3;
-    this.emit("close", 1006);
+    if (!this.deferClose) this.emit("close", 1006);
   }
   open() {
     this.readyState = 1;
@@ -417,5 +418,58 @@ describe("RelayHost", () => {
     control().open();
     expect(control().sent).toHaveLength(sent);
     expect(states.at(-1)).toBe("budget-exhausted");
+  });
+  it("a late close from an old control socket does not cancel the new socket deadline", () => {
+    host.start();
+    const old = control();
+    old.deferClose = true;
+    host.stop();
+    host.start();
+    const fresh = last();
+    const terminate = vi.spyOn(fresh, "terminate");
+    old.emit("close", 1006);
+    vi.advanceTimersByTime(15_000);
+    expect(terminate).toHaveBeenCalled();
+  });
+
+  it("a late pong from an old control socket does not reset the new socket count", () => {
+    host.start();
+    const old = control();
+    old.open();
+    old.deferClose = true;
+    host.stop();
+    host.start();
+    const fresh = last();
+    fresh.open();
+    fresh.autoPong = false;
+    vi.advanceTimersByTime(40_000);
+    old.emit("pong");
+    vi.advanceTimersByTime(20_000);
+    expect(fresh.readyState).toBe(3);
+  });
+
+  it("skips a session whose socket cannot be created", () => {
+    let fail = false;
+    const picky = new RelayHost({
+      route,
+      secret,
+      gateway: { accept: () => undefined },
+      createSocket: (url, options) => {
+        if (fail) throw new Error("no network");
+        const socket = new FakeSocket(url, options);
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+      onState: () => undefined,
+      random: () => 0.5,
+    });
+    picky.start();
+    control().open();
+    fail = true;
+    expect(() => control().receive({ type: "open", session, client: "a" })).not.toThrow();
+    fail = false;
+    control().receive({ type: "open", session, client: "b" });
+    expect(sockets).toHaveLength(2);
+    picky.stop();
   });
 });

@@ -42,12 +42,10 @@ export class RelayHost {
   #running = false;
   #state: RelayState = "off";
   #control: WebSocket | undefined;
-  #pingTimer: ReturnType<typeof setInterval> | undefined;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
   #attempt = 0;
-  #missedPongs = 0;
-  #stableTimer: ReturnType<typeof setTimeout> | undefined;
-  #controlDeadline: ReturnType<typeof setTimeout> | undefined;
+  /** Cancels the timers of the current control socket. Each socket owns its own, so a stale one cannot touch them. */
+  #releaseControl: (() => void) | undefined;
   readonly #sessionDeadlines = new Map<WebSocket, ReturnType<typeof setTimeout>>();
 
   constructor(options: RelayHostOptions) {
@@ -67,8 +65,7 @@ export class RelayHost {
     this.#running = false;
     clearTimeout(this.#retryTimer);
     this.#retryTimer = undefined;
-    this.#clearPing();
-    clearTimeout(this.#controlDeadline);
+    this.#releaseControl?.();
     for (const timer of this.#sessionDeadlines.values()) clearTimeout(timer);
     this.#sessionDeadlines.clear();
     const control = this.#control;
@@ -99,31 +96,39 @@ export class RelayHost {
       return;
     }
     this.#control = socket;
-    this.#controlDeadline = deadline(socket);
+    let missedPongs = 0;
+    let pingTimer: ReturnType<typeof setInterval> | undefined;
+    let stableTimer: ReturnType<typeof setTimeout> | undefined;
+    const connectDeadline = deadline(socket);
+    const release = () => {
+      clearTimeout(connectDeadline);
+      clearInterval(pingTimer);
+      clearTimeout(stableTimer);
+    };
+    this.#releaseControl = release;
     // A failed dial or dropped link is handled by the close that follows.
     socket.on("error", () => undefined);
     socket.on("pong", () => {
-      this.#missedPongs = 0;
+      missedPongs = 0;
     });
     socket.on("open", () => {
       if (this.#control !== socket) return;
-      clearTimeout(this.#controlDeadline);
+      clearTimeout(connectDeadline);
       socket.send(JSON.stringify({ type: "claim", secret: toBase64Url(secret) }));
-      this.#missedPongs = 0;
-      this.#pingTimer = setInterval(() => {
+      pingTimer = setInterval(() => {
         if (socket.readyState !== 1) return;
         // The relay only counts our app pings, and a dead path would never tell us otherwise.
-        if (this.#missedPongs >= 2) {
+        if (missedPongs >= 2) {
           socket.terminate();
           return;
         }
-        this.#missedPongs += 1;
+        missedPongs += 1;
         socket.ping();
         socket.send(JSON.stringify({ type: "ping" }));
       }, PING_MS);
       // A relay that rejects the claim closes right after open, so only a link that holds earns a fresh backoff.
-      this.#stableTimer = setTimeout(() => {
-        this.#attempt = 0;
+      stableTimer = setTimeout(() => {
+        if (this.#control === socket) this.#attempt = 0;
       }, STABLE_MS);
       this.#setState("online");
     });
@@ -131,10 +136,9 @@ export class RelayHost {
       if (this.#control === socket) this.#onControlMessage(socket, data, isBinary);
     });
     socket.on("close", (code: number) => {
-      clearTimeout(this.#controlDeadline);
+      release();
       if (this.#control !== socket) return;
       this.#control = undefined;
-      this.#clearPing();
       // After a budget message the wait is already scheduled, and the relay closing is expected.
       if (!this.#running || this.#state === "budget-exhausted") return;
       if (code === CLOSE_REPLACED) {
@@ -168,7 +172,13 @@ export class RelayHost {
   #openSession(session: string, client: string): void {
     if (this.#sessions.size >= MAX_SESSIONS) return;
     const { route, gateway, createSocket } = this.#options;
-    const socket = createSocket(relayUrl(route, "host", session), PHONE_SOCKET_OPTIONS);
+    let socket: WebSocket;
+    try {
+      socket = createSocket(relayUrl(route, "host", session), PHONE_SOCKET_OPTIONS);
+    } catch {
+      // This phone just gets no session; the control link is unaffected.
+      return;
+    }
     this.#sessions.add(socket);
     this.#sessionDeadlines.set(socket, deadline(socket));
     // The gateway adds its own error handler once it owns the socket; until then an unheard error would throw.
@@ -193,8 +203,7 @@ export class RelayHost {
 
   #onBudget(socket: WebSocket): void {
     this.#setState("budget-exhausted");
-    this.#clearPing();
-    clearTimeout(this.#controlDeadline);
+    this.#releaseControl?.();
     // Detached first, so nothing the closing socket still says is acted on.
     this.#control = undefined;
     // Retrying earlier only burns the relay's budget on reconnects, so wait out the UTC day.
@@ -215,13 +224,6 @@ export class RelayHost {
     const base = Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** this.#attempt);
     this.#attempt += 1;
     return Math.min(BACKOFF_MAX_MS, base * (0.5 + this.#random()));
-  }
-
-  #clearPing(): void {
-    clearTimeout(this.#stableTimer);
-    this.#stableTimer = undefined;
-    clearInterval(this.#pingTimer);
-    this.#pingTimer = undefined;
   }
 
   #now(): number {
