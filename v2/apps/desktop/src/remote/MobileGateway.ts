@@ -32,6 +32,9 @@ export type UpstreamTarget = { url: string; token: string; environmentId: string
  */
 export type ConnectionOrigin = { route: "lan"; address: string } | { route: "relay"; client: string };
 
+/** A pairing waiting on the person at the desktop. `signal` aborts when the phone leaves or the wait runs out. */
+export type PairingApprovalRequest = { deviceName: string; route: "lan" | "relay"; signal: AbortSignal };
+
 export interface MobileGatewayOptions {
   store: MobileAccessStore;
   pairing: PairingWindow;
@@ -44,6 +47,11 @@ export interface MobileGatewayOptions {
   hosts: () => string[];
   /** Paired phones, live connections, or the open pairing code changed. */
   onChange: () => void;
+  /**
+   * Asks the person at the desktop to allow a pairing that came through the relay, where a leaked code could reach the
+   * desktop from anywhere. Without it, relay pairings are refused.
+   */
+  approvePairing?: (request: PairingApprovalRequest) => Promise<boolean>;
   now?: () => number;
   log?: (message: string, detail?: Record<string, unknown>) => void;
   createUpstreamSocket?: (url: string) => WebSocket;
@@ -52,6 +60,10 @@ export interface MobileGatewayOptions {
 /** The first port tried, so a phone paired once finds the desktop again after a restart. */
 export const DEFAULT_MOBILE_PORT = 47_321;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
+/** How long a relay pairing waits for the person to allow it. Shorter than the phone's wait, so the refusal reaches it. */
+export const PAIRING_APPROVAL_WAIT_MS = 120_000;
+/** The relay closes a connection that is quiet for a minute, so a pairing that waits says so again before that. */
+const APPROVAL_REPEAT_MS = 20_000;
 const HEARTBEAT_MS = 30_000;
 /** Room for a message with a few photos; the phone shrinks each one before it sends. */
 const MAX_PHONE_FRAME_BYTES = 8 * 1024 * 1024;
@@ -237,6 +249,8 @@ export class MobileGateway {
     let upstream: WebSocket | undefined;
     let upstreamHello: unknown;
     let environmentId: string | undefined;
+    let approval: AbortController | undefined;
+    let approvalRepeat: NodeJS.Timeout | undefined;
     let counted = true;
     this.#unauthenticated += 1;
     if (relay) this.#unauthenticatedRelay += 1;
@@ -251,6 +265,8 @@ export class MobileGateway {
       if (phase === "closed") return;
       phase = "closed";
       clearTimeout(timer);
+      clearInterval(approvalRepeat);
+      approval?.abort();
       uncount();
       this.#relaySockets.delete(socket);
       this.#everyone.delete(close);
@@ -269,7 +285,7 @@ export class MobileGateway {
       if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close(code);
     };
     this.#everyone.add(close);
-    const timer = setTimeout(() => close(RemoteCloseCode.handshake), HANDSHAKE_TIMEOUT_MS);
+    let timer = setTimeout(() => close(RemoteCloseCode.handshake), HANDSHAKE_TIMEOUT_MS);
 
     const sendSealed = (message: unknown) => {
       if (!channel || socket.readyState !== WebSocket.OPEN) return;
@@ -321,16 +337,48 @@ export class MobileGateway {
       }
     };
 
+    /**
+     * Holds a pairing until the person allows it. The connection stays unpaired meanwhile: it keeps its place in the
+     * unpaired count and the small frame limit, and anything the phone sends closes it.
+     */
+    const approve = async (deviceName: string): Promise<boolean> => {
+      const ask = options.approvePairing;
+      if (!ask) return false;
+      const controller = new AbortController();
+      approval = controller;
+      // The approval wait replaces the handshake deadline.
+      clearTimeout(timer);
+      timer = setTimeout(() => close(RemoteCloseCode.pairingDenied), PAIRING_APPROVAL_WAIT_MS);
+      const waiting: ServerControl = { type: "gateway.waiting", reason: "approval" };
+      sendSealed(waiting);
+      approvalRepeat = setInterval(() => sendSealed(waiting), APPROVAL_REPEAT_MS);
+      const cancelled = new Promise<false>((resolve) =>
+        controller.signal.addEventListener("abort", () => resolve(false), { once: true }),
+      );
+      try {
+        const allowed = await Promise.race([ask({ deviceName, route, signal: controller.signal }), cancelled]);
+        return allowed === true && !controller.signal.aborted;
+      } catch {
+        return false;
+      } finally {
+        clearInterval(approvalRepeat);
+        approval = undefined;
+      }
+    };
+
     const onControl = async (message: unknown) => {
       const control = ClientControl.safeParse(message);
       if (!control.success || !hello) return close(RemoteCloseCode.protocol);
       if (hello.mode === "pair") {
         if (control.data.type !== "gateway.pair") return close(RemoteCloseCode.protocol);
+        const name = cleanName(control.data.deviceName);
+        if (relay && !(await approve(name))) return close(RemoteCloseCode.pairingDenied);
+        if (phase === "closed") return;
         const credential = options.random(32);
         const id = toBase64Url(options.random(16));
         await options.store.addDevice({
           deviceId: id,
-          name: cleanName(control.data.deviceName),
+          name,
           publicKey: hello.clientStatic,
           credentialHash: toBase64Url(hashSecret(credential)),
           pairedAt: new Date(options.now?.() ?? Date.now()).toISOString(),

@@ -35,7 +35,7 @@ export type RaceOptions = {
   port: number;
   relay?: RelayRoute | undefined;
   /** Opens one encrypted session. It must close its socket when `signal` aborts. */
-  open: (url: string, signal: AbortSignal) => Promise<RemoteSession>;
+  open: (url: string, signal: AbortSignal, route: RouteKind) => Promise<RemoteSession>;
   lanHeadStartMs?: number;
   /** Use the relay only after every LAN host failed. For pairing, where a code works once. */
   sequential?: boolean;
@@ -103,7 +103,7 @@ export function raceRoutes(options: RaceOptions): Promise<RouteResult> {
       attempts.add(controller);
       let session: RemoteSession;
       try {
-        session = await open(url, controller.signal);
+        session = await open(url, controller.signal, route);
       } catch (error) {
         attempts.delete(controller);
         if (!(error instanceof RemoteConnectError)) {

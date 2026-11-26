@@ -14,6 +14,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AttemptLimiter } from "./AttemptLimiter.js";
 import { lanAddresses } from "./lanAddresses.js";
 import { MobileAccessStore, type SecretCodec } from "./MobileAccessStore.js";
+import { PAIRING_APPROVAL_WAIT_MS } from "./MobileGateway.js";
+import { PairingApprovals } from "./PairingApprovals.js";
 import { PAIRING_TTL_MS, PairingWindow } from "./PairingWindow.js";
 import type { RelayState } from "./RelayHost.js";
 import { desktopPairingCode, RelayLink, relayUrlFrom } from "./relayAccess.js";
@@ -448,5 +450,82 @@ describe("RelayLink", () => {
     expect(hosts[0]?.starts).toBe(2);
     expect(hosts[0]?.running).toBe(true);
     expect(relay.state).toBe("connecting");
+  });
+});
+
+describe("PairingApprovals", () => {
+  function approvals() {
+    let changes = 0;
+    let now = 1_000;
+    const value = new PairingApprovals({
+      random,
+      onChange: () => {
+        changes += 1;
+      },
+      now: () => now,
+    });
+    return {
+      value,
+      changes: () => changes,
+      advance: (ms: number) => {
+        now += ms;
+      },
+    };
+  }
+  const ask = (signal = new AbortController().signal) => ({ deviceName: "Pixel 9", route: "relay" as const, signal });
+
+  it("shows the request while it waits and allows it when the person answers with its id", async () => {
+    const { value, changes } = approvals();
+    const answer = value.ask(ask());
+    const request = value.current();
+    expect(request).toEqual({
+      id: expect.any(String),
+      deviceName: "Pixel 9",
+      expiresAt: 1_000 + PAIRING_APPROVAL_WAIT_MS,
+    });
+    expect(changes()).toBe(1);
+    expect(value.respond(request?.id, true)).toBe(true);
+    expect(await answer).toBe(true);
+    expect(value.current()).toBeUndefined();
+    expect(changes()).toBe(2);
+  });
+
+  it("ignores an answer with the wrong id, and allows only on exactly true", async () => {
+    const { value } = approvals();
+    const answer = value.ask(ask());
+    expect(value.respond("not-the-id", true)).toBe(false);
+    expect(value.respond(42, true)).toBe(false);
+    expect(value.current()).toBeDefined();
+    expect(value.respond(value.current()?.id, "yes")).toBe(true);
+    expect(await answer).toBe(false);
+  });
+
+  it("refuses a second request while one waits, so the prompt cannot be swapped", async () => {
+    const { value } = approvals();
+    const first = value.ask(ask());
+    const id = value.current()?.id;
+    expect(await value.ask({ ...ask(), deviceName: "Other" })).toBe(false);
+    expect(value.current()).toMatchObject({ id, deviceName: "Pixel 9" });
+    value.deny();
+    expect(await first).toBe(false);
+  });
+
+  it("denies the waiting request when phone access stops or the code is closed", async () => {
+    const { value } = approvals();
+    const answer = value.ask(ask());
+    value.deny();
+    expect(await answer).toBe(false);
+    expect(value.current()).toBeUndefined();
+  });
+
+  it("drops the request when the gateway gives up on it", async () => {
+    const { value, changes } = approvals();
+    const controller = new AbortController();
+    const answer = value.ask(ask(controller.signal));
+    controller.abort();
+    expect(await answer).toBe(false);
+    expect(value.current()).toBeUndefined();
+    expect(changes()).toBe(2);
+    expect(await value.ask(ask(controller.signal))).toBe(false);
   });
 });

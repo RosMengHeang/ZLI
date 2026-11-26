@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ClientControl, isControlType } from "./messages.js";
+import { ClientControl, isControlType, ServerControl } from "./messages.js";
 
 const token = "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]";
 
@@ -36,5 +36,16 @@ describe("ClientControl", () => {
     expect(ClientControl.parse({ type: "gateway.away", away: true })).toEqual({ type: "gateway.away", away: true });
     expect(ClientControl.safeParse({ type: "gateway.away", away: "yes" }).success).toBe(false);
     expect(isControlType("gateway.away")).toBe(true);
+  });
+});
+
+describe("ServerControl", () => {
+  it("parses the gateway's wait for approval, and nothing else as its reason", () => {
+    expect(ServerControl.parse({ type: "gateway.waiting", reason: "approval" })).toEqual({
+      type: "gateway.waiting",
+      reason: "approval",
+    });
+    expect(ServerControl.safeParse({ type: "gateway.waiting", reason: "other" }).success).toBe(false);
+    expect(ServerControl.safeParse({ type: "gateway.waiting" }).success).toBe(false);
   });
 });

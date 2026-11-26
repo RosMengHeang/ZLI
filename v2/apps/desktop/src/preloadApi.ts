@@ -498,6 +498,11 @@ export function createPreloadApi(ipc: PreloadIpc, options: { testMode?: boolean 
         ),
       /** Dials the relay again, for example after another PC took the room. */
       retryRelay: async () => MobileAccessStatus.parse(await ipc.invoke("zli:remote:retry-relay")),
+      /** Answers a pairing that came through the relay. Only `true` allows it. */
+      respondToPairing: async (id: string, allow: boolean) =>
+        MobileAccessStatus.parse(
+          await ipc.invoke("zli:remote:respond-to-pairing", { id: String(id).slice(0, 100), allow: allow === true }),
+        ),
       onStatus: (listener: (status: MobileAccessStatus) => void) =>
         ipc.on("zli:remote:status", (_event, value) => {
           const parsed = MobileAccessStatus.safeParse(value);

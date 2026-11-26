@@ -60,5 +60,6 @@ export function useMobileAccess() {
     setRelayEnabled: (enabled: boolean) => run(() => api?.setRelayEnabled(enabled)),
     setRemoteTerminalInput: (enabled: boolean) => run(() => api?.setRemoteTerminalInput(enabled)),
     retryRelay: () => run(() => api?.retryRelay()),
+    respondToPairing: (id: string, allow: boolean) => run(() => api?.respondToPairing(id, allow)),
   };
 }

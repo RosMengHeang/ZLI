@@ -9,6 +9,7 @@ import { WebSocket } from "ws";
 import { lanAddresses } from "./lanAddresses.js";
 import { MobileAccessStore, type SecretCodec } from "./MobileAccessStore.js";
 import { DEFAULT_MOBILE_PORT, MobileGateway, type UpstreamTarget } from "./MobileGateway.js";
+import { PairingApprovals } from "./PairingApprovals.js";
 import { PairingWindow } from "./PairingWindow.js";
 import { PhonePush, type PushFetch } from "./PhonePush.js";
 import { RelayHost } from "./RelayHost.js";
@@ -72,6 +73,7 @@ export async function registerMobileAccess(options: {
     const connected = gateway.connectedDeviceIds();
     const hosts = state === "listening" ? reachableHosts() : [];
     const pending = pairing.current();
+    const request = approvals.current();
     let pairingStatus: MobileAccessStatus["pairing"];
     if (pending && state === "listening" && port && hosts.length > 0) {
       const route = relay.route();
@@ -94,6 +96,15 @@ export async function registerMobileAccess(options: {
       hosts,
       ...(port ? { port } : {}),
       ...(pairingStatus ? { pairing: pairingStatus } : {}),
+      ...(request
+        ? {
+            pairingRequest: {
+              id: request.id,
+              deviceName: request.deviceName,
+              expiresAt: new Date(request.expiresAt).toISOString(),
+            },
+          }
+        : {}),
       devices: store.devices().map((device) => ({
         deviceId: device.deviceId,
         name: device.name,
@@ -120,9 +131,13 @@ export async function registerMobileAccess(options: {
       .catch(() => undefined);
   };
 
+  // The person is already in Settings, looking at the code, so the request shows there and needs no notification.
+  const approvals = new PairingApprovals({ random, onChange: () => publish() });
+
   const gateway = new MobileGateway({
     store,
     pairing,
+    approvePairing: (request) => approvals.ask(request),
     random,
     upstream: options.upstream,
     projection: options.projection,
@@ -181,6 +196,7 @@ export async function registerMobileAccess(options: {
 
   const stop = async () => {
     pairing.close();
+    approvals.deny();
     if (expiryTimer) clearTimeout(expiryTimer);
     relay.stop();
     await gateway.stop();
@@ -235,7 +251,15 @@ export async function registerMobileAccess(options: {
   });
   ipcMain.handle("zli:remote:cancel-pairing", () => {
     pairing.close();
+    approvals.deny();
     if (expiryTimer) clearTimeout(expiryTimer);
+    return status();
+  });
+  ipcMain.handle("zli:remote:respond-to-pairing", (_event, input: unknown) => {
+    const { id, allow } = (input ?? {}) as { id?: unknown; allow?: unknown };
+    if (typeof id !== "string" || id.length === 0 || id.length > 100) throw new Error("Choose a pairing request.");
+    // An answer for a request that already ended is ignored; the status shows what is waiting now.
+    approvals.respond(id, allow === true);
     return status();
   });
   ipcMain.handle("zli:remote:revoke", async (_event, input: unknown) => {

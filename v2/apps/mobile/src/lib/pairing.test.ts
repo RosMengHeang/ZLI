@@ -132,6 +132,44 @@ describe("pairWithDesktop", () => {
     expect(pairing.lastRoute).toBe("lan");
   });
 
+  it("says when the PC asks the person to allow a relay pairing, and why it failed when they did not", async () => {
+    const relay = { url: "wss://relay.example.com", room: toBase64Url(webCryptoRandomBytes(16)) };
+    const relayCode = encodePairingCode({
+      v: 1,
+      name: "Studio",
+      hosts: ["192.168.1.20"],
+      port: 47321,
+      key: toBase64Url(webCryptoRandomBytes(32)),
+      pairingId: toBase64Url(webCryptoRandomBytes(16)),
+      secret: toBase64Url(webCryptoRandomBytes(32)),
+      expiresAt: now + 60_000,
+      relay,
+    });
+    const attempts: Array<{ url: string; timeoutMs?: number; onWaiting?: () => void }> = [];
+    const onWaiting = vi.fn();
+    const pending = pairWithDesktop(
+      relayCode,
+      "Pixel",
+      {
+        ...deps(async () => pairedSession()),
+        openSession: async (options: { url: string; timeoutMs?: number; onWaiting?: () => void }) => {
+          attempts.push(options);
+          if (options.url.startsWith("ws://")) throw new RemoteConnectError("network", failureMessage("network"));
+          options.onWaiting?.();
+          throw new RemoteConnectError("pairing-denied", failureMessage("pairing-denied"));
+        },
+      } as never,
+      { onWaiting },
+    );
+    await expect(pending).rejects.toThrow("The PC didn't allow this phone. Make a new code on the PC and try again.");
+    expect(onWaiting).toHaveBeenCalledTimes(1);
+    // Only the relay attempt can be held for approval; the LAN attempt is as before.
+    expect(attempts.map((attempt) => [attempt.timeoutMs, typeof attempt.onWaiting])).toEqual([
+      [8_000, "undefined"],
+      [8_000, "function"],
+    ]);
+  });
+
   it("stops at a used code instead of trying the next address", async () => {
     const open = vi.fn(async () => {
       throw new RemoteConnectError("pairing-code", failureMessage("pairing-code"));

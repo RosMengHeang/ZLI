@@ -19,6 +19,14 @@ export const MobilePairing = z.object({
 });
 export type MobilePairing = z.infer<typeof MobilePairing>;
 
+/** A pairing that came through the relay, held until the person at the desktop allows it. */
+export const MobilePairingRequest = z.object({
+  id: z.string().min(1).max(100),
+  deviceName: z.string().min(1).max(60),
+  expiresAt: z.string().datetime({ offset: true }),
+});
+export type MobilePairingRequest = z.infer<typeof MobilePairingRequest>;
+
 /**
  * The desktop's link to ZLI's relay. `replaced` means another PC claimed the same room; the desktop waits for the
  * person before it tries again, so two PCs do not take the room from each other forever.
@@ -45,6 +53,7 @@ export const MobileAccessStatus = z.object({
   hosts: z.array(z.string().min(1).max(253)).max(8),
   port: z.number().int().min(0).max(65_535).optional(),
   pairing: MobilePairing.optional(),
+  pairingRequest: MobilePairingRequest.optional(),
   devices: z.array(PairedPhone).max(100),
   relay: RelayAccessStatus.default({ available: false, enabled: false, state: "off", remoteTerminalInput: false }),
 });

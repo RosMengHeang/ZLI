@@ -59,8 +59,16 @@ export function pairingCodeFromLink(url: string): string | undefined {
   }
 }
 
-/** Pairs with the desktop named in a pairing code. Rejects with PairError, whose message is shown as is. */
-export async function pairWithDesktop(codeText: string, deviceName: string, deps: PairDeps): Promise<StoredPairing> {
+/**
+ * Pairs with the desktop named in a pairing code. Rejects with PairError, whose message is shown as is. `onWaiting`
+ * fires when a pairing through the relay waits for the person at the desktop to allow it.
+ */
+export async function pairWithDesktop(
+  codeText: string,
+  deviceName: string,
+  deps: PairDeps,
+  events: { onWaiting?: () => void } = {},
+): Promise<StoredPairing> {
   const preview = previewPairingCode(codeText, deps.now());
   if ("error" in preview) throw new PairError(preview.error);
   const code = decodePairingCode(codeText);
@@ -77,7 +85,7 @@ export async function pairWithDesktop(codeText: string, deviceName: string, deps
       port: code.port,
       relay: code.relay,
       sequential: true,
-      open: (url, signal) =>
+      open: (url, signal, route) =>
         open({
           url,
           serverPublicKey: fromBase64Url(code.key),
@@ -90,8 +98,10 @@ export async function pairWithDesktop(codeText: string, deviceName: string, deps
           },
           random: deps.random,
           createSocket: deps.createSocket,
+          // A relay attempt the desktop holds for approval gets the longer approval timeout from the session itself.
           timeoutMs: 8_000,
           signal,
+          ...(route === "relay" && events.onWaiting ? { onWaiting: events.onWaiting } : {}),
         }),
     });
   } catch (error) {

@@ -34,6 +34,8 @@ export function PairScreen({
   const [code, setCode] = useState("");
   const [deviceName, setDeviceName] = useState(defaultDeviceName);
   const [busy, setBusy] = useState(false);
+  // The desktop is holding a relay pairing until the person there allows it.
+  const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string>();
   const scanned = useRef(false);
 
@@ -79,10 +81,19 @@ export function PairScreen({
 
   const pair = async () => {
     setBusy(true);
+    setWaiting(false);
     setError(undefined);
     try {
-      await onPaired(await pairWithDesktop(code, deviceName, { random, createSocket, now: Date.now }));
+      await onPaired(
+        await pairWithDesktop(
+          code,
+          deviceName,
+          { random, createSocket, now: Date.now },
+          { onWaiting: () => setWaiting(true) },
+        ),
+      );
     } catch (cause) {
+      setWaiting(false);
       setError(
         cause instanceof PairError
           ? cause.message
@@ -197,6 +208,7 @@ export function PairScreen({
         />
 
         {error ? <Notice tone="error" message={error} /> : null}
+        {busy && waiting ? <Notice tone="info" message="Approve this phone on your PC." /> : null}
 
         <Button
           label={desktopName ? `Pair with ${desktopName}` : "Pair"}

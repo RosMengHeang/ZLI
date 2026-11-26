@@ -80,6 +80,11 @@ export type ClientControl = z.infer<typeof ClientControl>;
 
 export const ServerControl = z.discriminatedUnion("type", [
   z.object({ type: z.literal("gateway.paired"), deviceId: Id16, credential: Key32 }),
+  /**
+   * The desktop holds a pairing that came through the relay until the person there allows it. Sent again now and then
+   * while it waits, so the relay does not close the quiet connection. Only phones that can use the relay ever see it.
+   */
+  z.object({ type: z.literal("gateway.waiting"), reason: z.literal("approval") }),
   z.object({
     type: z.literal("gateway.ready"),
     desktopName: z.string().min(1).max(80),
@@ -107,6 +112,8 @@ export const RemoteCloseCode = {
   notPaired: 4003,
   /** The pairing code is unknown, expired, or already used. */
   pairingCode: 4004,
+  /** The person at the desktop did not allow a pairing that came through the relay, or did not answer in time. */
+  pairingDenied: 4005,
   /** Too many attempts from this address. */
   rateLimited: 4029,
   /** The desktop runtime is not reachable yet. */

@@ -105,6 +105,11 @@ function fakeBridge(initial: StatusFixture) {
       current = { ...current, relay: { ...current.relay, remoteTerminalInput: enabled } };
       return current;
     }),
+    respondToPairing: vi.fn(async (_id: string, _allow: boolean) => {
+      const { pairingRequest: _request, ...rest } = current;
+      current = rest;
+      return current;
+    }),
     retryRelay: vi.fn(async () => {
       current = { ...current, relay: { ...current.relay, state: "connecting" } };
       return current;
@@ -243,6 +248,49 @@ describe("MobileAccessSection", () => {
     expect(container.textContent).toContain("Main process is busy.");
     await act(async () => button(container, "Try again").click());
     expect(container.textContent).toContain("Allow phones on this network");
+  });
+
+  describe("a pairing that came through the relay", () => {
+    const listening: StatusFixture = {
+      enabled: true,
+      state: "listening",
+      hosts: ["10.0.0.2"],
+      port: 47321,
+      devices: [],
+      relay: { enabled: true, state: "online" },
+    };
+    const request = (seconds: number) => ({
+      id: "req-1",
+      deviceName: "Pixel 9",
+      expiresAt: new Date(Date.now() + seconds * 1_000).toISOString(),
+    });
+
+    it("asks before the phone pairs, with the time left, and allows it with the request id", async () => {
+      const bridge = fakeBridge(listening);
+      const container = await render();
+      await act(async () => button(container, "Pair a new phone").click());
+      // The phone used the code; the desktop now waits on the person.
+      await act(async () => bridge.push({ ...listening, pairingRequest: request(90) }));
+      expect(container.textContent).toContain('Allow "Pixel 9" to control this PC from anywhere?');
+      expect(container.textContent).toMatch(/1:[23]\d/u);
+      expect(container.textContent).not.toContain("expired or was already used");
+
+      await act(async () => button(container, "Allow").click());
+      expect(bridge.api.respondToPairing).toHaveBeenCalledWith("req-1", true);
+      await act(async () => bridge.push({ ...listening, devices: [{ ...pixel, connected: true }] }));
+      expect(container.textContent).toContain("Paired with Pixel 9.");
+    });
+
+    it("refuses with the request id and says the phone was not paired", async () => {
+      const bridge = fakeBridge(listening);
+      const container = await render();
+      await act(async () => button(container, "Pair a new phone").click());
+      await act(async () => bridge.push({ ...listening, pairingRequest: request(90) }));
+      await act(async () => button(container, "Don't allow").click());
+      expect(bridge.api.respondToPairing).toHaveBeenCalledWith("req-1", false);
+      expect(container.textContent).not.toContain("to control this PC from anywhere?");
+      expect(container.textContent).toContain("The phone was not paired. Make a new code to try again.");
+    });
   });
 
   describe("connect from anywhere", () => {

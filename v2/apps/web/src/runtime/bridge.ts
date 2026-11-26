@@ -152,6 +152,7 @@ export type ZliBridge = {
     setRelayEnabled(enabled: boolean): Promise<MobileAccessStatus>;
     setRemoteTerminalInput(enabled: boolean): Promise<MobileAccessStatus>;
     retryRelay(): Promise<MobileAccessStatus>;
+    respondToPairing(id: string, allow: boolean): Promise<MobileAccessStatus>;
     onStatus(listener: (status: MobileAccessStatus) => void): () => void;
   };
   /** Present in the desktop app. Questions from agents that want to reach other projects. */
