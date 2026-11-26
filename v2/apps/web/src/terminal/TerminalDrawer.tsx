@@ -89,6 +89,8 @@ export function TerminalDrawer({
     .filter(
       (terminal) =>
         panelIds.has(terminal.terminalId) === side &&
+        // The bottom drawer shows the chat on screen's shells and any shell no chat owns; another chat's stay with it.
+        (side || !terminal.sessionId || terminal.sessionId === sessionId) &&
         !dismissed.includes(terminal.terminalId) &&
         !(stopping.includes(terminal.terminalId) && terminal.status !== "running"),
     )
@@ -126,7 +128,9 @@ export function TerminalDrawer({
       // The bottom drawer and the right panel count their shells apart: each starts at Terminal 1.
       title: nextTerminalTitle(
         drawerTerminals(projection.terminals, worktree.worktreeId).filter(
-          (terminal) => panelIds.has(terminal.terminalId) === side,
+          (terminal) =>
+            panelIds.has(terminal.terminalId) === side &&
+            (side || !terminal.sessionId || terminal.sessionId === sessionId),
         ),
       ),
       cols: 120,
@@ -140,7 +144,7 @@ export function TerminalDrawer({
   // Opening the drawer starts a shell right away when the worktree has none. Once per worktree while the drawer
   // stays open, so closing the last shell leaves the drawer empty instead of starting another.
   const autoStarted = useRef<string | undefined>(undefined);
-  const placeKey = worktree?.worktreeId;
+  const placeKey = worktree?.worktreeId ? `${worktree.worktreeId}:${side ? "" : (sessionId ?? "")}` : undefined;
   const hasPanes = panes.length > 0;
   // biome-ignore lint/correctness/useExhaustiveDependencies: createTerminal reads the latest worktree and chat on purpose.
   useEffect(() => {

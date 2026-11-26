@@ -400,7 +400,8 @@ function WorkspaceApp() {
   const maximized = tiles.find((session) => session.sessionId === workbench.maximizedSessionId);
   // One chat fills the board unless the person asked for several side by side; the sidebar switches between them.
   // Terminal work keeps its board of agents.
-  const severalOnScreen = settings.severalChats || workStyleOf(settings.defaults) === "terminal";
+  // Only the "several chats at once" setting puts more than one on screen; the work style never does.
+  const severalOnScreen = settings.severalChats;
   const shownAlone = severalOnScreen ? undefined : (activeSession ?? tiles.at(-1));
   const visibleTiles = maximized ? [maximized] : shownAlone ? [shownAlone] : tiles;
   const findWorktree = useCallback(
