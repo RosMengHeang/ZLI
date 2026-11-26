@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { webCryptoRandomBytes } from "./bytes.js";
-import { openRemoteSession, PAIRING_APPROVAL_TIMEOUT_MS, RemoteConnectError, type WebSocketLike } from "./client.js";
+import {
+  failureForCloseCode,
+  openRemoteSession,
+  PAIRING_APPROVAL_TIMEOUT_MS,
+  RemoteConnectError,
+  type WebSocketLike,
+} from "./client.js";
 import { acceptClientHello, generateKeyPair, type SecureChannel } from "./crypto.js";
 import { ClientHello, RemoteCloseCode } from "./messages.js";
 
@@ -32,6 +38,19 @@ function options(createSocket: () => WebSocketLike, signal?: AbortSignal) {
     ...(signal ? { signal } : {}),
   };
 }
+
+describe("failureForCloseCode", () => {
+  it("reads the relay's desktop-offline close as a network failure, and keeps 1013 as unavailable", () => {
+    expect(RemoteCloseCode.desktopOffline).toBe(4404);
+    expect(failureForCloseCode(RemoteCloseCode.desktopOffline)).toBe("network");
+    expect(failureForCloseCode(RemoteCloseCode.tryAgain)).toBe("unavailable");
+  });
+
+  it("gives every close code its own number", () => {
+    const codes = Object.values(RemoteCloseCode);
+    expect(new Set(codes).size).toBe(codes.length);
+  });
+});
 
 describe("openRemoteSession abort", () => {
   it("closes the socket and rejects with network when aborted", async () => {

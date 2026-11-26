@@ -1,4 +1,10 @@
-import { fromBase64Url, RelayHostMessage, roomIdFromSecret, toBase64Url } from "@zli-v2/remote-protocol";
+import {
+  fromBase64Url,
+  RelayHostMessage,
+  RemoteCloseCode,
+  roomIdFromSecret,
+  toBase64Url,
+} from "@zli-v2/remote-protocol";
 
 /*
  * One room per paired desktop. The room joins a phone socket to a desktop socket per session and
@@ -90,6 +96,8 @@ export const CLOSE_NORMAL = 1000;
 export const CLOSE_POLICY = 1008;
 export const CLOSE_TOO_BIG = 1009;
 export const CLOSE_TRY_AGAIN = 1013;
+/** No desktop holds the room, or it did not dial back. Apart from 1013 so the phone can say the PC is unreachable. */
+export const CLOSE_DESKTOP_OFFLINE = RemoteCloseCode.desktopOffline;
 export const CLOSE_REPLACED = 4000;
 
 /*
@@ -241,8 +249,12 @@ export class RelayRoom {
   phoneConnected(socket: PipeSocket, client: string, session: string = newSessionId()): "queued" | "rejected" {
     const host = this.#liveHost();
     const refusal = this.#phoneRefusal(session);
-    if (!host || refusal) {
-      socket.close(CLOSE_TRY_AGAIN, refusal ?? "The desktop is offline.");
+    if (!host) {
+      socket.close(CLOSE_DESKTOP_OFFLINE, "The desktop is offline.");
+      return "rejected";
+    }
+    if (refusal) {
+      socket.close(CLOSE_TRY_AGAIN, refusal);
       return "rejected";
     }
     const now = this.#clock.now();
@@ -395,7 +407,7 @@ export class RelayRoom {
     for (const [session, entry] of this.#sessions) {
       if (!entry.host && now - entry.openedAt >= this.#limits.dialTimeoutMs) {
         this.#sessions.delete(session);
-        entry.phone.close(CLOSE_TRY_AGAIN, "The desktop did not answer.");
+        entry.phone.close(CLOSE_DESKTOP_OFFLINE, "The desktop did not answer.");
       } else if (entry.host && !entry.hostSpoke && now - entry.joinedAt >= this.#limits.dialTimeoutMs * 2) {
         // A desktop that dials but never answers would hold the slot while the phone trickles.
         this.#endSession(session, entry, CLOSE_POLICY, "The desktop did not answer.");

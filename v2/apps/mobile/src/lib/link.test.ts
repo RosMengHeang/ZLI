@@ -1,10 +1,14 @@
 import { EnvironmentId } from "@zli-v2/contracts";
 import {
   failureMessage,
+  generateKeyPair,
   type RemoteCloseInfo,
+  RemoteCloseCode,
   RemoteConnectError,
   type RemoteSession,
   type RemoteTransport,
+  toBase64Url,
+  type WebSocketLike,
   webCryptoRandomBytes,
 } from "@zli-v2/remote-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -227,6 +231,51 @@ describe("RemoteLink", () => {
       vi.fn(),
       { pairing: { ...pairing, relay } },
     );
+    link.start();
+    await until(() => link.getSnapshot().state.kind === "offline");
+    expect(link.getSnapshot().state).toMatchObject({
+      message: "Your PC is not reachable. Check that it is on and connected to the internet.",
+    });
+    link.pause();
+    await link.settled();
+  });
+
+  it("says the PC is unreachable when the relay closes with desktop offline", async () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    // The real client, over a socket that opens and is then closed the way the relay closes it.
+    const createSocket = () => {
+      const socket = {
+        binaryType: "arraybuffer",
+        readyState: 0,
+        send() {},
+        close() {},
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+      } as unknown as WebSocketLike;
+      setTimeout(() => {
+        socket.onopen?.({});
+        socket.onclose?.({ code: RemoteCloseCode.desktopOffline });
+      }, 0);
+      return socket;
+    };
+    // Real keys, since the real client runs the handshake math before it sends the hello.
+    const desktop = generateKeyPair(webCryptoRandomBytes);
+    const phone = generateKeyPair(webCryptoRandomBytes);
+    const link = new RemoteLink({
+      pairing: {
+        ...pairing,
+        relay,
+        lastRoute: "relay",
+        desktopKey: toBase64Url(desktop.publicKey),
+        phoneSecret: toBase64Url(phone.secretKey),
+      },
+      random: webCryptoRandomBytes,
+      createSocket,
+      newId: () => crypto.randomUUID(),
+      onPairingChange: vi.fn(),
+    });
     link.start();
     await until(() => link.getSnapshot().state.kind === "offline");
     expect(link.getSnapshot().state).toMatchObject({

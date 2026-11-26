@@ -103,11 +103,11 @@ describe("RelayRoom", () => {
     expect(host.closed).toBeNull();
   });
 
-  it("rejects a phone with 1013 when no desktop is connected", () => {
+  it("rejects a phone with 4404 when no desktop is connected", () => {
     const { room } = setup();
     const phone = new FakeSocket();
     expect(room.phoneConnected(phone, "client-a")).toBe("rejected");
-    expect(phone.closed?.code).toBe(1013);
+    expect(phone.closed?.code).toBe(4404);
   });
 
   it("tells the host about a new phone with its session and client key", () => {
@@ -248,14 +248,14 @@ describe("RelayRoom", () => {
     expect(phone.closed).toBeNull();
   });
 
-  it("closes the phone with 1013 when the host never dials in time", () => {
+  it("closes the phone with 4404 when the host never dials in time", () => {
     const { room, clock } = claimedRoom();
     const phone = new FakeSocket();
     room.phoneConnected(phone, "client-a");
     clock.advance(DEFAULT_LIMITS.dialTimeoutMs - 1);
     expect(phone.closed).toBeNull();
     clock.advance(1);
-    expect(phone.closed?.code).toBe(1013);
+    expect(phone.closed?.code).toBe(4404);
   });
 
   it("keeps a session open past the dial timeout once the host dials", () => {
@@ -288,7 +288,7 @@ describe("RelayRoom", () => {
 
     const phone = new FakeSocket();
     expect(room.phoneConnected(phone, "client-a")).toBe("rejected");
-    expect(phone.closed?.code).toBe(1013);
+    expect(phone.closed?.code).toBe(4404);
   });
 
   it("keeps the current host when a stranger fails to claim", () => {
@@ -547,7 +547,7 @@ describe("RelayRoom limits", () => {
     expect(room.isHost(host)).toBe(false);
     const phone = new FakeSocket();
     expect(room.phoneConnected(phone, "client-a")).toBe("rejected");
-    expect(phone.closed?.code).toBe(1013);
+    expect(phone.closed?.code).toBe(4404);
     // A late claim from the dropped socket does not bring the room back.
     room.hostControl(host, JSON.stringify({ type: "claim", secret }));
     expect(room.isHost(host)).toBe(false);
@@ -559,7 +559,7 @@ describe("RelayRoom limits", () => {
     clock.time += DEFAULT_LIMITS.idleTimeoutMs * 2;
     const phone = new FakeSocket();
     expect(room.phoneConnected(phone, "client-a")).toBe("rejected");
-    expect(phone.closed?.code).toBe(1013);
+    expect(phone.closed?.code).toBe(4404);
     expect(host.closed?.code).toBe(1013);
   });
 

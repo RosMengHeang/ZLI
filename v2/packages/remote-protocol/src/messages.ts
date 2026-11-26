@@ -121,6 +121,8 @@ export const RemoteCloseCode = {
   pairingDenied: 4005,
   /** Too many attempts from this address. */
   rateLimited: 4029,
+  /** The relay has no desktop for this room, or the desktop did not dial back in time. */
+  desktopOffline: 4404,
   /** The desktop runtime is not reachable yet. */
   tryAgain: 1013,
 } as const;

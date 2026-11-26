@@ -66,6 +66,9 @@ export function failureForCloseCode(code: number): RemoteFailure {
       return "rate-limited";
     case RemoteCloseCode.tryAgain:
       return "unavailable";
+    // The relay saying no desktop is there: the same as not reaching the desktop at all.
+    case RemoteCloseCode.desktopOffline:
+      return "network";
     default:
       return "network";
   }

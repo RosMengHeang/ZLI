@@ -136,10 +136,10 @@ async function dialPhone(room: string, control: ReturnType<typeof connect>, at: 
 }
 
 describe("relay worker", () => {
-  it("closes a phone with 1013 when no desktop holds the room", async () => {
+  it("closes a phone with 4404 when no desktop holds the room", async () => {
     const room = toBase64Url(crypto.getRandomValues(new Uint8Array(16)));
     const phone = connect(`/v1/phone/${room}`);
-    expect(await within(phone.closed)).toBe(1013);
+    expect(await within(phone.closed)).toBe(4404);
   });
 
   it("answers 404 to plain requests, other methods, and malformed paths", async () => {
@@ -195,13 +195,13 @@ describe("relay worker", () => {
     expect(await rawStatus("/", "GET", null, { "CF-Connecting-IP": "198.51.100.31" })).toBe(404);
   });
 
-  it("closes a phone that sent its first frame with 1013 when the desktop never dials", async () => {
+  it("closes a phone that sent its first frame with 4404 when the desktop never dials", async () => {
     const control = await claimedControl();
     const phone = await dialPhone(control.room, control);
     await within(phone.opened);
     phone.ws.send("hello desktop");
     const started = Date.now();
-    expect(await within(phone.closed)).toBe(1013);
+    expect(await within(phone.closed)).toBe(4404);
     expect(Date.now() - started).toBeGreaterThanOrEqual(DIAL_MS / 2);
     control.ws.close(1000);
   });
@@ -261,7 +261,7 @@ describe("relay worker", () => {
     const control = await claimedControl();
     expect(await within(control.closed)).toBe(1013);
     const phone = connect(`/v1/phone/${control.room}`);
-    expect(await within(phone.closed)).toBe(1013);
+    expect(await within(phone.closed)).toBe(4404);
   });
 });
 

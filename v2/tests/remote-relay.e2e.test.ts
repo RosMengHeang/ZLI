@@ -43,6 +43,8 @@ const RELAY_URL = "wss://relay.test";
 const RUNTIME_TOKEN = "runtime-token-never-on-the-relay";
 const TERMINAL_OFF = "Terminal input from outside your network is turned off on the desktop.";
 const PHONE_TIMEOUT_MS = 3_000;
+/** MobileGateway builds its AttemptLimiter with this number inline; the gateway does not export it. */
+const ATTEMPTS_PER_MINUTE = 20;
 
 const environmentId = "00000000-0000-4000-8000-000000000001";
 const projectId = "40000000-0000-4000-8000-000000000001";
@@ -371,11 +373,16 @@ function flipBit(frame: Frame, offset: number): Frame {
   return typeof frame === "string" ? Buffer.from(bytes).toString("utf8") : bytes.buffer;
 }
 
-/** The first letter of the proof in a hello or welcome. Its case flipped, it is still valid base64url. */
+/** The first letter of a 32-byte base64url value, not counting its last character. Its case flipped, it is still valid. */
+function firstLetter(value: string): number {
+  for (let index = 0; index < 42; index += 1) if (/[A-Za-z]/u.test(value[index] ?? "")) return index;
+  throw new Error("The value has no letter.");
+}
+
+/** The first letter of the proof in a hello or welcome. */
 function proofLetter(text: string): number {
   const start = text.indexOf('"proof":"') + '"proof":"'.length;
-  for (let index = start; index < start + 42; index += 1) if (/[A-Za-z]/u.test(text[index] ?? "")) return index;
-  throw new Error("The proof has no letter.");
+  return start + firstLetter(text.slice(start));
 }
 
 describe("remote access through the relay", () => {
@@ -397,8 +404,13 @@ describe("remote access through the relay", () => {
     };
   }
 
-  function pair(desk: Desktop, url: string, phone = generateKeyPair(random), onWaiting?: () => void) {
-    const pending = desk.pairing.open();
+  function pair(
+    desk: Desktop,
+    url: string,
+    phone = generateKeyPair(random),
+    onWaiting?: () => void,
+    pending = desk.pairing.open(),
+  ) {
     return openRemoteSession({
       url,
       serverPublicKey: desk.publicKey,
@@ -487,7 +499,7 @@ describe("remote access through the relay", () => {
       name: string;
       direction: Direction;
       index: number;
-      offset: (frame: Frame) => number;
+      offset: (frame: Frame, paired: Paired) => number;
       /** Where the session breaks: while connecting, or once it is open and a command is sent. */
       stage: "connect" | "open";
       phoneFailure?: string;
@@ -503,10 +515,10 @@ describe("remote access through the relay", () => {
       },
       {
         name: "the phone's sealed credential",
-        // Inside the type, `"gateway.auth"`.
+        // A letter of the credential, so without the AEAD check the frame would parse and only the credential be wrong.
         direction: "up",
         index: 1,
-        offset: () => '{"type":"'.length,
+        offset: (_frame, paired) => '{"type":"gateway.auth","credential":"'.length + firstLetter(paired.credential),
         stage: "connect",
         desktopCode: RemoteCloseCode.protocol,
       },
@@ -554,7 +566,7 @@ describe("remote access through the relay", () => {
         relay.hostile.tamper = (frame) => {
           if (frame.direction !== flip.direction || frame.index !== flip.index) return [frame.data];
           flipped = true;
-          return [flipBit(frame.data, flip.offset(frame.data))];
+          return [flipBit(frame.data, flip.offset(frame.data, paired))];
         };
 
         if (flip.stage === "connect") {
@@ -666,7 +678,8 @@ describe("remote access through the relay", () => {
     await other.store.addDevice({ ...record });
     relay.hostile.phoneRoom = (room) => (room === home.route.room ? other.route.room : room);
 
-    expect(await failure(resume(home, paired))).not.toBe("connected");
+    // The other desktop's handshake close reaches the phone as the relay's plain close, so it reads as network.
+    expect(await failure(resume(home, paired))).toBe("network");
     await until(() => other.logs.some(({ message }) => message === "phone handshake failed"));
     expect(other.runtime.connections()).toBe(0);
     expect(home.runtime.connections()).toBe(0);
@@ -696,7 +709,8 @@ describe("remote access through the relay", () => {
   it("carries no plaintext the relay could read", async () => {
     const desk = await desktop();
     const phone = generateKeyPair(random);
-    const pairing = await pair(desk, relayUrl(desk.route, "phone"), phone);
+    const pending = desk.pairing.open();
+    const pairing = await pair(desk, relayUrl(desk.route, "phone"), phone, undefined, pending);
     const { deviceId = "", credential = "" } = pairing.paired ?? {};
     pairing.transport.close();
     const session = await resume(desk, { phone, deviceId, credential });
@@ -711,10 +725,13 @@ describe("remote access through the relay", () => {
     expect(wire.includes(Buffer.from(marker))).toBe(false);
     expect(wire.includes(Buffer.from(credential))).toBe(false);
     expect(wire.includes(Buffer.from(fromBase64Url(credential)))).toBe(false);
+    expect(wire.includes(Buffer.from(pending.secret))).toBe(false);
+    expect(wire.includes(Buffer.from(toBase64Url(pending.secret)))).toBe(false);
     expect(wire.includes(Buffer.from(RUNTIME_TOKEN))).toBe(false);
     expect(wire.includes(Buffer.from("Test desk"))).toBe(false);
     expect(wire.includes(Buffer.from("Pixel 9"))).toBe(false);
-    // The capture is real: the device id travels in the hello in the clear, by design.
+    // The capture is real: the pairing and device ids travel in the hellos in the clear, by design.
+    expect(wire.includes(Buffer.from(pending.pairingId))).toBe(true);
     expect(wire.includes(Buffer.from(deviceId))).toBe(true);
   });
 
@@ -727,13 +744,13 @@ describe("remote access through the relay", () => {
       credential: toBase64Url(random(32)),
     });
 
-    for (let attempt = 1; attempt <= 20; attempt += 1) {
+    for (let attempt = 1; attempt <= ATTEMPTS_PER_MINUTE; attempt += 1) {
       expect(await failure(resume(desk, stranger(), undefined, "stranger"))).not.toBe("connected");
       await until(() => relay.desktopCloses.length === attempt);
       expect(relay.desktopCloses.at(-1)?.code).toBe(RemoteCloseCode.notPaired);
     }
     expect(await failure(resume(desk, stranger(), undefined, "stranger"))).not.toBe("connected");
-    await until(() => relay.desktopCloses.length === 21);
+    await until(() => relay.desktopCloses.length === ATTEMPTS_PER_MINUTE + 1);
     expect(relay.desktopCloses.at(-1)?.code).toBe(RemoteCloseCode.rateLimited);
     expect(desk.logs).toContainEqual({
       message: "phone connection refused: too many attempts",
@@ -751,8 +768,8 @@ describe("remote access through the relay", () => {
     const paired = await pairedPhone(desk);
     const session = await resume(desk, paired);
     const gone = closed(session);
-    const started = Date.now();
     await desk.store.removeDevice(paired.deviceId);
+    const started = Date.now();
     desk.gateway.disconnect(paired.deviceId);
     await within(gone, "the revoked session to close", 1_000);
     expect(Date.now() - started).toBeLessThan(1_000);
@@ -760,7 +777,7 @@ describe("remote access through the relay", () => {
   });
 
   describe("with the desktop offline", () => {
-    function raceRelay(desk: Desktop, paired: Paired) {
+    function raceRelay(desk: Desktop, paired: Paired, timeoutMs = 1_000) {
       return raceRoutes({
         lanHosts: [],
         port: desk.port,
@@ -773,7 +790,7 @@ describe("remote access through the relay", () => {
             target: { mode: "resume", deviceId: paired.deviceId, credential: fromBase64Url(paired.credential) },
             random,
             createSocket: phoneSocket(),
-            timeoutMs: 1_000,
+            timeoutMs,
             signal,
           }),
       }).then(
@@ -790,20 +807,13 @@ describe("remote access through the relay", () => {
       return { desk, paired };
     }
 
-    it("fails promptly and leaves no session in the room", async () => {
+    it("fails promptly as a network failure and leaves no session in the room", async () => {
       const { desk, paired } = await offlineDesktop();
       const started = Date.now();
-      expect(await raceRelay(desk, paired)).not.toBe("connected");
+      // The relay closes with desktopOffline, which the phone shows as "PC unreachable", not "still starting".
+      expect(await raceRelay(desk, paired)).toBe("network");
       expect(Date.now() - started).toBeLessThan(1_000);
       expect(relay.heldSessions(desk.route.room)).toBe(0);
-    });
-
-    // TODO(bug): the relay refuses a phone for an offline desktop with 1013, which the phone reads as "unavailable"
-    // ("ZLI on the desktop is still starting"). Review Focus 5 wants "PC unreachable", which the phone app only shows
-    // for network and timeout failures. Remove `.fails` once the phone maps a relay 1013 to network.
-    it.fails("reports the offline desktop as a network failure", async () => {
-      const { desk, paired } = await offlineDesktop();
-      expect(await raceRelay(desk, paired)).toBe("network");
     });
 
     it("gives up on a desktop that holds its room but no longer answers, and leaves no session", async () => {
@@ -815,6 +825,15 @@ describe("remote access through the relay", () => {
       expect(await raceRelay(desk, paired)).toBe("timeout");
       expect(Date.now() - started).toBeLessThan(2_000);
       await until(() => relay.heldSessions(desk.route.room) === 0);
+    });
+
+    it("reports a network failure when the relay gives up on a desktop that never dials back", async () => {
+      const desk = await desktop();
+      const paired = await pairedPhone(desk);
+      relay.hostile.asleep = true;
+      // The phone waits past the relay's dial timeout (2 s here), so the relay's own close decides.
+      expect(await raceRelay(desk, paired, PHONE_TIMEOUT_MS)).toBe("network");
+      expect(relay.heldSessions(desk.route.room)).toBe(0);
     });
   });
 
