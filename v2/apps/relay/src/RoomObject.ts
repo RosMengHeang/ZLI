@@ -1,10 +1,24 @@
 import { DurableObject } from "cloudflare:workers";
 
-import { type PipeSocket, RelayRoom, type RestoredSocket, newSessionId } from "./RelayRoom.js";
-import { isWebSocketUpgrade } from "./routes.js";
+import {
+  type BudgetState,
+  type BudgetStore,
+  limitsFrom,
+  newSessionId,
+  type PipeSocket,
+  RelayRoom,
+  type RestoredSocket,
+  type RoomClock,
+  type RoomLimits,
+} from "./RelayRoom.js";
+import { isWebSocketUpgrade, type UpgradeLimiter } from "./routes.js";
 
 export interface Env {
   ROOMS: DurableObjectNamespace<RoomObject>;
+  /** Upgrades per connecting address. Absent in local runs. */
+  UPGRADES?: UpgradeLimiter;
+  /** JSON overrides for RoomLimits. Only the Worker tests set it, to shorten timers. */
+  RELAY_TEST_LIMITS?: string;
 }
 
 /** Headers the worker sets. Only the worker can reach a Durable Object, so they are trusted. */
@@ -13,12 +27,20 @@ export const ROOM_HEADER = "X-Relay-Room";
 export const SESSION_HEADER = "X-Relay-Session";
 export const CLIENT_HEADER = "X-Relay-Client";
 
+const BUDGET_KEY = "budget";
+
 type Role = "control" | "phone" | "host";
 
 interface Tagged {
   role: Role;
   room: string;
   session: string | undefined;
+}
+
+/** What a socket keeps across hibernation besides its tags. */
+interface Attachment {
+  claimed?: boolean | undefined;
+  seenAt?: number | undefined;
 }
 
 /*
@@ -30,6 +52,8 @@ class SocketPipe implements PipeSocket {
   #accepted: boolean;
   #queued: Array<string | ArrayBuffer> = [];
   closeRequest: { code: number; reason: string | undefined } | null = null;
+  /** When `seenAt` was last written to the attachment, to keep those writes rare. */
+  seenSavedAt = 0;
 
   constructor(ws: WebSocket, accepted: boolean) {
     this.#ws = ws;
@@ -65,13 +89,16 @@ class SocketPipe implements PipeSocket {
 
 /*
  * A thin adapter: it accepts sockets with the Hibernation API and turns their events into RelayRoom
- * calls. Every socket is tagged with its role, room, and session, and the control socket stores
- * whether it holds the room. On wake the RelayRoom in memory is gone, so it is rebuilt from those
- * tags (see RelayRoom.restore): joined pairs carry on and half-open sessions are closed.
+ * calls. Every socket is tagged with its role, room, and session, and its attachment records whether
+ * a control socket holds the room and when the socket was last heard from. On wake the RelayRoom in
+ * memory is gone, so it is rebuilt from those (see RelayRoom.restore). The room's timers run on the
+ * Durable Object alarm, which also wakes a hibernated object, so idle sockets are swept without
+ * keeping the object awake.
  */
 export class RoomObject extends DurableObject<Env> {
   #room: RelayRoom | null = null;
   readonly #pipes = new WeakMap<WebSocket, SocketPipe>();
+  readonly #limits: RoomLimits = limitsFrom(this.env.RELAY_TEST_LIMITS);
 
   override async fetch(request: Request): Promise<Response> {
     const role = request.headers.get(ROLE_HEADER);
@@ -88,7 +115,9 @@ export class RoomObject extends DurableObject<Env> {
     // The room decides before the socket is accepted.
     const pipe = new SocketPipe(server, false);
     this.#pipes.set(server, pipe);
-    if (role === "phone" && session) {
+    if (role === "control") {
+      room.controlConnected(pipe);
+    } else if (role === "phone" && session) {
       room.phoneConnected(pipe, request.headers.get(CLIENT_HEADER) ?? "unknown", session);
     } else if (role === "host" && session) {
       room.sessionHostConnected(session, pipe);
@@ -104,6 +133,8 @@ export class RoomObject extends DurableObject<Env> {
         server,
         session ? [role, `room:${roomId}`, `session:${session}`] : [role, `room:${roomId}`],
       );
+      server.serializeAttachment({ claimed: false, seenAt: Date.now() } satisfies Attachment);
+      pipe.seenSavedAt = Date.now();
       pipe.accepted();
     }
     return new Response(null, { status: 101, webSocket: client });
@@ -118,8 +149,15 @@ export class RoomObject extends DurableObject<Env> {
       const wasHost = room.isHost(pipe);
       room.hostControl(pipe, message);
       if (room.isHost(pipe) !== wasHost) this.#saveClaims(room);
+      // Claims and heartbeats are rare, so each one is recorded for the host liveness clock.
+      if (room.isHost(pipe)) ws.serializeAttachment({ claimed: true, seenAt: Date.now() } satisfies Attachment);
     } else if (tagged.session) {
       room.onFrame(tagged.role, tagged.session, message, pipe);
+      const now = Date.now();
+      if (now - pipe.seenSavedAt >= this.#limits.idleTimeoutMs / 10) {
+        ws.serializeAttachment({ seenAt: now } satisfies Attachment);
+        pipe.seenSavedAt = now;
+      }
     }
   }
 
@@ -131,6 +169,14 @@ export class RoomObject extends DurableObject<Env> {
     this.#closed(ws);
   }
 
+  override async alarm(): Promise<void> {
+    const room = this.#room ?? this.#wakeRoom();
+    if (!room) return;
+    room.sweep();
+    // A sweep can drop a host that stopped sending heartbeats; a later wake must not restore it.
+    this.#saveClaims(room);
+  }
+
   #closed(ws: WebSocket): void {
     const tagged = this.#tagged(ws);
     if (!tagged) return;
@@ -140,29 +186,63 @@ export class RoomObject extends DurableObject<Env> {
     else if (tagged.session) room.onClose(tagged.role, tagged.session, pipe);
   }
 
+  /** Rebuilds the room after a wake that did not come with a request naming it. */
+  #wakeRoom(): RelayRoom | null {
+    for (const ws of this.ctx.getWebSockets()) {
+      const tagged = this.#tagged(ws);
+      if (tagged) return this.#roomFor(tagged.room);
+    }
+    return null;
+  }
+
   #roomFor(roomId: string): RelayRoom {
     if (this.#room) return this.#room;
-    const room = new RelayRoom(roomId);
+    const room = new RelayRoom(roomId, this.#limits, this.#alarmClock(), this.#budgetStore());
     const restored: RestoredSocket[] = [];
     for (const ws of this.ctx.getWebSockets()) {
       const tagged = this.#tagged(ws);
       if (!tagged) continue;
       const socket = this.#pipe(ws);
+      const attachment = readAttachment(ws);
       if (tagged.role === "control") {
-        restored.push({ role: "control", socket, claimed: readClaimed(ws) });
+        restored.push({ role: "control", socket, claimed: attachment.claimed === true, seenAt: attachment.seenAt });
       } else if (tagged.session) {
-        restored.push({ role: tagged.role, session: tagged.session, socket });
+        restored.push({ role: tagged.role, session: tagged.session, socket, seenAt: attachment.seenAt });
       }
     }
-    room.restore(restored);
     this.#room = room;
+    room.restore(restored);
     return room;
+  }
+
+  /** The room keeps a single timer, so it maps onto the one alarm a Durable Object has. */
+  #alarmClock(): RoomClock {
+    const storage = this.ctx.storage;
+    return {
+      now: () => Date.now(),
+      setTimer: (_run, ms) => {
+        void storage.setAlarm(Date.now() + ms);
+        return null;
+      },
+      clearTimer: () => {
+        void storage.deleteAlarm();
+      },
+    };
+  }
+
+  #budgetStore(): BudgetStore {
+    const kv = this.ctx.storage.kv;
+    return {
+      load: () => readBudget(kv.get(BUDGET_KEY)),
+      save: (state) => kv.put(BUDGET_KEY, state),
+    };
   }
 
   /** Marks which control socket holds the room, so a wake does not hand it to a replaced one. */
   #saveClaims(room: RelayRoom): void {
     for (const ws of this.ctx.getWebSockets("control")) {
-      ws.serializeAttachment({ claimed: room.isHost(this.#pipe(ws)) });
+      const claimed = room.isHost(this.#pipe(ws));
+      ws.serializeAttachment({ claimed, seenAt: readAttachment(ws).seenAt } satisfies Attachment);
     }
   }
 
@@ -193,9 +273,18 @@ function tagValue(tags: readonly string[], prefix: string): string | undefined {
   return tags.find((tag) => tag.startsWith(prefix))?.slice(prefix.length);
 }
 
-function readClaimed(ws: WebSocket): boolean {
-  const attachment: unknown = ws.deserializeAttachment();
-  return (
-    typeof attachment === "object" && attachment !== null && "claimed" in attachment && attachment.claimed === true
-  );
+function readAttachment(ws: WebSocket): Attachment {
+  const value: unknown = ws.deserializeAttachment();
+  if (typeof value !== "object" || value === null) return {};
+  const attachment: Attachment = {};
+  if ("claimed" in value && value.claimed === true) attachment.claimed = true;
+  if ("seenAt" in value && typeof value.seenAt === "number") attachment.seenAt = value.seenAt;
+  return attachment;
+}
+
+function readBudget(value: unknown): BudgetState | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { day, count, told } = value as Record<string, unknown>;
+  if (typeof day !== "string" || typeof count !== "number" || typeof told !== "boolean") return undefined;
+  return { day, count, told };
 }

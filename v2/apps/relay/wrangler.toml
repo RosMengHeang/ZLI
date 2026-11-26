@@ -9,3 +9,9 @@ class_name = "RoomObject"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RoomObject"]
+
+# 30 requests a minute per connecting address, checked before routing (see worker.ts).
+[[ratelimits]]
+name = "UPGRADES"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }

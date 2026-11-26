@@ -1,7 +1,15 @@
 import { roomIdFromSecret, toBase64Url } from "@zli-v2/remote-protocol";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_LIMITS, type PipeSocket, RelayRoom, type RoomClock } from "./RelayRoom.js";
+import {
+  type BudgetState,
+  type BudgetStore,
+  DEFAULT_LIMITS,
+  limitsFrom,
+  type PipeSocket,
+  RelayRoom,
+  type RoomClock,
+} from "./RelayRoom.js";
 
 class FakeSocket implements PipeSocket {
   sent: Array<string | ArrayBuffer> = [];
@@ -342,5 +350,295 @@ describe("RelayRoom", () => {
     expect(joinedHost.sent).toEqual(["after wake"]);
     expect(lonelyPhone.closed?.code).toBe(1013);
     expect(lonelyHost.closed?.code).toBe(1008);
+  });
+});
+
+function limited(overrides: Partial<typeof DEFAULT_LIMITS>, store?: MemoryBudget) {
+  const clock = new FakeClock();
+  const room = new RelayRoom(roomId, { ...DEFAULT_LIMITS, ...overrides }, clock, store);
+  const host = new FakeSocket();
+  expect(room.claimHost(host, secret)).toBe(true);
+  return { clock, room, host };
+}
+
+/** Opens a phone and dials the host side, so the pair is joined. */
+function join(room: RelayRoom, host: FakeSocket, client = "client-a") {
+  const phone = new FakeSocket();
+  const before = host.sent.length;
+  expect(room.phoneConnected(phone, client)).toBe("queued");
+  const { session } = openMessage(host, before);
+  const sessionHost = new FakeSocket();
+  expect(room.sessionHostConnected(session, sessionHost)).toBe(true);
+  return { phone, sessionHost, session };
+}
+
+class MemoryBudget implements BudgetStore {
+  state: BudgetState | undefined;
+  load(): BudgetState | undefined {
+    return this.state;
+  }
+  save(state: BudgetState): void {
+    this.state = { ...state };
+  }
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+const BUDGET = JSON.stringify({ type: "budget" });
+
+function budgetNotices(host: FakeSocket): number {
+  return host.sent.filter((message) => message === BUDGET).length;
+}
+
+describe("RelayRoom limits", () => {
+  it("rejects the fifth pending phone with 1013", () => {
+    const { room } = claimedRoom();
+    for (let i = 0; i < DEFAULT_LIMITS.maxPendingPhones; i += 1) {
+      expect(room.phoneConnected(new FakeSocket(), "client-a")).toBe("queued");
+    }
+    const fifth = new FakeSocket();
+    expect(room.phoneConnected(fifth, "client-a")).toBe("rejected");
+    expect(fifth.closed?.code).toBe(1013);
+  });
+
+  it("rejects the ninth session with 1013", () => {
+    const { room, host } = claimedRoom();
+    for (let i = 0; i < DEFAULT_LIMITS.maxActiveSessions; i += 1) join(room, host);
+    const ninth = new FakeSocket();
+    expect(room.phoneConnected(ninth, "client-a")).toBe("rejected");
+    expect(ninth.closed?.code).toBe(1013);
+  });
+
+  it("closes a session with 1009 when a frame is over maxFrameBytes", () => {
+    const { room, host } = limited({ maxFrameBytes: 8 });
+    const { phone, sessionHost, session } = join(room, host);
+    room.onFrame("host", session, "12345678", sessionHost);
+    expect(phone.sent).toEqual(["12345678"]);
+    room.onFrame("phone", session, new Uint8Array(9).buffer, phone);
+    expect(phone.closed?.code).toBe(1009);
+    expect(sessionHost.closed?.code).toBe(1009);
+    expect(sessionHost.sent).toEqual([]);
+  });
+
+  it("counts a text frame in UTF-8 bytes", () => {
+    const { room, host } = limited({ maxFrameBytes: 8 });
+    const { phone, sessionHost, session } = join(room, host);
+    // Four characters, but ten bytes.
+    room.onFrame("phone", session, "日本語!", phone);
+    expect(phone.closed?.code).toBe(1009);
+    expect(sessionHost.sent).toEqual([]);
+  });
+
+  it("closes a session that sends more than handshakeBytesCap before the host's first frame", () => {
+    const { room, host } = limited({ handshakeBytesCap: 10 });
+    const { phone, sessionHost, session } = join(room, host);
+    room.onFrame("phone", session, "123456", phone);
+    expect(sessionHost.sent).toEqual(["123456"]);
+    room.onFrame("phone", session, "12345", phone);
+    expect(phone.closed?.code).toBe(1008);
+    expect(sessionHost.closed?.code).toBe(1008);
+    expect(sessionHost.sent).toEqual(["123456"]);
+  });
+
+  it("lifts the handshake cap once the host has sent a frame", () => {
+    const { room, host } = limited({ handshakeBytesCap: 10 });
+    const { phone, sessionHost, session } = join(room, host);
+    room.onFrame("phone", session, "123456", phone);
+    room.onFrame("host", session, "hi", sessionHost);
+    room.onFrame("phone", session, "1234567890", phone);
+    expect(phone.closed).toBeNull();
+    expect(sessionHost.sent).toEqual(["123456", "1234567890"]);
+  });
+
+  it("bounds the frames a phone queues before the host dials", () => {
+    const { room, host } = limited({ handshakeBytesCap: 10, maxFrameBytes: 8 });
+    const phone = new FakeSocket();
+    room.phoneConnected(phone, "client-a");
+    const { session } = openMessage(host);
+    room.onFrame("phone", session, "12345", phone);
+    room.onFrame("phone", session, "12345", phone);
+    expect(phone.closed).toBeNull();
+    room.onFrame("phone", session, "1", phone);
+    expect(phone.closed?.code).toBe(1008);
+    // The session is gone, so the host cannot join it and gets nothing.
+    expect(room.sessionHostConnected(session, new FakeSocket())).toBe(false);
+
+    const big = new FakeSocket();
+    room.phoneConnected(big, "client-a");
+    room.onFrame("phone", openMessage(host, 1).session, "123456789", big);
+    expect(big.closed?.code).toBe(1009);
+  });
+
+  it("closes a session that is silent for idleTimeoutMs", () => {
+    const { room, host, clock } = claimedRoom();
+    const { phone, sessionHost, session } = join(room, host);
+    clock.advance(DEFAULT_LIMITS.idleTimeoutMs / 2);
+    room.onFrame("phone", session, "still here", phone);
+    room.hostControl(host, JSON.stringify({ type: "ping" }));
+    clock.advance(DEFAULT_LIMITS.idleTimeoutMs - 1);
+    expect(phone.closed).toBeNull();
+    clock.advance(1);
+    expect(phone.closed?.code).toBe(1000);
+    expect(sessionHost.closed?.code).toBe(1000);
+  });
+
+  it("stops forwarding after messagesPerDay frames in a UTC day and tells the host once", () => {
+    const { room, host, clock } = limited({ messagesPerDay: 3 });
+    const { phone, sessionHost, session } = join(room, host);
+    room.onFrame("phone", session, "1", phone);
+    room.onFrame("host", session, "2", sessionHost);
+    expect(budgetNotices(host)).toBe(0);
+    room.onFrame("phone", session, "3", phone);
+    expect(host.sent.at(-1)).toBe(BUDGET);
+
+    room.onFrame("phone", session, "4", phone);
+    expect(sessionHost.sent).toEqual(["1", "3"]);
+    expect(phone.closed?.code).toBe(1013);
+    const late = new FakeSocket();
+    expect(room.phoneConnected(late, "client-a")).toBe("rejected");
+    expect(late.closed?.code).toBe(1013);
+    expect(budgetNotices(host)).toBe(1);
+
+    // A new UTC day starts a new budget.
+    clock.time = DAY;
+    room.hostControl(host, JSON.stringify({ type: "ping" }));
+    const next = join(room, host);
+    room.onFrame("phone", next.session, "5", next.phone);
+    expect(next.sessionHost.sent).toEqual(["5"]);
+  });
+
+  it("keeps the day's count across a restart through the budget store", () => {
+    const store = new MemoryBudget();
+    const first = limited({ messagesPerDay: 3 }, store);
+    const a = join(first.room, first.host);
+    for (const frame of ["1", "2", "3"]) first.room.onFrame("phone", a.session, frame, a.phone);
+    expect(store.state).toEqual({ day: "1970-01-01", count: 3, told: true });
+
+    const second = limited({ messagesPerDay: 3 }, store);
+    expect(second.room.phoneConnected(new FakeSocket(), "client-a")).toBe("rejected");
+    // Already told today, so the new host is not told again.
+    expect(budgetNotices(second.host)).toBe(0);
+  });
+
+  it("tells a host that claims after the budget ran out with no host present", () => {
+    const store = new MemoryBudget();
+    store.state = { day: "1970-01-01", count: 3, told: false };
+    const { host } = limited({ messagesPerDay: 3 }, store);
+    expect(budgetNotices(host)).toBe(1);
+    expect(store.state.told).toBe(true);
+  });
+
+  it("marks the room offline when the host misses heartbeats for twice idleTimeoutMs", () => {
+    const { room, host, clock } = claimedRoom();
+    clock.advance(DEFAULT_LIMITS.idleTimeoutMs * 2 - 1);
+    expect(room.phoneConnected(new FakeSocket(), "client-a")).toBe("queued");
+    room.hostControl(host, JSON.stringify({ type: "ping" }));
+    clock.advance(DEFAULT_LIMITS.idleTimeoutMs * 2 - 1);
+    expect(host.closed).toBeNull();
+    clock.advance(1);
+    expect(host.closed?.code).toBe(1013);
+    expect(room.isHost(host)).toBe(false);
+    const phone = new FakeSocket();
+    expect(room.phoneConnected(phone, "client-a")).toBe("rejected");
+    expect(phone.closed?.code).toBe(1013);
+    // A late claim from the dropped socket does not bring the room back.
+    room.hostControl(host, JSON.stringify({ type: "claim", secret }));
+    expect(room.isHost(host)).toBe(false);
+  });
+
+  it("rejects phones as soon as the heartbeat deadline passes, before any sweep runs", () => {
+    const { room, host, clock } = claimedRoom();
+    // Move time without firing timers, as a late alarm would.
+    clock.time += DEFAULT_LIMITS.idleTimeoutMs * 2;
+    const phone = new FakeSocket();
+    expect(room.phoneConnected(phone, "client-a")).toBe("rejected");
+    expect(phone.closed?.code).toBe(1013);
+    expect(host.closed?.code).toBe(1013);
+  });
+
+  it("closes an unclaimed control socket after dialTimeoutMs", () => {
+    const { room, clock } = setup();
+    const control = new FakeSocket();
+    expect(room.controlConnected(control)).toBe(true);
+    clock.advance(DEFAULT_LIMITS.dialTimeoutMs - 1);
+    expect(control.closed).toBeNull();
+    clock.advance(1);
+    expect(control.closed?.code).toBe(1008);
+    // A claim that arrives after the deadline is ignored.
+    room.hostControl(control, JSON.stringify({ type: "claim", secret }));
+    expect(room.isHost(control)).toBe(false);
+  });
+
+  it("keeps a control socket that claims in time", () => {
+    const { room, clock } = setup();
+    const control = new FakeSocket();
+    room.controlConnected(control);
+    room.hostControl(control, JSON.stringify({ type: "claim", secret }));
+    clock.advance(DEFAULT_LIMITS.dialTimeoutMs);
+    expect(control.closed).toBeNull();
+    expect(room.isHost(control)).toBe(true);
+  });
+
+  it("allows two unclaimed control sockets at a time", () => {
+    const { room, clock } = setup();
+    const first = new FakeSocket();
+    const second = new FakeSocket();
+    expect(room.controlConnected(first)).toBe(true);
+    expect(room.controlConnected(second)).toBe(true);
+    const third = new FakeSocket();
+    expect(room.controlConnected(third)).toBe(false);
+    expect(third.closed?.code).toBe(1013);
+
+    // A slot frees when one claims, closes, or times out.
+    room.hostControl(first, JSON.stringify({ type: "claim", secret }));
+    expect(room.controlConnected(new FakeSocket())).toBe(true);
+    room.hostControlClosed(second);
+    expect(room.controlConnected(new FakeSocket())).toBe(true);
+    expect(room.controlConnected(new FakeSocket())).toBe(false);
+    clock.advance(DEFAULT_LIMITS.dialTimeoutMs);
+    expect(room.controlConnected(new FakeSocket())).toBe(true);
+  });
+
+  it("closes unclaimed control sockets it finds after waking", () => {
+    const { room } = setup();
+    const unclaimed = new FakeSocket();
+    room.restore([{ role: "control", socket: unclaimed, claimed: false }]);
+    expect(unclaimed.closed?.code).toBe(1013);
+  });
+
+  it("restores idle and heartbeat clocks from what the sockets last recorded", () => {
+    const { room, clock } = setup();
+    clock.time = 1_000_000;
+    const control = new FakeSocket();
+    const phone = new FakeSocket();
+    const host = new FakeSocket();
+    const session = toBase64Url(new Uint8Array(16).fill(1));
+    const idle = DEFAULT_LIMITS.idleTimeoutMs;
+    room.restore([
+      { role: "control", socket: control, claimed: true, seenAt: clock.time - idle * 2 + 20 },
+      { role: "phone", session, socket: phone, seenAt: clock.time - idle + 5 },
+      { role: "host", session, socket: host, seenAt: clock.time - idle + 10 },
+    ]);
+    clock.advance(9);
+    expect(phone.closed).toBeNull();
+    clock.advance(1);
+    expect(phone.closed?.code).toBe(1000);
+    clock.advance(9);
+    expect(control.closed).toBeNull();
+    clock.advance(1);
+    expect(control.closed?.code).toBe(1013);
+  });
+});
+
+describe("limitsFrom", () => {
+  it("uses the defaults without an override", () => {
+    expect(limitsFrom(undefined)).toEqual(DEFAULT_LIMITS);
+    expect(limitsFrom("")).toEqual(DEFAULT_LIMITS);
+  });
+
+  it("takes known positive numbers and ignores everything else", () => {
+    const raw = JSON.stringify({ dialTimeoutMs: 500, idleTimeoutMs: -1, nope: 3, messagesPerDay: "9" });
+    expect(limitsFrom(raw)).toEqual({ ...DEFAULT_LIMITS, dialTimeoutMs: 500 });
+    expect(limitsFrom("{not json")).toEqual(DEFAULT_LIMITS);
+    expect(limitsFrom("[1]")).toEqual(DEFAULT_LIMITS);
   });
 });

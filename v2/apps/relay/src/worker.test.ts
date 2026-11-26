@@ -16,9 +16,19 @@ let worker: Worker;
 // Kept as a string: Node's URL type and the Workers URL type in this tsconfig do not mix.
 let base: string;
 
+// Short timers so the timer-driven closes can be checked in real time.
+const DIAL_MS = 1_000;
+const IDLE_MS = 1_500;
+
 beforeAll(async () => {
   worker = await unstable_startWorker({
     config: fileURLToPath(new URL("../wrangler.toml", import.meta.url).href),
+    bindings: {
+      RELAY_TEST_LIMITS: {
+        type: "plain_text",
+        value: JSON.stringify({ dialTimeoutMs: DIAL_MS, idleTimeoutMs: IDLE_MS }),
+      },
+    },
     dev: { server: { hostname: "127.0.0.1", port: 0 }, inspector: false, persist: false },
   });
   await worker.ready;
@@ -67,8 +77,13 @@ function within<T>(promise: Promise<T>, ms = 5_000): Promise<T> {
 }
 
 /** The status of a hand-built HTTP request; fetch refuses some of the header shapes tested here. */
-function rawStatus(path: string, method: string, upgrade: string | null): Promise<number> {
-  const headers: Record<string, string> = {};
+function rawStatus(
+  path: string,
+  method: string,
+  upgrade: string | null,
+  extra: Record<string, string> = {},
+): Promise<number> {
+  const headers: Record<string, string> = { ...extra };
   if (upgrade) {
     Object.assign(headers, {
       Connection: "Upgrade",
@@ -157,4 +172,84 @@ describe("relay worker", () => {
     expect(await within(sessionHost.closed)).toBe(1000);
     control.ws.close(1000);
   });
+
+  it("answers 429 once an address passes 30 requests a minute", async () => {
+    const address = { "CF-Connecting-IP": "198.51.100.30" };
+    for (let i = 0; i < 30; i += 1) expect(await rawStatus("/", "GET", null, address)).toBe(404);
+    expect(await rawStatus("/", "GET", null, address)).toBe(429);
+    const room = toBase64Url(new Uint8Array(16));
+    expect(await rawStatus(`/v1/phone/${room}`, "GET", "websocket", address)).toBe(429);
+    expect(await rawStatus("/", "GET", null, { "CF-Connecting-IP": "198.51.100.31" })).toBe(404);
+  });
+
+  it("closes a phone that sent its first frame with 1013 when the desktop never dials", async () => {
+    const control = await claimedControl();
+    const phone = await dialPhone(control.room, control);
+    await within(phone.opened);
+    phone.ws.send("hello desktop");
+    const started = Date.now();
+    expect(await within(phone.closed)).toBe(1013);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(DIAL_MS / 2);
+    control.ws.close(1000);
+  });
+
+  /*
+   * workerd holds back a close the room issues later on a hibernatable socket whose client has never
+   * sent anything, until the object next hibernates (about ten seconds after its last event). Real
+   * desktops and phones always send first, so this only slows down the notice to a silent client.
+   * The room frees the slot the moment the deadline passes, which is what keeps it safe.
+   */
+  it("frees a silent control socket's slot at its claim deadline, and closes it with 1008", async () => {
+    const room = toBase64Url(crypto.getRandomValues(new Uint8Array(16)));
+    const first = connect(`/v1/host/${room}`);
+    const second = connect(`/v1/host/${room}`);
+    await within(Promise.all([first.opened, second.opened]));
+    // Only two may wait to claim at once.
+    const third = connect(`/v1/host/${room}`);
+    expect(await within(third.closed)).toBe(1013);
+
+    await new Promise((resolve) => setTimeout(resolve, DIAL_MS + 500));
+    const fourth = connect(`/v1/host/${room}`);
+    const fifth = connect(`/v1/host/${room}`);
+    await within(Promise.all([fourth.opened, fifth.opened]));
+    const sixth = connect(`/v1/host/${room}`);
+    expect(await within(sixth.closed)).toBe(1013);
+
+    expect(await within(first.closed, 25_000)).toBe(1008);
+    expect(await within(second.closed, 5_000)).toBe(1008);
+  }, 45_000);
+
+  it("closes a joined session that goes quiet for the idle timeout", async () => {
+    const control = await claimedControl();
+    const phone = await dialPhone(control.room, control);
+    const open = JSON.parse(String((await control.next(1))[0])) as { session: string };
+    await within(phone.opened);
+    phone.ws.send("hello desktop");
+    const sessionHost = connect(`/v1/host/${control.room}/${open.session}`);
+    await within(sessionHost.next(1));
+    sessionHost.ws.send("hi");
+    await within(phone.next(1));
+    const started = Date.now();
+    expect(await within(phone.closed)).toBe(1000);
+    expect(await within(sessionHost.closed)).toBe(1000);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(IDLE_MS / 2);
+    control.ws.close(1000);
+  });
+
+  it("takes the room offline when the desktop stops sending heartbeats", async () => {
+    const control = await claimedControl();
+    expect(await within(control.closed)).toBe(1013);
+    const phone = connect(`/v1/phone/${control.room}`);
+    expect(await within(phone.closed)).toBe(1013);
+  });
 });
+
+/** A control socket that has claimed a fresh room. */
+async function claimedControl() {
+  const secretBytes = crypto.getRandomValues(new Uint8Array(32));
+  const room = roomIdFromSecret(secretBytes);
+  const control = connect(`/v1/host/${room}`);
+  await within(control.opened);
+  control.ws.send(JSON.stringify({ type: "claim", secret: toBase64Url(secretBytes) }));
+  return { ...control, room };
+}

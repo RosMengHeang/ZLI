@@ -1,7 +1,7 @@
 import { toBase64Url } from "@zli-v2/remote-protocol";
 import { describe, expect, it } from "vitest";
 
-import { clientKey, isWebSocketUpgrade, parseRoute } from "./routes.js";
+import { clientKey, isWebSocketUpgrade, parseRoute, withinRateLimit } from "./routes.js";
 
 const room = toBase64Url(new Uint8Array(16).fill(1));
 const session = toBase64Url(new Uint8Array(16).fill(2));
@@ -50,5 +50,27 @@ describe("clientKey", () => {
     expect(await clientKey(request("203.0.113.7"))).toBe(first);
     expect(await clientKey(request("203.0.113.8"))).not.toBe(first);
     expect(first).not.toContain("203");
+  });
+});
+
+describe("withinRateLimit", () => {
+  const request = (ip?: string) =>
+    new Request("http://relay/", ip ? { headers: { "CF-Connecting-IP": ip } } : undefined);
+
+  it("allows everything when the binding is absent, as in local runs", async () => {
+    expect(await withinRateLimit(undefined, request("203.0.113.7"))).toBe(true);
+  });
+
+  it("asks the limiter with the connecting address as the key", async () => {
+    const keys: string[] = [];
+    const limiter = {
+      limit: async ({ key }: { key: string }) => {
+        keys.push(key);
+        return { success: keys.length < 2 };
+      },
+    };
+    expect(await withinRateLimit(limiter, request("203.0.113.7"))).toBe(true);
+    expect(await withinRateLimit(limiter, request())).toBe(false);
+    expect(keys).toEqual(["203.0.113.7", "unknown"]);
   });
 });

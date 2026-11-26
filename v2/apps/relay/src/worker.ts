@@ -1,14 +1,18 @@
 import { CLIENT_HEADER, type Env, ROLE_HEADER, ROOM_HEADER, SESSION_HEADER } from "./RoomObject.js";
-import { clientKey, isWebSocketUpgrade, parseRoute } from "./routes.js";
+import { clientKey, isWebSocketUpgrade, parseRoute, withinRateLimit } from "./routes.js";
 
 export { RoomObject } from "./RoomObject.js";
 
 /*
  * Routes WebSocket upgrades to one Durable Object per room. Anything else is a 404, so the relay
- * offers nothing to probe beyond the three socket paths.
+ * offers nothing to probe beyond the three socket paths. Every request counts against the
+ * per-address limit first, so probing costs the same as connecting.
  */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    if (!(await withinRateLimit(env.UPGRADES, request))) {
+      return new Response("Too many requests", { status: 429 });
+    }
     const route = parseRoute(new URL(request.url).pathname);
     if (!route || !isWebSocketUpgrade(request)) {
       return new Response("Not found", { status: 404 });

@@ -30,3 +30,18 @@ export async function clientKey(request: Request): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(address)));
   return [...digest.slice(0, 16)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+
+/** The part of the Workers rate limit binding the relay uses. */
+export interface UpgradeLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
+/*
+ * Upgrades per connecting address. Without the binding (a local run, or a deploy that left it out)
+ * nothing is limited, so the check is skipped rather than failing every request.
+ */
+export async function withinRateLimit(limiter: UpgradeLimiter | undefined, request: Request): Promise<boolean> {
+  if (!limiter) return true;
+  const { success } = await limiter.limit({ key: request.headers.get("CF-Connecting-IP") ?? "unknown" });
+  return success;
+}
