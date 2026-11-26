@@ -14,6 +14,8 @@ export interface RelayHostOptions {
   readonly onState: (state: RelayState) => void;
   readonly now?: () => number;
   readonly random?: () => number;
+  /** How often to ping the relay. Tests with a short relay idle limit shorten it. */
+  readonly pingMs?: number;
 }
 
 const PING_MS = 20_000;
@@ -125,7 +127,7 @@ export class RelayHost {
         missedPongs += 1;
         socket.ping();
         socket.send(JSON.stringify({ type: "ping" }));
-      }, PING_MS);
+      }, this.#options.pingMs ?? PING_MS);
       // A relay that rejects the claim closes right after open, so only a link that holds earns a fresh backoff.
       stableTimer = setTimeout(() => {
         if (this.#control === socket) this.#attempt = 0;

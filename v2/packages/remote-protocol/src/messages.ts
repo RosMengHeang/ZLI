@@ -94,6 +94,11 @@ export const ClientControl = z.discriminatedUnion("type", [
    * alerts even though it may look open for a while longer.
    */
   z.object({ type: z.literal("gateway.away"), away: z.boolean() }),
+  /**
+   * Sent now and then over the relay while the phone is online, so the relay sees the phone is still there. The gateway
+   * reads it and answers nothing. Only sent to a desktop whose gateway.ready says `keepalive`.
+   */
+  z.object({ type: z.literal("gateway.keepalive") }),
 ]);
 export type ClientControl = z.infer<typeof ClientControl>;
 
@@ -118,6 +123,8 @@ export const ServerControl = z.discriminatedUnion("type", [
     port: z.number().int().min(1).max(65_535),
     /** The gateway takes gateway.push and gateway.away. Older desktops close the connection on them. */
     push: z.boolean().optional(),
+    /** The gateway takes gateway.keepalive. Older desktops close the connection on it. */
+    keepalive: z.boolean().optional(),
     /**
      * Where the phone reaches this desktop through the relay, so a phone paired before the relay was on (or before its
      * room changed) learns the route. Null means the relay is off. Older desktops leave it out, and the phone keeps what

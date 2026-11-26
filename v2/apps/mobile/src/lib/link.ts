@@ -40,6 +40,11 @@ const HELLO_TIMEOUT_MS = 10_000;
 const STABLE_CONNECTION_MS = 5_000;
 /** While online over the relay, how often the phone checks whether the desktop is on its network again. */
 const LAN_PROBE_MS = 60_000;
+/*
+ * The relay cuts a session whose phone has said nothing for a minute, so a phone that only watches sends a sealed
+ * keepalive this often. One frame per 25 s is about 3 500 a day per phone, against the room's 150 000.
+ */
+const KEEPALIVE_MS = 25_000;
 
 export type LinkState =
   | { kind: "connecting"; attempt: number }
@@ -76,6 +81,8 @@ export type LinkOptions = {
   pushRegistration?: () => Promise<PushRegistration | undefined>;
   /** How often to look for the desktop on the LAN while online over the relay. Tests shorten it. */
   lanProbeMs?: number;
+  /** How often to send a keepalive over the relay. Tests shorten it. */
+  keepaliveMs?: number;
 };
 
 type Online = {
@@ -455,6 +462,13 @@ export class RemoteLink {
       if (this.#away) this.#sendControl(session.transport, { type: "gateway.away", away: true });
       void this.#sendPush(session.transport);
     }
+    const keepalive =
+      route === "relay" && session.ready.keepalive
+        ? setInterval(
+            () => this.#sendControl(session.transport, { type: "gateway.keepalive" }),
+            this.#options.keepaliveMs ?? KEEPALIVE_MS,
+          )
+        : undefined;
 
     return {
       kind: "online",
@@ -462,6 +476,7 @@ export class RemoteLink {
       openedAt: this.#now(),
       end,
       closed: closed.then((info) => {
+        clearInterval(keepalive);
         stopProjection();
         stopTerminal();
         client.close();

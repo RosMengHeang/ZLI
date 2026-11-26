@@ -316,6 +316,58 @@ describe("RemoteLink", () => {
     expect(probes).toBe(stopped);
   });
 
+  describe("keepalives over the relay", () => {
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const keepalives = (sent: unknown[]) =>
+      sent.filter((message) => (message as { type: string }).type === "gateway.keepalive").length;
+    const offLan = async (url: string, relayed: RemoteSession) => {
+      if (url.startsWith("wss://")) return relayed;
+      throw new RemoteConnectError("network", failureMessage("network"));
+    };
+
+    it("sends one every keepaliveMs while online over the relay, and stops when the connection ends", async () => {
+      const { session, desktop } = fakeSession({ push: true, keepalive: true });
+      const link = makeLink((url) => offLan(url, session), vi.fn(), {
+        pairing: { ...pairing, relay },
+        keepaliveMs: 20,
+        lanProbeMs: 60_000,
+      });
+      link.start();
+      await until(() => keepalives(desktop.sent) >= 3);
+      link.pause();
+      await link.settled();
+      const sent = keepalives(desktop.sent);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(keepalives(desktop.sent)).toBe(sent);
+    });
+
+    it("sends none to a desktop that did not say it takes them, since older desktops close on unknown controls", async () => {
+      const { session, desktop } = fakeSession({ push: true });
+      const link = makeLink((url) => offLan(url, session), vi.fn(), {
+        pairing: { ...pairing, relay },
+        keepaliveMs: 10,
+        lanProbeMs: 60_000,
+      });
+      link.start();
+      await until(() => link.getSnapshot().route === "relay");
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(keepalives(desktop.sent)).toBe(0);
+      link.pause();
+      await link.settled();
+    });
+
+    it("sends none on the LAN, where nothing cuts a quiet connection", async () => {
+      const { session, desktop } = fakeSession({ push: true, keepalive: true });
+      const link = makeLink(async () => session, vi.fn(), { keepaliveMs: 10 });
+      link.start();
+      await until(() => link.getSnapshot().route === "lan");
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(keepalives(desktop.sent)).toBe(0);
+      link.pause();
+      await link.settled();
+    });
+  });
+
   it("says the PC is unreachable, not 'same network', when the relay failed too", async () => {
     const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
     const link = makeLink(

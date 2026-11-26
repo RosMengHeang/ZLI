@@ -144,7 +144,12 @@ interface Session {
   openedAt: number;
   /** When the desktop dialed in; it must speak within twice the dial timeout after that. */
   joinedAt: number;
-  seenAt: number;
+  /*
+   * When each side last sent a frame. They are kept apart so a phone that went away is cut even while the desktop keeps
+   * sending to it, which would otherwise spend the day's budget on nobody.
+   */
+  phoneSeenAt: number;
+  hostSeenAt: number;
   /** Bytes and frames the phone sent before the desktop's first frame. */
   unansweredBytes: number;
   unansweredFrames: number;
@@ -270,7 +275,8 @@ export class RelayRoom {
       waiting: [],
       openedAt: now,
       joinedAt: now,
-      seenAt: now,
+      phoneSeenAt: now,
+      hostSeenAt: now,
       unansweredBytes: 0,
       unansweredFrames: 0,
       hostSpoke: false,
@@ -288,7 +294,7 @@ export class RelayRoom {
     }
     entry.host = socket;
     entry.joinedAt = this.#clock.now();
-    entry.seenAt = entry.joinedAt;
+    entry.hostSeenAt = entry.joinedAt;
     for (const frame of entry.waiting) socket.send(frame);
     entry.waiting = [];
     return true;
@@ -321,7 +327,8 @@ export class RelayRoom {
         return;
       }
     }
-    entry.seenAt = this.#clock.now();
+    if (from === "host") entry.hostSeenAt = this.#clock.now();
+    else entry.phoneSeenAt = this.#clock.now();
     if (from === "host") {
       // This lifts the pre-handshake caps one message before the phone has authenticated: the
       // desktop's first frame is the start of the handshake, not proof that the phone passed it.
@@ -398,7 +405,8 @@ export class RelayRoom {
           waiting: [],
           openedAt: now,
           joinedAt: host.joinedAt ?? now,
-          seenAt: Math.max(phone.seenAt ?? now, host.seenAt ?? now),
+          phoneSeenAt: phone.seenAt ?? now,
+          hostSeenAt: host.seenAt ?? now,
           unansweredBytes: phone.unansweredBytes ?? 0,
           unansweredFrames: phone.unansweredFrames ?? 0,
           // Unknown means not yet: lifting the caps on a guess would let a pause bypass them.
@@ -429,11 +437,20 @@ export class RelayRoom {
       } else if (entry.host && !entry.hostSpoke && now - entry.joinedAt >= this.#limits.dialTimeoutMs * 2) {
         // A desktop that dials but never answers would hold the slot while the phone trickles.
         this.#endSession(session, entry, CLOSE_POLICY, "The desktop did not answer.");
-      } else if (now - entry.seenAt >= this.#limits.idleTimeoutMs) {
+      } else if (now - this.#quietSince(entry) >= this.#limits.idleTimeoutMs) {
         this.#endSession(session, entry, CLOSE_NORMAL, "Idle for too long.");
       }
     }
     this.#schedule();
+  }
+
+  /*
+   * When the quieter side of a session was last heard from. A quiet session gets no frames from the desktop, so its
+   * control socket's heartbeat counts for the desktop side: the desktop is still there, it just has nothing to say.
+   * The phone has no such channel, so it sends a sealed keepalive that arrives here as an ordinary frame.
+   */
+  #quietSince(entry: Session): number {
+    return Math.min(entry.phoneSeenAt, Math.max(entry.hostSeenAt, this.#hostSeenAt));
   }
 
   /** The host, or null once it has missed its heartbeats. Checked on use too, not only by sweeps. */
@@ -505,7 +522,7 @@ export class RelayRoom {
     for (const at of this.#unclaimed.values()) next = Math.min(next, at + this.#limits.dialTimeoutMs);
     if (this.#host) next = Math.min(next, this.#hostSeenAt + this.#limits.idleTimeoutMs * 2);
     for (const entry of this.#sessions.values()) {
-      next = Math.min(next, entry.seenAt + this.#limits.idleTimeoutMs);
+      next = Math.min(next, this.#quietSince(entry) + this.#limits.idleTimeoutMs);
       if (!entry.host) next = Math.min(next, entry.openedAt + this.#limits.dialTimeoutMs);
       else if (!entry.hostSpoke) next = Math.min(next, entry.joinedAt + this.#limits.dialTimeoutMs * 2);
     }

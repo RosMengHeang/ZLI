@@ -471,6 +471,7 @@ export class MobileGateway {
                 hosts: options.hosts(),
                 port: this.#port(),
                 push: true,
+                keepalive: true,
                 relay: options.relayRoute?.() ?? null,
               };
               sendSealed(ready);
@@ -509,6 +510,9 @@ export class MobileGateway {
           case "gateway.away":
             if (control.data.away) this.#away.add(close);
             else this.#away.delete(close);
+            return;
+          case "gateway.keepalive":
+            // Its passing through the relay was the point.
             return;
           default:
             return close(RemoteCloseCode.protocol);

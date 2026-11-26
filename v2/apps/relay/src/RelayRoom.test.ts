@@ -536,6 +536,51 @@ describe("RelayRoom limits", () => {
     expect(sessionHost.closed?.code).toBe(1000);
   });
 
+  it("cuts a session whose phone went quiet, even while the desktop keeps sending", () => {
+    const { room, host, clock } = claimedRoom();
+    const { phone, sessionHost, session } = join(room, host);
+    room.onFrame("phone", session, "hello", phone);
+    const step = DEFAULT_LIMITS.idleTimeoutMs / 4;
+    for (let index = 0; index < 3; index += 1) {
+      clock.advance(step);
+      room.onFrame("host", session, "terminal output", sessionHost);
+      room.hostControl(host, JSON.stringify({ type: "ping" }));
+    }
+    clock.advance(step - 1);
+    expect(phone.closed).toBeNull();
+    clock.advance(1);
+    expect(phone.closed?.code).toBe(1000);
+    expect(sessionHost.closed?.code).toBe(1000);
+  });
+
+  it("keeps a session whose phone sends a keepalive every 25 s past idleTimeoutMs while the desktop is quiet", () => {
+    const { room, host, clock } = claimedRoom();
+    const { phone, sessionHost, session } = join(room, host);
+    room.onFrame("host", session, "hello", sessionHost);
+    // The desktop says nothing on the session, but its control socket pings every 20 s.
+    for (let second = 1; second <= 3 * 60; second += 1) {
+      clock.advance(1_000);
+      if (second % 25 === 0) room.onFrame("phone", session, "keepalive", phone);
+      if (second % 20 === 0) room.hostControl(host, JSON.stringify({ type: "ping" }));
+    }
+    expect(phone.closed).toBeNull();
+    expect(sessionHost.closed).toBeNull();
+  });
+
+  it("cuts a session whose desktop went silent, frames and heartbeat both, while the phone keeps sending", () => {
+    const { room, host, clock } = claimedRoom();
+    const { phone, sessionHost, session } = join(room, host);
+    room.onFrame("host", session, "hello", sessionHost);
+    for (let second = 1; second < 60; second += 1) {
+      clock.advance(1_000);
+      if (second % 25 === 0) room.onFrame("phone", session, "keepalive", phone);
+    }
+    expect(phone.closed).toBeNull();
+    clock.advance(1_000);
+    expect(phone.closed?.code).toBe(1000);
+    expect(sessionHost.closed?.code).toBe(1000);
+  });
+
   it("stops forwarding after messagesPerDay frames in a UTC day and tells the host once", () => {
     const { room, host, clock } = limited({ messagesPerDay: 3 });
     const { phone, sessionHost, session } = join(room, host);
@@ -684,9 +729,10 @@ describe("RelayRoom limits", () => {
     const idle = DEFAULT_LIMITS.idleTimeoutMs;
     room.restore([
       { role: "control", socket: control, claimed: true, seenAt: clock.time - idle * 2 + 20 },
-      { role: "phone", session, socket: phone, seenAt: clock.time - idle + 5 },
-      { role: "host", session, socket: host, seenAt: clock.time - idle + 10, hostSpoke: true },
+      { role: "phone", session, socket: phone, seenAt: clock.time - idle + 10 },
+      { role: "host", session, socket: host, seenAt: clock.time - idle + 30, hostSpoke: true },
     ]);
+    // Each side keeps its own clock: the phone's, the older one, decides.
     clock.advance(9);
     expect(phone.closed).toBeNull();
     clock.advance(1);

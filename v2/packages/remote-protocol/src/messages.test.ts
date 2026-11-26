@@ -37,6 +37,11 @@ describe("ClientControl", () => {
     expect(ClientControl.safeParse({ type: "gateway.away", away: "yes" }).success).toBe(false);
     expect(isControlType("gateway.away")).toBe(true);
   });
+
+  it("accepts a keepalive with nothing in it", () => {
+    expect(ClientControl.parse({ type: "gateway.keepalive" })).toEqual({ type: "gateway.keepalive" });
+    expect(isControlType("gateway.keepalive")).toBe(true);
+  });
 });
 
 describe("ServerControl", () => {
@@ -68,6 +73,8 @@ describe("ServerControl", () => {
     expect(ServerControl.parse({ ...ready, relay })).toMatchObject({ relay });
     expect(ServerControl.parse({ ...ready, relay: null })).toMatchObject({ relay: null });
     expect(ServerControl.parse(ready)).not.toHaveProperty("relay");
+    expect(ServerControl.parse({ ...ready, keepalive: true })).toMatchObject({ keepalive: true });
+    expect(ServerControl.parse(ready)).not.toHaveProperty("keepalive");
     expect(
       ServerControl.safeParse({ ...ready, relay: { url: "ws://relay.example.com", room: relay.room } }).success,
     ).toBe(false);

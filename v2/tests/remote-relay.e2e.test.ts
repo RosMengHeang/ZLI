@@ -10,7 +10,13 @@ import { MobileGateway, type PairingApprovalRequest } from "../apps/desktop/src/
 import { PairingWindow } from "../apps/desktop/src/remote/PairingWindow.js";
 import { RelayHost, type RelayState } from "../apps/desktop/src/remote/RelayHost.js";
 import { type RouteFailure, raceRoutes } from "../apps/mobile/src/lib/routes.js";
-import { DEFAULT_LIMITS, newSessionId, type PipeSocket, RelayRoom } from "../apps/relay/src/RelayRoom.js";
+import {
+  DEFAULT_LIMITS,
+  newSessionId,
+  type PipeSocket,
+  RelayRoom,
+  type RoomLimits,
+} from "../apps/relay/src/RelayRoom.js";
 import { parseRoute } from "../apps/relay/src/routes.js";
 import {
   type CreateWebSocket,
@@ -80,7 +86,7 @@ function frameBuffer(frame: Frame): Buffer {
  * A local relay: one real RelayRoom per room id behind a ws server, with the Worker's three paths. A phone passes its
  * rate-limit key as ?client=, standing in for the hash of its address the Worker would add.
  */
-async function relayHarness() {
+async function relayHarness(limits: Partial<RoomLimits> = {}) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
   const address = server.address();
@@ -105,7 +111,7 @@ async function relayHarness() {
   const roomFor = (id: string) => {
     let room = rooms.get(id);
     if (!room) {
-      room = new RelayRoom(id, { ...DEFAULT_LIMITS, dialTimeoutMs: 2_000 });
+      room = new RelayRoom(id, { ...DEFAULT_LIMITS, dialTimeoutMs: 2_000, ...limits });
       rooms.set(id, room);
     }
     return room;
@@ -241,7 +247,7 @@ async function fakeRuntime() {
 }
 
 /** A desktop: the store, the gateway in front of a fake runtime, and a RelayHost holding its room on the relay. */
-async function startDesktop(relay: Relay) {
+async function startDesktop(relay: Relay, pingMs?: number) {
   const directory = await mkdtemp(join(tmpdir(), "zli-relay-e2e-"));
   const runtime = await fakeRuntime();
   const store = new MobileAccessStore(join(directory, "mobile.json"), plainCodec, random);
@@ -303,6 +309,7 @@ async function startDesktop(relay: Relay) {
     gateway: desk.gateway,
     createSocket: (url, options) => new WsSocket(relay.local(url), options),
     onState: (state) => desk.states.push(state),
+    ...(pingMs === undefined ? {} : { pingMs }),
   });
   desk.host.start();
   await until(() => relay.hostOnline(route.room));
@@ -865,6 +872,39 @@ describe("remote access through the relay", () => {
       // The phone waits past the relay's dial timeout (2 s here), so the relay's own close decides.
       expect(await raceRelay(desk, paired, PHONE_TIMEOUT_MS)).toBe("network");
       expect(relay.heldSessions(desk.route.room)).toBe(0);
+    });
+  });
+
+  describe("with a short idle limit", () => {
+    const IDLE_MS = 600;
+
+    async function quickRelay() {
+      await relay.close();
+      relay = await relayHarness({ idleTimeoutMs: IDLE_MS });
+      const desk = await startDesktop(relay, 100);
+      desktops.push(desk);
+      return desk;
+    }
+
+    it("keeps a quiet session open while the phone sends keepalives, and cuts it once they stop", async () => {
+      const desk = await quickRelay();
+      const paired = await pairedPhone(desk);
+      const session = await resume(desk, paired);
+      expect(session.ready.keepalive).toBe(true);
+      let open = true;
+      const ended = closed(session).then((failure) => {
+        open = false;
+        return failure;
+      });
+      // Three idle limits pass with the desktop saying nothing on the session.
+      const end = Date.now() + IDLE_MS * 3;
+      while (Date.now() < end) {
+        session.transport.send({ type: "gateway.keepalive" });
+        await new Promise((resolve) => setTimeout(resolve, IDLE_MS / 3));
+        expect(open).toBe(true);
+      }
+      expect(relay.hostOnline(desk.route.room)).toBe(true);
+      await within(ended, "the idle cut", IDLE_MS * 4);
     });
   });
 

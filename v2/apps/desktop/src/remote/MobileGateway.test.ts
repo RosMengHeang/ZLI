@@ -518,6 +518,26 @@ describe("MobileGateway", () => {
     expect(gateway.attentiveDeviceIds().size).toBe(0);
   });
 
+  it("takes a keepalive without answering it or closing the connection", async () => {
+    const { session } = await pairPhone();
+    expect(session.ready.keepalive).toBe(true);
+    const received: unknown[] = [];
+    session.transport.onMessage((message) => received.push(message));
+    let closedEarly = false;
+    session.transport.onClose(() => {
+      closedEarly = true;
+    });
+    session.transport.send({ type: "gateway.keepalive" });
+    session.transport.send({ type: "gateway.keepalive" });
+    // A hello after the keepalives still gets its answer, so they were read and passed over.
+    const hello = nextMessage(session, (message) => message.type === "hello");
+    session.transport.send({ type: "hello", protocolVersion: 1, token: "phone", environmentId });
+    expect((await hello).type).toBe("hello");
+    expect(closedEarly).toBe(false);
+    expect(received.filter((message) => (message as { type: string }).type.startsWith("gateway."))).toEqual([]);
+    session.transport.close();
+  });
+
   it("tells the phone to try again when the runtime connection drops", async () => {
     const { session } = await pairPhone();
     const code = closed(session);
