@@ -22,10 +22,10 @@ import {
   RemoteCloseCode,
   type RemoteConnectError,
   type RemoteSession,
+  webCryptoRandomBytes as random,
   relayUrl,
   remoteUrl,
   roomIdFromSecret,
-  webCryptoRandomBytes as random,
   toBase64Url,
   type WebSocketLike,
 } from "../packages/remote-protocol/src/index.js";
@@ -293,6 +293,7 @@ async function startDesktop(relay: Relay) {
     hosts: () => ["127.0.0.1"],
     onChange: () => undefined,
     approvePairing: (request) => desk.approve(request),
+    relayRoute: () => route,
     log: (message, detail) => logs.push({ message, detail }),
   });
   desk.port = await desk.gateway.start({ port: 0, host: "127.0.0.1" });
@@ -476,6 +477,8 @@ describe("remote access through the relay", () => {
 
     const session = await resume(desk, { phone, deviceId, credential });
     expect(session.ready).toMatchObject({ type: "gateway.ready", desktopName: "Test desk", environmentId });
+    // Sealed, so a phone paired before the relay was on learns the route without the relay seeing it.
+    expect(session.ready.relay).toEqual(desk.route);
     const reply = nextMessage(session, "response");
     session.transport.send(command(commandId, "hi"));
     expect(await reply).toMatchObject({ response: { commandId, accepted: true } });

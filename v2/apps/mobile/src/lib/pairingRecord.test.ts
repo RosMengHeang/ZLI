@@ -70,4 +70,28 @@ describe("stored pairing", () => {
     expect(next).toMatchObject({ lastRoute: "relay", lastHost: "10.0.0.5" });
     expect(next.hosts).toEqual(["172.16.0.9", "192.168.1.20", "10.0.0.5"]);
   });
+
+  describe("the relay route the desktop reports", () => {
+    const old = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    const fresh = { url: "wss://relay.example.com", room: `${"S".repeat(21)}A` };
+    const ready = { type: "gateway.ready" as const, desktopName: "Studio", environmentId, hosts: [], port: 47321 };
+
+    it("sets it on a phone paired before the relay was on", () => {
+      expect(withReady(pairing, { ...ready, relay: fresh }, "10.0.0.5").relay).toEqual(fresh);
+    });
+
+    it("replaces a rotated route", () => {
+      expect(withReady({ ...pairing, relay: old }, { ...ready, relay: fresh }, "10.0.0.5").relay).toEqual(fresh);
+    });
+
+    it("clears it when a desktop that knows about the relay says it is off", () => {
+      const next = withReady({ ...pairing, relay: old }, { ...ready, relay: null }, "10.0.0.5");
+      expect(next).not.toHaveProperty("relay");
+      expect(parseStoredPairing(serializePairing(next))).toEqual(next);
+    });
+
+    it("keeps it when an older desktop says nothing about the relay", () => {
+      expect(withReady({ ...pairing, relay: old }, ready, "10.0.0.5").relay).toEqual(old);
+    });
+  });
 });

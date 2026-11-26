@@ -20,6 +20,25 @@ export const RemoteHost = z
   .max(253)
   .regex(/^[A-Za-z0-9.-]+$/u);
 
+/** Where a desktop can be reached through a relay. The URL comes from the pairing code, not from code. */
+export const RelayRoute = z.object({
+  url: z
+    .string()
+    .url()
+    .startsWith("wss://")
+    .refine((value) => {
+      // new URL throws on garbage that .url() already flagged, and zod still runs this refine.
+      try {
+        const parsed = new URL(value);
+        return parsed.search === "" && parsed.hash === "" && parsed.username === "" && parsed.password === "";
+      } catch {
+        return false;
+      }
+    }, "The relay URL can't carry a query, fragment, or credentials."),
+  room: Id16,
+});
+export type RelayRoute = z.infer<typeof RelayRoute>;
+
 export const ClientHello = z.discriminatedUnion("mode", [
   z.object({
     type: z.literal("hello"),
@@ -99,6 +118,12 @@ export const ServerControl = z.discriminatedUnion("type", [
     port: z.number().int().min(1).max(65_535),
     /** The gateway takes gateway.push and gateway.away. Older desktops close the connection on them. */
     push: z.boolean().optional(),
+    /**
+     * Where the phone reaches this desktop through the relay, so a phone paired before the relay was on (or before its
+     * room changed) learns the route. Null means the relay is off. Older desktops leave it out, and the phone keeps what
+     * it has.
+     */
+    relay: RelayRoute.nullable().optional(),
   }),
 ]);
 export type ServerControl = z.infer<typeof ServerControl>;

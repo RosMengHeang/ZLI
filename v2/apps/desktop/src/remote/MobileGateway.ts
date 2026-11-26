@@ -13,6 +13,7 @@ import {
   isControlType,
   type RandomBytes,
   REMOTE_PATH,
+  type RelayRoute,
   RemoteCloseCode,
   type SecureChannel,
   type ServerControl,
@@ -52,6 +53,8 @@ export interface MobileGatewayOptions {
    * desktop from anywhere. Without it, relay pairings are refused.
    */
   approvePairing?: (request: PairingApprovalRequest) => Promise<boolean>;
+  /** Where phones reach this desktop through the relay, or undefined while the relay is off. Sent in gateway.ready. */
+  relayRoute?: () => RelayRoute | undefined;
   now?: () => number;
   log?: (message: string, detail?: Record<string, unknown>) => void;
   createUpstreamSocket?: (url: string) => WebSocket;
@@ -468,6 +471,7 @@ export class MobileGateway {
                 hosts: options.hosts(),
                 port: this.#port(),
                 push: true,
+                relay: options.relayRoute?.() ?? null,
               };
               sendSealed(ready);
               return;

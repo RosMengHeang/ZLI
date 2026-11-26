@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { webCryptoRandomBytes as randomBytes, toBase64Url } from "./bytes.js";
-import { Id16, Key32 } from "./messages.js";
-import { RelayHostMessage, RelayRoute, relayUrl, roomIdFromSecret } from "./relay.js";
+import { Id16, Key32, RelayRoute } from "./messages.js";
+import { RelayHostMessage, relayUrl, roomIdFromSecret } from "./relay.js";
 
 describe("relay room id", () => {
   it("is deterministic, 22 characters, and a valid Id16", () => {

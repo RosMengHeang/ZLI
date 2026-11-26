@@ -42,7 +42,8 @@ function useNow(active: boolean): number {
 
 const RELAY_NOTE =
   "Your phone reaches this PC through ZLI's relay when it isn't on the same Wi-Fi. The relay can't read your traffic, but it sees when each side connects and from which network address.";
-const RELAY_OFF_WARNING = "Turning it off stops phones paired before from using the relay until you pair them again.";
+const RELAY_OFF_WARNING =
+  "Turning it off stops paired phones from using the relay. Turned back on, it gets a new address, which each phone picks up the next time it connects on the same network.";
 
 /** The one line under Connect from anywhere. Undefined while there is nothing to say. */
 function relayLine(status: MobileAccessStatus): { text: string; problem?: boolean } | undefined {

@@ -55,4 +55,21 @@ describe("ServerControl", () => {
     }
     expect(ServerControl.safeParse({ type: "gateway.denied", reason: "other" }).success).toBe(false);
   });
+
+  it("parses gateway.ready with a relay route, with null for a relay turned off, and without one", () => {
+    const ready = {
+      type: "gateway.ready",
+      desktopName: "Studio",
+      environmentId: "6f9619ff-8b86-4d01-b42d-00cf4fc964ff",
+      hosts: ["192.168.1.20"],
+      port: 47321,
+    };
+    const relay = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    expect(ServerControl.parse({ ...ready, relay })).toMatchObject({ relay });
+    expect(ServerControl.parse({ ...ready, relay: null })).toMatchObject({ relay: null });
+    expect(ServerControl.parse(ready)).not.toHaveProperty("relay");
+    expect(
+      ServerControl.safeParse({ ...ready, relay: { url: "ws://relay.example.com", room: relay.room } }).success,
+    ).toBe(false);
+  });
 });

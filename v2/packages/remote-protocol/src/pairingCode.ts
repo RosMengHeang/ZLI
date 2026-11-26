@@ -1,8 +1,7 @@
 import { z } from "zod";
 
 import { fromBase64Url, toBase64Url, utf8Decode, utf8Encode } from "./bytes.js";
-import { Id16, Key32, REMOTE_PROTOCOL_VERSION, RemoteHost } from "./messages.js";
-import { RelayRoute } from "./relay.js";
+import { Id16, Key32, REMOTE_PROTOCOL_VERSION, RelayRoute, RemoteHost } from "./messages.js";
 
 /** Every pairing code starts with this, so a scanner can skip unrelated QR codes. */
 export const PAIRING_CODE_PREFIX = "zli-remote:";

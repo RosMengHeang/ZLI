@@ -305,6 +305,19 @@ describe("MobileGateway", () => {
     );
   }
 
+  it("tells the phone its relay route in gateway.ready, and null while the relay is off", async () => {
+    const { session, phone } = await pairPhone();
+    expect(session.ready.relay).toBeNull();
+    session.transport.close();
+    const { deviceId = "", credential = "" } = session.paired ?? {};
+
+    const route = { url: "wss://relay.example.com", room: `${"R".repeat(21)}A` };
+    await restartGateway({ relayRoute: () => route });
+    const resumed = await resume(phone, deviceId, credential);
+    expect(resumed.ready.relay).toEqual(route);
+    resumed.transport.close();
+  });
+
   it("pairs a phone, stores only the credential hash, and relays the runtime", async () => {
     const { session } = await pairPhone();
     expect(session.paired?.deviceId).toBeTruthy();

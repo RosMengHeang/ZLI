@@ -144,6 +144,8 @@ export async function registerMobileAccess(options: {
     desktopName,
     hosts: reachableHosts,
     onChange: publish,
+    // Read when a phone connects, so a phone paired before the relay was on, or before its room changed, learns it.
+    relayRoute: () => relay.route(),
     log: (message, detail) => options.log?.("info", message, detail),
   });
 

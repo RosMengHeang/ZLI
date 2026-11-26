@@ -62,12 +62,16 @@ export function withReady(
     host === undefined
       ? [...new Set([...ready.hosts, ...pairing.hosts])].slice(0, MAX_HOSTS)
       : [...new Set([...ready.hosts, host, ...pairing.hosts])].slice(0, MAX_HOSTS);
+  // A relay route sets or replaces the stored one, and null clears it. Older desktops leave it out, so it stays.
+  const { relay: _stored, ...rest } = pairing;
+  const relay = ready.relay === undefined ? pairing.relay : (ready.relay ?? undefined);
   return {
-    ...pairing,
+    ...rest,
     desktopName: ready.desktopName,
     hosts,
     port: ready.port,
     ...(host === undefined ? {} : { lastHost: host }),
+    ...(relay === undefined ? {} : { relay }),
     lastRoute: route,
   };
 }

@@ -2,32 +2,13 @@ import { z } from "zod";
 
 import { toBase64Url } from "./bytes.js";
 import { hashSecret } from "./crypto.js";
-import { Id16, Key32 } from "./messages.js";
+import { Id16, Key32, RelayRoute } from "./messages.js";
 
 /*
  * The relay is an untrusted byte pipe. It only sees the room id and ciphertext: the handshake and
  * channel encryption run end to end between phone and desktop, so the relay URL is data (carried in
  * the pairing code), never a trust anchor.
  */
-
-/** Where a desktop can be reached through a relay. The URL comes from the pairing code, not from code. */
-export const RelayRoute = z.object({
-  url: z
-    .string()
-    .url()
-    .startsWith("wss://")
-    .refine((value) => {
-      // new URL throws on garbage that .url() already flagged, and zod still runs this refine.
-      try {
-        const parsed = new URL(value);
-        return parsed.search === "" && parsed.hash === "" && parsed.username === "" && parsed.password === "";
-      } catch {
-        return false;
-      }
-    }, "The relay URL can't carry a query, fragment, or credentials."),
-  room: Id16,
-});
-export type RelayRoute = z.infer<typeof RelayRoute>;
 
 /** The room is derived from the pairing secret so the relay can't link rooms to anything else. */
 export function roomIdFromSecret(secret: Uint8Array): string {

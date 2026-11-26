@@ -363,14 +363,14 @@ describe("MobileAccessSection", () => {
       expect(container.textContent).toContain(
         "Your phone reaches this PC through ZLI's relay when it isn't on the same Wi-Fi. The relay can't read your traffic, but it sees when each side connects and from which network address.",
       );
-      expect(container.textContent).not.toContain("phones paired before");
+      expect(container.textContent).not.toContain("stops paired phones");
       expect(hasSwitch(container, "Allow terminal input from anywhere")).toBe(false);
 
       await act(async () => relaySwitch.click());
       expect(bridge.api.setRelayEnabled).toHaveBeenCalledWith(true);
       expect(container.textContent).toContain("Connecting…");
       expect(container.textContent).toContain(
-        "Turning it off stops phones paired before from using the relay until you pair them again.",
+        "Turning it off stops paired phones from using the relay. Turned back on, it gets a new address, which each phone picks up the next time it connects on the same network.",
       );
       expect(toggle(container, "Allow terminal input from anywhere").checked).toBe(false);
 
