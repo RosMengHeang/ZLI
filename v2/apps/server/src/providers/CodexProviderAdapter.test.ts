@@ -78,6 +78,40 @@ describe("CodexProviderAdapter", () => {
     expect(adapter.capabilities.compaction).toBe("native");
   });
 
+  it("switches the permission mode mid-chat on the next turn, and restores the started mode exactly", async () => {
+    const client = new FakeClient();
+    const reported = { type: "workspaceWrite", writableRoots: ["C:/extra"], networkAccess: true };
+    client.startSession = async (input: { cwd: string }) => {
+      client.calls.push({ method: "start", value: input });
+      return { providerThreadId: "codex-thread-1", approvalPolicy: "on-request", sandboxPolicy: reported };
+    };
+    const adapter = new CodexProviderAdapter({ createClient: async () => client });
+    await adapter.startSession({ threadId, cwd: "C:/workspace/tree", permissionMode: "supervised" });
+
+    await adapter.sendTurn({ threadId, text: "look", permissionMode: "read-only" });
+    await adapter.sendTurn({ threadId, text: "still looking" });
+    await adapter.sendTurn({ threadId, text: "go", permissionMode: "supervised" });
+    await adapter.sendTurn({ threadId, text: "all of it", permissionMode: "full-access" });
+
+    expect(client.calls.filter((call) => call.method === "turn").map((call) => call.value)).toEqual([
+      {
+        providerThreadId: "codex-thread-1",
+        text: "look",
+        approvalPolicy: "on-request",
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+      },
+      { providerThreadId: "codex-thread-1", text: "still looking" },
+      { providerThreadId: "codex-thread-1", text: "go", approvalPolicy: "on-request", sandboxPolicy: reported },
+      {
+        providerThreadId: "codex-thread-1",
+        text: "all of it",
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "dangerFullAccess" },
+      },
+    ]);
+    expect(adapter.capabilities.permissionSwitch).toBe("in-session");
+  });
+
   it("maps provider-native identifiers and structured events into the neutral adapter", async () => {
     const client = new FakeClient();
     const adapter = new CodexProviderAdapter({ createClient: async () => client });
