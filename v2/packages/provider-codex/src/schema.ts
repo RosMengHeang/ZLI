@@ -2,6 +2,9 @@ import { z } from "zod";
 
 export const ThreadStartResponse = z.object({
   thread: z.object({ id: z.string().min(1) }).passthrough(),
+  /** The policies the thread runs under, after Codex's own config is applied. */
+  approvalPolicy: z.unknown().optional(),
+  sandbox: z.unknown().optional(),
 });
 export type ThreadStartResponse = z.infer<typeof ThreadStartResponse>;
 

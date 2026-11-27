@@ -94,7 +94,13 @@ export type CodexTurnInput = {
   serviceTier?: string;
   /** Local image files sent as localImage inputs next to the text. */
   imagePaths?: readonly string[];
+  /** An approval policy for this turn and the ones after it. */
+  approvalPolicy?: unknown;
+  /** A sandbox policy object, such as { type: "readOnly" }, for this turn and the ones after it. */
+  sandboxPolicy?: unknown;
 };
+/** A started or resumed thread, with the policies Codex reports it runs under. */
+export type CodexSessionStarted = { providerThreadId: string; approvalPolicy?: unknown; sandboxPolicy?: unknown };
 export type CodexTurnResult = { providerTurnId: string };
 
 export class CodexProviderError extends Error {
@@ -165,13 +171,13 @@ export class CodexAppServerClient {
     return () => this.eventListeners.delete(listener);
   }
 
-  async startSession(input: CodexSessionStartInput): Promise<{ providerThreadId: string }> {
+  async startSession(input: CodexSessionStartInput): Promise<CodexSessionStarted> {
     const result = ThreadStartResponse.parse(await this.request("thread/start", threadSettings(input)));
-    return { providerThreadId: result.thread.id };
+    return started(result);
   }
 
   /** The response carries the thread's past turns; they are history and are not reported as events. */
-  async resumeSession(input: CodexSessionResumeInput): Promise<{ providerThreadId: string }> {
+  async resumeSession(input: CodexSessionResumeInput): Promise<CodexSessionStarted> {
     // Marked before the request: the replayed usage can share a read with the response and be handled first.
     this.restoring.add(input.providerThreadId);
     try {
@@ -182,7 +188,7 @@ export class CodexAppServerClient {
         this.restoring.delete(input.providerThreadId);
         this.restoring.add(result.thread.id);
       }
-      return { providerThreadId: result.thread.id };
+      return started(result);
     } catch (error) {
       this.restoring.delete(input.providerThreadId);
       throw error;
@@ -200,6 +206,8 @@ export class CodexAppServerClient {
         ...(input.model ? { model: input.model } : {}),
         ...(input.effort ? { effort: input.effort } : {}),
         ...(input.serviceTier ? { serviceTierForTurn: input.serviceTier } : {}),
+        ...(input.approvalPolicy === undefined ? {} : { approvalPolicy: input.approvalPolicy }),
+        ...(input.sandboxPolicy === undefined ? {} : { sandboxPolicy: input.sandboxPolicy }),
       }),
     );
     return { providerTurnId: result.turn.id };
@@ -453,6 +461,14 @@ export class CodexAppServerClient {
       }
     }
   }
+}
+
+function started(result: ThreadStartResponse): CodexSessionStarted {
+  return {
+    providerThreadId: result.thread.id,
+    ...(result.approvalPolicy === undefined ? {} : { approvalPolicy: result.approvalPolicy }),
+    ...(result.sandbox === undefined ? {} : { sandboxPolicy: result.sandbox }),
+  };
 }
 
 function threadSettings(input: CodexSessionStartInput): Record<string, unknown> {

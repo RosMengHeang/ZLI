@@ -1,4 +1,4 @@
-import { isImageMimeType, type ProviderCapabilities, type ThreadId } from "@zli-v2/contracts";
+import { isImageMimeType, type PermissionMode, type ProviderCapabilities, type ThreadId } from "@zli-v2/contracts";
 import type { CodexAppServerClient, CodexProviderEvent } from "@zli-v2/provider-codex";
 
 import type {
@@ -28,7 +28,37 @@ type CodexClient = Pick<
 >;
 
 type Connection = { client: CodexClient; unsubscribe: () => void };
-type Context = { providerThreadId: string; session: ProviderSession; clientKey: string; account?: ProviderAccount };
+type Policy = { approvalPolicy: unknown; sandboxPolicy: unknown };
+
+type Context = {
+  providerThreadId: string;
+  session: ProviderSession;
+  clientKey: string;
+  account?: ProviderAccount;
+  /** The permission mode the thread runs in now. */
+  mode: PermissionMode;
+  /** What Codex reported for a mode the thread started in, so switching back restores it exactly. */
+  policies: Partial<Record<PermissionMode, Policy>>;
+};
+
+/**
+ * Turn-level policies for a mode the thread has not reported. Read only and Supervised match Codex's own
+ * Read only and Auto presets; Full access is what the label says.
+ */
+const MODE_POLICIES: Readonly<Record<PermissionMode, Policy>> = {
+  "read-only": { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly", networkAccess: false } },
+  supervised: {
+    approvalPolicy: "on-request",
+    sandboxPolicy: {
+      type: "workspaceWrite",
+      writableRoots: [],
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    },
+  },
+  "full-access": { approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } },
+};
 
 /**
  * "/compact", which Codex takes as thread/compact/start. Codex takes no instructions for it, so any focus text
@@ -49,6 +79,8 @@ export class CodexProviderAdapter implements ProviderAdapter {
     structuredUserInput: true,
     conversationRollback: true,
     modelSwitch: "unsupported",
+    // turn/start takes an approval and sandbox policy that holds from that turn on.
+    permissionSwitch: "in-session",
     // "/compact" goes to the app server's thread/compact/start instead of a turn.
     compaction: "native",
     // turn/steer adds a message to the running turn.
@@ -95,11 +127,17 @@ export class CodexProviderAdapter implements ProviderAdapter {
       status: "idle",
       providerSessionId: started.providerThreadId,
     };
+    const mode = input.permissionMode ?? "full-access";
     this.sessions.set(input.threadId, {
       providerThreadId: started.providerThreadId,
       session,
       clientKey,
       ...(input.account ? { account: input.account } : {}),
+      mode,
+      policies:
+        started.approvalPolicy !== undefined && started.sandboxPolicy !== undefined
+          ? { [mode]: { approvalPolicy: started.approvalPolicy, sandboxPolicy: started.sandboxPolicy } }
+          : {},
     });
     return session;
   }
@@ -113,6 +151,8 @@ export class CodexProviderAdapter implements ProviderAdapter {
     const imagePaths = (input.attachments ?? [])
       .filter((attachment) => isImageMimeType(attachment.mimeType))
       .map((attachment) => attachment.path);
+    const mode = input.permissionMode;
+    const policy = mode && mode !== context.mode ? (context.policies[mode] ?? MODE_POLICIES[mode]) : undefined;
     const result = await client.sendTurn({
       providerThreadId: context.providerThreadId,
       text: input.text,
@@ -120,7 +160,9 @@ export class CodexProviderAdapter implements ProviderAdapter {
       ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
       ...(input.fast ? { serviceTier: input.fast } : {}),
       ...(imagePaths.length > 0 ? { imagePaths } : {}),
+      ...(policy ?? {}),
     });
+    if (mode) context.mode = mode;
     return { turnId: result.providerTurnId };
   }
 

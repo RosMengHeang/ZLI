@@ -156,6 +156,7 @@ const paths = {
       <Path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2" />
     </>
   ),
+  gauge: <Path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0" />,
   message: <Path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />,
   scan: (
     <Path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10" />

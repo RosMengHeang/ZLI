@@ -1,3 +1,4 @@
+import { reasoningHint, reasoningLabel, reasoningLevels, reasoningNoun } from "@zli-v2/client-runtime";
 import type { PermissionMode, ProviderDiscovery, ThreadProjection } from "@zli-v2/contracts";
 import { useEffect, useState } from "react";
 import { Image, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
@@ -13,11 +14,11 @@ import { Icon } from "../ui/Icon.js";
 import { ModelMark } from "../ui/ProviderMark.js";
 import { pickPhotos, takePhoto } from "../ui/photos.js";
 
-type SheetKind = "attach" | "model" | "permission";
+type SheetKind = "attach" | "model" | "reasoning" | "permission";
 
 /**
- * The desktop composer on a phone: the message, then one row with + for photos, the Model and
- * Permissions chips, and Send. A model or permission picked here goes with each message.
+ * The desktop composer on a phone: the message, then one row with + for photos, the Model, reasoning and
+ * Permissions chips, and Send. A model, level or permission picked here goes with each message.
  */
 export function Composer({
   thread,
@@ -54,7 +55,24 @@ export function Composer({
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(threadMode);
   useEffect(() => setPermissionMode(threadMode), [threadMode]);
 
+  const [chosenReasoning, setChosenReasoning] = useState<string | null>();
+
   const models = provider?.status === "found" ? (provider.models ?? []) : [];
+  const reasoning = reasoningLevels(models, model, thread.capabilities, provider);
+  const noun = reasoningNoun(thread.provider);
+  // As on the desktop: a new chat starts on Low when the model has it, and a level the model does not
+  // take falls back to the model's default instead of failing the turn. null is "Default", picked.
+  const startingReasoning = reasoning.levels.find((level) => level.toLowerCase() === "low");
+  const reasoningEffort =
+    chosenReasoning === null
+      ? undefined
+      : ([chosenReasoning, thread.reasoningEffort].find(
+          (level) => level !== undefined && reasoning.levels.includes(level),
+        ) ?? startingReasoning);
+  const reasoningShown = reasoning.levels.length > 0;
+  const defaultReasoningLabel = reasoning.defaultLevel
+    ? `Default (${reasoningLabel(reasoning.defaultLevel)})`
+    : "Default";
   const modelLabel = model ? (models.find((candidate) => candidate.id === model)?.label ?? model) : "Default model";
   const modelLocked = thread.capabilities.modelSwitch === "unsupported" && hasMessages;
   const permissionSwitch = thread.capabilities.permissionSwitch === "in-session";
@@ -75,6 +93,7 @@ export function Composer({
         queueId: newId(),
         text,
         ...(model ? { model } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(permissionSwitch && permissionMode !== threadMode ? { permissionMode } : {}),
         ...(photos.length > 0 ? { attachments: attachmentUploads(photos) } : {}),
       },
@@ -185,6 +204,15 @@ export function Composer({
             {...(modelLocked || models.length === 0 ? {} : { onPress: () => setSheet("model") })}
           />
         ) : null}
+        {reasoningShown ? (
+          <Chip
+            label={reasoningEffort ? reasoningLabel(reasoningEffort) : "Default"}
+            dimLabel={!reasoningEffort}
+            leading={<Icon name="gauge" size={16} color={palette.text} />}
+            accessibilityLabel={`${noun}, ${reasoningEffort ? reasoningLabel(reasoningEffort) : "Default"}`}
+            onPress={() => setSheet("reasoning")}
+          />
+        ) : null}
         {permission ? (
           <Chip
             label={permission.label}
@@ -262,6 +290,40 @@ export function Composer({
               }}
             />
           ))}
+        </ScrollView>
+      </Sheet>
+
+      <Sheet
+        visible={sheet === "reasoning"}
+        title={noun}
+        subtitle={`${thread.provider === "claude-code" ? "How hard Claude works on each answer." : "How long the model thinks before it answers."} Used from the next message on.`}
+        onClose={() => setSheet(undefined)}
+      >
+        <ScrollView style={{ maxHeight: height * 0.6 }}>
+          <SheetOption
+            label={defaultReasoningLabel}
+            description="The model's own level."
+            checked={reasoningEffort === undefined}
+            onPress={() => {
+              setChosenReasoning(null);
+              setSheet(undefined);
+            }}
+          />
+          {reasoning.levels.map((level) => {
+            const hint = reasoningHint(level);
+            return (
+              <SheetOption
+                key={level}
+                label={reasoningLabel(level)}
+                {...(hint ? { description: `${hint}.` } : {})}
+                checked={level === reasoningEffort}
+                onPress={() => {
+                  setChosenReasoning(level);
+                  setSheet(undefined);
+                }}
+              />
+            );
+          })}
         </ScrollView>
       </Sheet>
 
